@@ -625,6 +625,19 @@ const ImageGallery = forwardRef<ImageGalleryRef, ImageGalleryProps>(
     const [containerWidth, setContainerWidth] = useState(0);
     const [containerHeight, setContainerHeight] = useState(0);
     const refreshImageFuncs = useRef(new Map<string, () => void>());
+    useEffect(() => {
+      const onInvalidated = (e: any) => {
+        const p = e.detail?.path;
+        if (p) {
+          const refresh = refreshImageFuncs.current.get(p);
+          if (refresh) refresh();
+        } else {
+          refreshImageFuncs.current.forEach((r) => r());
+        }
+      };
+      imageService.addEventListener('image-cache-invalidated', onInvalidated);
+      return () => imageService.removeEventListener('image-cache-invalidated', onInvalidated);
+    }, []);
     const draggedIndex = useRef<number | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const gridRef = useRef<any>(null);
