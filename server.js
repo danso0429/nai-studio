@@ -133,6 +133,29 @@ function broadcastQueueStatus() {
     failed: queueStats.failed,
   });
 }
+const QUEUE_STATE_FILE = path.join(DATA_DIR, '.queue_state.json');
+function saveQueueState() {
+  try {
+    const state = { queue: genQueue.map(j => j), stats: queueStats, savedAt: Date.now() };
+    require('fs').writeFileSync(QUEUE_STATE_FILE, JSON.stringify(state));
+  } catch {}
+}
+function loadQueueState() {
+  try {
+    const raw = require('fs').readFileSync(QUEUE_STATE_FILE, 'utf8');
+    const state = JSON.parse(raw);
+    if (Date.now() - state.savedAt > 24 * 60 * 60 * 1000) return; // 24시간 지나면 무시
+    if (state.queue && state.queue.length > 0) {
+      genQueue.push(...state.queue);
+      queueStats.completed = state.stats?.completed || 0;
+      queueStats.failed = state.stats?.failed || 0;
+      console.log('[NAI Studio] Restored ' + genQueue.length + ' queued jobs from disk');
+      processQueue();
+    }
+    require('fs').unlinkSync(QUEUE_STATE_FILE);
+  } catch {}
+}
+
 
 async function getDiskFreeGB() {
   try {
@@ -353,6 +376,7 @@ async function processQueue() {
       console.error(`[NAI Studio] Queue job ${job.jobId} error:`, e.message);
     }
     genQueue.shift();
+    saveQueueState();
     broadcastQueueStatus();
   }
   queueProcessing = false;
@@ -446,6 +470,7 @@ app.post('/api/queue/add', async (req, res) => {
   // Kick off processing (non-blocking)
   setImmediate(() => processQueue());
   res.json({ jobId });
+  saveQueueState();
 });
 
 app.post('/api/queue/add-batch', async (req, res) => {
