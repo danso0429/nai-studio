@@ -1,0 +1,881 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  appUpdateNoticeService,
+  backend,
+  imageService,
+  isMobile,
+  localAIService,
+  loginService,
+  sessionService,
+  taskQueueService,
+} from '../models';
+import { Config, ImageEditor, RemoveBgQuality } from '../../main/config';
+import { observer } from 'mobx-react-lite';
+import { appState } from '../models/AppService';
+import { TaskLog } from '../models/TaskQueueService';
+import {
+  FaUser,
+  FaImage,
+  FaFolder,
+  FaCog,
+  FaTimes,
+  FaKeyboard,
+} from 'react-icons/fa';
+import { keyboardShortcutService, KeyboardShortcutService } from '../models/KeyboardShortcutService';
+
+interface ConfigScreenProps {
+  onSave: () => void;
+  onClose: () => void;
+}
+
+/* ── 탭 1: 로그인 ── */
+const LoginTab = ({
+  email, setEmail, password, setPassword,
+  accessToken, setAccessToken,
+  loggedIn, login, loginWithToken, roundTag,
+}: any) => (
+  <div className="space-y-5">
+    <div>
+      <label className="block text-sm font-semibold gray-label mb-2">NAI 로그인</label>
+      <div className="flex gap-2 mb-2">
+        <input className="gray-input block flex-1" type="text" placeholder="이메일"
+          value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input className="gray-input block flex-1" type="password" placeholder="암호"
+          value={password} onChange={(e) => setPassword(e.target.value)} />
+      </div>
+      <div className="flex items-center">
+        <p className="flex items-center gap-1">
+          <span className="text-sm gray-label">로그인 상태:</span>{' '}
+          {loggedIn
+            ? <span className={`${roundTag} back-green`}>Yes</span>
+            : <span className={`${roundTag} back-red`}>No</span>}
+        </p>
+        <button className="back-sky py-1 px-3 rounded hover:brightness-95 active:brightness-90 ml-auto"
+          onClick={login}>
+          로그인
+        </button>
+      </div>
+    </div>
+    <hr className="border-gray-200 dark:border-slate-600" />
+    <div>
+      <label className="block text-sm font-semibold gray-label mb-2">
+        액세스 토큰으로 로그인 (구글 연동 계정용)
+      </label>
+      <div className="flex gap-2 mb-2">
+        <input className="gray-input block flex-1" type="password"
+          placeholder="액세스 토큰을 붙여넣으세요"
+          value={accessToken} onChange={(e) => setAccessToken(e.target.value)} />
+      </div>
+      <div className="flex items-center">
+        <p className="text-xs gray-label opacity-70">NovelAI에서 발급받은 토큰을 입력하세요</p>
+        <button className="back-sky py-1 px-3 rounded hover:brightness-95 active:brightness-90 ml-auto"
+          onClick={loginWithToken}>
+          토큰 로그인
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+/* ── 탭 2: 이미지 편집 및 배경 제거 ── */
+const ImageEditTab = ({
+  imageEditor, setImageEditor,
+  useLocalBgRemoval, setUseLocalBgRemoval,
+  ready, stage, progress, stageTexts,
+  useGPU, setUseGPU, quality, setQuality,
+}: any) => (
+  <div className="space-y-4">
+    <div>
+      <label className="block text-sm font-semibold gray-label mb-1">선호 이미지 편집기</label>
+      <select className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+        value={imageEditor} onChange={(e) => setImageEditor(e.target.value)}>
+        <option value="photoshop">포토샵</option>
+        <option value="gimp">GIMP</option>
+        <option value="mspaint">그림판</option>
+      </select>
+    </div>
+    <hr className="border-gray-200 dark:border-slate-600" />
+    <div className="flex items-center gap-2">
+      <input type="checkbox" id="cfgLocalBg" checked={useLocalBgRemoval}
+        onChange={(e) => setUseLocalBgRemoval(e.target.checked)} />
+      <label htmlFor="cfgLocalBg" className="text-sm gray-label">로컬 배경 제거 모델 사용</label>
+    </div>
+    {!ready && (
+      <button className="w-full back-green py-2 rounded hover:brightness-95 active:brightness-90"
+        onClick={() => { if (!localAIService.downloading) localAIService.download(); }}>
+        {!localAIService.downloading
+          ? '로컬 배경 제거 모델 설치'
+          : stageTexts[stage] + ` (${(progress * 100).toFixed(2)}%)`}
+      </button>
+    )}
+    {ready && (
+      <>
+        <div className="flex items-center gap-2">
+          <input type="checkbox" id="cfgGpu" checked={useGPU}
+            onChange={(e) => setUseGPU(e.target.checked)} />
+          <label htmlFor="cfgGpu" className="text-sm gray-label">
+            배경 제거 시 GPU 사용{' '}
+            <a onClick={() => backend.openWebPage('https://developer.nvidia.com/cuda-11-8-0-download-archive')}
+              className="underline text-blue-500 cursor-pointer">(CUDA를 설치 해야함)</a>
+          </label>
+        </div>
+        <div>
+          <label className="block text-sm gray-label mb-1">배경 제거 퀄리티</label>
+          <select className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            value={quality} onChange={(e) => setQuality(e.target.value)}>
+            <option value="low">낮음</option>
+            <option value="normal">보통</option>
+            <option value="high">높음</option>
+            <option value="veryhigh">매우높음</option>
+            <option value="veryveryhigh">최고 (메모리 최소 8기가)</option>
+          </select>
+        </div>
+      </>
+    )}
+  </div>
+);
+
+/* ── 탭 3: 이미지 및 데이터 저장경로 ── */
+const StorageTab = ({
+  saveLocation, selectFolder, clearImageCache,
+  refreshImage, setRefreshImage,
+}: any) => (
+  <div className="space-y-4">
+    <div>
+      <label className="block text-sm font-semibold gray-label mb-1">현재 저장경로</label>
+      <div className="text-sm text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-slate-700 rounded px-3 py-2 break-all">
+        {saveLocation || '기본 위치'}
+      </div>
+    </div>
+    <button className="w-full back-green py-2 rounded hover:brightness-95 active:brightness-90"
+      onClick={selectFolder}>
+      이미지 및 데이터 저장 위치 변경
+    </button>
+    <hr className="border-gray-200 dark:border-slate-600" />
+    <button className="w-full back-red py-2 rounded hover:brightness-95 active:brightness-90"
+      onClick={clearImageCache}>
+      이미지 캐시 초기화
+    </button>
+    <hr className="border-gray-200 dark:border-slate-600" />
+    <div className="flex items-center gap-2">
+      <input type="checkbox" id="cfgRefresh" checked={refreshImage}
+        onChange={(e) => setRefreshImage(e.target.checked)} />
+      <label htmlFor="cfgRefresh" className="text-sm gray-label">이미지 폴더 직접 편집 감지</label>
+    </div>
+    <hr className="border-gray-200 dark:border-slate-600" />
+    <div>
+      <label className="block text-sm font-semibold gray-label mb-1">이미지 복구 (실험적 기능)</label>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+        이미지 파일은 존재하지만 프로그램에서 보이지 않는 경우, 파일시스템을 스캔하여 누락된 씬과 이미지를 재연결합니다.
+      </p>
+      <button
+        className="px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition-colors"
+        onClick={() => appState.recoverProjectImages()}
+      >
+        현재 프로젝트 이미지 복구
+      </button>
+    </div>
+  </div>
+);
+
+/* ── 폴더 정리 공통 컴포넌트 ── */
+const FolderCleanupSection = ({ folder, label, description }: { folder: string; label: string; description?: string }) => {
+  const [files, setFiles] = useState<{ name: string; size: number; mtime: number }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  const [days, setDays] = useState(7);
+  const [loaded, setLoaded] = useState(false);
+
+  const loadFiles = useCallback(async () => {
+    setLoading(true);
+    try {
+      const stats = await backend.listFilesWithStats(folder);
+      stats.sort((a: any, b: any) => b.mtime - a.mtime);
+      setFiles(stats);
+      setLoaded(true);
+    } catch {
+      setFiles([]);
+      setLoaded(true);
+    }
+    setLoading(false);
+  }, [folder]);
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+  const now = Date.now();
+  const oldFiles = files.filter((f) => now - f.mtime > days * 24 * 60 * 60 * 1000);
+  const oldSize = oldFiles.reduce((sum, f) => sum + f.size, 0);
+
+  const deleteFiles = async (targets: { name: string }[]) => {
+    setCleaning(true);
+    for (const f of targets) {
+      try {
+        await backend.deleteFile(folder + '/' + f.name);
+      } catch {}
+    }
+    await loadFiles();
+    setCleaning(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <label className="block text-sm gray-label font-bold">{label}</label>
+        <button
+          className="text-xs back-gray px-2 py-0.5 rounded hover:brightness-95 active:brightness-90"
+          onClick={loadFiles}
+          disabled={loading}
+        >
+          {loading ? '조회 중...' : loaded ? '새로고침' : '조회'}
+        </button>
+      </div>
+      {description && <div className="text-xs text-gray-400 dark:text-gray-500">{description}</div>}
+      {loaded && (
+        <>
+          <div className="text-sm gray-label">
+            파일 {files.length}개 · 총 {formatSize(totalSize)}
+          </div>
+          {files.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  className="text-sm back-red px-3 py-1.5 rounded hover:brightness-95 active:brightness-90"
+                  onClick={() => {
+                    if (confirm(`${label}의 모든 파일(${files.length}개, ${formatSize(totalSize)})을 삭제합니다.`)) {
+                      deleteFiles(files);
+                    }
+                  }}
+                  disabled={cleaning}
+                >
+                  전체 삭제
+                </button>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={days}
+                    onChange={(e) => setDays(Math.max(1, parseInt(e.target.value) || 7))}
+                    className="w-14 text-sm text-center border rounded px-1 py-1 back-gray"
+                  />
+                  <span className="text-sm gray-label">일 이전 파일만 삭제</span>
+                  <button
+                    className="text-sm back-orange px-3 py-1.5 rounded hover:brightness-95 active:brightness-90"
+                    onClick={() => {
+                      if (oldFiles.length === 0) {
+                        alert(`${days}일 이전 파일이 없습니다.`);
+                        return;
+                      }
+                      if (confirm(`${days}일 이전 파일 ${oldFiles.length}개(${formatSize(oldSize)})를 삭제합니다.`)) {
+                        deleteFiles(oldFiles);
+                      }
+                    }}
+                    disabled={cleaning || oldFiles.length === 0}
+                  >
+                    {oldFiles.length > 0 ? `${oldFiles.length}개 삭제` : '해당 없음'}
+                  </button>
+                </div>
+              </div>
+              {cleaning && <div className="text-sm text-sky-500">삭제 중...</div>}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+/* ── 탭 4: 기타 설정 ── */
+const OtherTab = ({
+  whiteMode, setWhiteMode,
+  delayTime, setDelayTime,
+  classicSceneCard, setClassicSceneCard,
+  fullWordAc, setFullWordAc,
+}: any) => {
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    try {
+      const { outdated, latest } = await appUpdateNoticeService.checkForUpdate();
+      if (outdated) {
+        appState.pushDialog({
+          type: 'select',
+          text: `새로운 버전(${latest})이 있습니다.\n새로 다운 받으시겠습니까?`,
+          green: true,
+          items: [
+            { text: '다운로드 페이지 열기', value: 'open' },
+            { text: '다시 알리지 않음', value: 'dismiss' },
+          ],
+          callback: (value?: string) => {
+            if (value === 'open') {
+              backend.openWebPage('https://github.com/Dd154663/SDStudio/releases');
+            } else if (value === 'dismiss') {
+              appUpdateNoticeService.dismissVersion(latest);
+            }
+          },
+        });
+      } else {
+        appState.pushDialog({
+          type: 'yes-only',
+          text: `현재 최신 버전입니다. (${appUpdateNoticeService.current})`,
+        });
+      }
+    } catch (e) {
+      appState.pushDialog({
+        type: 'yes-only',
+        text: '업데이트 확인에 실패했습니다. 네트워크를 확인해주세요.',
+      });
+    }
+    setCheckingUpdate(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="cfgWhite" checked={whiteMode}
+          onChange={(e) => setWhiteMode(e.target.checked)} />
+        <label htmlFor="cfgWhite" className="text-sm gray-label">화이트 모드 켜기</label>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="cfgClassicScene" checked={classicSceneCard}
+          onChange={(e) => setClassicSceneCard(e.target.checked)} />
+        <label htmlFor="cfgClassicScene" className="text-sm gray-label">클래식 씬 카드 디자인 사용</label>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="cfgFullWordAc" checked={fullWordAc}
+          onChange={(e) => setFullWordAc(e.target.checked)} />
+        <label htmlFor="cfgFullWordAc" className="text-sm gray-label">자동완성 시 콤마 사이 전체 단어 사용</label>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div>
+        <label className="block text-sm gray-label mb-1">
+          기본 지연 시간 조정 (0ms ~ 1000ms)
+        </label>
+        <div className="flex items-center gap-2">
+          <input type="range" min={0} max={1000} step={1}
+            value={delayTime} onChange={(e) => setDelayTime(parseInt(e.target.value))}
+            className="flex-1" />
+          <span className="text-sm gray-label w-14 text-right">{delayTime}ms</span>
+        </div>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <FolderCleanupSection folder="exports" label="exports 폴더 정리" />
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <FolderCleanupSection folder="tmp" label="tmp 폴더 정리" description="이미지 내보내기 시 생성되는 임시 파일이 저장됩니다." />
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <TaskLogSection />
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div className="space-y-2">
+        <label className="block text-sm gray-label mb-1">업데이트</label>
+        <button
+          className="px-3 py-1.5 text-sm back-sky rounded clickable disabled:opacity-50"
+          disabled={checkingUpdate}
+          onClick={handleCheckUpdate}
+        >
+          {checkingUpdate ? '확인 중...' : '업데이트 확인'}
+        </button>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div className="space-y-2">
+        <label className="block text-sm gray-label mb-1">정보</label>
+        <div className="flex flex-col gap-1 text-sm">
+          <a
+            className="text-sky-500 hover:text-sky-400 cursor-pointer"
+            onClick={() => backend.openWebPage('https://github.com/Dd154663/SDStudio')}
+          >
+            GitHub — Dd154663/SDStudio
+          </a>
+          <a
+            className="text-sky-500 hover:text-sky-400 cursor-pointer"
+            onClick={() => backend.openWebPage('https://github.com/sunho/SDStudio')}
+          >
+            원작 — sunho/SDStudio
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ── 작업 로그 ── */
+const TaskLogSection = () => {
+  const [showDialog, setShowDialog] = useState(false);
+  const logs = taskQueueService.taskLogs;
+
+  const formatLog = (log: TaskLog) => {
+    const date = new Date(log.timestamp);
+    const time = date.toLocaleTimeString('ko-KR', { hour12: false });
+    const levelLabel = log.level === 'error' ? '[오류]' : log.level === 'warn' ? '[경고]' : '[정보]';
+    return `${time} ${levelLabel} [${log.scene}] ${log.message}`;
+  };
+
+  const downloadLogs = () => {
+    const text = logs.map(formatLog).join('\n');
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sdstudio-task-log-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <>
+      <button className="w-full back-gray py-2 rounded hover:brightness-95 active:brightness-90 text-sm"
+        onClick={() => setShowDialog(true)}>
+        작업 로그 보기
+      </button>
+      {showDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowDialog(false); }}>
+          <div className="bg-white dark:bg-slate-700 rounded-lg shadow-xl w-[90vw] max-w-lg max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-slate-600">
+              <span className="font-bold text-default">작업 로그</span>
+              <button className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-lg px-2"
+                onClick={() => setShowDialog(false)}>✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 text-xs font-mono">
+              {logs.length === 0
+                ? <p className="text-gray-400 text-center py-4">로그가 없습니다.</p>
+                : [...logs].reverse().map((log, i) => (
+                    <div key={i} className={'py-0.5 ' +
+                      (log.level === 'error' ? 'text-red-500' : log.level === 'warn' ? 'text-yellow-500' : 'text-default')}>
+                      {formatLog(log)}
+                    </div>
+                  ))
+              }
+            </div>
+            <div className="flex gap-2 p-3 border-t border-gray-200 dark:border-slate-600">
+              <button className="flex-1 back-sky py-2 rounded text-sm hover:brightness-95 active:brightness-90"
+                onClick={downloadLogs} disabled={logs.length === 0}>다운로드</button>
+              <button className="flex-1 back-gray py-2 rounded text-sm hover:brightness-95 active:brightness-90"
+                onClick={() => taskQueueService.clearLogs()} disabled={logs.length === 0}>초기화</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+/* ── 탭: 키 바인딩 (PC only) ── */
+const KeyBindingsTab = () => {
+  const [bindings, setBindings] = useState(keyboardShortcutService?.getAllActions() ?? []);
+  const [recordingAction, setRecordingAction] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<string | null>(null);
+
+  const refreshBindings = () => {
+    setBindings(keyboardShortcutService?.getAllActions() ?? []);
+  };
+
+  useEffect(() => {
+    if (!recordingAction) return;
+    const handler = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const normalized = KeyboardShortcutService.normalizeKey(e);
+      if (!normalized) return; // 수정자만 누른 경우
+
+      // Escape로 취소
+      if (e.key === 'Escape') {
+        setRecordingAction(null);
+        setConflict(null);
+        return;
+      }
+
+      // 충돌 확인
+      const conflictLabel = keyboardShortcutService.findConflict(normalized, recordingAction);
+      if (conflictLabel) {
+        setConflict(`"${conflictLabel}" 단축키와 충돌합니다`);
+        return;
+      }
+
+      keyboardShortcutService.setBinding(recordingAction, normalized);
+      setRecordingAction(null);
+      setConflict(null);
+      refreshBindings();
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [recordingAction]);
+
+  // 동작 위치(= 충돌 scope)별로 그룹핑
+  const groups: {
+    title: string;
+    hint: string;
+    items: typeof bindings;
+  }[] = [
+    {
+      title: '전역 (메인 화면)',
+      hint: '씬 리스트가 보이는 메인 화면에서 동작',
+      items: bindings.filter(
+        (b) => b.category === 'global' || b.category === 'scene',
+      ),
+    },
+    {
+      title: '이미지 그리드',
+      hint: '씬에 진입해 이미지 목록을 볼 때 동작',
+      items: bindings.filter((b) => b.category === 'image-grid'),
+    },
+    {
+      title: '이미지 상세 창',
+      hint: '이미지를 클릭해 상세 창이 열린 상태에서 동작',
+      items: bindings.filter((b) => b.category === 'viewer'),
+    },
+  ];
+
+  const renderBindingRow = (action: (typeof bindings)[number]) => (
+    <div
+      key={action.id}
+      className="flex items-center gap-2 py-1.5 border-b border-gray-100 dark:border-slate-700"
+    >
+      <span className="flex-1 text-sm text-gray-700 dark:text-gray-200 min-w-0 truncate">
+        {action.label}
+      </span>
+      <span
+        className="text-sm font-mono bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-200 px-2 py-0.5 rounded text-center flex-shrink-0"
+        style={{ minWidth: '70px' }}
+      >
+        {recordingAction === action.id
+          ? '입력 대기...'
+          : KeyboardShortcutService.keyDisplayName(action.currentKey)}
+      </span>
+      <button
+        className={`text-xs px-2 py-1 rounded transition-colors flex-shrink-0 ${
+          recordingAction === action.id ? 'back-red text-white' : 'back-sky'
+        }`}
+        onClick={() => {
+          setConflict(null);
+          setRecordingAction(recordingAction === action.id ? null : action.id);
+        }}
+      >
+        {recordingAction === action.id ? '취소' : '변경'}
+      </button>
+      <button
+        className="text-xs px-1.5 py-1 rounded back-gray flex-shrink-0"
+        title="기본값으로 초기화"
+        onClick={() => {
+          keyboardShortcutService.resetBinding(action.id);
+          setConflict(null);
+          refreshBindings();
+        }}
+      >
+        ↺
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col" style={{ maxHeight: '50vh' }}>
+      <div className="text-sm text-gray-500 dark:text-gray-400 mb-2 flex-none">
+        "변경" 클릭 후 키 조합 입력. Esc로 취소. 그룹 내부에서만 키 충돌
+        검사됩니다 (다른 그룹은 동작 상황이 달라 같은 키를 써도 OK).
+      </div>
+      {conflict && (
+        <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded mb-2 flex-none">
+          {conflict}
+        </div>
+      )}
+      <div
+        className="overflow-y-auto flex-1 space-y-1"
+        style={{ minHeight: 0 }}
+      >
+        {groups.map((group, idx) =>
+          group.items.length === 0 ? null : (
+            <div key={group.title} className={idx > 0 ? 'mt-4' : ''}>
+              <div className="sticky top-0 bg-white dark:bg-slate-800 py-1.5 px-1 border-b-2 border-sky-400 dark:border-sky-500 z-10">
+                <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                  {group.title}
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  {group.hint}
+                </div>
+              </div>
+              <div>{group.items.map(renderBindingRow)}</div>
+            </div>
+          ),
+        )}
+      </div>
+      <div className="pt-2 flex-none">
+        <button
+          className="text-sm px-3 py-1.5 rounded back-gray"
+          onClick={() => {
+            keyboardShortcutService.resetToDefaults();
+            setConflict(null);
+            refreshBindings();
+          }}
+        >
+          전체 초기화
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/* ── 메인 ConfigScreen ── */
+const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
+  const { curSession } = appState;
+  const [activeTab, setActiveTab] = useState(0);
+
+  // state
+  const [imageEditor, setImageEditor] = useState('');
+  const [useGPU, setUseGPU] = useState(false);
+  const [whiteMode, setWhiteMode] = useState(false);
+  const [delayTime, setDelayTime] = useState(0);
+  const [classicSceneCard, setClassicSceneCard] = useState(false);
+  const [fullWordAc, setFullWordAc] = useState(appState.fullWordAutoComplete);
+  const [useLocalBgRemoval, setUseLocalBgRemoval] = useState(false);
+  const [refreshImage, setRefreshImage] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [quality, setQuality] = useState('');
+  const [progress, setProgress] = useState(0);
+  const [stage, setStage] = useState(0);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [accessToken, setAccessToken] = useState('');
+  const [saveLocation, setSaveLocation] = useState('');
+  const mobileMode = isMobile;
+
+  useEffect(() => {
+    (async () => {
+      const config = await backend.getConfig();
+      setWhiteMode(config.whiteMode ?? false);
+      setImageEditor(config.imageEditor ?? 'photoshop');
+      setUseGPU(config.useCUDA ?? false);
+      setQuality(config.removeBgQuality ?? 'normal');
+      setRefreshImage(config.refreshImage ?? false);
+      setUseLocalBgRemoval(config.useLocalBgRemoval ?? false);
+      setDelayTime(config.delayTime ?? 0);
+      setClassicSceneCard(config.classicSceneCard ?? false);
+      setSaveLocation(config.saveLocation ?? '');
+    })();
+    const checkReady = () => setReady(localAIService.ready);
+    const onProgress = (e: any) => setProgress(e.detail.percent);
+    const onStage = (e: any) => setStage(e.detail.stage);
+    checkReady();
+    localAIService.addEventListener('updated', checkReady);
+    localAIService.addEventListener('progress', onProgress);
+    localAIService.addEventListener('stage', onStage);
+    return () => {
+      localAIService.removeEventListener('updated', checkReady);
+      localAIService.removeEventListener('progress', onProgress);
+      localAIService.removeEventListener('stage', onStage);
+    };
+  }, []);
+
+  // Escape 키로 닫기
+  const handleEscape = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    },
+    [onClose],
+  );
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleEscape, true);
+    return () => window.removeEventListener('keydown', handleEscape, true);
+  }, [handleEscape]);
+
+  // 단축키 시스템에 ConfigScreen 열림 상태 전달
+  useEffect(() => {
+    appState.configScreenOpen = true;
+    return () => { appState.configScreenOpen = false; };
+  }, []);
+
+  const roundTag = 'text-white text-xs px-2 py-1 rounded-full';
+
+  const [loggedIn, setLoggedIn] = useState(false);
+  useEffect(() => {
+    const onChange = () => setLoggedIn(loginService.loggedIn);
+    onChange();
+    loginService.addEventListener('change', onChange);
+    return () => loginService.removeEventListener('change', onChange);
+  }, []);
+
+  const login = async () => {
+    try {
+      await loginService.login(email, password);
+    } catch (err: any) {
+      appState.pushMessage('로그인 실패:' + err.message);
+    }
+  };
+
+  const loginWithToken = async () => {
+    try {
+      if (!accessToken.trim()) {
+        appState.pushMessage('액세스 토큰을 입력해주세요.');
+        return;
+      }
+      await loginService.loginWithToken(accessToken.trim());
+      appState.pushMessage('토큰으로 로그인 성공!');
+      setAccessToken('');
+    } catch (err: any) {
+      appState.pushMessage('토큰 로그인 실패:' + err.message);
+    }
+  };
+
+  const clearImageCache = async () => {
+    if (!curSession) return;
+    appState.pushMessage('이미지 캐시 초기화 시작');
+    for (const scene of Object.values(curSession.scenes)) {
+      try {
+        await backend.deleteDir(imageService.getImageDir(curSession, scene) + '/fastcache');
+      } catch (e) {}
+    }
+    imageService.cache.cache.clear();
+    await imageService.refreshBatch(curSession);
+    appState.pushDialog({ type: 'yes-only', text: '이미지 캐시 초기화 완료' });
+  };
+
+  const selectFolder = async () => {
+    const folder = await backend.selectDir();
+    if (!folder) return;
+    const config = await backend.getConfig();
+    config.saveLocation = folder;
+    await backend.setConfig(config);
+    setSaveLocation(folder);
+    appState.pushDialog({ type: 'yes-only', text: '저장 위치 지정 완료. 프로그램을 껐다 켜주세요' });
+  };
+
+  const stageTexts = ['모델 다운로드 중...', '모델 가중치 다운로드 중...', '모델 압축 푸는 중...'];
+
+  const handleSave = async () => {
+    const old = await backend.getConfig();
+    const config: Config = {
+      ...old,
+      imageEditor: imageEditor as ImageEditor,
+      useCUDA: useGPU,
+      modelType: 'quality',
+      removeBgQuality: quality as RemoveBgQuality,
+      refreshImage: refreshImage,
+      whiteMode: whiteMode,
+      useLocalBgRemoval: useLocalBgRemoval,
+      delayTime: delayTime,
+      classicSceneCard: classicSceneCard,
+    };
+    await backend.setConfig(config);
+    if (old.useCUDA !== useGPU) localAIService.modelChanged();
+    appState.classicSceneCard = classicSceneCard;
+    appState.fullWordAutoComplete = fullWordAc;
+    localStorage.setItem('sdstudio-full-word-autocomplete', fullWordAc ? 'true' : 'false');
+    sessionService.configChanged();
+    onSave();
+  };
+
+  const tabs = [
+    { label: '로그인', icon: <FaUser size={14} /> },
+    ...(!mobileMode ? [{ label: '이미지 편집', icon: <FaImage size={14} /> }] : []),
+    ...(!mobileMode ? [{ label: '저장경로', icon: <FaFolder size={14} /> }] : []),
+    { label: '기타', icon: <FaCog size={14} /> },
+    ...(!mobileMode ? [{ label: '키 바인딩', icon: <FaKeyboard size={14} /> }] : []),
+  ];
+
+  const getTabContent = (tabIdx: number) => {
+    // 모바일: 탭 0=로그인, 1=기타 (이미지편집·저장경로·키바인딩 숨김)
+    // PC: 탭 0=로그인, 1=이미지편집, 2=저장경로, 3=기타, 4=키바인딩
+    const idx = mobileMode && tabIdx >= 1 ? tabIdx + 2 : tabIdx;
+    switch (idx) {
+      case 0:
+        return <LoginTab {...{ email, setEmail, password, setPassword, accessToken, setAccessToken, loggedIn, login, loginWithToken, roundTag }} />;
+      case 1:
+        return <ImageEditTab {...{ imageEditor, setImageEditor, useLocalBgRemoval, setUseLocalBgRemoval, ready, stage, progress, stageTexts, useGPU, setUseGPU, quality, setQuality }} />;
+      case 2:
+        return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage }} />;
+      case 3:
+        return <OtherTab {...{ whiteMode, setWhiteMode, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, fullWordAc, setFullWordAc }} />;
+      case 4:
+        return <KeyBindingsTab />;
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center"
+      style={{
+        zIndex: 2000,
+        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+      }}
+      onClick={onClose}
+    >
+      <div
+        className={'w-[90vw] max-w-lg bg-white dark:bg-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-slate-600 ' + (mobileMode ? 'max-h-[90vh]' : 'max-h-[85vh]')}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* 헤더 */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-slate-600 flex-none">
+          <h1 className="text-base font-semibold text-gray-800 dark:text-gray-100">환경설정</h1>
+          <button
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-500 dark:text-gray-400 transition-colors"
+            onClick={onClose}
+          >
+            <FaTimes size={16} />
+          </button>
+        </div>
+        {/* 탭 바 */}
+        <div className="flex border-b border-gray-200 dark:border-slate-600 px-2 flex-none">
+          {tabs.map((tab, i) => (
+            <button
+              key={tab.label}
+              className={
+                'flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors border-b-2 ' +
+                (activeTab === i
+                  ? 'border-sky-500 text-sky-600 dark:text-sky-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200')
+              }
+              onClick={() => setActiveTab(i)}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        {/* 탭 콘텐츠 — CSS Grid로 모든 탭을 같은 셀에 겹쳐 높이 통일 */}
+        <div className="flex-1 overflow-auto p-5" style={{ minHeight: 0 }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr',
+            gridTemplateRows: '1fr',
+          }}>
+            {tabs.map((_, i) => (
+              <div
+                key={i}
+                style={{
+                  gridRow: 1,
+                  gridColumn: 1,
+                  visibility: activeTab === i ? 'visible' : 'hidden',
+                }}
+              >
+                {getTabContent(i)}
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* 저장 버튼 */}
+        <div className="flex-none p-4 border-t border-gray-200 dark:border-slate-600">
+          <button className="w-full back-sky py-2.5 rounded-lg hover:brightness-95 active:brightness-90 font-medium"
+            onClick={handleSave}>
+            저장
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+export default ConfigScreen;
