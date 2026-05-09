@@ -12,6 +12,7 @@ import SessionSelect from './SessionSelect';
 import PreSetEditor from './PreSetEdtior';
 import SceneQueuControl, { SceneCell } from './SceneQueueControl';
 import TaskQueueControl from './TaskQueueControl';
+import ServerQueueStatus from './ServerQueueStatus';
 import TobBar from './TobBar';
 import AlertWindow from './AlertWindow';
 import { DropdownSelect, TabComponent } from './UtilComponents';
@@ -434,6 +435,7 @@ export const App = observer(() => {
                           <SessionSelect />
                         </div>
                         <div className="flex flex-none gap-4 ml-auto">
+                          <ServerQueueStatus />
                           <TaskQueueControl />
                         </div>
                       </div>

@@ -235,5 +235,8 @@ export class ServerBackend extends Backend {
   onDownloadProgress(callback: (progress: any) => void): () => void { return this.on('download-progress', callback); }
   onZipProgress(callback: (progress: any) => void): () => void { return this.on('zip-progress', callback); }
   onImageChanged(callback: (path: string) => void): () => void { return this.on('image-changed', callback); }
+  onQueueStatus(callback: (data: any) => void): () => void { return this.on('queue-status', callback); }
+  onQueueJobComplete(callback: (data: any) => void): () => void { return this.on('queue-job-complete', callback); }
+  onQueueJobError(callback: (data: any) => void): () => void { return this.on('queue-job-error', callback); }
   onClose(callback: () => void): () => void { return this.on('close', callback); }
 }

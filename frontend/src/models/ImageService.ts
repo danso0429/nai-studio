@@ -736,8 +736,14 @@ export const deleteImageFiles = async (
     // 휴지통으로 이동
     const { trashService } = await import('.');
     await trashService.moveImagesToTrash(curSession, scene, paths);
+    // 캐시 일괄 무효화 (순차 mutex 대신 batch)
     for (const path of paths) {
-      await imageService.invalidateCache(path);
+      imageService.cache.delete(path);
+      for (const sz of [200, 400]) {
+        const dir = path.substring(0, path.lastIndexOf('/'));
+        const name = path.substring(path.lastIndexOf('/') + 1);
+        imageService.cache.delete(dir + '/fastcache/' + sz + '_' + name);
+      }
     }
     await imageService.refresh(curSession, scene);
   } else {

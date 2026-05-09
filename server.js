@@ -304,6 +304,7 @@ async function processQueue() {
     const job = genQueue[0];
     try {
       broadcast('queue-job-start', { jobId: job.jobId, pending: genQueue.length });
+      broadcastQueueStatus();
 
       if (!nai.token) {
         try { nai.token = await fs.readFile(resolvePath('TOKEN.txt'), 'utf-8'); } catch {}
@@ -337,10 +338,17 @@ async function processQueue() {
         jobId: job.jobId,
         outputFilePath: job.params.outputFilePath,
       });
+      broadcastQueueStatus();
       broadcast('image-changed', job.params.outputFilePath);
       queueStats.completed++;
     } catch (e) {
+      if (e.message && e.message.includes('429')) {
+        console.log(`[NAI Studio] Queue job ${job.jobId}: NAI rate limited, retrying in 5s...`);
+        await new Promise(r => setTimeout(r, 5000));
+        continue;
+      }
       broadcast('queue-job-error', { jobId: job.jobId, error: e.message });
+      broadcastQueueStatus();
       queueStats.failed++;
       console.error(`[NAI Studio] Queue job ${job.jobId} error:`, e.message);
     }
@@ -363,6 +371,7 @@ app.use((req, res, next) => {
   }
   next();
 });
+      broadcastQueueStatus();
 
 // Serve static frontend
 app.use(express.static(path.join(__dirname, 'public')));
@@ -714,7 +723,7 @@ app.post('/api/trash/auto-cleanup', async (req, res) => {
       const allFiles = await fs.readdir(projectDir);
       const jsonSet = new Set(allFiles.filter(f => f.endsWith('.json')).map(f => f.slice(0, -5)));
       for (const f of allFiles) {
-        if (f.endsWith('.deleted') && jsonSet.has(f.slice(0, -8))) {
+        if (f.endsWith('.deleted')) {
           try { await fs.unlink(path.join(projectDir, f)); cleanedOrphans++; } catch {}
         }
       }
@@ -923,7 +932,7 @@ app.post('/api/image/resize', async (req, res) => {
     } else if (optimize === 2) { // LOSSLESS
       pipeline = pipeline.webp({ lossless: true });
     } else if (optimize === 3) { // AVIF
-      pipeline = pipeline.avif({ quality: 65 });
+      pipeline = pipeline.avif({ quality: 65, effort: 2 });
     }
 
     await pipeline.toFile(output);
