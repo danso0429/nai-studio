@@ -390,6 +390,12 @@ app.post('/api/config', async (req, res) => {
 });
 
 // ─── API: Version ───────────────────────────────────────────────────
+app.get('/api/build-info', (req, res) => {
+  try {
+    const info = require('fs').readFileSync(path.join(__dirname, 'public/build-info.json'), 'utf8');
+    res.json(JSON.parse(info));
+  } catch { res.json({ buildTime: 'unknown', gitHash: 'unknown' }); }
+});
 app.get('/api/version', (req, res) => {
   res.json({ version: '2.0.0-web' });
 });

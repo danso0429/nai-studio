@@ -89,6 +89,7 @@ const TobBar = () => {
           </span>
         ) : (
           <>
+            <span className="text-sub text-xs opacity-60 mr-2">SDStudio v4.5.0 | Remote v0.4.0</span>
             <span className="text-sub">Anlas: </span>{' '}
             <span className={`round-tag back-yellow`}>{credits}</span>
           </>
