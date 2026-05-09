@@ -1050,6 +1050,7 @@ async function start() {
 
   server.listen(PORT, () => {
     console.log(`[NAI Studio] Server running on port ${PORT}`);
+  loadQueueState();
     console.log(`[NAI Studio] Frontend: http://localhost:${PORT}`);
     console.log(`[NAI Studio] API: http://localhost:${PORT}/api`);
   });
