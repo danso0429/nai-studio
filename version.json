@@ -1,6 +1,6 @@
 {
-  "version": "1.1.4",
+  "version": "1.2.0",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-10",
-  "notes": "restore version after demo"
+  "notes": "Phase 6 finale: README 풀 리뉴얼 + CHANGELOG.md + 자동 갱신 로직"
 }
