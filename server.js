@@ -371,6 +371,7 @@ async function processQueue() {
         await fs.mkdir(path.dirname(outPath), { recursive: true });
         await fs.writeFile(outPath, Buffer.from(base64, 'base64'));
         // Pre-generate thumbnails
+        console.log('[Prewarm queue] ENTRY sharp=' + !!sharp + ' outPath=' + outPath);
         if (sharp) {
           for (const size of [200, 400]) {
             try {
@@ -381,9 +382,12 @@ async function processQueue() {
               await fs.mkdir(path.dirname(cp), { recursive: true });
               const maxDim = Math.ceil((size <= 200 ? 1.25 : 1.1) * size);
               await sharp(outPath).resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true }).png().toFile(cp);
+              const stat = await fs.stat(cp).catch(() => null);
+              console.log('[Prewarm queue] size=' + size + ' OK cp=' + cp + ' size_bytes=' + (stat ? stat.size : 'NULL'));
             } catch (e) { console.error('[Prewarm queue] size=' + size + ' path=' + outPath + ' error:', e.message); }
           }
         }
+        console.log('[Prewarm queue] EXIT outPath=' + outPath);
       }
 
       broadcast('queue-job-complete', {
