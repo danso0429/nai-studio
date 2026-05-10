@@ -1,4 +1,5 @@
 import { useContext, useEffect, useState } from 'react';
+import { BuildInfoBadge } from './BuildInfo';
 import { FloatView } from './FloatView';
 import ConfigScreen from './ConfigScreen';
 import SessionSelect from './SessionSelect';
@@ -89,7 +90,7 @@ const TobBar = () => {
           </span>
         ) : (
           <>
-            <span className="text-sub text-xs opacity-60 mr-2">SDStudio v4.7.1 | Remote v1.1.0</span>
+            <BuildInfoBadge variant="desktop" />
             <span className="text-sub">Anlas: </span>{' '}
             <span className={`round-tag back-yellow`}>{credits}</span>
           </>

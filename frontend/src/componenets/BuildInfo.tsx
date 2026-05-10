@@ -24,7 +24,7 @@ let _cachedVersionInfo: VersionInfo | null = null;
 async function fetchBuildInfo(): Promise<BuildInfo | null> {
   if (_cachedBuildInfo) return _cachedBuildInfo;
   try {
-    const r = await fetch(`${location.protocol}//${location.host}/studio/build-info.json?t=${Date.now()}`);
+    const r = await fetch(`${API}/build-info?t=${Date.now()}`);
     if (!r.ok) return null;
     _cachedBuildInfo = await r.json();
     return _cachedBuildInfo;
