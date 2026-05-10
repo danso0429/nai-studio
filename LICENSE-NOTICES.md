@@ -16,6 +16,11 @@ The frontend code in `frontend/src/` is forked from Dd154663/SDStudio,
 which is itself a fork of sunho/SDStudio. Modifications by SDStudio Remote
 are licensed under PolyForm Noncommercial 1.0.0 (see LICENSE).
 
+The original SDStudio author has explicitly confirmed that the MIT license
+grants downstream forks full freedom to choose their own licensing terms,
+which is the basis for this project's PolyForm Noncommercial licensing of
+modifications.
+
 The original MIT license terms below apply to the upstream code:
 
     MIT License
