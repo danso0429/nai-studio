@@ -746,25 +746,28 @@ export class AppState {
         return;
       }
       appState.setProgressDialog(undefined);
-      appState.pushDialog({
-        type: 'yes-only',
-        text: '이미지 내보내기 완료, Drive 동기화 중...',
+      // Drive 동기화: progress 표시 → 결과만 단일 다이얼로그
+      appState.setProgressDialog({
+        text: 'Drive에 업로드 중...',
+        done: 0,
+        total: 1,
       });
+      let syncOk = false;
       try {
         const r = await fetch(
           (location.protocol + '//' + location.host) + '/studio/api/fs/sync-exports',
           { method: 'POST' }
         );
         const data = await r.json();
-        if (data.ok) {
-          appState.pushMessage('Drive 업로드 완료 ✓ (NAI-Studio/data/exports/)');
-        } else {
-          appState.pushMessage('Drive 업로드 실패. 30분 내 자동 재시도 됩니다.');
-        }
-      } catch {
-        appState.pushMessage('Drive 업로드 실패. 30분 내 자동 재시도 됩니다.');
-      }
+        syncOk = !!data.ok;
+      } catch {}
       appState.setProgressDialog(undefined);
+      appState.pushDialog({
+        type: 'yes-only',
+        text: syncOk
+          ? '이미지 내보내기 완료\nDrive 업로드 완료 ✓\n(NAI-Studio/data/exports/)'
+          : '이미지 내보내기 완료\nDrive 업로드 실패 — 30분 내 자동 재시도됩니다',
+      });
     };
     const menu = await appState.pushDialogAsync({
       type: 'select',
