@@ -922,18 +922,6 @@ app.post('/api/fs/extract-zip', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/fs/download-url', async (req, res) => {
-  try {
-    const { url, dest, filename } = req.body;
-    const destDir = resolvePath(dest);
-    await fs.mkdir(destDir, { recursive: true });
-    const response = await fetch(url);
-    const buf = Buffer.from(await response.arrayBuffer());
-    await fs.writeFile(path.join(destDir, filename), buf);
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
 // ─── API: Thumbnail (direct image serving, no base64) ──────────
 app.get('/api/fs/thumb', async (req, res) => {
   try {

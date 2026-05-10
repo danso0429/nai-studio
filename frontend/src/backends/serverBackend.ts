@@ -196,8 +196,10 @@ export class ServerBackend extends Backend {
   async close(): Promise<void> {}
   async existFile(filename: string): Promise<boolean> { return (await apiJSON(`/fs/exists?path=${encodeURIComponent(filename)}`)).exists; }
 
-  async download(url: string, dest: string, filename: string): Promise<void> {
-    await api('/fs/download-url', { method: 'POST', body: JSON.stringify({ url, dest, filename }) });
+  async download(_url: string, _dest: string, _filename: string): Promise<void> {
+    // Endpoint removed (SSRF surface, no callers). If a future feature needs URL-based downloads,
+    // re-introduce with private-IP filtering and a domain whitelist.
+    throw new Error('download() is not supported in web mode');
   }
 
   async resizeImage(input: ResizeImageInput): Promise<void> {
