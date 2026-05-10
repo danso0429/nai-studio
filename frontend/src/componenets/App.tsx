@@ -11,7 +11,7 @@ import {
 import SessionSelect from './SessionSelect';
 import PreSetEditor from './PreSetEdtior';
 import SceneQueuControl, { SceneCell } from './SceneQueueControl';
-import TaskQueueControl from './TaskQueueControl';
+import TaskQueueControl, { TaskQueueProgress, TaskQueueControls } from './TaskQueueControl';
 import ServerQueueStatus from './ServerQueueStatus';
 import TobBar from './TobBar';
 import AlertWindow from './AlertWindow';
@@ -430,13 +430,26 @@ export const App = observer(() => {
                       )}
                     </StackGrow>
                     <StackFixed>
-                      <div className="px-3 py-2 border-t flex gap-3 items-center line-color">
-                        <div className="hidden md:block flex-1">
-                          <SessionSelect />
+                      <div className="px-3 py-2 border-t line-color">
+                        {/* Desktop: single-row layout */}
+                        <div className="hidden md:flex gap-3 items-center">
+                          <div className="flex-1">
+                            <SessionSelect />
+                          </div>
+                          <div className="flex flex-none gap-4 ml-auto">
+                            <ServerQueueStatus />
+                            <TaskQueueControl />
+                          </div>
                         </div>
-                        <div className="flex flex-none gap-4 ml-auto">
-                          <ServerQueueStatus />
-                          <TaskQueueControl />
+                        {/* Mobile: two-row layout (alpha split: pills row / controls row) */}
+                        <div className="flex md:hidden flex-col gap-2">
+                          <div className="flex gap-3 items-center justify-end">
+                            <ServerQueueStatus />
+                            <TaskQueueProgress />
+                          </div>
+                          <div className="flex gap-2 items-center justify-end">
+                            <TaskQueueControls />
+                          </div>
                         </div>
                       </div>
                     </StackFixed>

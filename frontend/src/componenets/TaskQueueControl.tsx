@@ -287,7 +287,7 @@ const TaskQueueControl = observer(({}) => {
                 appState.pushDialog({
                   type: 'confirm',
                   text:
-                    'Anals를 소모하는 유료 세팅입니다. 계속합니까?' +
+                    'Anlas를 소모하는 유료 세팅입니다. 계속합니까?' +
                     '\n' +
                     message,
                   callback: () => {
@@ -308,6 +308,121 @@ const TaskQueueControl = observer(({}) => {
           onClick={() => {
             taskQueueService.stop();
           }}
+        >
+          <FaStop size={15} />
+        </button>
+      )}
+    </div>
+  );
+});
+
+// Mobile-only split components (rendered side-by-side in 2-row mobile layout).
+// Each has its own event listeners so observer state updates correctly.
+export const TaskQueueProgress = observer(({}) => {
+  const [_, rerender] = useState<{}>({});
+  const [showList, setShowList] = useState(false);
+  useEffect(() => {
+    const onChange = () => { rerender({}); };
+    taskQueueService.addEventListener('start', onChange);
+    taskQueueService.addEventListener('stop', onChange);
+    taskQueueService.addEventListener('progress', onChange);
+    taskQueueService.addEventListener('complete', onChange);
+    taskQueueService.addEventListener('error', onChange);
+    return () => {
+      taskQueueService.removeEventListener('start', onChange);
+      taskQueueService.removeEventListener('stop', onChange);
+      taskQueueService.removeEventListener('progress', onChange);
+      taskQueueService.removeEventListener('complete', onChange);
+      taskQueueService.removeEventListener('error', onChange);
+    };
+  }, []);
+  return (
+    <>
+      {showList && (
+        <TaskQueueList onClose={() => { setShowList(false); }} />
+      )}
+      <div
+        className="relative cursor-pointer hover:brightness-95 active:brightness-90"
+        onClick={() => { setShowList(!showList); }}
+      >
+        <TaskProgressBar />
+      </div>
+    </>
+  );
+});
+
+export const TaskQueueControls = observer(({}) => {
+  const [_, rerender] = useState<{}>({});
+  useEffect(() => {
+    const onChange = () => { rerender({}); };
+    taskQueueService.addEventListener('start', onChange);
+    taskQueueService.addEventListener('stop', onChange);
+    taskQueueService.addEventListener('complete', onChange);
+    taskQueueService.addEventListener('error', onChange);
+    return () => {
+      taskQueueService.removeEventListener('start', onChange);
+      taskQueueService.removeEventListener('stop', onChange);
+      taskQueueService.removeEventListener('complete', onChange);
+      taskQueueService.removeEventListener('error', onChange);
+    };
+  }, []);
+  return (
+    <div className="flex gap-2 items-center">
+      <div className="whitespace-nowrap">
+        <span className="whitespace-nowrap text-default">개수:</span>
+        <input
+          min={1}
+          max={99}
+          className={'ml-2 p-1 md:w-16 text-center gray-input'}
+          type="number"
+          value={appState.samples}
+          onChange={(e: any) => {
+            try {
+              const num = parseInt(e.currentTarget.value) ?? 0;
+              appState.samples = Math.max(1, Math.min(99, num));
+            } catch (e: any) {
+              appState.samples = 1;
+            }
+          }}
+        />
+      </div>
+      <button
+        className={`round-button back-gray px-2 h-8 md:px-6`}
+        onClick={() => { taskQueueService.removeAllTasks(); }}
+      >
+        <FaRegCalendarTimes size={18} />
+      </button>
+      {!taskQueueService.isRunning() ? (
+        <button
+          className={`round-button back-green px-2 h-8 md:px-6`}
+          onClick={() => {
+            (async () => {
+              const costs = taskQueueService.calculateCost();
+              const message = costs
+                .map((x) => `${x.text} (씬: ${x.scene})`)
+                .slice(0, 10)
+                .join('\n');
+              if (costs.length > 0) {
+                appState.pushDialog({
+                  type: 'confirm',
+                  text:
+                    'Anlas를 소모하는 유료 세팅입니다. 계속합니까?' +
+                    '\n' +
+                    message,
+                  callback: () => { taskQueueService.run(); },
+                });
+              } else {
+                taskQueueService.run();
+              }
+            })();
+          }}
+        >
+          <FaPlay size={15} />
+        </button>
+      ) : (
+        <button
+          className={`round-button back-red px-2 h-8 md:px-6`}
+          onClick={() => { taskQueueService.stop(); }}
         >
           <FaStop size={15} />
         </button>
