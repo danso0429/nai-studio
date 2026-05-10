@@ -262,18 +262,30 @@ async function diskCleanupStage4() {
     // 30일 이상 된 png 파일 찾기
     const output = execSync(`find "${outsDir}" -name "*.png" -not -path "*/.trash/*" -not -path "*/fastcache/*" -mtime +30 2>/dev/null`).toString().trim();
     const files = output ? output.split('\n') : [];
-
+    if (files.length === 0) return 0;
+    // Drive 인덱스를 한 번에 빌드 (lsjson --recursive). N개 lsf 호출 -> 1번 호출.
+    let driveSet;
+    try {
+      const lsjsonOutput = execSync(
+        `rclone lsjson "gdrivemain:NAI-Studio/data/outs" --recursive --files-only 2>/dev/null`,
+        { maxBuffer: 100 * 1024 * 1024 }
+      ).toString();
+      const entries = JSON.parse(lsjsonOutput);
+      driveSet = new Set(entries.map(e => e.Path));
+      console.log(`[Disk] Stage 4: indexed ${driveSet.size} Drive files for matching`);
+    } catch (e) {
+      console.error('[Disk] Stage 4: lsjson failed, aborting cleanup:', e.message);
+      return 0;
+    }
     for (const localFile of files) {
-      // DATA_DIR 기준 상대 경로 계산
+      // DATA_DIR 기준 상대 경로를 outs/ 기준 (Drive Path 형식)으로 변환
       const relPath = path.relative(DATA_DIR, localFile);
-      // Drive에 존재하는지 확인
-      try {
-        execSync(`rclone lsf "gdrivemain:NAI-Studio/data/${relPath}" 2>/dev/null`, { stdio: 'pipe' });
-        // Drive에 있음 → 로컬 삭제 안전
-        await fs.unlink(localFile);
-        cleaned++;
-      } catch {
-        // Drive에 없음 → 삭제하지 않음
+      const driveRelPath = relPath.startsWith('outs/') ? relPath.slice(5) : relPath;
+      if (driveSet.has(driveRelPath)) {
+        try {
+          await fs.unlink(localFile);
+          cleaned++;
+        } catch {}
       }
     }
   } catch {}
@@ -369,7 +381,7 @@ async function processQueue() {
               await fs.mkdir(path.dirname(cp), { recursive: true });
               const maxDim = Math.ceil((size <= 200 ? 1.25 : 1.1) * size);
               await sharp(outPath).resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true }).png().toFile(cp);
-            } catch {}
+            } catch (e) { console.error('[Prewarm queue] size=' + size + ' path=' + outPath + ' error:', e.message); }
           }
         }
       }
@@ -585,7 +597,7 @@ app.post('/api/generate', async (req, res) => {
             await fs.mkdir(path.dirname(cp), { recursive: true });
             const maxDim = Math.ceil((size <= 200 ? 1.25 : 1.1) * size);
             await sharp(outPath).resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true }).png().toFile(cp);
-          } catch {}
+          } catch (e) { console.error('[Prewarm direct] size=' + size + ' path=' + outPath + ' error:', e.message); }
         }
       }
     }

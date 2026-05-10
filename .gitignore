@@ -19,3 +19,4 @@ npm-debug.log*
 
 # SDStudio source (only used for reference during development)
 # The actual ported source is in frontend/src/
+server.js.bak*
