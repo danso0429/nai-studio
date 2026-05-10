@@ -1,14 +1,32 @@
 import { useEffect, useState, useRef } from 'react';
 
+interface QueueJob {
+  jobId: string;
+  outputFilePath?: string;
+}
+
 interface QueueState {
   pending: number;
   processing: boolean;
   paused: boolean;
   completed: number;
   failed: number;
+  jobs?: QueueJob[];
 }
 
 const API = `${location.protocol}//${location.host}/studio/api`;
+
+// outputFilePath에서 표시용 라벨 추출
+// 예: "outs/프로젝트/씬이름/파일.png" → "씬이름"
+//     "outs/프로젝트/파일.png" → "프로젝트"
+//     기타 → 파일명
+function extractSceneLabel(outputFilePath?: string): string {
+  if (!outputFilePath) return '';
+  const parts = outputFilePath.split('/').filter(Boolean);
+  if (parts.length >= 3) return parts[parts.length - 2];
+  if (parts.length >= 2) return parts[0];
+  return parts[0] || '';
+}
 
 const ServerQueueStatus = () => {
   const [queue, setQueue] = useState<QueueState | null>(null);
@@ -52,6 +70,11 @@ const ServerQueueStatus = () => {
   const isActive = queue.processing || queue.pending > 0;
   const isDone = !isActive && done > 0;
 
+  // 처리 중인 job = jobs[0] (server.js의 genQueue[0])
+  const currentScene = isActive && queue.jobs && queue.jobs.length > 0
+    ? extractSceneLabel(queue.jobs[0].outputFilePath)
+    : '';
+
   return (
     <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium select-none transition-opacity duration-300 ${
       isDone
@@ -68,9 +91,9 @@ const ServerQueueStatus = () => {
       )}
       {isDone && <span>✓</span>}
       {queue.paused && <span>⏸</span>}
-      <span>
+      <span className="truncate max-w-[200px]">
         {isActive
-          ? `서버: ${done}/${total}`
+          ? (currentScene ? `서버: ${done}/${total} · ${currentScene}` : `서버: ${done}/${total}`)
           : isDone
             ? `${done}장 완료`
             : ''}

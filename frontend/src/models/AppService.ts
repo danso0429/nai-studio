@@ -748,9 +748,22 @@ export class AppState {
       appState.setProgressDialog(undefined);
       appState.pushDialog({
         type: 'yes-only',
-        text: '이미지 내보내기가 완료되었습니다',
+        text: '이미지 내보내기 완료, Drive 동기화 중...',
       });
-      await backend.showFile(outFilePath);
+      try {
+        const r = await fetch(
+          (location.protocol + '//' + location.host) + '/studio/api/fs/sync-exports',
+          { method: 'POST' }
+        );
+        const data = await r.json();
+        if (data.ok) {
+          appState.pushMessage('Drive 업로드 완료 ✓ (NAI-Studio/data/exports/)');
+        } else {
+          appState.pushMessage('Drive 업로드 실패. 30분 내 자동 재시도 됩니다.');
+        }
+      } catch {
+        appState.pushMessage('Drive 업로드 실패. 30분 내 자동 재시도 됩니다.');
+      }
       appState.setProgressDialog(undefined);
     };
     const menu = await appState.pushDialogAsync({

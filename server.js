@@ -866,6 +866,20 @@ app.get('/api/fs/image', async (req, res) => {
   } catch (e) { res.status(404).json({ error: e.message }); }
 });
 
+app.post('/api/fs/sync-exports', async (req, res) => {
+  const { exec } = require('child_process');
+  const exportsDir = path.join(__dirname, 'data', 'exports');
+  const cmd = 'rclone copy ' + JSON.stringify(exportsDir + '/') + ' gdrivemain:NAI-Studio/data/exports/ --log-level INFO';
+  exec(cmd, { timeout: 180000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+    if (err) {
+      console.error('[Sync exports] error:', err.message);
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+    console.log('[Sync exports] uploaded');
+    res.json({ ok: true });
+  });
+});
+
 app.post('/api/fs/zip', async (req, res) => {
   try {
     const JSZip = require('jszip');
