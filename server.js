@@ -515,6 +515,7 @@ app.post('/api/auth/login', async (req, res) => {
     await nai.login(email, password);
     // Also save token to file for persistence
     await fs.writeFile(resolvePath('TOKEN.txt'), nai.token, 'utf-8');
+    await fs.chmod(resolvePath('TOKEN.txt'), 0o600);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -524,6 +525,7 @@ app.post('/api/auth/login-token', async (req, res) => {
     const { token } = req.body;
     nai.token = token;
     await fs.writeFile(resolvePath('TOKEN.txt'), token, 'utf-8');
+    await fs.chmod(resolvePath('TOKEN.txt'), 0o600);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

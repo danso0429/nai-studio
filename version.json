@@ -1,6 +1,6 @@
 {
-  "version": "1.3.1",
+  "version": "1.3.2",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-10",
-  "notes": "Phase 7A hotfix: vibe-locked listener lazy registration (was crashing app boot)"
+  "notes": "Security: enforce TOKEN.txt chmod 600 on write"
 }

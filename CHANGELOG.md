@@ -9,6 +9,9 @@
 
 ---
 
+## v1.3.2 (2026-05-10)
+- Security: enforce TOKEN.txt chmod 600 on write
+
 ## v1.3.1 (2026-05-10)
 - Phase 7A hotfix: vibe-locked listener lazy registration (was crashing app boot)
 
