@@ -9,6 +9,9 @@
 
 ---
 
+## v1.3.1 (2026-05-10)
+- Phase 7A hotfix: vibe-locked listener lazy registration (was crashing app boot)
+
 ## v1.3.0 (2026-05-10)
 - Phase 7A: import speed (parallel) + Drive sync (single-file) + vibe lock notice + RS label fix
 

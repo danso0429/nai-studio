@@ -1882,11 +1882,15 @@ export class AppState {
 export const appState = new AppState();
 
 // Phase 7A: v4.5 자동 vibe 비활성화 알림 (페이지 로드당 1회)
+// queueMicrotask로 lazy 등록 — 모듈 톱 레벨에서 즉시 호출 시
+// taskQueueService가 ESM 순서 의존으로 아직 미정의일 수 있어 부트 실패함.
 let vibeLockNoticeShown = false;
-taskQueueService.addEventListener('vibe-locked', () => {
-  if (vibeLockNoticeShown) return;
-  vibeLockNoticeShown = true;
-  appState.pushMessage(
-    'NAI v4.5는 캐릭터 레퍼런스 사용 시 바이브를 동시에 적용할 수 없어, 바이브가 비활성화된 상태로 생성됩니다.'
-  );
+queueMicrotask(() => {
+  taskQueueService.addEventListener('vibe-locked', () => {
+    if (vibeLockNoticeShown) return;
+    vibeLockNoticeShown = true;
+    appState.pushMessage(
+      'NAI v4.5는 캐릭터 레퍼런스 사용 시 바이브를 동시에 적용할 수 없어, 바이브가 비활성화된 상태로 생성됩니다.'
+    );
+  });
 });
