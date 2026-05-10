@@ -1605,6 +1605,47 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
                   </button>
                 </Tooltip>
               )}
+              {/* Phase 7C H2: 선택된 이미지들 일괄 즐겨찾기 토글 */}
+              {selectMode && (
+                <Tooltip content="선택 이미지 일괄 즐겨찾기 토글">
+                  <button
+                    className={`round-button back-orange`}
+                    onClick={() => {
+                      if (selectedImages.current.size === 0) {
+                        appState.pushMessage('선택된 이미지가 없습니다.');
+                        return;
+                      }
+                      // 선택된 것들 중 즐겨찾기가 아닌 게 하나라도 있으면 모두 ON
+                      // 전부 즐겨찾기면 모두 OFF
+                      const selectedList = Array.from(selectedImages.current);
+                      const filenames = selectedList.map((p) => p.split('/').pop()!);
+                      const allAlreadyFav = filenames.every((fn) => scene.mains.includes(fn));
+                      if (allAlreadyFav) {
+                        // 모두 OFF
+                        for (const fn of filenames) {
+                          const idx = scene.mains.indexOf(fn);
+                          if (idx >= 0) scene.mains.splice(idx, 1);
+                        }
+                        appState.pushMessage(filenames.length + '장의 즐겨찾기가 해제되었습니다.');
+                      } else {
+                        // 모두 ON (이미 즐겨찾기인 건 그대로)
+                        let added = 0;
+                        for (const fn of filenames) {
+                          if (!scene.mains.includes(fn)) {
+                            scene.mains.push(fn);
+                            added++;
+                          }
+                        }
+                        appState.pushMessage(added + '장이 즐겨찾기에 추가되었습니다.');
+                      }
+                      gallaryRef.current?.refresh();
+                      gallaryRef2.current?.refresh();
+                    }}
+                  >
+                    <FaStar />
+                  </button>
+                </Tooltip>
+              )}
               <Tooltip content="이미지 다운로드">
                 <button
                   className={`round-button back-green`}
