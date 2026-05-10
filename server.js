@@ -48,7 +48,8 @@ function broadcast(type, data) {
 function resolvePath(p) {
   // All paths are relative to DATA_DIR
   const resolved = path.resolve(DATA_DIR, p);
-  if (!resolved.startsWith(DATA_DIR)) {
+  // Phase 7C: + path.sep 검증으로 'data2' 같은 sibling 경로 통과 방지
+  if (resolved !== DATA_DIR && !resolved.startsWith(DATA_DIR + path.sep)) {
     throw new Error('Path traversal detected');
   }
   return resolved;

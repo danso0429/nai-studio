@@ -70,6 +70,16 @@ import ModalOverlay from './ModalOverlay';
 import { FaCloudUploadAlt } from 'react-icons/fa';
 import { ModelVersion } from '../backends/imageGen';
 
+// Phase 7C: gray-label 핵심 패턴 헬퍼 (오타 재발 방지)
+const GrayLabel: React.FC<{ children: React.ReactNode; className?: string }> = ({
+  children,
+  className = '',
+}) => (
+  <div className={`whitespace-nowrap flex-none mr-auto md:mr-0 gray-label ${className}`.trim()}>
+    {children}
+  </div>
+);
+
 const ImageSelect = observer(({ input }: { input: WFIInlineInput }) => {
   const { curSession } = appState;
   const { type, preset, shared, meta, editVibe } =
@@ -301,13 +311,7 @@ export const VibeEditor = observer(({ disabled }: VibeEditorProps) => {
                 />
                 <div className="flex flex-col gap-2 w-full">
                   <div className="flex w-full items-center md:flex-row flex-col">
-                    <div
-                      className={
-                        'whitespace-nowrap flex-none mr-auto md:mr-0 gray-label'
-                      }
-                    >
-                      정보 추출률 (IS):
-                    </div>
+                    <GrayLabel>정보 추출률 (IS):</GrayLabel>
                     <div className="flex flex-1 md:w-auto w-full gap-1">
                       <input
                         className="flex-1"
@@ -327,13 +331,7 @@ export const VibeEditor = observer(({ disabled }: VibeEditorProps) => {
                     </div>
                   </div>
                   <div className="flex w-full md:flex-row flex-col items-center">
-                    <div
-                      className={
-                        'whitespace-nowrap flex-none mr-auto md:mr-0 gray-label'
-                      }
-                    >
-                      레퍼런스 강도 (RS):
-                    </div>
+                    <GrayLabel>레퍼런스 강도 (RS):</GrayLabel>
                     <div className="flex flex-1 md:w-auto w-full gap-1">
                       <input
                         className="flex-1"
@@ -463,7 +461,9 @@ export const VibeButton = ({ input }: { input: WFIInlineInput }) => {
           <div className={'flex-none mr-2 gray-label'}>
             바이브 설정:
             {locked && (
-              <span className="ml-1 text-xs text-red-400">(비활성)</span>
+              <span className="ml-1 text-xs text-red-400">
+                (비활성 — v4.5에서 캐릭터 레퍼런스 사용 중)
+              </span>
             )}
             {!locked && field.length > 1 && (
               <span className="ml-1 text-xs text-sky-500">
@@ -739,13 +739,7 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
                     </Tooltip>
                   </div>
                   <div className="flex w-full md:flex-row flex-col items-center">
-                    <div
-                      className={
-                        'whitespace-nowrap flex-none mr-auto md:mr-0 gray-label'
-                      }
-                    >
-                      Strength:
-                    </div>
+                    <GrayLabel>Strength:</GrayLabel>
                     <div className="flex flex-1 md:w-auto w-full gap-1">
                       <input
                         className="flex-1"
@@ -765,13 +759,7 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
                     </div>
                   </div>
                   <div className="flex w-full md:flex-row flex-col items-center">
-                    <div
-                      className={
-                        'whitespace-nowrap flex-none mr-auto md:mr-0 gray-label'
-                      }
-                    >
-                      Fidelity:
-                    </div>
+                    <GrayLabel>Fidelity:</GrayLabel>
                     <div className="flex flex-1 md:w-auto w-full gap-1">
                       <input
                         className="flex-1"
@@ -1284,9 +1272,7 @@ const IntSliderInput = ({
 }) => {
   return (
     <div className="flex w-full items-center md:flex-row flex-col mt-2 gap-2">
-      <div className={'whitespace-nowrap flex-none mr-auto md:mr-0 gray-label'}>
-        {label}:
-      </div>
+      <GrayLabel>{label}:</GrayLabel>
       <div className="flex flex-1 md:w-auto w-full gap-1">
         <input
           className="flex-1"
@@ -1957,13 +1943,7 @@ const CharacterPromptEditor = observer(
                 </div>
                 {preset.useCoords && (
                   <div className="flex w-full items-center md:flex-row flex-col gap-2">
-                    <div
-                      className={
-                        'whitespace-nowrap flex-none mr-auto md:mr-0 gray-label'
-                      }
-                    >
-                      X 위치:
-                    </div>
+                    <GrayLabel>X 위치:</GrayLabel>
                     <div className="flex flex-1 md:w-auto w-full gap-1">
                       <input
                         className="flex-1"
@@ -1985,13 +1965,7 @@ const CharacterPromptEditor = observer(
                         {character.position?.x?.toFixed(2)}
                       </div>
                     </div>
-                    <div
-                      className={
-                        'whitespace-nowrap flex-none mr-auto md:mr-0 gray-label'
-                      }
-                    >
-                      Y 위치:
-                    </div>
+                    <GrayLabel>Y 위치:</GrayLabel>
                     <div className="flex flex-1 md:w-auto w-full gap-1">
                       <input
                         className="flex-1"

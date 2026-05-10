@@ -9,6 +9,9 @@
 
 ---
 
+## v1.4.0 (2026-05-10)
+- Phase 7C v1.4.0: license -> PolyForm Noncommercial 1.0.0 (with KR interpretation guide and MIT attribution) + security warning in README + resolvePath hardening + GrayLabel extraction + vibe lock reason inline
+
 ## v1.3.2 (2026-05-10)
 - Security: enforce TOKEN.txt chmod 600 on write
 

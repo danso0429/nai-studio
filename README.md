@@ -1,6 +1,6 @@
 # SDStudio Remote
 
-[![License: CC BY-NC-ND 4.0](https://img.shields.io/badge/License-CC_BY--NC--ND_4.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-nd/4.0/)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm_NC_1.0.0-blue.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)](https://ubuntu.com/)
 
@@ -171,6 +171,23 @@ sudo tailscale serve --bg --https=443 --set-path=/studio http://localhost:6247
 
 이제 `https://your-host.tailNNNNN.ts.net/studio`로 어디서든 접속 가능. Tailscale 계정으로 로그인된 기기에서만 접근됩니다.
 
+> ### ⚠️ 보안 주의사항 (꼭 읽어주세요)
+>
+> 본 서버는 **인증 미들웨어가 없습니다.** 누구나 접근 가능한 환경에 노출하면 다음과 같은 위험이 있습니다:
+>
+> - **NAI 토큰 탈취**: `POST /api/auth/login-token`으로 누구든 본인 계정 토큰을 덮어쓸 수 있음
+> - **Anlas 크레딧 무단 소진**: 큐 API에 인증이 없어 누구든 본인 계정으로 이미지 생성 가능
+> - **데이터 삭제**: 프로젝트/이미지 파일을 누구든 삭제 가능
+>
+> **반드시 Tailscale tailnet, WireGuard, 또는 동등한 사설망 전용으로만 운영하세요.** 위 `tailscale serve`는 tailnet 전용(인증된 본인 기기만)이므로 안전합니다.
+>
+> 만약 인터넷에 직접 노출(Tailscale Funnel, nginx 공개, 0.0.0.0 바인딩 등)하려면 다음 중 *반드시* 하나를 적용하세요:
+> - nginx 또는 caddy의 basic auth/OAuth proxy 추가
+> - Authelia, Keycloak 같은 인증 게이트웨이 통합
+> - 이 프로젝트에 직접 인증 미들웨어 추가 (현재 코드에 없음)
+>
+> NAI 계정과 결제 정보 탈취로 이어질 수 있는 사안이라 가볍게 보지 마세요.
+
 ### 6. 태그 자동완성 활성화 (선택)
 
 Danbooru 태그 DB(`db.csv`)를 `data/`에 두면 자동완성이 활성화됩니다. 파일은 SDStudio PC 버전에 포함된 것을 그대로 사용 가능.
@@ -308,15 +325,36 @@ curl -s localhost:6247/api/build-info | python3 -m json.tool
 
 ## 라이센스 / 크레딧
 
-이 프로젝트는 [CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/4.0/) 라이센스로 배포됩니다.
+본 프로젝트는 **PolyForm Noncommercial 1.0.0** 라이센스로 배포됩니다. 자세한 내용은 [LICENSE](LICENSE) 파일을 보세요.
 
-서버 코드(`server.js`, `lib/`)에 포함된 일부 로직은 원본 SDStudio(MIT)에서 파생되었으며, 해당 부분에 대한 고지는 코드에 포함되어 있습니다.
+한국어 해석 가이드는 [LICENSE-INTERPRETATION.md](LICENSE-INTERPRETATION.md)에서 확인할 수 있습니다 (법적 효력은 LICENSE 영문 본문이 우선).
+
+### 한 줄 요약
+
+**개인이 자기 NAI 계정으로 자기 서버에 운영하는 건 환영합니다. 영리 목적으로 가져다 쓰는 건 안 됩니다.**
+
+- ✅ 개인 사용, fork, 수정, 자기 서버 운영, 친구/가족과 비영리 공유
+- ✅ 취미·학습·연구·교육 기관 사용 (PolyForm "Noncommercial Organizations")
+- ❌ 상업적 호스팅 서비스, 회사 내부 도구, 유료 앱 재포장, 광고 수익 통합
+- ⚠ 저작자 표시(`Required Notice: Copyright Minkyung`)와 LICENSE 동봉 의무
+
+### 라이센스 이력
+
+- 2026-05-10 이전: CC BY-NC-ND 4.0 ([LICENSE-CC-OLD](LICENSE-CC-OLD)에 보존)
+- 2026-05-10부터 (v1.4.0): **PolyForm Noncommercial 1.0.0**
+
+CC 라이센스는 코드용으로 부적절하고 ND(파생물 금지) 조항이 fork 권장 워크플로우와 충돌하기에 변경했습니다.
 
 ### 크레딧
-- **원작**: [sunho/SDStudio](https://github.com/sunho/SDStudio) (MIT) — 본 프로젝트의 프론트엔드 베이스
-- **포크 (직접적인 베이스)**: [Dd154663/SDStudio](https://github.com/Dd154663/SDStudio) — V4/V4.5 모델 지원, 캐릭터 레퍼런스, 프리셋 개선 등 다수의 기능 추가
-- **이미지 씬 기능**: [dendenai.xyz](https://dendenai.xyz)의 프리셋 기능에서 영감
-- **이 fork (웹 이식 + 운영 인프라)**: [danso0429/nai-studio](https://github.com/danso0429/nai-studio)
+
+- **원작**: [Dd154663/SDStudio](https://github.com/Dd154663/SDStudio) (MIT) — Electron 데스크톱 앱
+- **원원작**: [sunho/SDStudio](https://github.com/sunho/SDStudio) (MIT) — 프론트엔드 원본
+- **본 fork (서버 이식 + Phase 7 개선)**: [danso0429/nai-studio](https://github.com/danso0429/nai-studio) (PolyForm Noncommercial 1.0.0)
+
+원본 MIT 부분의 attribution은 [LICENSE-NOTICES.md](LICENSE-NOTICES.md)를 보세요.
 
 ### 기여
-이슈와 PR 환영합니다. 단, 라이센스(CC BY-NC-ND)에 따라 상업적 이용 및 파생 저작물 배포는 제한됩니다.
+
+기여는 환영합니다. 하지만 PR을 보내시는 분은 본인의 기여가 PolyForm Noncommercial 1.0.0 하에 라이센스됨을 동의하는 것으로 간주합니다.
+
+이슈, 버그 리포트, 기능 제안은 [GitHub Issues](https://github.com/danso0429/nai-studio/issues)로 부탁드립니다.

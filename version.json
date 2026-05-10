@@ -1,6 +1,6 @@
 {
-  "version": "1.3.2",
+  "version": "1.4.0",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-10",
-  "notes": "Security: enforce TOKEN.txt chmod 600 on write"
+  "notes": "Phase 7C v1.4.0: license -> PolyForm Noncommercial 1.0.0 (with KR interpretation guide and MIT attribution) + security warning in README + resolvePath hardening + GrayLabel extraction + vibe lock reason inline"
 }
