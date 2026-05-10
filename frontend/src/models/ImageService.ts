@@ -158,12 +158,16 @@ export class ImageService extends EventTarget {
     }
     try {
       this.cache.delete(path);
+      // Memory-only invalidation: do NOT delete fastcache files on disk.
+      // Server prewarms thumbnails when generating images; deleting them here
+      // races with prewarm and forces re-generation on next view (slow).
+      // Disk fastcache stays consistent because:
+      //   - Future thumb requests overwrite via sharp().toFile()
+      //   - Permanent deletion (trash/move) is handled separately by deleteImageFiles
+      //   - Stage 2 disk cleanup nukes fastcache when space is needed
       for (const imageSize of supportedImageSizes) {
         const smallPath = this.getSmallImagePath(path, imageSize);
         this.cache.delete(smallPath);
-        try {
-          await backend.deleteFile(smallPath);
-        } catch (e) {}
       }
     } finally {
       for (const imageSize of supportedImageSizes) {

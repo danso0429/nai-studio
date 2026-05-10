@@ -370,8 +370,7 @@ async function processQueue() {
         const outPath = resolvePath(job.params.outputFilePath);
         await fs.mkdir(path.dirname(outPath), { recursive: true });
         await fs.writeFile(outPath, Buffer.from(base64, 'base64'));
-        // Pre-generate thumbnails
-        console.log('[Prewarm queue] ENTRY sharp=' + !!sharp + ' outPath=' + outPath);
+        // Pre-generate thumbnails (200/400 sizes; 500 generated on-demand by thumb endpoint)
         if (sharp) {
           for (const size of [200, 400]) {
             try {
@@ -382,12 +381,9 @@ async function processQueue() {
               await fs.mkdir(path.dirname(cp), { recursive: true });
               const maxDim = Math.ceil((size <= 200 ? 1.25 : 1.1) * size);
               await sharp(outPath).resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true }).png().toFile(cp);
-              const stat = await fs.stat(cp).catch(() => null);
-              console.log('[Prewarm queue] size=' + size + ' OK cp=' + cp + ' size_bytes=' + (stat ? stat.size : 'NULL'));
-            } catch (e) { console.error('[Prewarm queue] size=' + size + ' path=' + outPath + ' error:', e.message); }
+            } catch (e) { console.error('[Prewarm queue] size=' + size + ' error:', e.message); }
           }
         }
-        console.log('[Prewarm queue] EXIT outPath=' + outPath);
       }
 
       broadcast('queue-job-complete', {
@@ -601,7 +597,7 @@ app.post('/api/generate', async (req, res) => {
             await fs.mkdir(path.dirname(cp), { recursive: true });
             const maxDim = Math.ceil((size <= 200 ? 1.25 : 1.1) * size);
             await sharp(outPath).resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true }).png().toFile(cp);
-          } catch (e) { console.error('[Prewarm direct] size=' + size + ' path=' + outPath + ' error:', e.message); }
+          } catch (e) { console.error('[Prewarm direct] size=' + size + ' error:', e.message); }
         }
       }
     }
