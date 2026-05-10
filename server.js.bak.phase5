@@ -134,28 +134,11 @@ function broadcastQueueStatus() {
   });
 }
 const QUEUE_STATE_FILE = path.join(DATA_DIR, '.queue_state.json');
-let _queueSaveTimeout = null;
-function _writeQueueStateSync() {
+function saveQueueState() {
   try {
     const state = { queue: genQueue.map(j => j), stats: queueStats, savedAt: Date.now() };
     require('fs').writeFileSync(QUEUE_STATE_FILE, JSON.stringify(state));
   } catch {}
-}
-function saveQueueState() {
-  // Debounced: collapse rapid calls into one disk write per 1s
-  if (_queueSaveTimeout) return;
-  _queueSaveTimeout = setTimeout(() => {
-    _queueSaveTimeout = null;
-    _writeQueueStateSync();
-  }, 1000);
-}
-function flushQueueState() {
-  // Force immediate write (e.g. on shutdown or queue idle)
-  if (_queueSaveTimeout) {
-    clearTimeout(_queueSaveTimeout);
-    _queueSaveTimeout = null;
-  }
-  _writeQueueStateSync();
 }
 function loadQueueState() {
   try {
@@ -402,7 +385,6 @@ async function processQueue() {
   }
   queueProcessing = false;
   queuePaused = false;
-  flushQueueState();  // flush final state when queue goes idle
   broadcastQueueStatus();
 }
 
@@ -1077,16 +1059,5 @@ async function start() {
     console.log(`[NAI Studio] API: http://localhost:${PORT}/api`);
   });
 }
-
-process.on('SIGINT', () => {
-  console.log('[NAI Studio] SIGINT received, flushing queue state...');
-  flushQueueState();
-  process.exit(0);
-});
-process.on('SIGTERM', () => {
-  console.log('[NAI Studio] SIGTERM received, flushing queue state...');
-  flushQueueState();
-  process.exit(0);
-});
 
 start().catch(console.error);
