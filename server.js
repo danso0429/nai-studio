@@ -372,7 +372,7 @@ async function processQueue() {
         await fs.writeFile(outPath, Buffer.from(base64, 'base64'));
         // Pre-generate thumbnails (200/400 sizes; 500 generated on-demand by thumb endpoint)
         if (sharp) {
-          for (const size of [200, 400]) {
+          for (const size of [200, 400, 500]) {
             try {
               const pp = job.params.outputFilePath.split('/');
               const fn = size + '_' + pp.pop();
@@ -588,7 +588,7 @@ app.post('/api/generate', async (req, res) => {
 
       // Pre-generate thumbnails so gallery shows instantly
       if (sharp) {
-        for (const size of [200, 400]) {
+        for (const size of [200, 400, 500]) {
           try {
             const pp = params.outputFilePath.split('/');
             const fn = size + '_' + pp.pop();
