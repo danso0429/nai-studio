@@ -54,6 +54,7 @@ import { AppContextMenu } from './AppContextMenu';
 import { configure } from 'mobx';
 import { ExternalImageView } from './ExternalImageView';
 import FindReplaceDialog from './FindReplaceDialog';
+import { BuildInfoBadge } from './BuildInfo';
 configure({
   enforceActions: 'never',
 });
@@ -446,6 +447,7 @@ export const App = observer(() => {
                           <div className="flex gap-3 items-center justify-end">
                             <ServerQueueStatus />
                             <TaskQueueProgress />
+                            <BuildInfoBadge variant="mobile" />
                           </div>
                           <div className="flex gap-2 items-center justify-end">
                             <TaskQueueControls />
