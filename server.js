@@ -918,16 +918,51 @@ app.get('/api/fs/image', async (req, res) => {
 });
 
 app.post('/api/fs/sync-exports', async (req, res) => {
+  // Phase 7A: 단일 파일 업로드로 재설계
+  // 기존: 전체 exports/ rclone copy (~3분, 모바일 timeout)
+  // 신규: 요청에서 받은 단일 파일만 rclone copyto (~2초)
   const { exec } = require('child_process');
   const exportsDir = path.join(__dirname, 'data', 'exports');
-  const cmd = 'rclone copy ' + JSON.stringify(exportsDir + '/') + ' gdrivemain:NAI-Studio/data/exports/ --log-level INFO';
-  exec(cmd, { timeout: 180000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
-    if (err) {
-      console.error('[Sync exports] error:', err.message);
-      return res.status(500).json({ ok: false, error: err.message });
+  const requestedPath = (req.body && typeof req.body.path === 'string') ? req.body.path : '';
+
+  // 보안: exports/ 하위 단일 파일로 제한
+  let mode = 'dir';
+  let localPath = exportsDir;
+  let remotePath = 'gdrivemain:NAI-Studio/data/exports/';
+  if (requestedPath) {
+    // 'exports/foo.tar' 또는 'foo.tar' 둘 다 허용
+    const cleaned = requestedPath.replace(/^exports[\/]/, '');
+    if (cleaned.includes('..') || cleaned.includes('/') || cleaned.includes('\\')) {
+      return res.status(400).json({ ok: false, error: 'Invalid path' });
     }
-    console.log('[Sync exports] uploaded');
-    res.json({ ok: true });
+    const candidate = path.join(exportsDir, cleaned);
+    if (!candidate.startsWith(exportsDir + path.sep)) {
+      return res.status(400).json({ ok: false, error: 'Path traversal' });
+    }
+    try {
+      await fs.access(candidate);
+    } catch {
+      return res.status(404).json({ ok: false, error: 'File not found' });
+    }
+    mode = 'file';
+    localPath = candidate;
+    remotePath = 'gdrivemain:NAI-Studio/data/exports/' + cleaned;
+  }
+
+  const rcloneCmd = mode === 'file'
+    ? 'rclone copyto ' + JSON.stringify(localPath) + ' ' + JSON.stringify(remotePath) + ' --log-level INFO'
+    : 'rclone copy ' + JSON.stringify(localPath + '/') + ' ' + JSON.stringify(remotePath) + ' --log-level INFO';
+
+  // 단일 파일은 30초로 충분, 디렉토리는 기존 180초 유지
+  const timeoutMs = mode === 'file' ? 30000 : 180000;
+
+  exec(rcloneCmd, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+    if (err) {
+      console.error('[Sync exports] error (mode=' + mode + '):', err.message);
+      return res.status(500).json({ ok: false, error: err.message, mode });
+    }
+    console.log('[Sync exports] uploaded (mode=' + mode + ')');
+    res.json({ ok: true, mode });
   });
 });
 

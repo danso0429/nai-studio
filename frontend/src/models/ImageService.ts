@@ -604,16 +604,24 @@ export class ImageService extends EventTarget {
   }
 
   async refreshBatch(session: Session) {
-    for (const scene of session.scenes.values()) {
-      try {
-        await this.refresh(session, scene, false, true);
-      } catch (e) {}
-    }
-    for (const scene of session.inpaints.values()) {
-      try {
-        await this.refresh(session, scene, false, true);
-      } catch (e) {}
-    }
+    // Phase 7A: 직렬 → 청크 병렬화
+    // 각 refresh 호출은 독립적인 scene의 imageMap만 갱신 (race-free).
+    // 청크 크기 8: 브라우저 동시 connection 한도와 서버 부하 사이 균형.
+    const CHUNK_SIZE = 8;
+    const refreshOne = (scene: GenericScene) =>
+      this.refresh(session, scene, false, true).catch(() => {});
+
+    const refreshAll = async (scenes: Iterable<GenericScene>) => {
+      const list = Array.from(scenes);
+      for (let i = 0; i < list.length; i += CHUNK_SIZE) {
+        const chunk = list.slice(i, i + CHUNK_SIZE);
+        await Promise.all(chunk.map(refreshOne));
+      }
+    };
+
+    await refreshAll(session.scenes.values());
+    await refreshAll(session.inpaints.values());
+
     this.dispatchEvent(
       new CustomEvent('updated', { detail: { batch: true, session } }),
     );

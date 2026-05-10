@@ -1,6 +1,6 @@
 {
-  "version": "1.2.0",
+  "version": "1.3.0",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-10",
-  "notes": "Phase 6 finale: README 풀 리뉴얼 + CHANGELOG.md + 자동 갱신 로직"
+  "notes": "Phase 7A: import speed (parallel) + Drive sync (single-file) + vibe lock notice + RS label fix"
 }

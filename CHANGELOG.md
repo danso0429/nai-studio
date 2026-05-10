@@ -9,6 +9,9 @@
 
 ---
 
+## v1.3.0 (2026-05-10)
+- Phase 7A: import speed (parallel) + Drive sync (single-file) + vibe lock notice + RS label fix
+
 ## v1.2.0 (2026-05-10)
 - Phase 6 finale: README 풀 리뉴얼 + CHANGELOG.md + 자동 갱신 로직
 

@@ -754,13 +754,24 @@ export class AppState {
       });
       let syncOk = false;
       try {
+        // Phase 7A: tar 파일 경로를 body로 전달 → 서버가 단일 파일만 업로드
+        // outFilePath 예: 'exports/myproject_main_images_1234567890.tar'
         const r = await fetch(
           (location.protocol + '//' + location.host) + '/studio/api/fs/sync-exports',
-          { method: 'POST' }
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: outFilePath }),
+          }
         );
         const data = await r.json();
         syncOk = !!data.ok;
-      } catch {}
+        if (!syncOk) {
+          console.warn('[exportPackage] sync-exports failed:', data);
+        }
+      } catch (e) {
+        console.warn('[exportPackage] sync-exports threw:', e);
+      }
       appState.setProgressDialog(undefined);
       appState.pushDialog({
         type: 'yes-only',
@@ -1869,3 +1880,13 @@ export class AppState {
 }
 
 export const appState = new AppState();
+
+// Phase 7A: v4.5 자동 vibe 비활성화 알림 (페이지 로드당 1회)
+let vibeLockNoticeShown = false;
+taskQueueService.addEventListener('vibe-locked', () => {
+  if (vibeLockNoticeShown) return;
+  vibeLockNoticeShown = true;
+  appState.pushMessage(
+    'NAI v4.5는 캐릭터 레퍼런스 사용 시 바이브를 동시에 적용할 수 없어, 바이브가 비활성화된 상태로 생성됩니다.'
+  );
+});

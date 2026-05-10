@@ -347,29 +347,41 @@ export class SessionService extends ResourceSyncService<Session> {
       throw new Error('Resource already exists');
     }
     session.name = name;
+
+    // Phase 7A: preset profile (vibe reference base64) 업로드 병렬화
+    // 기존: for-await 직렬 처리로 N x 라운드트립
+    // 신규: Promise.all로 1 x 라운드트립
+    const profileUploadTasks: Promise<void>[] = [];
+    const enqueueProfileUpload = (preset: any) => {
+      if (!preset?.profile) return;
+      const path = 'vibes/' + name + '/' + v4() + '.png';
+      const profileData = preset.profile;
+      profileUploadTasks.push(
+        backend
+          .writeDataFile(path, profileData)
+          .then(() => {
+            preset.profile = path.split('/').pop()!;
+          })
+          .catch((e) => {
+            console.warn('[importSessionShallow] profile upload failed:', e);
+          }),
+      );
+    };
+
     if (Array.isArray(session.presets)) {
       for (const preset of session.presets) {
-        if (preset.type === 'style') {
-          try {
-            const path = 'vibes/' + name + '/' + v4() + '.png';
-            await backend.writeDataFile(path, preset.profile);
-            preset.profile = path.split('/').pop()!;
-          } catch (e) {}
-        }
+        if (preset.type === 'style') enqueueProfileUpload(preset);
       }
     } else if (session.presets) {
       for (const presetSet of Object.values(session.presets)) {
-        for (const preset of presetSet) {
-          if (preset.profile) {
-            try {
-              const path = 'vibes/' + name + '/' + v4() + '.png';
-              await backend.writeDataFile(path, preset.profile);
-              preset.profile = path.split('/').pop()!;
-            } catch (e) {}
-          }
-        }
+        for (const preset of presetSet) enqueueProfileUpload(preset);
       }
     }
+
+    if (profileUploadTasks.length > 0) {
+      await Promise.all(profileUploadTasks);
+    }
+
     await this.createFrom(name, session);
   }
 

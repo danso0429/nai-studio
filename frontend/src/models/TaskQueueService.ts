@@ -417,6 +417,12 @@ class GenerateImageTaskHandler implements TaskHandler {
     const finalReferences = isV4 ? [] : references;
     // v4.5: 캐릭터 레퍼런스가 있으면 바이브 비활성화
     const finalVibes = (isV4_5 && finalReferences.length > 0) ? [] : vibes;
+    // Phase 7A: vibe가 실제로 비활성화될 때만 알림 이벤트 발행
+    if (isV4_5 && finalReferences.length > 0 && vibes.length > 0) {
+      this.dispatchEvent(new CustomEvent('vibe-locked', {
+        detail: { reason: 'v4.5_with_character_reference' }
+      }));
+    }
 
     const arg: ImageGenInput = {
       prompt: prompt,

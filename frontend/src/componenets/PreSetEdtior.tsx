@@ -329,7 +329,7 @@ export const VibeEditor = observer(({ disabled }: VibeEditorProps) => {
                   <div className="flex w-full md:flex-row flex-col items-center">
                     <div
                       className={
-                        'whitepace-nowrap flex-none mr-auto md:mr-0 gray-label'
+                        'whitespace-nowrap flex-none mr-auto md:mr-0 gray-label'
                       }
                     >
                       레퍼런스 강도 (RS):
