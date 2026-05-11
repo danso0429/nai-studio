@@ -9,6 +9,13 @@
 
 ---
 
+## v1.5.0-preview.2 (2026-05-11)
+- **F1**: Drive 재시도 정책을 30분 고정 × 48회에서 exponential backoff (60s → 2m → 5m → 10m → 20m → 30m, 6회)로 변경. 6회 모두 실패하면 `status: 'failed'`로 큐에 남겨 사용자가 dismiss/reset 결정. poll 주기 30초로 가속.
+- **F1 신규 엔드포인트**: `POST /api/drive/retry-now` (즉시 일제 시도), `POST /api/drive/retry-dismiss` (entry 제거), `POST /api/drive/retry-reset` (failed → pending).
+- **F2**: 프론트엔드 `driveRetryStatus` observable + 30초 폴링. Drive 업로드 분기에서 실패 직후 즉시 refresh 트리거.
+- **F3**: 좌측 하단 Drive 재시도 알약 위젯 + 모달. pending → 호박색, 전부 failed → 빨강. 모달에서 entry별 재시도/포기 + 전체 즉시 재시도 버튼.
+- **F4**: `/api/fs/zip`이 entry 단위 try/catch로 ENOENT 자동 skip. included ≥ 1이면 200 + `{skipped}` 반환, 전부 누락이면 500. UI는 빨강 상단 띠로 "N개 파일 누락 — 자동 제외하고 진행" 알림.
+
 ## v1.4.5 (2026-05-11)
 - 대량 이미지 삭제 병렬화: `server.js` `/api/fs/move-batch`가 순차 `for await fs.rename`이었던 걸 `Promise.all`로 변경. libuv 스레드풀(기본 4)을 활용한 ~4배 가속.
 
