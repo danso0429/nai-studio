@@ -12,11 +12,7 @@ const AlertWindow = observer(() => {
       {messages.map((m) => (
         <div
           key={m.id}
-          onClick={() => {
-            const idx = appState.messages.findIndex((x) => x.id === m.id);
-            if (idx >= 0) appState.messages.splice(idx, 1);
-          }}
-          className="px-3 py-2 rounded-md shadow-lg bg-red-500 text-white text-xs sm:text-sm break-keep pointer-events-auto cursor-pointer"
+          className="px-3 py-2 rounded-md shadow-lg bg-red-500 text-white text-xs sm:text-sm break-keep"
         >
           {m.text}
         </div>

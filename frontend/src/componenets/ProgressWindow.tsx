@@ -31,7 +31,7 @@ const ProgressWindow = ({ dialogs, messagesCount = 0 }: Props) => {
         return (
           <div
             key={d.id}
-            className="px-3 py-2 rounded-md shadow-lg bg-white dark:bg-slate-800 text-black dark:text-white flex items-center gap-2 flex-1 min-w-0 pointer-events-auto"
+            className="px-3 py-2 rounded-md shadow-lg bg-white dark:bg-slate-800 text-black dark:text-white flex items-center gap-2 flex-1 min-w-0"
           >
             <div className="text-xs sm:text-sm break-keep truncate min-w-0 flex-1">
               {d.text}
