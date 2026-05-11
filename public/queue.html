@@ -208,11 +208,16 @@
             <div class="value">${d.completed || 0} <span class="muted">/</span> <span class="${d.failed > 0 ? 'red' : 'muted'}">${d.failed || 0}</span></div>
           </div>
           <div class="card">
-            <div class="label">평균 1장</div>
+            <div class="label">평균 (누적)</div>
             <div class="value">${avg > 0 ? fmtDur(avg) : '<span class="muted">측정 전</span>'}</div>
+            <div class="small">기록 ${d.timingHistoryCount || 0}개 / 1만</div>
           </div>
           <div class="card">
-            <div class="label">남은 시간</div>
+            <div class="label">평균 (최근 100건)</div>
+            <div class="value">${d.recentAvgMs > 0 ? fmtDur(d.recentAvgMs) : '<span class="muted">측정 전</span>'}</div>
+          </div>
+          <div class="card full">
+            <div class="label">남은 시간 (최근 평균 기준)</div>
             <div class="value ${eta ? 'amber' : ''}">${eta ? fmtDur(eta) : '<span class="muted">-</span>'}</div>
           </div>
           <div class="card full">

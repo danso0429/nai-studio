@@ -123,6 +123,40 @@ let queueProcessing = false;
 let queuePaused = false;
 let pauseRequested = false; // 사용자 명시 pause (대량 삭제 등 race 방지용)
 let queueStats = { completed: 0, failed: 0, totalProcessTimeMs: 0, completedWithTiming: 0 };
+
+// ─── Timing history (ring buffer, 최대 1만개) ─────────────────────
+let timingHistory = []; // [{finishedAt: ts, durationMs: number}, ...]
+const TIMING_HISTORY_MAX = 10000;
+const TIMING_HISTORY_FILE = path.join(DATA_DIR, '.queue_timing.json');
+let _timingSaveTimeout = null;
+function _writeTimingHistorySync() {
+  try {
+    require('fs').writeFileSync(TIMING_HISTORY_FILE, JSON.stringify(timingHistory));
+  } catch {}
+}
+function saveTimingHistory() {
+  if (_timingSaveTimeout) return;
+  _timingSaveTimeout = setTimeout(() => {
+    _timingSaveTimeout = null;
+    _writeTimingHistorySync();
+  }, 5000);
+}
+function flushTimingHistory() {
+  if (_timingSaveTimeout) {
+    clearTimeout(_timingSaveTimeout);
+    _timingSaveTimeout = null;
+  }
+  _writeTimingHistorySync();
+}
+function loadTimingHistory() {
+  try {
+    const raw = require('fs').readFileSync(TIMING_HISTORY_FILE, 'utf8');
+    timingHistory = JSON.parse(raw) || [];
+    if (timingHistory.length > 0) {
+      console.log('[NAI Studio] Loaded ' + timingHistory.length + ' timing history entries');
+    }
+  } catch {}
+}
 const QUEUE_MAX_SIZE = 5000;
 const DISK_WARN_GB = 15;
 const DISK_CRIT_GB = 10;
@@ -551,9 +585,14 @@ async function processQueue() {
       });
       broadcastQueueStatus();
       broadcast('image-changed', job.params.outputFilePath);
-      queueStats.totalProcessTimeMs += Date.now() - jobStartedAt;
+      const durationMs = Date.now() - jobStartedAt;
+      queueStats.totalProcessTimeMs += durationMs;
       queueStats.completedWithTiming++;
       queueStats.completed++;
+      // ring buffer 누적
+      timingHistory.push({ finishedAt: Date.now(), durationMs });
+      if (timingHistory.length > TIMING_HISTORY_MAX) timingHistory.shift();
+      saveTimingHistory();
     } catch (e) {
       if (e.message && e.message.includes('429')) {
         job._retries = (job._retries || 0) + 1;
@@ -738,12 +777,19 @@ app.post('/api/queue/add-batch', async (req, res) => {
 
 app.get('/api/queue/status', async (req, res) => {
   const freeGB = await getDiskFreeGB();
-  // 평균은 timing 측정한 건수로만 나눠야 정확. 영속화된 completed(과거)와
-  // totalProcessTimeMs(측정 시점부터) 분모/분자 mismatch 방지.
+  // 누적 평균 (timing 측정한 건수 기준)
   const avgMs = queueStats.completedWithTiming > 0
     ? queueStats.totalProcessTimeMs / queueStats.completedWithTiming
     : 0;
-  const etaMs = avgMs > 0 ? Math.round(avgMs * genQueue.length) : null;
+  // 최근 100건 평균 (추세 반영). 5건 미만이면 안정성 위해 누적 평균 사용
+  const recentN = Math.min(100, timingHistory.length);
+  const recentSlice = timingHistory.slice(-recentN);
+  const recentAvgMs = recentN >= 5
+    ? recentSlice.reduce((s, e) => s + e.durationMs, 0) / recentN
+    : avgMs;
+  // ETA는 최근 평균 기준 (더 정확)
+  const baseAvg = recentAvgMs > 0 ? recentAvgMs : avgMs;
+  const etaMs = baseAvg > 0 ? Math.round(baseAvg * genQueue.length) : null;
   res.json({
     pending: genQueue.length,
     processing: queueProcessing,
@@ -754,8 +800,15 @@ app.get('/api/queue/status', async (req, res) => {
     jobs: genQueue.slice(0, 20).map(j => ({ jobId: j.jobId, outputFilePath: j.params.outputFilePath })),
     totalJobs: genQueue.length,
     avgProcessTimeMs: Math.round(avgMs),
+    recentAvgMs: Math.round(recentAvgMs),
+    timingHistoryCount: timingHistory.length,
     etaMs,
   });
+});
+
+// ─── Raw timing history (분석용, 본인이 시간대별 패턴 보고 싶을 때) ───
+app.get('/api/queue/timing-history', (req, res) => {
+  res.json({ entries: timingHistory, count: timingHistory.length, maxSize: TIMING_HISTORY_MAX });
 });
 
 app.post('/api/queue/cancel', (req, res) => {
@@ -1495,6 +1548,7 @@ async function start() {
   server.listen(PORT, () => {
     console.log(`[NAI Studio] Server running on port ${PORT}`);
   loadQueueState();
+  loadTimingHistory();
     loadDriveRetryQueue().then(() => {
       // Migrate legacy entries (pre-F1): no status/nextRetryAt fields.
       // 부팅 직후 모두 즉시 시도하지 않게 nextRetryAt을 띄움.
@@ -1517,11 +1571,13 @@ async function start() {
 process.on('SIGINT', () => {
   console.log('[NAI Studio] SIGINT received, flushing queue state...');
   flushQueueState();
+  flushTimingHistory();
   process.exit(0);
 });
 process.on('SIGTERM', () => {
   console.log('[NAI Studio] SIGTERM received, flushing queue state...');
   flushQueueState();
+  flushTimingHistory();
   process.exit(0);
 });
 
