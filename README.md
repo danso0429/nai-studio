@@ -51,13 +51,16 @@ SDStudio PC 버전의 기능 그대로 지원합니다.
 - **어디서든 접속**: Tailscale로 PC·모바일 어디서든
 - **NAI v4 / v4.5 완전 지원**: 멀티 캐릭터 프롬프트, 캐릭터 레퍼런스, 바이브 트랜스퍼
 - **자동 업데이트 알림**: 새 버전 출시 시 화면 우측 상단/모바일 알약에 표시
-- **선택 기능**: Google Drive 자동 동기화 (이미지 내보내기 결과 보존)
+- **상단 진행 띠 + 다중 progress**: 여러 작업이 동시에 진행돼도 가로 분할로 한눈에 추적 (v1.5.0)
+- **프로젝트 폴더 분류**: depth=1 폴더로 프로젝트를 카테고리별로 정리 — 옵션 라벨에 `📁 폴더 / 프로젝트` 표시 (Phase 8.1~8.3, v1.4.x)
+- **Google Drive 자동 동기화 (선택)**: 이미지 내보내기 결과를 즉시 업로드 + 실패 시 자동 재시도 (좌측 하단 위젯에서 수동 재시도/포기 가능, v1.5.0)
+- **zip 부분 실패 자동 skip**: 내보내기 중 일부 파일 누락돼도 가능한 분만 묶고 알림 띠로 누락 목록 표시 (v1.5.0)
 
 ---
 
 ## SDStudio PC 버전과의 차이점
 
-> 기준: SDStudio Remote **v1.2.0** (SDStudio v4.7.1 기반)
+> 기준: SDStudio Remote **v1.5.0-preview.2** (SDStudio v4.7.1 기반)
 
 | 항목 | SDStudio PC (v4.7.1) | SDStudio Remote |
 | --- | --- | --- |
@@ -75,6 +78,9 @@ SDStudio PC 버전의 기능 그대로 지원합니다.
 | **백업** | 사용자가 폴더 복사 | 자동 동기화 (선택, rclone) |
 | **AVIF 최적화** | 미지원 | 지원 (모바일 데이터 절약) |
 | **이미지 썸네일 캐시** | 매번 재생성 | 서버에서 prewarm (200/400/500px) |
+| **프로젝트 폴더 분류** | 평면 (폴더 없음) | depth=1 폴더 지원 |
+| **Drive 업로드 실패 처리** | 해당 없음 | exponential backoff 자동 재시도 (1m → 30m, 6회) + 좌측 하단 위젯 |
+| **진행 상황 표시** | 모달 다이얼로그 | 상단 진행 띠 + 다중 progress 가로 분할 |
 
 ### 미이식 / 미지원 기능
 
@@ -306,7 +312,7 @@ crontab -e
 
 ```bash
 curl -s localhost:6247/api/build-info | python3 -m json.tool
-# {"buildTime": "...", "gitHash": "...", "version": "1.2.0", "sdstudioBase": "4.7.1"}
+# {"buildTime": "...", "gitHash": "...", "version": "1.5.0-preview.2", "sdstudioBase": "4.7.1"}
 ```
 
 ---
@@ -316,8 +322,10 @@ curl -s localhost:6247/api/build-info | python3 -m json.tool
 전체 변경 이력은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
 
 **최근 변경 (요약)**:
-- **v1.2.0+** (Phase 6 마무리, 2026-05): README 풀 리뉴얼, CHANGELOG 자동 갱신
-- **v1.1.x** (Phase 6, 2026-05): Drive 자동 동기화, 알약 scene 표시, 자동 업데이트 알림
+- **v1.5.0-preview.2** (Phase E~F, 2026-05): Drive 재시도 exponential backoff + 좌측 하단 위젯/모달, zip ENOENT 자동 skip, 알림 빨강 띠
+- **v1.5.0-preview.1** (Phase E, 2026-05): Progress UI 상단 띠 개편 + 다중 progress 가로 분할, 대량 삭제 race 방지, 이미지 export 4-청크 병렬화, 프로젝트 백업 Drive 업로드
+- **v1.4.x** (Phase 7C~9, 2026-05): PolyForm Noncommercial 1.0.0 라이센스로 변경, 환경변수 분리(`.env.local`), 폴더 시스템 인프라(Phase 8.1~8.3), 대량 삭제 병렬화, update.sh 자동 감지
+- **v1.2.0~v1.3.x** (Phase 6~7A, 2026-05): README 풀 리뉴얼, Drive 자동 동기화, 알약 scene 표시, 자동 업데이트 알림, import 병렬화
 - **v1.0.0** (Phase 5, 2026-05): NAI v4.5 검증 후 첫 정식 출시 — 바이브, 캐릭터 레퍼런스, 멀티 캐릭터 프롬프트 모두 동작 확인
 - **v1.0.0 이전** (Phase 1~4, 2026-04~05): 인프라 구축, UI 이식, 큐 시스템, 자동 배포
 
@@ -349,7 +357,7 @@ CC 라이센스는 코드용으로 부적절하고 ND(파생물 금지) 조항�
 
 - **원작**: [Dd154663/SDStudio](https://github.com/Dd154663/SDStudio) (MIT) — Electron 데스크톱 앱
 - **원원작**: [sunho/SDStudio](https://github.com/sunho/SDStudio) (MIT) — 프론트엔드 원본
-- **본 fork (서버 이식 + Phase 7 개선)**: [danso0429/nai-studio](https://github.com/danso0429/nai-studio) (PolyForm Noncommercial 1.0.0)
+- **본 fork (서버 이식 + 운영 안정화 Phase 1~9)**: [danso0429/nai-studio](https://github.com/danso0429/nai-studio) (PolyForm Noncommercial 1.0.0)
 
 원본 MIT 부분의 attribution은 [LICENSE-NOTICES.md](LICENSE-NOTICES.md)를 보세요.
 
