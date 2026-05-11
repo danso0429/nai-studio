@@ -545,13 +545,39 @@ export class AppState {
               appState.setProgressDialog(undefined);
               return;
             }
+            appState.setProgressDialog({
+              text: 'Drive에 업로드 중...',
+              done: 0,
+              total: 1,
+            });
+            let syncOk = false;
+            try {
+              const r = await fetch(
+                (location.protocol + '//' + location.host) +
+                  import.meta.env.BASE_URL.replace(/\/$/, '') +
+                  '/api/fs/sync-exports',
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ path }),
+                },
+              );
+              const data = await r.json();
+              syncOk = !!data.ok;
+              if (!syncOk) {
+                console.warn('[saveDeep] sync-exports failed:', data);
+              }
+            } catch (e) {
+              console.warn('[saveDeep] sync-exports threw:', e);
+            }
             appState.setProgressDialog(undefined);
             appState.pushDialog({
               type: 'yes-only',
-              text: '백업이 완료되었습니다.',
+              text: syncOk
+                ? '프로젝트 백업 완료\nDrive 업로드 완료 ✓\n(NAI-Studio/data/exports/)'
+                : '프로젝트 백업 완료\nDrive 업로드 실패 — 30분 내 자동 재시도됩니다',
             });
             await backend.showFile(path);
-            appState.setProgressDialog(undefined);
           }
         } else if (value === 'load') {
           const file = await getFirstFile();
