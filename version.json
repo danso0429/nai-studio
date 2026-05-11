@@ -1,6 +1,6 @@
 {
-  "version": "1.4.2",
+  "version": "1.4.3",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-11",
-  "notes": "Configurable base path, port, and prefix via env vars (.env.local)"
+  "notes": "update.sh auto-detects PORT and pm2 app name from .env.local + cwd"
 }

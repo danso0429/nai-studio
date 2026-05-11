@@ -9,6 +9,9 @@
 
 ---
 
+## v1.4.3 (2026-05-11)
+- update.sh: PORT(.env.local)와 pm2 앱 이름(`basename $PWD`) 자동 감지로 하드코딩 제거. 형제 앱 오탐 방지를 위해 `pm2 list | grep`을 `pm2 describe`로 교체.
+
 ## v1.4.2 (2026-05-11)
 - Configurable base path, port, and prefix via env vars (.env.local)
 
