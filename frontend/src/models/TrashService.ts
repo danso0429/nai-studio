@@ -101,7 +101,7 @@ export class TrashService extends EventTarget {
     }
 
     // Batch move via server endpoint for speed
-    const apiBase = location.pathname.startsWith('/studio') ? '/studio' : '';
+    const apiBase = import.meta.env.BASE_URL.replace(/\/$/, '');
     try {
       const moves = fullPaths.map(fullPath => ({
         src: fullPath,
@@ -496,7 +496,7 @@ export class TrashService extends EventTarget {
     // 0 + 3. Delegate orphan .deleted cleanup and image trash cleanup to server
     // (eliminates hundreds of sequential HTTP round-trips)
     try {
-      const apiBase = location.pathname.startsWith('/studio') ? '/studio' : '';
+      const apiBase = import.meta.env.BASE_URL.replace(/\/$/, '');
       const res = await fetch(
         `${apiBase}/api/trash/auto-cleanup`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' } },

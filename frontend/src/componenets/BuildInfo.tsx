@@ -16,7 +16,7 @@ interface BuildInfo {
   buildTime?: string;
 }
 
-const API = `${location.protocol}//${location.host}/studio/api`;
+const API = `${location.protocol}//${location.host}${import.meta.env.BASE_URL.replace(/\/$/, '')}/api`;
 
 let _cachedBuildInfo: BuildInfo | null = null;
 let _cachedVersionInfo: VersionInfo | null = null;

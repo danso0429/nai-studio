@@ -14,7 +14,7 @@ interface QueueState {
   jobs?: QueueJob[];
 }
 
-const API = `${location.protocol}//${location.host}/studio/api`;
+const API = `${location.protocol}//${location.host}${import.meta.env.BASE_URL.replace(/\/$/, '')}/api`;
 
 // outputFilePath에서 표시용 라벨 추출
 // 예: "outs/프로젝트/씬이름/파일.png" → "씬이름"

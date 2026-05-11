@@ -2,12 +2,7 @@ import { Config } from '../../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
 import { Backend, FileEntry, FileStatEntry, ImageOptimizeMethod, ResizeImageInput } from '../backend';
 
-const API_BASE = (() => {
-  // Auto-detect base path from current URL (e.g. /nai when served at /nai/)
-  const path = location.pathname;
-  if (path.startsWith('/studio')) return '/studio';
-  return '';
-})();
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 /**
  * Returns a direct URL for serving a thumbnail image.

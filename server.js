@@ -10,6 +10,7 @@ const { NaiClient } = require('./lib/nai-client');
 const DATA_DIR = path.join(__dirname, 'data');
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const PORT = process.env.PORT || 6247;
+const URL_PREFIX = process.env.URL_PREFIX || '';
 
 // ─── Ensure directories ────────────────────────────────────────────
 async function ensureDirs() {
@@ -423,10 +424,11 @@ async function processQueue() {
 const app = express();
 app.use(express.json({ limit: '100mb' }));
 
-// Strip /nai prefix (Tailscale serve --set-path /nai passes it through)
+// Strip URL prefix when reverse-proxied under a subpath.
+// Configure via URL_PREFIX env var. Empty string disables stripping.
 app.use((req, res, next) => {
-  if (req.url.startsWith('/studio')) {
-    req.url = req.url.slice(7) || '/';
+  if (URL_PREFIX && req.url.startsWith(URL_PREFIX)) {
+    req.url = req.url.slice(URL_PREFIX.length) || '/';
   }
   next();
 });

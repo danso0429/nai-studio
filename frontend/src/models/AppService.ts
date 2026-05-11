@@ -757,7 +757,7 @@ export class AppState {
         // Phase 7A: tar 파일 경로를 body로 전달 → 서버가 단일 파일만 업로드
         // outFilePath 예: 'exports/myproject_main_images_1234567890.tar'
         const r = await fetch(
-          (location.protocol + '//' + location.host) + '/studio/api/fs/sync-exports',
+          (location.protocol + '//' + location.host) + import.meta.env.BASE_URL.replace(/\/$/, '') + '/api/fs/sync-exports',
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

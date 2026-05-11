@@ -23,3 +23,7 @@ server.js.bak*
 *.bak
 *.bak.phase*
 ecosystem.config.js
+
+# Local environment overrides (never commit)
+.env.local
+.env.*.local
