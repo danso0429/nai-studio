@@ -631,8 +631,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve static frontend
+// Serve static frontend.
+// public/ 은 사람·update.sh가 관리하는 정적 파일 (queue.html, build-info.json).
+// public/build/ 는 vite 빌드 산출물 (index.html, assets/*). vite emptyOutDir이
+// public/build/ 만 휩쓸어서 사람·update.sh 파일은 안전.
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public/build')));
 
 // ─── API: Config ────────────────────────────────────────────────────
 app.get('/api/config', async (req, res) => {

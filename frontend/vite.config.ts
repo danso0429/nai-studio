@@ -29,8 +29,8 @@ export default defineConfig(({ mode }) => {
       global: 'globalThis',
     },
     build: {
-      outDir: path.resolve(__dirname, '../public'),
-      emptyDir: true,
+      outDir: path.resolve(__dirname, '../public/build'),
+      emptyOutDir: true,
     },
     server: {
       proxy: {
