@@ -711,6 +711,45 @@ app.get('/api/fs/list-stats', async (req, res) => {
   } catch (e) { res.json([]); }
 });
 
+// Walk a directory up to `depth` levels deep, returning file paths (slash-joined,
+// relative to the base) and direct subdirectories. Hidden entries (starting with '.')
+// are excluded so internal markers like .trash / .folder don't leak.
+async function walkDir(basePath, depth) {
+  const files = [];
+  const dirs = [];
+  async function walk(currentRel, currentDepth) {
+    let entries;
+    try {
+      entries = await fs.readdir(path.join(basePath, currentRel), { withFileTypes: true });
+    } catch { return; }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
+      const rel = currentRel ? currentRel + '/' + entry.name : entry.name;
+      if (entry.isDirectory()) {
+        if (currentDepth === 0) dirs.push(rel);
+        if (currentDepth < depth) {
+          await walk(rel, currentDepth + 1);
+        }
+      } else if (entry.isFile()) {
+        files.push(rel);
+      }
+    }
+  }
+  await walk('', 0);
+  return { files, dirs };
+}
+
+app.get('/api/fs/list-recursive', async (req, res) => {
+  try {
+    const dirPath = resolvePath(req.query.path);
+    await fs.mkdir(dirPath, { recursive: true });
+    const parsed = parseInt(req.query.depth, 10);
+    const depth = Math.max(0, Math.min(10, Number.isNaN(parsed) ? 1 : parsed));
+    const result = await walkDir(dirPath, depth);
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message, files: [], dirs: [] }); }
+});
+
 app.get('/api/fs/read', async (req, res) => {
   try {
     const filePath = resolvePath(req.query.path);
@@ -838,23 +877,25 @@ app.post('/api/trash/auto-cleanup', async (req, res) => {
     let cleanedImages = 0;
     let cleanedOrphans = 0;
 
-    // 1. Clean orphan .deleted files
+    // 1. Clean orphan .deleted files (recursive: folders allowed at depth 1)
     const projectDir = resolvePath('projects');
     try {
-      const allFiles = await fs.readdir(projectDir);
-      const jsonSet = new Set(allFiles.filter(f => f.endsWith('.json')).map(f => f.slice(0, -5)));
-      for (const f of allFiles) {
+      const walked = await walkDir(projectDir, 1);
+      const jsonSet = new Set(
+        walked.files.filter(f => f.endsWith('.json')).map(f => f.slice(0, -5))
+      );
+      for (const f of walked.files) {
         if (f.endsWith('.deleted')) {
           try { await fs.unlink(path.join(projectDir, f)); cleanedOrphans++; } catch {}
         }
       }
     } catch {}
 
-    // 2. Clean expired image trash (walk server-side)
+    // 2. Clean expired image trash (walk server-side, folder-aware)
     const activeProjects = [];
     try {
-      const files = await fs.readdir(projectDir);
-      for (const f of files) {
+      const walked = await walkDir(projectDir, 1);
+      for (const f of walked.files) {
         if (f.endsWith('.json')) activeProjects.push(f.slice(0, -5));
       }
     } catch {}

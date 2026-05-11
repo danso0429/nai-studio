@@ -1,6 +1,6 @@
 import { Config } from '../../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, FileEntry, FileStatEntry, ImageOptimizeMethod, ResizeImageInput } from '../backend';
+import { Backend, FileEntry, FileStatEntry, ImageOptimizeMethod, RecursiveListResult, ResizeImageInput } from '../backend';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -126,6 +126,10 @@ export class ServerBackend extends Backend {
   async searchPieces(word: string): Promise<any> { return apiJSON(`/pieces/search?q=${encodeURIComponent(word)}`); }
 
   async listFiles(arg: string): Promise<string[]> { return apiJSON(`/fs/list?path=${encodeURIComponent(arg)}`); }
+  async listFilesRecursive(arg: string, depth?: number): Promise<RecursiveListResult> {
+    const d = depth !== undefined ? `&depth=${depth}` : '';
+    return apiJSON(`/fs/list-recursive?path=${encodeURIComponent(arg)}${d}`);
+  }
 
   async listFilesWithStats(arg: string): Promise<FileStatEntry[]> {
     return apiJSON(`/fs/list-stats?path=${encodeURIComponent(arg)}`);

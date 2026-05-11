@@ -30,6 +30,11 @@ export interface FileStatEntry {
   mtime: number;
 }
 
+export interface RecursiveListResult {
+  files: string[];   // slash-joined relative paths
+  dirs: string[];    // direct subdirectories at depth 0 (including empty ones)
+}
+
 export abstract class Backend {
   abstract getConfig(): Promise<Config>;
   abstract setConfig(newConfig: Config): Promise<void>;
@@ -50,6 +55,7 @@ export abstract class Backend {
   abstract searchPieces(word: string): Promise<any>;
   abstract listFiles(arg: string): Promise<string[]>;
   abstract listFilesWithStats(arg: string): Promise<FileStatEntry[]>;
+  abstract listFilesRecursive(arg: string, depth?: number): Promise<RecursiveListResult>;
   abstract readFile(filename: string): Promise<string>;
   abstract writeFile(filename: string, data: string): Promise<void>;
   abstract copyFile(src: string, dest: string): Promise<void>;

@@ -396,7 +396,9 @@ export class TrashService extends EventTarget {
     this.ensureLoaded();
     let files: string[];
     try {
-      files = await backend.listFiles('projects');
+      // depth=1 recursive: .deleted markers may live inside folders too.
+      const result = await backend.listFilesRecursive('projects', 1);
+      files = result.files;
     } catch (e) {
       return [];
     }

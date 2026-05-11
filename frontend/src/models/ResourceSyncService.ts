@@ -178,8 +178,11 @@ export abstract class ResourceSyncService<
   }
 
   private async getList() {
-    const sessions = await backend.listFiles(this.resourceDir);
-    return sessions
+    // depth=1 recursive: includes files in 1-level subfolders.
+    // session.name keeps the slash (e.g. 'folderA/projX') so storage paths
+    // stay consistent without further code changes.
+    const result = await backend.listFilesRecursive(this.resourceDir, 1);
+    return result.files
       .filter((x: string) => x.endsWith('.json'))
       .map((x: string) => x.substring(0, x.length - 5));
   }
