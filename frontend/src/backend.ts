@@ -41,6 +41,8 @@ export abstract class Backend {
   abstract getVersion(): Promise<string>;
   abstract openWebPage(url: string): Promise<void>;
   abstract generateImage(arg: ImageGenInput): Promise<void>;
+  abstract pauseQueue(): Promise<void>;
+  abstract resumeQueue(): Promise<void>;
   abstract augmentImage(arg: ImageAugmentInput): Promise<void>;
   abstract login(email: string, password: string): Promise<void>;
   abstract loginWithToken(token: string): Promise<void>;

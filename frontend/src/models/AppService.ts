@@ -1156,6 +1156,17 @@ export class AppState {
         const filename = path.split('/').pop()!;
         return !!(scene && scene.mains.includes(filename));
       };
+      // 대량 삭제는 server 큐가 새 .png를 디스크에 떨어뜨리는 동안 paths를
+      // 휩쓸 수 있어 race가 발생함. 큐를 잠시 멈추고 in-flight job 완료 후
+      // paths capture + 삭제 진행.
+      const withQueuePaused = async (fn: () => Promise<void>) => {
+        await backend.pauseQueue();
+        try {
+          await fn();
+        } finally {
+          try { await backend.resumeQueue(); } catch {}
+        }
+      };
       if (value === 'removeImage') {
         appState.pushDialog({
           type: 'select',
@@ -1180,17 +1191,19 @@ export class AppState {
                 type: 'confirm',
                 text: '정말로 모든 이미지를 삭제하시겠습니까?',
                 callback: async () => {
-                  for (const scene of selected) {
-                    const paths = gameService
-                      .getOutputs(this.curSession!, scene)
-                      .map(
-                        (x) =>
-                          imageService.getOutputDir(this.curSession!, scene!) +
-                          '/' +
-                          x,
-                      );
-                    await deleteImageFiles(this.curSession!, paths, scene);
-                  }
+                  await withQueuePaused(async () => {
+                    for (const scene of selected) {
+                      const paths = gameService
+                        .getOutputs(this.curSession!, scene)
+                        .map(
+                          (x) =>
+                            imageService.getOutputDir(this.curSession!, scene!) +
+                            '/' +
+                            x,
+                        );
+                      await deleteImageFiles(this.curSession!, paths, scene);
+                    }
+                  });
                 },
               });
             } else if (menu === 'n') {
@@ -1199,25 +1212,27 @@ export class AppState {
                 text: '몇등 이하 이미지를 삭제할지 입력해주세요.',
                 callback: async (value) => {
                   if (value) {
-                    for (const scene of selected) {
-                      const paths = gameService
-                        .getOutputs(this.curSession!, scene)
-                        .map(
-                          (x) =>
-                            imageService.getOutputDir(
-                              this.curSession!,
-                              scene!,
-                            ) +
-                            '/' +
-                            x,
+                    await withQueuePaused(async () => {
+                      for (const scene of selected) {
+                        const paths = gameService
+                          .getOutputs(this.curSession!, scene)
+                          .map(
+                            (x) =>
+                              imageService.getOutputDir(
+                                this.curSession!,
+                                scene!,
+                              ) +
+                              '/' +
+                              x,
+                          );
+                        const n = parseInt(value);
+                        await deleteImageFiles(
+                          this.curSession!,
+                          paths.slice(n).filter((x) => !isMain(scene, x)),
+                          scene,
                         );
-                      const n = parseInt(value);
-                      await deleteImageFiles(
-                        this.curSession!,
-                        paths.slice(n).filter((x) => !isMain(scene, x)),
-                        scene,
-                      );
-                    }
+                      }
+                    });
                   }
                 },
               });
@@ -1226,21 +1241,23 @@ export class AppState {
                 type: 'confirm',
                 text: '정말로 즐겨찾기 외 모든 이미지를 삭제하시겠습니까?',
                 callback: async () => {
-                  for (const scene of selected) {
-                    const paths = gameService
-                      .getOutputs(this.curSession!, scene)
-                      .map(
-                        (x) =>
-                          imageService.getOutputDir(this.curSession!, scene!) +
-                          '/' +
-                          x,
+                  await withQueuePaused(async () => {
+                    for (const scene of selected) {
+                      const paths = gameService
+                        .getOutputs(this.curSession!, scene)
+                        .map(
+                          (x) =>
+                            imageService.getOutputDir(this.curSession!, scene!) +
+                            '/' +
+                            x,
+                        );
+                      await deleteImageFiles(
+                        this.curSession!,
+                        paths.filter((x) => !isMain(scene, x)),
+                        scene,
                       );
-                    await deleteImageFiles(
-                      this.curSession!,
-                      paths.filter((x) => !isMain(scene, x)),
-                      scene,
-                    );
-                  }
+                    }
+                  });
                 },
               });
             }

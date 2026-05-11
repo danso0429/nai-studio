@@ -81,6 +81,15 @@ export class ServerBackend extends Backend {
     await api('/queue/add', { method: 'POST', body: JSON.stringify(arg) });
   }
 
+  async pauseQueue(): Promise<void> {
+    // server in-flight job 완료 후 응답 (대량 삭제 race 방지)
+    await api('/queue/pause', { method: 'POST' });
+  }
+
+  async resumeQueue(): Promise<void> {
+    await api('/queue/resume', { method: 'POST' });
+  }
+
   async augmentImage(arg: ImageAugmentInput): Promise<void> {
     await api('/augment', { method: 'POST', body: JSON.stringify(arg) });
   }

@@ -121,6 +121,7 @@ function searchTagsInDB(query) {
 const genQueue = [];
 let queueProcessing = false;
 let queuePaused = false;
+let pauseRequested = false; // 사용자 명시 pause (대량 삭제 등 race 방지용)
 let queueStats = { completed: 0, failed: 0 };
 const QUEUE_MAX_SIZE = 5000;
 const DISK_WARN_GB = 15;
@@ -339,6 +340,19 @@ async function processQueue() {
   queueProcessing = true;
   queuePaused = false;
   while (genQueue.length > 0) {
+    // 사용자 명시 pause: in-flight job 완료 후 다음 job 시작 안 함
+    if (pauseRequested) {
+      if (!queuePaused) {
+        queuePaused = true;
+        broadcastQueueStatus();
+      }
+      await new Promise(r => setTimeout(r, 500));
+      continue;
+    }
+    if (queuePaused && !pauseRequested) {
+      queuePaused = false;
+      broadcastQueueStatus();
+    }
     // Disk space check before each generation
     const diskOK = await ensureDiskSpace();
     if (!diskOK) {
@@ -596,6 +610,34 @@ app.post('/api/queue/cancel', (req, res) => {
   genQueue.length = 0;
   broadcastQueueStatus();
   res.json({ ok: true, cancelled });
+});
+
+app.post('/api/queue/pause', async (req, res) => {
+  pauseRequested = true;
+  // 큐가 idle이면 in-flight 없음 → 즉시 응답
+  if (!queueProcessing) {
+    queuePaused = true;
+    broadcastQueueStatus();
+    return res.json({ ok: true, idle: true });
+  }
+  // in-flight job 완료 + pause loop 진입까지 대기 (최대 120초)
+  const start = Date.now();
+  while (queueProcessing && !queuePaused) {
+    if (Date.now() - start > 120000) {
+      return res.json({ ok: true, timeout: true });
+    }
+    await new Promise(r => setTimeout(r, 100));
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/queue/resume', (req, res) => {
+  pauseRequested = false;
+  // pause loop가 다음 iteration에서 빠져나옴. 큐가 idle이면 새로 시작.
+  if (!queueProcessing) {
+    setImmediate(() => processQueue());
+  }
+  res.json({ ok: true });
 });
 
 // ─── API: Generate / Augment ────────────────────────────────────────
