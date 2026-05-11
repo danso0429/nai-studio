@@ -583,11 +583,7 @@ export class AppState {
             );
             const path = 'exports/' + appState.curSession.name + '.json';
             await backend.writeFile(path, JSON.stringify(proj));
-            appState.setProgressDialog({
-              text: 'Drive에 업로드 중...',
-              done: 0,
-              total: 1,
-            });
+            const pid = appState.pushProgressDialog('Drive 업로드 중 (프로젝트 파일)...', 1);
             let syncOk = false;
             try {
               const r = await fetch(
@@ -608,13 +604,13 @@ export class AppState {
             } catch (e) {
               console.warn('[save] sync-exports threw:', e);
             }
-            appState.setProgressDialog(undefined);
-            appState.pushDialog({
-              type: 'yes-only',
-              text: syncOk
-                ? '프로젝트 파일 내보내기 완료\nDrive 업로드 완료 ✓\n(NAI-Studio/data/exports/)'
-                : '프로젝트 파일 내보내기 완료\nDrive 업로드 실패 — 30분 내 자동 재시도됩니다',
-            });
+            appState.finishProgressDialog(
+              pid,
+              syncOk
+                ? '✓ 프로젝트 파일 Drive 업로드 완료'
+                : '✗ Drive 업로드 실패 — 30분 내 재시도',
+              syncOk,
+            );
           }
         } else if (value === 'saveDeep') {
           if (appState.curSession) {
@@ -623,19 +619,15 @@ export class AppState {
               appState.pushMessage('이미 내보내기 작업이 진행중입니다.');
               return;
             }
-            appState.setProgressDialog({
-              text: '압축 파일 생성중..',
-              done: 0,
-              total: 1,
-            });
+            const pid = appState.pushProgressDialog('프로젝트 백업 압축 중..', 1);
             try {
               await sessionService.exportSessionDeep(appState.curSession, path);
             } catch (e: any) {
-              appState.setProgressDialog(undefined);
+              appState.finishProgressDialog(pid, '✗ 백업 압축 실패', false);
               return;
             }
-            appState.setProgressDialog({
-              text: 'Drive에 업로드 중...',
+            appState.updateProgressDialog(pid, {
+              text: 'Drive 업로드 중 (백업)...',
               done: 0,
               total: 1,
             });
@@ -659,14 +651,13 @@ export class AppState {
             } catch (e) {
               console.warn('[saveDeep] sync-exports threw:', e);
             }
-            appState.setProgressDialog(undefined);
-            appState.pushDialog({
-              type: 'yes-only',
-              text: syncOk
-                ? '프로젝트 백업 완료\nDrive 업로드 완료 ✓\n(NAI-Studio/data/exports/)'
-                : '프로젝트 백업 완료\nDrive 업로드 실패 — 30분 내 자동 재시도됩니다',
-            });
-            await backend.showFile(path);
+            appState.finishProgressDialog(
+              pid,
+              syncOk
+                ? '✓ 프로젝트 백업 Drive 업로드 완료'
+                : '✗ Drive 업로드 실패 — 30분 내 재시도',
+              syncOk,
+            );
           }
         } else if (value === 'load') {
           const file = await getFirstFile();
@@ -803,6 +794,7 @@ export class AppState {
           paths.push({ path: imgPath, name });
         }
       }
+      let pid: string | undefined;
       if (opt !== 'original') {
         const ext = opt === 'avif' ? '.avif' : '.webp';
         const optimizeMethod = opt === 'lossy'
@@ -810,14 +802,10 @@ export class AppState {
           : opt === 'avif'
             ? ImageOptimizeMethod.AVIF
             : ImageOptimizeMethod.LOSSLESS;
+        pid = appState.pushProgressDialog('이미지 크기 최적화 중..', paths.length);
         try {
           const CHUNK_SIZE = 4;
           let done = 0;
-          appState.setProgressDialog({
-            text: '이미지 크기 최적화 중..',
-            done: 0,
-            total: paths.length,
-          });
           for (let i = 0; i < paths.length; i += CHUNK_SIZE) {
             const chunk = paths.slice(i, i + CHUNK_SIZE);
             await Promise.all(
@@ -833,25 +821,25 @@ export class AppState {
                 item.path = outputPath;
                 item.name = item.name.substring(0, item.name.length - 4) + ext;
                 done++;
-                appState.setProgressDialog({
-                  text: '이미지 크기 최적화 중..',
-                  done,
-                  total: paths.length,
-                });
+                appState.updateProgressDialog(pid!, { done });
               }),
             );
           }
         } catch (e: any) {
           appState.pushMessage(e.message);
-          appState.setProgressDialog(undefined);
+          appState.finishProgressDialog(pid, '✗ 이미지 최적화 실패', false);
           return;
         }
       }
-      appState.setProgressDialog({
-        text: '이미지 압축파일 생성중..',
-        done: 0,
-        total: 1,
-      });
+      if (pid) {
+        appState.updateProgressDialog(pid, {
+          text: '이미지 압축파일 생성중..',
+          done: 0,
+          total: 1,
+        });
+      } else {
+        pid = appState.pushProgressDialog('이미지 압축파일 생성중..', 1);
+      }
       const outFilePath =
         'exports/' +
         this.curSession!.name +
@@ -859,30 +847,24 @@ export class AppState {
         Date.now().toString() +
         '.tar';
       if (zipService.isZipping) {
-        appState.pushDialog({
-          type: 'yes-only',
-          text: '이미 다른 이미지 내보내기가 진행중입니다',
-        });
+        appState.finishProgressDialog(pid, '✗ 이미 다른 내보내기 진행 중', false);
         return;
       }
       try {
         await zipService.zipFiles(paths, outFilePath);
       } catch (e: any) {
         appState.pushMessage(e.message);
-        appState.setProgressDialog(undefined);
+        appState.finishProgressDialog(pid, '✗ 압축 실패', false);
         return;
       }
-      appState.setProgressDialog(undefined);
-      // Drive 동기화: progress 표시 → 결과만 단일 다이얼로그
-      appState.setProgressDialog({
-        text: 'Drive에 업로드 중...',
+      appState.updateProgressDialog(pid, {
+        text: 'Drive 업로드 중 (이미지)...',
         done: 0,
         total: 1,
       });
       let syncOk = false;
       try {
         // Phase 7A: tar 파일 경로를 body로 전달 → 서버가 단일 파일만 업로드
-        // outFilePath 예: 'exports/myproject_main_images_1234567890.tar'
         const r = await fetch(
           (location.protocol + '//' + location.host) + import.meta.env.BASE_URL.replace(/\/$/, '') + '/api/fs/sync-exports',
           {
@@ -899,13 +881,13 @@ export class AppState {
       } catch (e) {
         console.warn('[exportPackage] sync-exports threw:', e);
       }
-      appState.setProgressDialog(undefined);
-      appState.pushDialog({
-        type: 'yes-only',
-        text: syncOk
-          ? '이미지 내보내기 완료\nDrive 업로드 완료 ✓\n(NAI-Studio/data/exports/)'
-          : '이미지 내보내기 완료\nDrive 업로드 실패 — 30분 내 자동 재시도됩니다',
-      });
+      appState.finishProgressDialog(
+        pid,
+        syncOk
+          ? '✓ 이미지 내보내기 Drive 완료'
+          : '✗ Drive 업로드 실패 — 30분 내 재시도',
+        syncOk,
+      );
     };
     const menu = await appState.pushDialogAsync({
       type: 'select',
