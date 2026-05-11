@@ -9,6 +9,9 @@
 
 ---
 
+## v1.4.5 (2026-05-11)
+- 대량 이미지 삭제 병렬화: `server.js` `/api/fs/move-batch`가 순차 `for await fs.rename`이었던 걸 `Promise.all`로 변경. libuv 스레드풀(기본 4)을 활용한 ~4배 가속.
+
 ## v1.4.4 (2026-05-11)
 - 모바일 알약 overflow 처리: `ServerQueueStatus`에 `min-w-0 max-w-full` 추가 + inner truncate를 `max-w-[120px] md:max-w-[200px]`로 분기. 모바일 세로 보기에서 알약 왼쪽 잘림 해소.
 - `update.sh`가 `public/build-info.json`도 갱신하도록 확장 (지금까지 release/deploy 스크립트만 생성, update 경로에선 stale 상태 유지되던 사전 버그). `public/build-info.json`은 gitignore로 이동 (런타임 생성물).

@@ -854,16 +854,16 @@ app.post('/api/fs/delete-batch', async (req, res) => {
 app.post('/api/fs/move-batch', async (req, res) => {
   try {
     const moves = req.body.moves || []; // [{src, dest}]
-    let moved = 0;
-    for (const { src, dest } of moves) {
+    const results = await Promise.all(moves.map(async ({ src, dest }) => {
       try {
         const srcPath = resolvePath(src);
         const destPath = resolvePath(dest);
         await fs.mkdir(path.dirname(destPath), { recursive: true });
         await fs.rename(srcPath, destPath);
-        moved++;
-      } catch {}
-    }
+        return 1;
+      } catch { return 0; }
+    }));
+    const moved = results.reduce((a, b) => a + b, 0);
     res.json({ ok: true, moved });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

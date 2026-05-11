@@ -1,6 +1,6 @@
 {
-  "version": "1.4.4",
+  "version": "1.4.5",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-11",
-  "notes": "모바일 알약 overflow 처리 + update.sh가 build-info.json도 갱신"
+  "notes": "대량 이미지 삭제 병렬화 (server `/api/fs/move-batch` for-loop → Promise.all)"
 }
