@@ -310,7 +310,13 @@ export class AppState {
   }
 
   handleFile(file: File) {
-    if (file.type === 'application/json') {
+    // iOS Safari는 .json/.png 파일에 file.type을 빈 문자열로 주는 경우가 있어
+    // 확장자 fallback도 함께 검사.
+    const isJson =
+      file.type === 'application/json' || /\.json$/i.test(file.name);
+    const isPng =
+      file.type === 'image/png' || /\.png$/i.test(file.name);
+    if (isJson) {
       const reader = new FileReader();
       reader.onload = (e: any) => {
         try {
@@ -321,7 +327,7 @@ export class AppState {
         }
       };
       reader.readAsText(file);
-    } else if (file.type === 'image/png') {
+    } else if (isPng) {
       if (!this.curSession) {
         return;
       }
