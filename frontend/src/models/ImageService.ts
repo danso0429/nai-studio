@@ -226,14 +226,15 @@ export class ImageService extends EventTarget {
         const res = this.cache.get(path);
         return res;
       }
-      // 파일 존재 여부 먼저 확인하여 불필요한 오류 로그 방지
-      const exists = await backend.existFile(path);
-      if (!exists) {
+      // existFile + readDataFile 2 round-trip을 readDataFile 1 round-trip으로 합침.
+      // 서버가 404로 응답하면 throw — 파일 없음/네트워크 에러 둘 다 null로 일관 처리.
+      try {
+        const data = await backend.readDataFile(path);
+        this.cache.set(path, data);
+        return data;
+      } catch {
         return null;
       }
-      const data = await backend.readDataFile(path);
-      this.cache.set(path, data);
-      return data;
     } finally {
       if (holdMutex) this.releaseMutex(path);
     }
