@@ -1,6 +1,6 @@
 {
-  "version": "1.4.5",
+  "version": "1.5.0-preview.1",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-11",
-  "notes": "대량 이미지 삭제 병렬화 (server `/api/fs/move-batch` for-loop → Promise.all)"
+  "notes": "Progress UI 개편(상단 띠, 다중 동시, 가로 분할, 알림 통합) / 대량 삭제 race 방지 / 이미지 export 4-청크 병렬화 / 프로젝트 백업도 Drive 업로드 / Drive 재시도 서버 큐 / 진행 중 파괴적 조작 차단"
 }
