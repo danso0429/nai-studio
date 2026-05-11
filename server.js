@@ -122,7 +122,7 @@ const genQueue = [];
 let queueProcessing = false;
 let queuePaused = false;
 let pauseRequested = false; // 사용자 명시 pause (대량 삭제 등 race 방지용)
-let queueStats = { completed: 0, failed: 0, totalProcessTimeMs: 0 };
+let queueStats = { completed: 0, failed: 0, totalProcessTimeMs: 0, completedWithTiming: 0 };
 const QUEUE_MAX_SIZE = 5000;
 const DISK_WARN_GB = 15;
 const DISK_CRIT_GB = 10;
@@ -170,6 +170,7 @@ function loadQueueState() {
       queueStats.completed = state.stats?.completed || 0;
       queueStats.failed = state.stats?.failed || 0;
       queueStats.totalProcessTimeMs = state.stats?.totalProcessTimeMs || 0;
+      queueStats.completedWithTiming = state.stats?.completedWithTiming || 0;
       console.log('[NAI Studio] Restored ' + genQueue.length + ' queued jobs from disk');
       processQueue();
     }
@@ -551,6 +552,7 @@ async function processQueue() {
       broadcastQueueStatus();
       broadcast('image-changed', job.params.outputFilePath);
       queueStats.totalProcessTimeMs += Date.now() - jobStartedAt;
+      queueStats.completedWithTiming++;
       queueStats.completed++;
     } catch (e) {
       if (e.message && e.message.includes('429')) {
@@ -736,7 +738,11 @@ app.post('/api/queue/add-batch', async (req, res) => {
 
 app.get('/api/queue/status', async (req, res) => {
   const freeGB = await getDiskFreeGB();
-  const avgMs = queueStats.completed > 0 ? queueStats.totalProcessTimeMs / queueStats.completed : 0;
+  // 평균은 timing 측정한 건수로만 나눠야 정확. 영속화된 completed(과거)와
+  // totalProcessTimeMs(측정 시점부터) 분모/분자 mismatch 방지.
+  const avgMs = queueStats.completedWithTiming > 0
+    ? queueStats.totalProcessTimeMs / queueStats.completedWithTiming
+    : 0;
   const etaMs = avgMs > 0 ? Math.round(avgMs * genQueue.length) : null;
   res.json({
     pending: genQueue.length,
