@@ -1264,15 +1264,30 @@ app.post('/api/fs/zip', async (req, res) => {
   try {
     const JSZip = require('jszip');
     const zip = new JSZip();
+    const skipped = [];
+    let included = 0;
     for (const entry of req.body.files) {
-      const content = await fs.readFile(resolvePath(entry.path));
-      zip.file(entry.name, content);
+      try {
+        const content = await fs.readFile(resolvePath(entry.path));
+        zip.file(entry.name, content);
+        included++;
+      } catch (e) {
+        if (e.code === 'ENOENT') {
+          skipped.push(entry.path);
+          console.warn('[zip] ENOENT, skipping:', entry.path);
+        } else {
+          throw e;
+        }
+      }
+    }
+    if (included === 0) {
+      return res.status(500).json({ ok: false, error: '아카이브할 파일이 없어요', skipped });
     }
     const buf = await zip.generateAsync({ type: 'nodebuffer' });
     const outPath = resolvePath(req.body.outPath);
     await fs.mkdir(path.dirname(outPath), { recursive: true });
     await fs.writeFile(outPath, buf);
-    res.json({ ok: true });
+    res.json({ ok: true, included, skipped });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

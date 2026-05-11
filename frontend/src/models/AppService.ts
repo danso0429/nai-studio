@@ -895,7 +895,18 @@ export class AppState {
         return;
       }
       try {
-        await zipService.zipFiles(paths, outFilePath);
+        const zipResult = await zipService.zipFiles(paths, outFilePath);
+        if (zipResult.skipped.length > 0) {
+          const preview = zipResult.skipped
+            .slice(0, 3)
+            .map((p) => p.split('/').pop())
+            .join(', ');
+          const more =
+            zipResult.skipped.length > 3 ? ` 외 ${zipResult.skipped.length - 3}개` : '';
+          appState.pushMessage(
+            `${zipResult.skipped.length}개 파일 누락 — 자동 제외하고 진행 (${preview}${more})`,
+          );
+        }
       } catch (e: any) {
         appState.pushMessage(e.message);
         appState.finishProgressDialog(pid, '✗ 압축 실패', false);

@@ -38,10 +38,13 @@ export class ZipService extends EventTarget {
     this.isZipping = false;
   }
 
-  async zipFiles(files: FileEntry[], outPath: string) {
+  async zipFiles(files: FileEntry[], outPath: string): Promise<{ skipped: string[] }> {
     this.isZipping = true;
-    await backend.zipFiles(files, outPath);
-    this.isZipping = false;
+    try {
+      return await backend.zipFiles(files, outPath);
+    } finally {
+      this.isZipping = false;
+    }
   }
 }
 

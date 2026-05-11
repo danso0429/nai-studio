@@ -139,8 +139,9 @@ export class ServerBackend extends Backend {
     a.click();
   }
 
-  async zipFiles(files: FileEntry[], outPath: string): Promise<void> {
-    await api('/fs/zip', { method: 'POST', body: JSON.stringify({ files, outPath }) });
+  async zipFiles(files: FileEntry[], outPath: string): Promise<{ skipped: string[] }> {
+    const data = await apiJSON('/fs/zip', { method: 'POST', body: JSON.stringify({ files, outPath }) });
+    return { skipped: Array.isArray(data.skipped) ? data.skipped : [] };
   }
 
   async unzipFiles(tarPath: string, outPath: string): Promise<void> {

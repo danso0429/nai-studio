@@ -73,7 +73,7 @@ export abstract class Backend {
   abstract encodeVibeImage(arg: EncodeVibeImageInput): Promise<string>;
   abstract showFile(arg: string): Promise<void>;
   abstract copyToDownloads(path: string): Promise<void>;
-  abstract zipFiles(files: FileEntry[], outPath: string): Promise<void>;
+  abstract zipFiles(files: FileEntry[], outPath: string): Promise<{ skipped: string[] }>;
   abstract unzipFiles(tarPath: string, outPath: string): Promise<void>;
   abstract searchTags(word: string): Promise<any>;
   abstract lookupTag(word: string): Promise<any>;
