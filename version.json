@@ -1,6 +1,6 @@
 {
-  "version": "1.4.1",
+  "version": "1.4.2",
   "sdstudioBase": "4.7.1",
-  "released": "2026-05-10",
-  "notes": "Phase 7C H2: bulk favorite toggle for multi-selected images"
+  "released": "2026-05-11",
+  "notes": "Configurable base path, port, and prefix via env vars (.env.local)"
 }

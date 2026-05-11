@@ -9,6 +9,9 @@
 
 ---
 
+## v1.4.2 (2026-05-11)
+- Configurable base path, port, and prefix via env vars (.env.local)
+
 ## v1.4.1 (2026-05-10)
 - Phase 7C H2: bulk favorite toggle for multi-selected images
 
