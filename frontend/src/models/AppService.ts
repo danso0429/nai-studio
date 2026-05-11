@@ -209,6 +209,14 @@ export class AppState {
     this.progressDialog = dialog;
   }
 
+  blockIfBusy(): boolean {
+    if (this.progressDialog) {
+      this.pushMessage('진행 중인 작업이 끝난 후 다시 시도해주세요.');
+      return true;
+    }
+    return false;
+  }
+
   handleFile(file: File) {
     if (file.type === 'application/json') {
       const reader = new FileReader();
@@ -587,6 +595,7 @@ export class AppState {
             appState.pushMessage('프로젝트를 먼저 선택해주세요');
             return;
           }
+          if (appState.blockIfBusy()) return;
           appState.pushDialog({
             type: 'input-confirm',
             text: '새로운 프로젝트 이름을 입력해주세요',
@@ -1155,6 +1164,7 @@ export class AppState {
     };
 
     const deleteScenes = async (selected: GenericScene[]) => {
+      if (appState.blockIfBusy()) return;
       appState.pushDialog({
         type: 'confirm',
         text: `정말로 선택한 ${selected.length}개의 씬을 삭제하시겠습니까? (휴지통으로 이동)`,
@@ -1205,6 +1215,7 @@ export class AppState {
         }
       };
       if (value === 'removeImage') {
+        if (appState.blockIfBusy()) return;
         appState.pushDialog({
           type: 'select',
           text: '이미지를 삭제합니다. 원하시는 작업을 선택해주세요.',

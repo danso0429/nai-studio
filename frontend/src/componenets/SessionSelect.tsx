@@ -54,6 +54,7 @@ const SessionSelect = observer(() => {
   };
 
   const deleteSession = () => {
+    if (appState.blockIfBusy()) return;
     appState.pushDialog({
       type: 'confirm',
       text: '정말로 이 프로젝트를 삭제하시겠습니까? (휴지통으로 이동)',
