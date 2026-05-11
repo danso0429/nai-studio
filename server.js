@@ -1347,7 +1347,7 @@ app.post('/api/fs/zip', async (req, res) => {
       }
     }
     if (included === 0) {
-      return res.status(500).json({ ok: false, error: '아카이브할 파일이 없어요', skipped });
+      return res.status(400).json({ ok: false, error: '아카이브할 파일이 없어요', skipped });
     }
     const buf = await zip.generateAsync({ type: 'nodebuffer' });
     const outPath = resolvePath(req.body.outPath);

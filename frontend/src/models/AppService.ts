@@ -944,7 +944,15 @@ export class AppState {
           );
         }
       } catch (e: any) {
-        appState.pushMessage(e.message);
+        let userMsg = e.message;
+        const m = /^API error \d+: (.+)$/s.exec(e.message);
+        if (m) {
+          try {
+            const body = JSON.parse(m[1]);
+            if (body?.error) userMsg = body.error;
+          } catch {}
+        }
+        appState.pushMessage(userMsg);
         appState.finishProgressDialog(pid, '✗ 압축 실패', false);
         return;
       }
