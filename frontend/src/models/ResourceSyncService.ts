@@ -13,6 +13,7 @@ export abstract class ResourceSyncService<
   resources: { [name: string]: T };
   dirty: { [name: string]: boolean };
   resourceList: string[];
+  folderList: string[];
   disposes: { [name: string]: () => void };
   resourceDir: string;
   updateInterval: number;
@@ -25,6 +26,7 @@ export abstract class ResourceSyncService<
     this.disposes = {};
     this.resourceDir = resourceDir;
     this.resourceList = [];
+    this.folderList = [];
     this.updateInterval = interval;
     this.running = true;
     (async () => {
@@ -182,9 +184,14 @@ export abstract class ResourceSyncService<
     // session.name keeps the slash (e.g. 'folderA/projX') so storage paths
     // stay consistent without further code changes.
     const result = await backend.listFilesRecursive(this.resourceDir, 1);
+    this.folderList = result.dirs.slice();
     return result.files
       .filter((x: string) => x.endsWith('.json'))
       .map((x: string) => x.substring(0, x.length - 5));
+  }
+
+  listFolders(): string[] {
+    return this.folderList.slice();
   }
 
   private async fillEmptyPresetVars(obj: any) {

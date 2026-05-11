@@ -207,15 +207,33 @@ const SessionSelect = observer(() => {
           options={
             [...sessionNames]
               .sort((a, b) => {
+                // 1. favorites first
                 const aFav = sessionService.isFavorite(a);
                 const bFav = sessionService.isFavorite(b);
                 if (aFav !== bFav) return aFav ? -1 : 1;
+                // 2. folder grouping: root projects first, then folders alphabetical
+                const aFolder = a.includes('/') ? a.substring(0, a.indexOf('/')) : '';
+                const bFolder = b.includes('/') ? b.substring(0, b.indexOf('/')) : '';
+                if (aFolder !== bFolder) return aFolder.localeCompare(bFolder);
+                // 3. within same group: locale alphabetical
                 return a.localeCompare(b);
               })
-              .map((name) => ({
-                label: sessionService.isFavorite(name) ? '⭐ ' + name : name,
-                value: name,
-              }))
+              .map((name) => {
+                const fav = sessionService.isFavorite(name);
+                const slashIdx = name.indexOf('/');
+                let label: string;
+                if (slashIdx >= 0) {
+                  const folder = name.substring(0, slashIdx);
+                  const leaf = name.substring(slashIdx + 1);
+                  label = `📁 ${folder} / ${leaf}`;
+                } else {
+                  label = name;
+                }
+                return {
+                  label: fav ? '⭐ ' + label : label,
+                  value: name,
+                };
+              })
           }
           onSelect={selectSession}
         />
