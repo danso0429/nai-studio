@@ -112,13 +112,23 @@ const TrashImageView = ({ session, scene, imageSize }: TrashImageViewProps) => {
   // 썸네일 로드
   useEffect(() => {
     const loadThumbnails = async () => {
+      const results = await Promise.all(
+        trashImages.map(async (item) => {
+          const path = trashService.getTrashImagePath(session, scene, item.filename);
+          try {
+            const thumb = await imageService.fetchImageSmall(
+              path,
+              isMobile ? 200 : Math.min(imageSize, 400),
+            );
+            return [item.filename, thumb] as const;
+          } catch {
+            return [item.filename, null] as const;
+          }
+        }),
+      );
       const newThumbs: Record<string, string> = {};
-      for (const item of trashImages) {
-        const path = trashService.getTrashImagePath(session, scene, item.filename);
-        try {
-          const thumb = await imageService.fetchImageSmall(path, isMobile ? 200 : Math.min(imageSize, 400));
-          if (thumb) newThumbs[item.filename] = thumb;
-        } catch (e) {}
+      for (const [name, thumb] of results) {
+        if (thumb) newThumbs[name] = thumb;
       }
       setThumbnails(newThumbs);
     };
