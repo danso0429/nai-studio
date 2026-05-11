@@ -9,6 +9,13 @@
 
 ---
 
+## v1.5.0-preview.3 (2026-05-11)
+- **fix**: `/api/fs/zip`이 전부 누락 케이스에서 500 던지던 흐름을 400으로 정정 + 클라 측 zip catch가 raw `API error 500: {...}` 대신 응답 JSON의 `error` 필드만 추출해 "아카이브할 파일이 없어요" 깔끔 표시.
+- **feat**: 상단 알림/진행 띠 touch-through. 띠 본체 영역 클릭이 뒤의 프로젝트 칸/버튼으로 통과 (모바일에서 띠가 가리던 UX 회귀). 알림 dismiss는 3초 자동 유지.
+- **infra**: vite outDir을 `public/` 자체에서 `public/build/`로 분리. emptyOutDir이 사람·update.sh가 만든 `queue.html`, `build-info.json`까지 휩쓸던 회귀 원천 차단. `express.static`을 두 폴더 체인으로 등록해 URL 응답은 그대로.
+- **perf**: 휴지통 썸네일 18개 직렬 fetch → `Promise.all` 병렬화. JOURNAL Phase 8 측정 기준 5.3초 → 2.9초 (-45%).
+- **perf**: `fetchImage`의 `existFile + readDataFile` 2 round-trip → `readDataFile` 1 round-trip. 서버 404를 catch로 null 변환해 의미 보존. 캐시 miss 케이스만 RTT 절약. (단 씬 로딩 5~20초 만성 지연엔 체감 효과 없음 — RTT는 진짜 원인 아님으로 판명.)
+
 ## v1.5.0-preview.2 (2026-05-11)
 - **F1**: Drive 재시도 정책을 30분 고정 × 48회에서 exponential backoff (60s → 2m → 5m → 10m → 20m → 30m, 6회)로 변경. 6회 모두 실패하면 `status: 'failed'`로 큐에 남겨 사용자가 dismiss/reset 결정. poll 주기 30초로 가속.
 - **F1 신규 엔드포인트**: `POST /api/drive/retry-now` (즉시 일제 시도), `POST /api/drive/retry-dismiss` (entry 제거), `POST /api/drive/retry-reset` (failed → pending).

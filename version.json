@@ -1,6 +1,6 @@
 {
-  "version": "1.5.0-preview.2",
+  "version": "1.5.0-preview.3",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-11",
-  "notes": "Drive 재시도 exponential backoff(F1) + 프론트 상태 동기화(F2) + 좌측 하단 위젯·모달(F3) + zip ENOENT 자동 skip(F4)"
+  "notes": "/api/fs/zip 500→400 + 친절 alert + 상단 띠 touch-through + vite outDir 분리(휩쓸기 차단) + 휴지통 썸네일 병렬화 + fetchImage 1 RTT"
 }
