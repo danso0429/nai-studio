@@ -16,14 +16,25 @@ git fetch origin main --quiet
 
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
+LOCAL_SHORT=$(git rev-parse --short HEAD)
 
-if [ "$LOCAL" = "$REMOTE" ]; then
-    echo "✓ 이미 최신 버전입니다."
+# 빌드 동기화 검사: deploy된 build-info.json의 gitHash가 HEAD와 일치하는지
+BUILT_HASH=""
+if [ -f public/build-info.json ]; then
+    BUILT_HASH=$(python3 -c "import json; print(json.load(open('public/build-info.json')).get('gitHash',''))" 2>/dev/null || echo "")
+fi
+
+if [ "$LOCAL" = "$REMOTE" ] && [ "$BUILT_HASH" = "$LOCAL_SHORT" ]; then
+    echo "✓ 이미 최신 버전이고 빌드도 동기화됨."
     if [ -f version.json ]; then
         VERSION=$(python3 -c "import json; print(json.load(open('version.json'))['version'])" 2>/dev/null || echo "?")
-        echo "  버전: v$VERSION"
+        echo "  버전: v$VERSION (gitHash=$LOCAL_SHORT)"
     fi
     exit 0
+fi
+
+if [ "$LOCAL" = "$REMOTE" ]; then
+    echo "ℹ️  git은 최신이지만 빌드가 stale (built=${BUILT_HASH:-none}, HEAD=$LOCAL_SHORT) → 재빌드 진행"
 fi
 
 # 큐 활성 체크 (선택)
