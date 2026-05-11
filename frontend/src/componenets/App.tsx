@@ -15,6 +15,7 @@ import TaskQueueControl, { TaskQueueProgress, TaskQueueControls } from './TaskQu
 import ServerQueueStatus from './ServerQueueStatus';
 import TobBar from './TobBar';
 import AlertWindow from './AlertWindow';
+import DriveRetryWidget from './DriveRetryWidget';
 import { DropdownSelect, TabComponent } from './UtilComponents';
 import PieceEditor, { PieceCell } from './PieceEditor';
 import PromptTooltip from './PromptTooltip';
@@ -484,6 +485,7 @@ export const App = observer(() => {
           dialogs={appState.progressDialogs}
           messagesCount={appState.messages.length}
         />
+        <DriveRetryWidget />
         <PromptTooltip />
         <ModalOverlay
           isOpen={appState.pieceEditorOpen}
