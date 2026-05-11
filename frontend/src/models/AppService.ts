@@ -721,24 +721,35 @@ export class AppState {
             ? ImageOptimizeMethod.AVIF
             : ImageOptimizeMethod.LOSSLESS;
         try {
+          const CHUNK_SIZE = 4;
           let done = 0;
-          for (const item of paths) {
-            const outputPath = 'tmp/' + v4() + ext;
-            appState.setProgressDialog({
-              text: '이미지 크기 최적화 중..',
-              done: done,
-              total: paths.length,
-            });
-            await backend.resizeImage({
-              inputPath: item.path,
-              outputPath: outputPath,
-              maxHeight: imageSize,
-              maxWidth: imageSize,
-              optimize: optimizeMethod,
-            });
-            item.path = outputPath;
-            item.name = item.name.substring(0, item.name.length - 4) + ext;
-            done++;
+          appState.setProgressDialog({
+            text: '이미지 크기 최적화 중..',
+            done: 0,
+            total: paths.length,
+          });
+          for (let i = 0; i < paths.length; i += CHUNK_SIZE) {
+            const chunk = paths.slice(i, i + CHUNK_SIZE);
+            await Promise.all(
+              chunk.map(async (item) => {
+                const outputPath = 'tmp/' + v4() + ext;
+                await backend.resizeImage({
+                  inputPath: item.path,
+                  outputPath: outputPath,
+                  maxHeight: imageSize,
+                  maxWidth: imageSize,
+                  optimize: optimizeMethod,
+                });
+                item.path = outputPath;
+                item.name = item.name.substring(0, item.name.length - 4) + ext;
+                done++;
+                appState.setProgressDialog({
+                  text: '이미지 크기 최적화 중..',
+                  done,
+                  total: paths.length,
+                });
+              }),
+            );
           }
         } catch (e: any) {
           appState.pushMessage(e.message);
