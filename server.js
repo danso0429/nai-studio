@@ -176,6 +176,117 @@ function loadQueueState() {
   } catch {}
 }
 
+// ─── Drive retry queue (Phase 9) ────────────────────────────────────
+// 단일 파일 Drive 업로드 실패 시 큐에 적재, 30분 간격 자동 재시도.
+// 큐는 영속(JSON 파일). 서버 재시작 시 복원.
+const DRIVE_RETRY_QUEUE_FILE = path.join(DATA_DIR, '.drive-retry-queue.json');
+const DRIVE_RETRY_INTERVAL_MS = 30 * 60 * 1000;
+const DRIVE_RETRY_MAX_ATTEMPTS = 48;
+let driveRetryQueue = [];
+
+async function loadDriveRetryQueue() {
+  try {
+    const data = await fs.readFile(DRIVE_RETRY_QUEUE_FILE, 'utf-8');
+    const parsed = JSON.parse(data);
+    driveRetryQueue = Array.isArray(parsed) ? parsed : [];
+    console.log('[Drive retry] loaded ' + driveRetryQueue.length + ' entries');
+  } catch (e) {
+    if (e.code !== 'ENOENT') {
+      console.warn('[Drive retry] load failed:', e.message);
+    }
+    driveRetryQueue = [];
+  }
+}
+
+async function saveDriveRetryQueue() {
+  try {
+    await fs.writeFile(DRIVE_RETRY_QUEUE_FILE, JSON.stringify(driveRetryQueue, null, 2));
+  } catch (e) {
+    console.error('[Drive retry] save failed:', e.message);
+  }
+}
+
+function enqueueDriveRetry(localPath, remotePath, initialError) {
+  const existingIdx = driveRetryQueue.findIndex((e) => e.localPath === localPath);
+  const now = Date.now();
+  const entry = {
+    localPath,
+    remotePath,
+    addedAt: existingIdx >= 0 ? driveRetryQueue[existingIdx].addedAt : now,
+    attempts: existingIdx >= 0 ? driveRetryQueue[existingIdx].attempts : 0,
+    lastError: initialError || null,
+    lastAttemptAt: now,
+  };
+  if (existingIdx >= 0) {
+    driveRetryQueue[existingIdx] = entry;
+  } else {
+    driveRetryQueue.push(entry);
+  }
+  saveDriveRetryQueue();
+  console.log('[Drive retry] enqueued: ' + localPath + ' (queue size=' + driveRetryQueue.length + ')');
+}
+
+function dequeueDriveRetry(localPath) {
+  const idx = driveRetryQueue.findIndex((e) => e.localPath === localPath);
+  if (idx >= 0) {
+    driveRetryQueue.splice(idx, 1);
+    saveDriveRetryQueue();
+    console.log('[Drive retry] removed: ' + localPath);
+  }
+}
+
+function rcloneCopytoOnce(localPath, remotePath, timeoutMs) {
+  return new Promise((resolve) => {
+    const { exec } = require('child_process');
+    const cmd =
+      'rclone copyto ' +
+      JSON.stringify(localPath) +
+      ' ' +
+      JSON.stringify(remotePath) +
+      ' --log-level INFO';
+    exec(cmd, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err) => {
+      if (err) resolve({ ok: false, error: err.message });
+      else resolve({ ok: true });
+    });
+  });
+}
+
+async function processDriveRetryQueue() {
+  if (driveRetryQueue.length === 0) return;
+  console.log('[Drive retry] processing ' + driveRetryQueue.length + ' entries');
+  const next = [];
+  let succeeded = 0;
+  let dropped = 0;
+  for (const entry of driveRetryQueue) {
+    const result = await rcloneCopytoOnce(entry.localPath, entry.remotePath, 30000);
+    if (result.ok) {
+      console.log('[Drive retry] success: ' + entry.localPath);
+      succeeded++;
+      continue;
+    }
+    entry.attempts += 1;
+    entry.lastError = result.error;
+    entry.lastAttemptAt = Date.now();
+    if (entry.attempts >= DRIVE_RETRY_MAX_ATTEMPTS) {
+      console.error(
+        '[Drive retry] giving up after ' + entry.attempts + ' attempts: ' + entry.localPath,
+      );
+      dropped++;
+    } else {
+      next.push(entry);
+    }
+  }
+  driveRetryQueue = next;
+  await saveDriveRetryQueue();
+  console.log(
+    '[Drive retry] done. success=' +
+      succeeded +
+      ', dropped=' +
+      dropped +
+      ', remaining=' +
+      driveRetryQueue.length,
+  );
+}
 
 async function getDiskFreeGB() {
   try {
@@ -1047,11 +1158,43 @@ app.post('/api/fs/sync-exports', async (req, res) => {
   exec(rcloneCmd, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
     if (err) {
       console.error('[Sync exports] error (mode=' + mode + '):', err.message);
-      return res.status(500).json({ ok: false, error: err.message, mode });
+      if (mode === 'file') {
+        enqueueDriveRetry(localPath, remotePath, err.message);
+      }
+      return res.status(500).json({
+        ok: false,
+        error: err.message,
+        mode,
+        retryQueued: mode === 'file',
+      });
     }
     console.log('[Sync exports] uploaded (mode=' + mode + ')');
+    if (mode === 'file') {
+      dequeueDriveRetry(localPath);
+    }
     res.json({ ok: true, mode });
   });
+});
+
+app.get('/api/drive/retry-status', (req, res) => {
+  res.json({
+    count: driveRetryQueue.length,
+    intervalMs: DRIVE_RETRY_INTERVAL_MS,
+    maxAttempts: DRIVE_RETRY_MAX_ATTEMPTS,
+    entries: driveRetryQueue.map((e) => ({
+      fileName: path.basename(e.localPath),
+      addedAt: e.addedAt,
+      attempts: e.attempts,
+      lastError: e.lastError,
+      lastAttemptAt: e.lastAttemptAt,
+    })),
+  });
+});
+
+app.post('/api/drive/retry-now', async (req, res) => {
+  const before = driveRetryQueue.length;
+  await processDriveRetryQueue();
+  res.json({ ok: true, before, after: driveRetryQueue.length });
 });
 
 app.post('/api/fs/zip', async (req, res) => {
@@ -1261,6 +1404,9 @@ async function start() {
   server.listen(PORT, () => {
     console.log(`[NAI Studio] Server running on port ${PORT}`);
   loadQueueState();
+    loadDriveRetryQueue().then(() => {
+      setInterval(processDriveRetryQueue, DRIVE_RETRY_INTERVAL_MS);
+    });
     console.log(`[NAI Studio] Frontend: http://localhost:${PORT}`);
     console.log(`[NAI Studio] API: http://localhost:${PORT}/api`);
   });
