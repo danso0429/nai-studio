@@ -61,7 +61,7 @@ export interface SceneSelectorItem {
 
 export class AppState {
   @observable accessor curSession: Session | undefined = undefined;
-  @observable accessor messages: string[] = [];
+  @observable accessor messages: { id: string; text: string }[] = [];
   @observable accessor dialogs: Dialog[] = [];
   @observable accessor samples: number = 10;
   @observable accessor progressDialogs: ProgressDialog[] = [];
@@ -147,7 +147,9 @@ export class AppState {
 
   @action
   addMessage(message: string): void {
-    this.messages.push(message);
+    const id = v4();
+    this.messages.push({ id, text: message });
+    this._scheduleMessageDismiss(id);
   }
 
   @action
@@ -161,7 +163,16 @@ export class AppState {
   }
 
   pushMessage(msg: string) {
-    this.messages.push(msg);
+    const id = v4();
+    this.messages.push({ id, text: msg });
+    this._scheduleMessageDismiss(id);
+  }
+
+  private _scheduleMessageDismiss(id: string) {
+    setTimeout(() => {
+      const idx = this.messages.findIndex((m) => m.id === id);
+      if (idx >= 0) this.messages.splice(idx, 1);
+    }, 3000);
   }
 
   pushDialog(dialog: Dialog) {

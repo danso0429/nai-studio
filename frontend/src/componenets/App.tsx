@@ -480,7 +480,10 @@ export const App = observer(() => {
         <ConfirmWindow />
         <ExpiredProjectsDialog />
         <GlobalPresetPickerOverlay />
-        <ProgressWindow dialogs={appState.progressDialogs} />
+        <ProgressWindow
+          dialogs={appState.progressDialogs}
+          messagesCount={appState.messages.length}
+        />
         <PromptTooltip />
         <ModalOverlay
           isOpen={appState.pieceEditorOpen}

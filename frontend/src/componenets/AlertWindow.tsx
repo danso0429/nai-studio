@@ -1,35 +1,26 @@
 import { observer } from 'mobx-react-lite';
-import { useContext, useEffect } from 'react';
 import { appState } from '../models/AppService';
 
 const AlertWindow = observer(() => {
   const { messages } = appState;
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (messages.length > 0) {
-        appState.messages.splice(0, 1);
-      }
-    }, 5000);
-    return () => {
-      clearInterval(interval);
-    };
-  }, [messages]);
-
+  if (messages.length === 0) return null;
   return (
-    <div className="fixed flex justify-center w-full alert-window pointer-events-none">
-      {messages.length > 0 && (
-        <div className="flex justify-between m-4 p-4 rounded-md shadow-xl bg-red-600	text-white w-3/4 pointer-events-auto">
-          <div>{messages[messages.length - 1]}</div>
-          <button
-            onClick={() => {
-              appState.messages.splice(0, 1);
-            }}
-          >
-            X
-          </button>
+    <div
+      className="fixed top-0 left-0 right-0 flex flex-col gap-2 px-2 mt-2 pointer-events-none"
+      style={{ zIndex: 5000 }}
+    >
+      {messages.map((m) => (
+        <div
+          key={m.id}
+          onClick={() => {
+            const idx = appState.messages.findIndex((x) => x.id === m.id);
+            if (idx >= 0) appState.messages.splice(idx, 1);
+          }}
+          className="px-3 py-2 rounded-md shadow-lg bg-red-500 text-white text-xs sm:text-sm break-keep pointer-events-auto cursor-pointer"
+        >
+          {m.text}
         </div>
-      )}
+      ))}
     </div>
   );
 });

@@ -8,6 +8,7 @@ export interface ProgressDialog {
 
 interface Props {
   dialogs: ProgressDialog[];
+  messagesCount?: number;
 }
 
 const barColor = (status?: string) => {
@@ -16,12 +17,13 @@ const barColor = (status?: string) => {
   return 'bg-sky-500 dark:bg-indigo-400';
 };
 
-const ProgressWindow = ({ dialogs }: Props) => {
+const ProgressWindow = ({ dialogs, messagesCount = 0 }: Props) => {
   if (dialogs.length === 0) return null;
+  const topPx = 8 + messagesCount * 40;
   return (
     <div
-      className="fixed top-0 left-0 right-0 flex justify-center gap-2 pointer-events-none px-2 mt-2"
-      style={{ zIndex: 5000 }}
+      className="fixed top-0 left-0 right-0 flex justify-center gap-2 pointer-events-none px-2"
+      style={{ zIndex: 5000, marginTop: topPx + 'px' }}
     >
       {dialogs.map((d) => {
         const finished = d.status === 'success' || d.status === 'error';
