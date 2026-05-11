@@ -76,7 +76,7 @@ const ServerQueueStatus = () => {
     : '';
 
   return (
-    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium select-none transition-opacity duration-300 ${
+    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium select-none transition-opacity duration-300 min-w-0 max-w-full ${
       isDone
         ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
         : queue.paused
@@ -91,7 +91,7 @@ const ServerQueueStatus = () => {
       )}
       {isDone && <span>✓</span>}
       {queue.paused && <span>⏸</span>}
-      <span className="truncate max-w-[200px]">
+      <span className="truncate max-w-[120px] md:max-w-[200px]">
         {isActive
           ? (currentScene ? `서버: ${done}/${total} · ${currentScene}` : `서버: ${done}/${total}`)
           : isDone

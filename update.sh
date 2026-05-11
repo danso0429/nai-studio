@@ -50,6 +50,15 @@ npm install --silent
 npx vite build --emptyOutDir
 cd ..
 
+echo "📋 build-info.json 갱신..."
+HASH=$(git rev-parse --short HEAD)
+VER=$(python3 -c "import json; print(json.load(open('version.json'))['version'])" 2>/dev/null || echo "?")
+SDSBASE=$(python3 -c "import json; print(json.load(open('version.json'))['sdstudioBase'])" 2>/dev/null || echo "?")
+cat > public/build-info.json <<EOF
+{"buildTime":"$(date -u '+%Y-%m-%dT%H:%M:%SZ')","gitHash":"$HASH","version":"$VER","sdstudioBase":"$SDSBASE"}
+EOF
+echo "  → version=$VER gitHash=$HASH"
+
 echo "🔄 서버 재시작..."
 if command -v pm2 &> /dev/null && pm2 describe "$PM2_NAME" &> /dev/null; then
     pm2 restart "$PM2_NAME"

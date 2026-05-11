@@ -1,6 +1,6 @@
 {
-  "version": "1.4.3",
+  "version": "1.4.4",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-11",
-  "notes": "update.sh auto-detects PORT and pm2 app name from .env.local + cwd"
+  "notes": "모바일 알약 overflow 처리 + update.sh가 build-info.json도 갱신"
 }
