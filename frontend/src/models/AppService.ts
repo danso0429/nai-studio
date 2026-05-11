@@ -64,7 +64,7 @@ export class AppState {
   @observable accessor messages: string[] = [];
   @observable accessor dialogs: Dialog[] = [];
   @observable accessor samples: number = 10;
-  @observable accessor progressDialog: ProgressDialog | undefined = undefined;
+  @observable accessor progressDialogs: ProgressDialog[] = [];
   @observable accessor externalImage: string | undefined = undefined;
   @observable accessor appliedCharacterPreset: string | undefined = undefined; // 현재 적용된 캐릭터 프리셋 이름
 
@@ -205,12 +205,62 @@ export class AppState {
     });
   }
 
-  setProgressDialog(dialog: ProgressDialog | undefined) {
-    this.progressDialog = dialog;
+  // 기존 단일 슬롯 API. id 'legacy' 한 자리만 점유. 호환 유지용.
+  setProgressDialog(dialog: Omit<ProgressDialog, 'id' | 'status'> | undefined) {
+    if (dialog === undefined) {
+      this.progressDialogs = this.progressDialogs.filter((p) => p.id !== 'legacy');
+    } else {
+      const others = this.progressDialogs.filter((p) => p.id !== 'legacy');
+      this.progressDialogs = [
+        ...others,
+        { ...dialog, id: 'legacy', status: 'active' },
+      ];
+    }
+  }
+
+  pushProgressDialog(text: string, total: number = 1): string {
+    const id = 'pd-' + Math.random().toString(36).slice(2, 10);
+    this.progressDialogs = [
+      ...this.progressDialogs,
+      { id, text, done: 0, total, status: 'active' },
+    ];
+    return id;
+  }
+
+  updateProgressDialog(
+    id: string,
+    partial: Partial<Omit<ProgressDialog, 'id'>>,
+  ) {
+    this.progressDialogs = this.progressDialogs.map((p) =>
+      p.id === id ? { ...p, ...partial } : p,
+    );
+  }
+
+  removeProgressDialog(id: string) {
+    this.progressDialogs = this.progressDialogs.filter((p) => p.id !== id);
+  }
+
+  finishProgressDialog(
+    id: string,
+    finalText: string,
+    success: boolean,
+    autoDismissMs: number = 3000,
+  ) {
+    this.progressDialogs = this.progressDialogs.map((p) =>
+      p.id === id
+        ? { ...p, text: finalText, done: p.total, status: success ? 'success' : 'error' }
+        : p,
+    );
+    if (autoDismissMs > 0) {
+      setTimeout(() => this.removeProgressDialog(id), autoDismissMs);
+    }
   }
 
   blockIfBusy(): boolean {
-    if (this.progressDialog) {
+    const active = this.progressDialogs.filter(
+      (p) => !p.status || p.status === 'active',
+    );
+    if (active.length > 0) {
       this.pushMessage('진행 중인 작업이 끝난 후 다시 시도해주세요.');
       return true;
     }
