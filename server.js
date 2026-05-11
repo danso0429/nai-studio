@@ -122,7 +122,7 @@ const genQueue = [];
 let queueProcessing = false;
 let queuePaused = false;
 let pauseRequested = false; // 사용자 명시 pause (대량 삭제 등 race 방지용)
-let queueStats = { completed: 0, failed: 0 };
+let queueStats = { completed: 0, failed: 0, totalProcessTimeMs: 0 };
 const QUEUE_MAX_SIZE = 5000;
 const DISK_WARN_GB = 15;
 const DISK_CRIT_GB = 10;
@@ -169,6 +169,7 @@ function loadQueueState() {
       genQueue.push(...state.queue);
       queueStats.completed = state.stats?.completed || 0;
       queueStats.failed = state.stats?.failed || 0;
+      queueStats.totalProcessTimeMs = state.stats?.totalProcessTimeMs || 0;
       console.log('[NAI Studio] Restored ' + genQueue.length + ' queued jobs from disk');
       processQueue();
     }
@@ -510,6 +511,7 @@ async function processQueue() {
     }
 
     const job = genQueue[0];
+    const jobStartedAt = Date.now();
     try {
       broadcast('queue-job-start', { jobId: job.jobId, pending: genQueue.length });
       broadcastQueueStatus();
@@ -548,6 +550,7 @@ async function processQueue() {
       });
       broadcastQueueStatus();
       broadcast('image-changed', job.params.outputFilePath);
+      queueStats.totalProcessTimeMs += Date.now() - jobStartedAt;
       queueStats.completed++;
     } catch (e) {
       if (e.message && e.message.includes('429')) {
@@ -733,6 +736,8 @@ app.post('/api/queue/add-batch', async (req, res) => {
 
 app.get('/api/queue/status', async (req, res) => {
   const freeGB = await getDiskFreeGB();
+  const avgMs = queueStats.completed > 0 ? queueStats.totalProcessTimeMs / queueStats.completed : 0;
+  const etaMs = avgMs > 0 ? Math.round(avgMs * genQueue.length) : null;
   res.json({
     pending: genQueue.length,
     processing: queueProcessing,
@@ -742,6 +747,8 @@ app.get('/api/queue/status', async (req, res) => {
     diskFreeGB: parseFloat(freeGB.toFixed(1)),
     jobs: genQueue.slice(0, 20).map(j => ({ jobId: j.jobId, outputFilePath: j.params.outputFilePath })),
     totalJobs: genQueue.length,
+    avgProcessTimeMs: Math.round(avgMs),
+    etaMs,
   });
 });
 
