@@ -1359,16 +1359,21 @@ export class AppState {
                 text: '정말로 모든 이미지를 삭제하시겠습니까?',
                 callback: async () => {
                   await withQueuePaused(async () => {
-                    for (const scene of selected) {
-                      const paths = gameService
-                        .getOutputs(this.curSession!, scene)
-                        .map(
-                          (x) =>
-                            imageService.getOutputDir(this.curSession!, scene!) +
-                            '/' +
-                            x,
-                        );
-                      await deleteImageFiles(this.curSession!, paths, scene);
+                    const CHUNK = 4;
+                    for (let i = 0; i < selected.length; i += CHUNK) {
+                      await Promise.all(
+                        selected.slice(i, i + CHUNK).map((scene) => {
+                          const paths = gameService
+                            .getOutputs(this.curSession!, scene)
+                            .map(
+                              (x) =>
+                                imageService.getOutputDir(this.curSession!, scene!) +
+                                '/' +
+                                x,
+                            );
+                          return deleteImageFiles(this.curSession!, paths, scene);
+                        }),
+                      );
                     }
                   });
                 },
@@ -1379,24 +1384,29 @@ export class AppState {
                 text: '몇등 이하 이미지를 삭제할지 입력해주세요.',
                 callback: async (value) => {
                   if (value) {
+                    const n = parseInt(value);
                     await withQueuePaused(async () => {
-                      for (const scene of selected) {
-                        const paths = gameService
-                          .getOutputs(this.curSession!, scene)
-                          .map(
-                            (x) =>
-                              imageService.getOutputDir(
-                                this.curSession!,
-                                scene!,
-                              ) +
-                              '/' +
-                              x,
-                          );
-                        const n = parseInt(value);
-                        await deleteImageFiles(
-                          this.curSession!,
-                          paths.slice(n).filter((x) => !isMain(scene, x)),
-                          scene,
+                      const CHUNK = 4;
+                      for (let i = 0; i < selected.length; i += CHUNK) {
+                        await Promise.all(
+                          selected.slice(i, i + CHUNK).map((scene) => {
+                            const paths = gameService
+                              .getOutputs(this.curSession!, scene)
+                              .map(
+                                (x) =>
+                                  imageService.getOutputDir(
+                                    this.curSession!,
+                                    scene!,
+                                  ) +
+                                  '/' +
+                                  x,
+                              );
+                            return deleteImageFiles(
+                              this.curSession!,
+                              paths.slice(n).filter((x) => !isMain(scene, x)),
+                              scene,
+                            );
+                          }),
                         );
                       }
                     });
@@ -1409,19 +1419,24 @@ export class AppState {
                 text: '정말로 즐겨찾기 외 모든 이미지를 삭제하시겠습니까?',
                 callback: async () => {
                   await withQueuePaused(async () => {
-                    for (const scene of selected) {
-                      const paths = gameService
-                        .getOutputs(this.curSession!, scene)
-                        .map(
-                          (x) =>
-                            imageService.getOutputDir(this.curSession!, scene!) +
-                            '/' +
-                            x,
-                        );
-                      await deleteImageFiles(
-                        this.curSession!,
-                        paths.filter((x) => !isMain(scene, x)),
-                        scene,
+                    const CHUNK = 4;
+                    for (let i = 0; i < selected.length; i += CHUNK) {
+                      await Promise.all(
+                        selected.slice(i, i + CHUNK).map((scene) => {
+                          const paths = gameService
+                            .getOutputs(this.curSession!, scene)
+                            .map(
+                              (x) =>
+                                imageService.getOutputDir(this.curSession!, scene!) +
+                                '/' +
+                                x,
+                            );
+                          return deleteImageFiles(
+                            this.curSession!,
+                            paths.filter((x) => !isMain(scene, x)),
+                            scene,
+                          );
+                        }),
                       );
                     }
                   });
