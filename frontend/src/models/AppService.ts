@@ -565,7 +565,6 @@ export class AppState {
                 ? '프로젝트 파일 내보내기 완료\nDrive 업로드 완료 ✓\n(NAI-Studio/data/exports/)'
                 : '프로젝트 파일 내보내기 완료\nDrive 업로드 실패 — 30분 내 자동 재시도됩니다',
             });
-            await backend.showFile(path);
           }
         } else if (value === 'saveDeep') {
           if (appState.curSession) {
