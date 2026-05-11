@@ -177,11 +177,14 @@ function loadQueueState() {
 }
 
 // ─── Drive retry queue (Phase 9) ────────────────────────────────────
-// 단일 파일 Drive 업로드 실패 시 큐에 적재, 30분 간격 자동 재시도.
+// 단일 파일 Drive 업로드 실패 시 큐에 적재, exponential 간격 자동 재시도.
 // 큐는 영속(JSON 파일). 서버 재시작 시 복원.
+// 6회(60s,2m,5m,10m,20m,30m) 다 실패하면 status='failed'로 두고 폴링 대상에서 제외,
+// 사용자가 widget에서 dismiss 또는 reset 할 때까지 큐에 남아 표시됨.
 const DRIVE_RETRY_QUEUE_FILE = path.join(DATA_DIR, '.drive-retry-queue.json');
-const DRIVE_RETRY_INTERVAL_MS = 30 * 60 * 1000;
-const DRIVE_RETRY_MAX_ATTEMPTS = 48;
+const DRIVE_RETRY_INTERVALS = [60000, 120000, 300000, 600000, 1200000, 1800000];
+const DRIVE_RETRY_MAX_ATTEMPTS = DRIVE_RETRY_INTERVALS.length;
+const DRIVE_RETRY_POLL_MS = 30000;
 let driveRetryQueue = [];
 
 async function loadDriveRetryQueue() {
@@ -209,11 +212,14 @@ async function saveDriveRetryQueue() {
 function enqueueDriveRetry(localPath, remotePath, initialError) {
   const existingIdx = driveRetryQueue.findIndex((e) => e.localPath === localPath);
   const now = Date.now();
+  // 새 enqueue는 attempts 0부터 시작 (이전 failed 상태도 reset)
   const entry = {
     localPath,
     remotePath,
     addedAt: existingIdx >= 0 ? driveRetryQueue[existingIdx].addedAt : now,
-    attempts: existingIdx >= 0 ? driveRetryQueue[existingIdx].attempts : 0,
+    attempts: 0,
+    status: 'pending',
+    nextRetryAt: now + DRIVE_RETRY_INTERVALS[0],
     lastError: initialError || null,
     lastAttemptAt: now,
   };
@@ -251,13 +257,24 @@ function rcloneCopytoOnce(localPath, remotePath, timeoutMs) {
   });
 }
 
-async function processDriveRetryQueue() {
-  if (driveRetryQueue.length === 0) return;
-  console.log('[Drive retry] processing ' + driveRetryQueue.length + ' entries');
+async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
+  if (driveRetryQueue.length === 0) return { succeeded: 0, failed: 0, skipped: 0 };
+  const now = Date.now();
   const next = [];
   let succeeded = 0;
-  let dropped = 0;
+  let newlyFailed = 0;
+  let skipped = 0;
   for (const entry of driveRetryQueue) {
+    if (entry.status === 'failed') {
+      next.push(entry);
+      skipped++;
+      continue;
+    }
+    if (!ignoreSchedule && now < (entry.nextRetryAt || 0)) {
+      next.push(entry);
+      skipped++;
+      continue;
+    }
     const result = await rcloneCopytoOnce(entry.localPath, entry.remotePath, 30000);
     if (result.ok) {
       console.log('[Drive retry] success: ' + entry.localPath);
@@ -268,24 +285,36 @@ async function processDriveRetryQueue() {
     entry.lastError = result.error;
     entry.lastAttemptAt = Date.now();
     if (entry.attempts >= DRIVE_RETRY_MAX_ATTEMPTS) {
+      entry.status = 'failed';
+      entry.nextRetryAt = null;
+      newlyFailed++;
       console.error(
-        '[Drive retry] giving up after ' + entry.attempts + ' attempts: ' + entry.localPath,
+        '[Drive retry] giving up (status=failed) after ' +
+          entry.attempts +
+          ' attempts: ' +
+          entry.localPath,
       );
-      dropped++;
     } else {
-      next.push(entry);
+      const delay = DRIVE_RETRY_INTERVALS[entry.attempts];
+      entry.nextRetryAt = Date.now() + delay;
     }
+    next.push(entry);
   }
   driveRetryQueue = next;
   await saveDriveRetryQueue();
-  console.log(
-    '[Drive retry] done. success=' +
-      succeeded +
-      ', dropped=' +
-      dropped +
-      ', remaining=' +
-      driveRetryQueue.length,
-  );
+  if (succeeded > 0 || newlyFailed > 0) {
+    console.log(
+      '[Drive retry] tick. success=' +
+        succeeded +
+        ', newlyFailed=' +
+        newlyFailed +
+        ', skipped=' +
+        skipped +
+        ', remaining=' +
+        driveRetryQueue.length,
+    );
+  }
+  return { succeeded, failed: newlyFailed, skipped };
 }
 
 async function getDiskFreeGB() {
@@ -1179,22 +1208,56 @@ app.post('/api/fs/sync-exports', async (req, res) => {
 app.get('/api/drive/retry-status', (req, res) => {
   res.json({
     count: driveRetryQueue.length,
-    intervalMs: DRIVE_RETRY_INTERVAL_MS,
+    pendingCount: driveRetryQueue.filter((e) => e.status !== 'failed').length,
+    failedCount: driveRetryQueue.filter((e) => e.status === 'failed').length,
+    intervalsMs: DRIVE_RETRY_INTERVALS,
     maxAttempts: DRIVE_RETRY_MAX_ATTEMPTS,
     entries: driveRetryQueue.map((e) => ({
+      localPath: e.localPath,
       fileName: path.basename(e.localPath),
       addedAt: e.addedAt,
       attempts: e.attempts,
+      status: e.status || 'pending',
+      nextRetryAt: e.nextRetryAt || null,
       lastError: e.lastError,
       lastAttemptAt: e.lastAttemptAt,
     })),
   });
 });
 
+// 즉시 재시도 (스케줄 무시). 모든 pending entry를 한 번에 시도.
 app.post('/api/drive/retry-now', async (req, res) => {
   const before = driveRetryQueue.length;
-  await processDriveRetryQueue();
-  res.json({ ok: true, before, after: driveRetryQueue.length });
+  const result = await processDriveRetryQueue({ ignoreSchedule: true });
+  res.json({ ok: true, before, after: driveRetryQueue.length, ...result });
+});
+
+// 특정 entry 큐에서 제거 (성공이든 실패든 무조건 제거). widget의 dismiss/포기 버튼용.
+app.post('/api/drive/retry-dismiss', (req, res) => {
+  const { localPath } = req.body || {};
+  if (!localPath || typeof localPath !== 'string') {
+    return res.status(400).json({ ok: false, error: 'localPath required' });
+  }
+  const idx = driveRetryQueue.findIndex((e) => e.localPath === localPath);
+  if (idx < 0) return res.json({ ok: true, removed: false });
+  driveRetryQueue.splice(idx, 1);
+  saveDriveRetryQueue();
+  res.json({ ok: true, removed: true });
+});
+
+// failed entry를 다시 pending으로 (attempts=0). widget의 reset 버튼용.
+app.post('/api/drive/retry-reset', (req, res) => {
+  const { localPath } = req.body || {};
+  if (!localPath || typeof localPath !== 'string') {
+    return res.status(400).json({ ok: false, error: 'localPath required' });
+  }
+  const entry = driveRetryQueue.find((e) => e.localPath === localPath);
+  if (!entry) return res.status(404).json({ ok: false, error: 'not found' });
+  entry.status = 'pending';
+  entry.attempts = 0;
+  entry.nextRetryAt = Date.now() + DRIVE_RETRY_INTERVALS[0];
+  saveDriveRetryQueue();
+  res.json({ ok: true });
 });
 
 app.post('/api/fs/zip', async (req, res) => {
@@ -1405,7 +1468,18 @@ async function start() {
     console.log(`[NAI Studio] Server running on port ${PORT}`);
   loadQueueState();
     loadDriveRetryQueue().then(() => {
-      setInterval(processDriveRetryQueue, DRIVE_RETRY_INTERVAL_MS);
+      // Migrate legacy entries (pre-F1): no status/nextRetryAt fields.
+      // 부팅 직후 모두 즉시 시도하지 않게 nextRetryAt을 띄움.
+      const now = Date.now();
+      for (const e of driveRetryQueue) {
+        if (!e.status) e.status = 'pending';
+        if (e.nextRetryAt == null && e.status === 'pending') {
+          const idx = Math.min(e.attempts || 0, DRIVE_RETRY_INTERVALS.length - 1);
+          e.nextRetryAt = now + DRIVE_RETRY_INTERVALS[idx];
+        }
+      }
+      if (driveRetryQueue.length > 0) saveDriveRetryQueue();
+      setInterval(processDriveRetryQueue, DRIVE_RETRY_POLL_MS);
     });
     console.log(`[NAI Studio] Frontend: http://localhost:${PORT}`);
     console.log(`[NAI Studio] API: http://localhost:${PORT}/api`);
