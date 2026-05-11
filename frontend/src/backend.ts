@@ -35,6 +35,26 @@ export interface RecursiveListResult {
   dirs: string[];    // direct subdirectories at depth 0 (including empty ones)
 }
 
+export interface DriveRetryEntry {
+  localPath: string;
+  fileName: string;
+  addedAt: number;
+  attempts: number;
+  status: 'pending' | 'failed';
+  nextRetryAt: number | null;
+  lastError: string | null;
+  lastAttemptAt: number;
+}
+
+export interface DriveRetryStatus {
+  count: number;
+  pendingCount: number;
+  failedCount: number;
+  intervalsMs: number[];
+  maxAttempts: number;
+  entries: DriveRetryEntry[];
+}
+
 export abstract class Backend {
   abstract getConfig(): Promise<Config>;
   abstract setConfig(newConfig: Config): Promise<void>;
@@ -43,6 +63,10 @@ export abstract class Backend {
   abstract generateImage(arg: ImageGenInput): Promise<void>;
   abstract pauseQueue(): Promise<void>;
   abstract resumeQueue(): Promise<void>;
+  abstract getDriveRetryStatus(): Promise<DriveRetryStatus>;
+  abstract driveRetryNow(): Promise<void>;
+  abstract driveRetryDismiss(localPath: string): Promise<void>;
+  abstract driveRetryReset(localPath: string): Promise<void>;
   abstract augmentImage(arg: ImageAugmentInput): Promise<void>;
   abstract login(email: string, password: string): Promise<void>;
   abstract loginWithToken(token: string): Promise<void>;

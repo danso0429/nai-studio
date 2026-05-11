@@ -1,6 +1,6 @@
 import { Config } from '../../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, FileEntry, FileStatEntry, ImageOptimizeMethod, RecursiveListResult, ResizeImageInput } from '../backend';
+import { Backend, DriveRetryStatus, FileEntry, FileStatEntry, ImageOptimizeMethod, RecursiveListResult, ResizeImageInput } from '../backend';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -88,6 +88,28 @@ export class ServerBackend extends Backend {
 
   async resumeQueue(): Promise<void> {
     await api('/queue/resume', { method: 'POST' });
+  }
+
+  async getDriveRetryStatus(): Promise<DriveRetryStatus> {
+    return apiJSON('/drive/retry-status');
+  }
+
+  async driveRetryNow(): Promise<void> {
+    await api('/drive/retry-now', { method: 'POST' });
+  }
+
+  async driveRetryDismiss(localPath: string): Promise<void> {
+    await api('/drive/retry-dismiss', {
+      method: 'POST',
+      body: JSON.stringify({ localPath }),
+    });
+  }
+
+  async driveRetryReset(localPath: string): Promise<void> {
+    await api('/drive/retry-reset', {
+      method: 'POST',
+      body: JSON.stringify({ localPath }),
+    });
   }
 
   async augmentImage(arg: ImageAugmentInput): Promise<void> {

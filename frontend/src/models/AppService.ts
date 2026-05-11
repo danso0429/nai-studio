@@ -41,7 +41,7 @@ import {
   Session,
 } from './types';
 import { extractPromptDataFromBase64, getFirstFile } from './util';
-import { ImageOptimizeMethod } from '../backend';
+import { DriveRetryStatus, ImageOptimizeMethod } from '../backend';
 import { v4 } from 'uuid';
 import { Resolution, resolutionMap } from '../backends/imageGen';
 import { ProgressDialog } from '../componenets/ProgressWindow';
@@ -65,6 +65,8 @@ export class AppState {
   @observable accessor dialogs: Dialog[] = [];
   @observable accessor samples: number = 10;
   @observable accessor progressDialogs: ProgressDialog[] = [];
+  @observable accessor driveRetryStatus: DriveRetryStatus | null = null;
+  @observable accessor driveRetryModalOpen: boolean = false;
   @observable accessor externalImage: string | undefined = undefined;
   @observable accessor appliedCharacterPreset: string | undefined = undefined; // 현재 적용된 캐릭터 프리셋 이름
 
@@ -276,6 +278,35 @@ export class AppState {
       return true;
     }
     return false;
+  }
+
+  async refreshDriveRetryStatus(): Promise<void> {
+    try {
+      this.driveRetryStatus = await backend.getDriveRetryStatus();
+    } catch (e) {
+      // 네트워크/서버 일시 오류는 무시 (다음 폴링에서 회복)
+    }
+  }
+
+  async driveRetryNowAndRefresh(): Promise<void> {
+    try {
+      await backend.driveRetryNow();
+    } catch {}
+    await this.refreshDriveRetryStatus();
+  }
+
+  async driveRetryDismissAndRefresh(localPath: string): Promise<void> {
+    try {
+      await backend.driveRetryDismiss(localPath);
+    } catch {}
+    await this.refreshDriveRetryStatus();
+  }
+
+  async driveRetryResetAndRefresh(localPath: string): Promise<void> {
+    try {
+      await backend.driveRetryReset(localPath);
+    } catch {}
+    await this.refreshDriveRetryStatus();
   }
 
   handleFile(file: File) {
@@ -619,9 +650,10 @@ export class AppState {
               pid,
               syncOk
                 ? '✓ 프로젝트 파일 Drive 업로드 완료'
-                : '✗ Drive 업로드 실패 — 30분 내 재시도',
+                : '✗ Drive 업로드 실패 — 자동 재시도 중 (좌측 하단 위젯)',
               syncOk,
             );
+            if (!syncOk) appState.refreshDriveRetryStatus();
           }
         } else if (value === 'saveDeep') {
           if (appState.curSession) {
@@ -666,9 +698,10 @@ export class AppState {
               pid,
               syncOk
                 ? '✓ 프로젝트 백업 Drive 업로드 완료'
-                : '✗ Drive 업로드 실패 — 30분 내 재시도',
+                : '✗ Drive 업로드 실패 — 자동 재시도 중 (좌측 하단 위젯)',
               syncOk,
             );
+            if (!syncOk) appState.refreshDriveRetryStatus();
           }
         } else if (value === 'load') {
           const file = await getFirstFile();
@@ -896,9 +929,10 @@ export class AppState {
         pid,
         syncOk
           ? '✓ 이미지 내보내기 Drive 완료'
-          : '✗ Drive 업로드 실패 — 30분 내 재시도',
+          : '✗ Drive 업로드 실패 — 자동 재시도 중 (좌측 하단 위젯)',
         syncOk,
       );
+      if (!syncOk) appState.refreshDriveRetryStatus();
     };
     const menu = await appState.pushDialogAsync({
       type: 'select',
@@ -2019,6 +2053,10 @@ export class AppState {
 }
 
 export const appState = new AppState();
+
+// Drive retry status 폴링: 부팅 시 1회 + 30s 주기
+appState.refreshDriveRetryStatus();
+setInterval(() => appState.refreshDriveRetryStatus(), 30000);
 
 // Phase 7A: v4.5 자동 vibe 비활성화 알림 (페이지 로드당 1회)
 // queueMicrotask로 lazy 등록 — 모듈 톱 레벨에서 즉시 호출 시
