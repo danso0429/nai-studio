@@ -41,7 +41,7 @@ import {
   PieceLibrary,
   Piece,
 } from '../models/types';
-import { extractPromptDataFromBase64 } from '../models/util';
+import { extractApiError, extractPromptDataFromBase64 } from '../models/util';
 import { appState, SceneSelectorItem } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { createInpaintPreset, prepareMirrorCanvas } from '../models/workflows/SDWorkFlow';
@@ -663,7 +663,7 @@ const QueueControl = observer(
             try {
               await queueScene(curSession, scene, appState.samples);
             } catch (e: any) {
-              appState.pushMessage(`프롬프트 에러 (${scene.name}): ` + e.message);
+              appState.pushMessage(`프롬프트 에러 (${scene.name}): ` + extractApiError(e));
             }
           }
         };

@@ -20,6 +20,7 @@ import {
   imageService,
   isMobile,
 } from '../models';
+import { extractApiError } from '../models/util';
 import {
   GlobalPresetType,
   IGlobalPresetEntry,
@@ -437,7 +438,7 @@ export const GlobalPresetTab = observer(() => {
     try {
       await globalPresetService.rename(entry.id, newName);
     } catch (e: any) {
-      appState.pushMessage(e.message || '이름 변경 실패');
+      appState.pushMessage(extractApiError(e) || '이름 변경 실패');
     }
   };
 
@@ -449,7 +450,7 @@ export const GlobalPresetTab = observer(() => {
         try {
           await globalPresetService.delete(entry.id);
         } catch (e: any) {
-          appState.pushMessage(e.message || '삭제 실패');
+          appState.pushMessage(extractApiError(e) || '삭제 실패');
         }
       },
     });
@@ -459,7 +460,7 @@ export const GlobalPresetTab = observer(() => {
     try {
       await globalPresetService.setDefault(entry.id, !entry.isDefault);
     } catch (e: any) {
-      appState.pushMessage(e.message || '기본 설정 실패');
+      appState.pushMessage(extractApiError(e) || '기본 설정 실패');
     }
   };
 

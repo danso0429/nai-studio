@@ -39,7 +39,7 @@ import {
   Scene,
   Session,
 } from './types';
-import { apiUrl, extractPromptDataFromBase64, getFirstFile } from './util';
+import { apiUrl, extractApiError, extractPromptDataFromBase64, getFirstFile } from './util';
 import { DriveRetryStatus, ImageOptimizeMethod } from '../backend';
 import { v4 } from 'uuid';
 import { Resolution, resolutionMap } from '../backends/imageGen';
@@ -932,15 +932,7 @@ export class AppState {
           );
         }
       } catch (e: any) {
-        let userMsg = e.message;
-        const m = /^API error \d+: (.+)$/s.exec(e.message);
-        if (m) {
-          try {
-            const body = JSON.parse(m[1]);
-            if (body?.error) userMsg = body.error;
-          } catch {}
-        }
-        appState.pushMessage(userMsg);
+        appState.pushMessage(extractApiError(e));
         appState.finishProgressDialog(pid, '✗ 압축 실패', false);
         return;
       }

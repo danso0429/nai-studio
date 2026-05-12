@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { extractApiError } from '../models/util';
 import Tooltip from './Tooltip';
 import {
   CustomScrollbars,
@@ -872,7 +873,7 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
       );
       taskQueueService.run();
     } catch (e: any) {
-      appState.pushMessage(e.message);
+      appState.pushMessage(extractApiError(e));
       return;
     }
   };
@@ -982,7 +983,7 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
                       scene.resolutionHeight =
                         (customResolution.height + 63) & ~63;
                     } catch (e: any) {
-                      appState.pushMessage(e.message);
+                      appState.pushMessage(extractApiError(e));
                     }
                   } else {
                     scene.resolution = opt.value as Resolution;

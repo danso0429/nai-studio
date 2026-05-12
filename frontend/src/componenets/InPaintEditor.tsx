@@ -28,7 +28,7 @@ import {
 } from '../models';
 import { dataUriToBase64 } from '../models/ImageService';
 import { InpaintScene, PromptPiece } from '../models/types';
-import { extractPromptDataFromBase64 } from '../models/util';
+import { extractApiError, extractPromptDataFromBase64 } from '../models/util';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { InnerPreSetEditor } from './PreSetEdtior';
@@ -404,7 +404,7 @@ const InPaintEditor = observer(
                         editingScene.resolutionHeight =
                           (customResolution.height + 63) & ~63;
                       } catch (e: any) {
-                        appState.pushMessage(e.message);
+                        appState.pushMessage(extractApiError(e));
                       }
                     } else {
                       editingScene.resolution = opt.value as Resolution;

@@ -6,6 +6,7 @@ import { Scene, InpaintScene, ContextMenuType, Player } from '../models/types';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 
+import { extractApiError } from '../models/util';
 interface TournamentProps {
   scene: Scene | InpaintScene;
   path: string;
@@ -134,7 +135,7 @@ const Tournament = observer(({ scene, path }: TournamentProps) => {
           ))!;
           setImages([p0, p1]);
         } catch (e: any) {
-          appState.pushMessage('Image load error: ' + e.message);
+          appState.pushMessage('Image load error: ' + extractApiError(e));
           setImages([]);
         }
       })();
@@ -148,7 +149,7 @@ const Tournament = observer(({ scene, path }: TournamentProps) => {
             ))!;
             setImages([p0]);
           } catch (e: any) {
-            appState.pushMessage('Image load error: ' + e.message);
+            appState.pushMessage('Image load error: ' + extractApiError(e));
             setImages([]);
           }
         })();

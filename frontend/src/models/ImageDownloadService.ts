@@ -2,6 +2,7 @@ import { observable, action, makeObservable } from 'mobx';
 import { backend, imageService } from '.';
 import { GenericScene, InpaintScene, Session, CharacterPreset } from './types';
 
+import { extractApiError } from './util';
 function getMirrorCropX(scene: GenericScene): number | undefined {
   if (isMirrorScene(scene)) {
     return (scene as InpaintScene).mirrorCropX;
@@ -296,7 +297,7 @@ export class ImageDownloadService {
       return true;
     } catch (e: any) {
       console.error('Failed to download image:', e);
-      appState.pushMessage(`이미지 저장 실패: ${e.message}`);
+      appState.pushMessage(`이미지 저장 실패: ${extractApiError(e)}`);
       return false;
     }
   }
@@ -404,7 +405,7 @@ export class ImageDownloadService {
       }
     } catch (e: any) {
       console.error('Failed to download images:', e);
-      appState.pushMessage(`이미지 저장 실패: ${e.message}`);
+      appState.pushMessage(`이미지 저장 실패: ${extractApiError(e)}`);
     } finally {
       this.isDownloading = false;
       this.downloadProgress = 0;

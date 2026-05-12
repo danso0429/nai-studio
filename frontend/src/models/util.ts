@@ -14,6 +14,22 @@ export function apiUrl(path: string): string {
   return location.protocol + '//' + location.host + API_BASE_PATH + path;
 }
 
+// Convert a thrown error into a user-friendly message. If it's a wrapped server
+// API error (serverBackend.ts throws "API error N: <body>" with JSON body containing
+// an `error` field), surface just the inner error string. Otherwise return the
+// original message unchanged. Safe to apply at any pushMessage callsite.
+export function extractApiError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  const m = /^API error \d+: (.+)$/s.exec(msg);
+  if (m) {
+    try {
+      const body = JSON.parse(m[1]);
+      if (body && typeof body.error === 'string') return body.error;
+    } catch {}
+  }
+  return msg;
+}
+
 export async function getPlatform() {
   const platform = window.navigator.platform;
   if (platform.startsWith('Win')) return 'windows';

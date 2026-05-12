@@ -9,6 +9,7 @@ import {
   sessionService,
   taskQueueService,
 } from '../models';
+import { extractApiError } from '../models/util';
 import { Config, ImageEditor, RemoveBgQuality } from '../main/config';
 import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
@@ -722,7 +723,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       appState.pushMessage('토큰으로 로그인 성공!');
       setAccessToken('');
     } catch (err: any) {
-      appState.pushMessage('토큰 로그인 실패:' + err.message);
+      appState.pushMessage('토큰 로그인 실패:' + extractApiError(err));
     }
   };
 

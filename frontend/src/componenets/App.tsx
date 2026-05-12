@@ -8,6 +8,7 @@ import {
   useState,
   useRef,
 } from 'react';
+import { extractApiError } from '../models/util';
 import SessionSelect from './SessionSelect';
 import PreSetEditor from './PreSetEdtior';
 import SceneQueuControl, { SceneCell } from './SceneQueueControl';
@@ -375,7 +376,7 @@ export const App = observer(() => {
         </div>
         <ErrorBoundary
           onErr={(error, errorInfo) => {
-            appState.pushMessage(`${error.message}`);
+            appState.pushMessage(extractApiError(error));
           }}
         >
           <VerticalStack>
