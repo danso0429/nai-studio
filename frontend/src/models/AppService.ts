@@ -1055,15 +1055,35 @@ export class AppState {
       );
       return;
     }
+    // 프리셋 항목들 + 기본 옵션 + 설정 항목. 프리셋은 최대 3개.
+    const presetItems = appState.exportPresets.slice(0, 3).map((p) => ({
+      text: `★ ${p.name}(으)로 내보내기`,
+      value: `preset:${p.id}`,
+    }));
     const menu = await appState.pushDialogAsync({
       type: 'select',
       text: '내보낼 이미지를 선택해주세요',
       items: [
+        ...presetItems,
         { text: '즐겨찾기 이미지만 내보내기', value: 'fav' },
         { text: '모든 이미지 전부 내보내기', value: 'all' },
+        { text: '⚙️ 내보내기 프리셋 설정', value: 'settings' },
       ],
     });
     if (!menu) return;
+    if (menu === 'settings') {
+      appState.openExportPresetsDialog(type);
+      return;
+    }
+    if (typeof menu === 'string' && menu.startsWith('preset:')) {
+      const presetId = menu.slice('preset:'.length);
+      const preset = appState.exportPresets.find((p) => p.id === presetId);
+      if (preset) {
+        // 프리셋 즉시 적용. 재귀 호출로 다이얼로그 chain skip.
+        return this.exportPackage(type, selected, preset);
+      }
+      return;
+    }
     const format = await appState.pushDialogAsync({
       type: 'select',
       text: '파일 이름 형식을 선택해주세요',

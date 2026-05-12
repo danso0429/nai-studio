@@ -106,10 +106,16 @@ const ExportPresetsDialog = observer(() => {
             )}
             <button
               onClick={onCreate}
-              className="w-full py-2 px-3 bg-sky-500 hover:bg-sky-600 text-white rounded flex items-center justify-center gap-2 text-sm"
+              disabled={presets.length >= 3}
+              className={
+                'w-full py-2 px-3 rounded flex items-center justify-center gap-2 text-sm ' +
+                (presets.length >= 3
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed dark:bg-slate-600 dark:text-gray-400'
+                  : 'bg-sky-500 hover:bg-sky-600 text-white')
+              }
             >
               <FaPlus size={12} />
-              새 프리셋 추가
+              {presets.length >= 3 ? '프리셋 최대 3개까지' : '새 프리셋 추가'}
             </button>
           </>
         )}
