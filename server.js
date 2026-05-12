@@ -678,7 +678,7 @@ async function processQueue() {
     const job = genQueue[0];
     const jobStartedAt = Date.now();
     try {
-      broadcast('queue-job-start', { jobId: job.jobId, pending: genQueue.length });
+      broadcast('queue-job-start', { jobId: job.jobId, pending: genQueue.length, meta: job.meta || {} });
       broadcastQueueStatus();
 
       if (!nai.token) {
@@ -699,6 +699,7 @@ async function processQueue() {
       broadcast('queue-job-complete', {
         jobId: job.jobId,
         outputFilePath: job.params.outputFilePath,
+        meta: job.meta || {},
       });
       broadcastQueueStatus();
       broadcast('image-changed', job.params.outputFilePath);
@@ -720,7 +721,7 @@ async function processQueue() {
         }
         console.error(`[NAI Studio] Queue job ${job.jobId}: max retries exceeded`);
       }
-      broadcast('queue-job-error', { jobId: job.jobId, error: e.message });
+      broadcast('queue-job-error', { jobId: job.jobId, error: e.message, meta: job.meta || {} });
       broadcastQueueStatus();
       queueStats.failed++;
       console.error(`[NAI Studio] Queue job ${job.jobId} error:`, e.message);
@@ -829,8 +830,12 @@ app.post('/api/queue/add', async (req, res) => {
     broadcast('queue-full', { max: QUEUE_MAX_SIZE, message: `큐가 가득 찼습니다 (${QUEUE_MAX_SIZE}개)` });
     return res.status(429).json({ error: `Queue full (max ${QUEUE_MAX_SIZE})` });
   }
+  // body 형식: ImageGenInput 자체 (legacy) | { params: ImageGenInput, meta: {...} } (새 형식)
+  const body = req.body || {};
+  const params = body.params && body.meta !== undefined ? body.params : body;
+  const meta = body.meta || {};
   const jobId = uuidv4();
-  genQueue.push({ jobId, params: req.body });
+  genQueue.push({ jobId, params, meta });
   broadcastQueueStatus();
   // Kick off processing (non-blocking)
   setImmediate(() => processQueue());
@@ -839,17 +844,21 @@ app.post('/api/queue/add', async (req, res) => {
 });
 
 app.post('/api/queue/add-batch', async (req, res) => {
+  // body.jobs 형식: ImageGenInput[] (legacy) | { params, meta }[] (새 형식)
   const jobs = req.body.jobs || [];
   const space = QUEUE_MAX_SIZE - genQueue.length;
   const toAdd = jobs.slice(0, space);
   const jobIds = [];
-  for (const params of toAdd) {
+  for (const item of toAdd) {
+    const params = item && item.params && item.meta !== undefined ? item.params : item;
+    const meta = (item && item.meta) || {};
     const jobId = uuidv4();
-    genQueue.push({ jobId, params });
+    genQueue.push({ jobId, params, meta });
     jobIds.push(jobId);
   }
   broadcastQueueStatus();
   setImmediate(() => processQueue());
+  saveQueueState();
   res.json({ jobIds, rejected: jobs.length - toAdd.length });
 });
 
@@ -881,6 +890,21 @@ app.get('/api/queue/status', async (req, res) => {
     recentAvgMs: Math.round(recentAvgMs),
     timingHistoryCount: timingHistory.length,
     etaMs,
+  });
+});
+
+// 페이지 로드/새로고침 시 클라가 큐 상태 복원용. params는 무거우니 메타데이터만.
+app.get('/api/queue/full-state', (req, res) => {
+  res.json({
+    pending: genQueue.length,
+    processing: queueProcessing,
+    paused: queuePaused,
+    pauseRequested,
+    jobs: genQueue.map((j) => ({
+      jobId: j.jobId,
+      meta: j.meta || {},
+      outputFilePath: j.params && j.params.outputFilePath,
+    })),
   });
 });
 
