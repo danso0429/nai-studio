@@ -993,18 +993,66 @@ app.get('/api/queue/full-state', (req, res) => {
   });
 });
 
-// ─── Raw timing history (분석용, 본인이 시간대별 패턴 보고 싶을 때) ───
-// 완료된 jobs ring buffer. queue.html 완료 탭용. 4시간 이내만, 최근부터.
+// 완료된 jobs. 메모리 ring buffer (정확한 meta) + 파일시스템 walk (옛 jobs 복원).
+// 둘 다 합쳐서 반환. 4시간 이내, 최근부터. dedupe = outputFilePath 기준 (메모리 우선).
 app.get('/api/queue/completed', (req, res) => {
-  pruneCompletedJobs(); // GET 시점에도 한 번 정리 (서버 idle 시 누적 방지)
+  pruneCompletedJobs();
   const limit = Math.min(parseInt(req.query.limit) || COMPLETED_JOBS_MAX, COMPLETED_JOBS_MAX);
+  const sinceMs = Date.now() - COMPLETED_RETENTION_MS;
+
+  const memEntries = completedJobs.slice().reverse();
+  const seenPaths = new Set(memEntries.map((e) => e.outputFilePath).filter(Boolean));
+
+  // 파일시스템 fallback: outs/ 안 4시간 내 mtime png. ring buffer에 없는 것만 추가.
+  const fsEntries = [];
+  try {
+    const { execSync } = require('child_process');
+    const outsDir = path.join(DATA_DIR, 'outs');
+    const out = execSync(
+      `find ${JSON.stringify(outsDir)} -type f -name "*.png" -mmin -240 -not -path "*/.trash/*" -not -path "*/fastcache/*" -printf "%T@ %P\\n" 2>/dev/null`,
+      { maxBuffer: 50 * 1024 * 1024, timeout: 10000 }
+    ).toString();
+    for (const line of out.split('\n')) {
+      if (!line.trim()) continue;
+      const sp = line.indexOf(' ');
+      if (sp < 0) continue;
+      const mtimeSec = parseFloat(line.substring(0, sp));
+      const relPath = line.substring(sp + 1);
+      const completedAt = Math.round(mtimeSec * 1000);
+      if (completedAt < sinceMs) continue;
+      const outputFilePath = 'outs/' + relPath;
+      if (seenPaths.has(outputFilePath)) continue;
+      const parts = relPath.split('/');
+      const project = parts[0] || '';
+      const sceneName = parts.length >= 2 ? parts[parts.length - 2] : '';
+      fsEntries.push({
+        jobId: null,
+        outputFilePath,
+        meta: {
+          sceneKey: project + '/scene/' + sceneName,
+          sceneName,
+          taskType: 'scene',
+        },
+        completedAt,
+        durationMs: 0,
+      });
+    }
+  } catch (e) {
+    console.warn('[completed] fs walk failed:', e.message);
+  }
+
+  const combined = [...memEntries, ...fsEntries].sort((a, b) => b.completedAt - a.completedAt);
   res.json({
-    entries: completedJobs.slice().reverse().slice(0, limit),
-    count: completedJobs.length,
+    entries: combined.slice(0, limit),
+    count: combined.length,
+    memCount: memEntries.length,
+    fsCount: fsEntries.length,
     maxSize: COMPLETED_JOBS_MAX,
     retentionMs: COMPLETED_RETENTION_MS,
   });
 });
+
+// ─── Raw timing history (분석용, 본인이 시간대별 패턴 보고 싶을 때) ───
 
 app.get('/api/queue/timing-history', (req, res) => {
   res.json({ entries: timingHistory, count: timingHistory.length, maxSize: TIMING_HISTORY_MAX });

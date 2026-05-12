@@ -289,13 +289,15 @@
   };
 
   function extractProject(entry) {
-    if (entry.meta && entry.meta.sceneKey) {
-      const sk = entry.meta.sceneKey;
+    if (!entry) return '(unknown)';
+    const meta = entry.meta;
+    if (meta && typeof meta === 'object' && meta.sceneKey) {
+      const sk = String(meta.sceneKey);
       const slash = sk.indexOf('/');
       return slash > 0 ? sk.substring(0, slash) : sk;
     }
     if (entry.outputFilePath) {
-      const parts = entry.outputFilePath.split('/');
+      const parts = String(entry.outputFilePath).split('/');
       if (parts[0] === 'outs' && parts.length > 1) return parts[1];
     }
     return '(unknown)';
@@ -306,17 +308,19 @@
     const GAP = 30 * 60 * 1000;
     const batches = [];
     for (const e of entries) {
+      if (!e || typeof e !== 'object') continue;
       const project = extractProject(e);
+      const completedAt = e.completedAt || 0;
       const last = batches[batches.length - 1];
-      if (last && last.project === project && Math.abs(last.lastAt - e.completedAt) <= GAP) {
+      if (last && last.project === project && Math.abs(last.lastAt - completedAt) <= GAP) {
         last.jobs.push(e);
-        last.firstAt = Math.min(last.firstAt, e.completedAt);
-        last.lastAt = Math.max(last.lastAt, e.completedAt);
+        last.firstAt = Math.min(last.firstAt, completedAt);
+        last.lastAt = Math.max(last.lastAt, completedAt);
       } else {
         batches.push({
           project,
-          firstAt: e.completedAt,
-          lastAt: e.completedAt,
+          firstAt: completedAt,
+          lastAt: completedAt,
           jobs: [e],
         });
       }
@@ -349,9 +353,17 @@
         const body = open ? (
           '<div class="batch-body">'
           + shown.map((j) => {
-            const sn = (j.meta && j.meta.sceneName) || '(unknown)';
-            const idx = j.meta && j.meta.jobIndex ? ' ' + j.meta.jobIndex + '/' + (j.meta.jobTotal || '?') : '';
-            return '<div class="scene-row"><span class="scene-name">' + escapeHtml(sn) + escapeHtml(idx) + '</span><span class="scene-time">' + fmtTime(j.completedAt) + '</span></div>';
+            const jmeta = j && j.meta;
+            let sn = (jmeta && jmeta.sceneName) || null;
+            // 폴백: outputFilePath에서 sceneName 추출 (outs/project/scene/file.png)
+            if (!sn && j && j.outputFilePath) {
+              const parts = String(j.outputFilePath).split('/');
+              if (parts.length >= 3 && parts[0] === 'outs') sn = parts[parts.length - 2];
+            }
+            sn = sn || '(unknown)';
+            const idx = jmeta && jmeta.jobIndex ? ' ' + jmeta.jobIndex + '/' + (jmeta.jobTotal || '?') : '';
+            const ts = j && j.completedAt ? fmtTime(j.completedAt) : '-';
+            return '<div class="scene-row"><span class="scene-name">' + escapeHtml(sn) + escapeHtml(idx) + '</span><span class="scene-time">' + ts + '</span></div>';
           }).join('')
           + (more > 0 ? '<div class="scene-row" style="color:#6a6f78; justify-content:center;">+ ' + more + '개 더</div>' : '')
           + '</div>'
