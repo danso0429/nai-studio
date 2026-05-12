@@ -87,6 +87,7 @@ export abstract class Backend {
   abstract queueGetFullState(): Promise<QueueFullState>;
   abstract pauseQueue(): Promise<void>;
   abstract resumeQueue(): Promise<void>;
+  abstract cancelQueue(): Promise<{ cancelled: number }>;
   abstract getDriveRetryStatus(): Promise<DriveRetryStatus>;
   abstract driveRetryNow(): Promise<void>;
   abstract driveRetryDismiss(localPath: string): Promise<void>;

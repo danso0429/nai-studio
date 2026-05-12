@@ -102,6 +102,11 @@ export class ServerBackend extends Backend {
     await api('/queue/resume', { method: 'POST' });
   }
 
+  async cancelQueue(): Promise<{ cancelled: number }> {
+    const data = await apiJSON('/queue/cancel', { method: 'POST' });
+    return { cancelled: data.cancelled || 0 };
+  }
+
   async getDriveRetryStatus(): Promise<DriveRetryStatus> {
     return apiJSON('/drive/retry-status');
   }

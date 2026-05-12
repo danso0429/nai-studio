@@ -40,6 +40,7 @@ import { expandPieces, lowerPromptNode, toPARR } from './PromptService';
 import { dataUriToBase64 } from './ImageService';
 import { prepareMirrorCanvas } from './workflows/SDWorkFlow';
 import { getImageDimensions } from '../componenets/BrushTool';
+import { QueueJobMeta } from '../backend';
 
 const FAST_TASK_TIME_ESTIMATOR_SAMPLE_COUNT = 16;
 const TASK_TIME_ESTIMATOR_SAMPLE_COUNT = 128;
@@ -246,14 +247,19 @@ class GenerateImageTaskHandler implements TaskHandler {
     return false;
   }
 
-  async handleTask(task: Task, run: TaskQueueRun) {
+  // prep + execute 분리: server-mirror 모드에서 prep만 N번 호출해 batch push 가능.
+  // outputFilePath는 prep 시점 unique 보장 위해 timestamp + uuid suffix.
+  async prepGenInput(
+    task: Task,
+    run: TaskQueueRun,
+  ): Promise<{ arg: ImageGenInput; outputFilePath: string }> {
     const job: SDAbstractJob<PromptNode> = task.params
       .job as SDAbstractJob<PromptNode>;
     const config = await backend.getConfig();
     let prompt = lowerPromptNode(job.prompt!);
     console.log('lowered prompt: ' + prompt);
     const outputFilePath =
-      task.params.outputPath + '/' + Date.now().toString() + '.png';
+      task.params.outputPath + '/' + Date.now().toString() + '_' + v4().slice(0, 8) + '.png';
     if (prompt === '') {
       prompt = '1girl';
     }
@@ -478,17 +484,18 @@ class GenerateImageTaskHandler implements TaskHandler {
       arg.originalImage = true;
       arg.imageStrength = i2iJob.strength;
     }
-    // IP 확인 최적화 - 세션당 한 번만 확인
-    await backend.generateImage(arg);
-
+    // prep 끝. 다음 prep을 위해 seed 갱신 (mirror 모드도 prep N번 돌릴 때 동일 동작).
     if (job.seed) {
       job.seed = stepSeed(job.seed);
     }
+    return { arg, outputFilePath };
+  }
 
+  // 이미지 생성 완료 후 처리. legacy 모드는 generateImage 직후, mirror 모드는 WS event 시점에 호출.
+  afterGenComplete(task: Task, outputFilePath: string) {
     if (task.params.onComplete) {
       task.params.onComplete(outputFilePath);
     }
-
     if (task.params.scene != null) {
       if (task.params.scene.type === 'inpaint') {
         imageService.onAddInPaint(
@@ -504,7 +511,12 @@ class GenerateImageTaskHandler implements TaskHandler {
         );
       }
     }
+  }
 
+  async handleTask(task: Task, run: TaskQueueRun) {
+    const { arg, outputFilePath } = await this.prepGenInput(task, run);
+    await backend.generateImage(arg);
+    this.afterGenComplete(task, outputFilePath);
     return true;
   }
 
@@ -724,6 +736,13 @@ export class TaskQueueService extends EventTarget {
   currentRun: TaskQueueRun | undefined;
   taskSet: { [key: string]: boolean };
   taskLogs: TaskLog[] = [];
+  // server-mirror: gen/inpaint/i2i task를 batch로 서버 큐에 push하고 WS event로 동기화.
+  // queue에는 안 들어감 (queue는 augment/remove-bg 등 클라 처리 task 전용).
+  mirroredTasks: Map<string, Task> = new Map();
+  // jobId → { taskId, outputFilePath } 매핑. WS queue-job-complete 받을 때 task 찾기 + afterGenComplete용.
+  mirroredJobs: Map<string, { taskId: string; outputFilePath: string }> = new Map();
+  // mirror 도중 prep 시간 측정 시작점 (시간 추정 보정용)
+  private mirrorRunStartTimes: Map<string, number> = new Map();
   constructor(handlers: TaskHandler[]) {
     super();
     this.handlers = handlers;
@@ -736,6 +755,15 @@ export class TaskQueueService extends EventTarget {
     }
     this.queue = new CircularQueue();
     this.taskSet = {};
+
+    // WS subscribe: server-mirror 진행 동기화
+    backend.onQueueJobComplete((data) => this.handleMirroredComplete(data));
+    backend.onQueueJobError((data) => this.handleMirroredError(data));
+
+    // 페이지 로드 시 서버 큐 → mirror 복원 (다른 탭 또는 이전 세션의 작업)
+    this.restoreMirroredState().catch((e) => {
+      console.warn('[TaskQueue] restoreMirroredState failed:', e);
+    });
   }
 
   addLog(level: TaskLog['level'], scene: string, message: string) {
@@ -755,7 +783,23 @@ export class TaskQueueService extends EventTarget {
       this.removeTaskInternal(task);
       this.queue.dequeue();
     }
+    // mirror task: 서버 큐 cancel + 클라 측 mirror state 비우기
+    if (this.mirroredTasks.size > 0) {
+      backend.cancelQueue().catch((e) => console.warn('[TaskQueue] cancelQueue failed:', e));
+      // mirror task별 stats 보정 — 남은 done/total 차이만큼 빼기 (이미 done은 ws event로 갱신된 상태)
+      for (const [taskId, task] of this.mirroredTasks) {
+        const remain = task.total - task.done;
+        this.groupStats[task.cls].total -= remain;
+        // sceneKey는 task.params에서 또는 mirroredJobs entry의 meta? — 저장 안 해서 여기선 스킵
+        // sceneStats는 다음 렌더에서 음수 안 되게 정리 필요. 일단 단순 처리.
+        delete this.taskSet[taskId];
+      }
+      this.mirroredTasks.clear();
+      this.mirroredJobs.clear();
+      this.mirrorRunStartTimes.clear();
+    }
     this.dispatchProgress();
+    this.dispatchEvent(new CustomEvent('stop', {}));
   }
 
   removeTasksFromScene(scene: GenericScene) {
@@ -781,7 +825,205 @@ export class TaskQueueService extends EventTarget {
       total: numExec,
     };
     task.cls = this.getTaskCls(task);
+    const handler = this.handlers[task.cls];
+    // gen/inpaint/i2i = server-mirror로. 클라 닫혀도 서버가 진행.
+    if (handler instanceof GenerateImageTaskHandler) {
+      this.addMirroredTask(task).catch((e) => {
+        console.error('[TaskQueue] addMirroredTask failed:', e);
+        this.dispatchEvent(
+          new CustomEvent('error', {
+            detail: { error: e?.message || String(e), task },
+          }),
+        );
+      });
+      return;
+    }
+    // 그 외 (augment, remove-bg) 는 기존 클라 큐
     this.addTaskInternal(task);
+  }
+
+  // gen/inpaint/i2i task를 server-mirror로 등록. prep N번 → batch push → WS event로 done 동기화.
+  async addMirroredTask(task: Task) {
+    const handler = this.handlers[task.cls] as GenerateImageTaskHandler;
+    const taskId = task.id!;
+    const sceneKey = task.params.scene
+      ? getSceneKey(task.params.session, task.params.scene)
+      : '';
+
+    // mirroredTasks에 등록 + stats total 증가 (done은 WS event로 갱신)
+    this.mirroredTasks.set(taskId, task);
+    this.groupStats[task.cls].total += task.total;
+    if (sceneKey) {
+      if (!(sceneKey in this.sceneStats)) {
+        this.sceneStats[sceneKey] = { done: 0, total: 0 };
+      }
+      this.sceneStats[sceneKey].total += task.total;
+    }
+    this.taskSet[taskId] = true;
+    this.mirrorRunStartTimes.set(taskId, Date.now());
+    this.dispatchProgress();
+    this.dispatchEvent(new CustomEvent('start', {}));
+
+    // prep N번. 같은 run 객체 전달 → cachedVibes/Refs 재사용 (같은 task의 N장은 vibes 동일).
+    const run: TaskQueueRun = { stopped: false, delayCnt: 0 };
+    const items: Array<{ params: ImageGenInput; meta: QueueJobMeta }> = [];
+    const localOutputs: string[] = [];
+    for (let i = 0; i < task.total; i++) {
+      const { arg, outputFilePath } = await handler.prepGenInput(task, run);
+      localOutputs.push(outputFilePath);
+      items.push({
+        params: arg,
+        meta: {
+          taskId,
+          cls: task.cls,
+          sceneKey,
+          sceneName: task.params.scene?.name,
+          taskType: task.params.scene?.type,
+        },
+      });
+    }
+
+    // 서버 batch push
+    const result = await backend.queueAddBatch(items);
+    for (let i = 0; i < result.jobIds.length; i++) {
+      this.mirroredJobs.set(result.jobIds[i], {
+        taskId,
+        outputFilePath: localOutputs[i],
+      });
+    }
+    if (result.rejected > 0) {
+      console.warn(`[TaskQueue] queueAddBatch rejected ${result.rejected} of ${task.total} (큐 가득 참)`);
+      // 등록 실패한 만큼 stats 보정
+      this.groupStats[task.cls].total -= result.rejected;
+      if (sceneKey && (sceneKey in this.sceneStats)) {
+        this.sceneStats[sceneKey].total -= result.rejected;
+      }
+      task.total -= result.rejected;
+    }
+    this.dispatchProgress();
+  }
+
+  // WS queue-job-complete handler. mirror task만 처리 (다른 jobId는 무시).
+  handleMirroredComplete(data: { jobId: string; outputFilePath?: string; meta: QueueJobMeta }) {
+    const job = this.mirroredJobs.get(data.jobId);
+    if (!job) return;
+    const task = this.mirroredTasks.get(job.taskId);
+    if (!task) {
+      this.mirroredJobs.delete(data.jobId);
+      return;
+    }
+    const outputFilePath = data.outputFilePath || job.outputFilePath;
+    task.done++;
+    this.groupStats[task.cls].done++;
+    const sceneKey = data.meta?.sceneKey;
+    if (sceneKey && sceneKey in this.sceneStats) {
+      this.sceneStats[sceneKey].done++;
+    }
+    // task.params 살아있을 때만 imageService 갱신 (이 클라가 등록한 task)
+    if (task.params && task.params.session && task.params.scene) {
+      const startTs = this.mirrorRunStartTimes.get(job.taskId);
+      if (startTs) {
+        // 첫 완료 = task 시작 시점 ~ 첫 완료까지의 시간을 1장 추정치로 사용 (대략적)
+        this.timeEstimators[task.cls].addSample(Date.now() - startTs);
+        this.mirrorRunStartTimes.delete(job.taskId);
+      }
+      const handler = this.handlers[task.cls];
+      if (handler instanceof GenerateImageTaskHandler) {
+        try {
+          handler.afterGenComplete(task, outputFilePath);
+        } catch (e) {
+          console.error('[TaskQueue] afterGenComplete threw:', e);
+        }
+      }
+    }
+    this.mirroredJobs.delete(data.jobId);
+    this.dispatchEvent(new CustomEvent('complete', {}));
+    this.dispatchProgress();
+    if (task.done >= task.total) {
+      this.mirroredTasks.delete(job.taskId);
+      delete this.taskSet[job.taskId];
+      if (this.mirroredTasks.size === 0 && !this.currentRun) {
+        this.dispatchEvent(new CustomEvent('stop', {}));
+      }
+    }
+  }
+
+  handleMirroredError(data: { jobId: string; error: string; meta: QueueJobMeta }) {
+    const job = this.mirroredJobs.get(data.jobId);
+    if (!job) return;
+    const task = this.mirroredTasks.get(job.taskId);
+    if (!task) {
+      this.mirroredJobs.delete(data.jobId);
+      return;
+    }
+    // 서버가 이미 429 retry 끝까지 시도. 도달 = 진짜 실패. task.done++ (skip 처리)
+    task.done++;
+    this.groupStats[task.cls].done++;
+    const sceneKey = data.meta?.sceneKey;
+    if (sceneKey && sceneKey in this.sceneStats) {
+      this.sceneStats[sceneKey].done++;
+    }
+    this.mirroredJobs.delete(data.jobId);
+    this.dispatchEvent(
+      new CustomEvent('error', { detail: { error: data.error, task } }),
+    );
+    this.dispatchProgress();
+    if (task.done >= task.total) {
+      this.mirroredTasks.delete(job.taskId);
+      delete this.taskSet[job.taskId];
+      if (this.mirroredTasks.size === 0 && !this.currentRun) {
+        this.dispatchEvent(new CustomEvent('stop', {}));
+      }
+    }
+  }
+
+  // 페이지 로드 시: 서버 큐의 jobs를 meta.taskId로 그룹화하고 mirroredTasks 재구성.
+  // task.params는 서버에 저장 안 됨 → 빈 placeholder. 알약/리스트 표시만 가능, imageService 갱신 X.
+  async restoreMirroredState() {
+    const full = await backend.queueGetFullState();
+    const groups = new Map<string, Array<{ jobId: string; meta: QueueJobMeta; outputFilePath?: string }>>();
+    for (const j of full.jobs) {
+      if (!j.meta || !j.meta.taskId) continue; // legacy job (meta 없음) 스킵
+      if (!groups.has(j.meta.taskId)) groups.set(j.meta.taskId, []);
+      groups.get(j.meta.taskId)!.push(j);
+    }
+    if (groups.size === 0) return;
+    for (const [taskId, jobs] of groups) {
+      const meta = jobs[0].meta;
+      const cls = meta.cls ?? 0;
+      // params는 placeholder. session/scene 없음 → afterGenComplete 호출 안 함 (위에서 분기).
+      const restoredTask: Task = {
+        id: taskId,
+        cls,
+        params: {
+          session: undefined as any,
+          job: undefined as any,
+          outputPath: '',
+          scene: undefined as any,
+        },
+        done: 0,
+        total: jobs.length,
+      };
+      this.mirroredTasks.set(taskId, restoredTask);
+      this.taskSet[taskId] = true;
+      for (const j of jobs) {
+        this.mirroredJobs.set(j.jobId, {
+          taskId,
+          outputFilePath: j.outputFilePath || '',
+        });
+      }
+      if (this.groupStats[cls]) {
+        this.groupStats[cls].total += jobs.length;
+      }
+      if (meta.sceneKey) {
+        if (!(meta.sceneKey in this.sceneStats)) {
+          this.sceneStats[meta.sceneKey] = { done: 0, total: 0 };
+        }
+        this.sceneStats[meta.sceneKey].total += jobs.length;
+      }
+    }
+    this.dispatchProgress();
+    this.dispatchEvent(new CustomEvent('start', {}));
   }
 
   addTaskInternal(task: Task) {
@@ -810,17 +1052,26 @@ export class TaskQueueService extends EventTarget {
   }
 
   isEmpty() {
-    return this.queue.isEmpty();
+    return this.queue.isEmpty() && this.mirroredTasks.size === 0;
   }
 
   isRunning() {
-    return this.currentRun != undefined;
+    return this.currentRun != undefined || this.mirroredTasks.size > 0;
   }
 
   stop() {
+    let didStop = false;
     if (this.currentRun) {
       this.currentRun.stopped = true;
       this.currentRun = undefined;
+      didStop = true;
+    }
+    // mirror task 진행 중이면 server 큐 pause (in-flight 완료 후 다음 job 안 시작)
+    if (this.mirroredTasks.size > 0) {
+      backend.pauseQueue().catch((e) => console.warn('[TaskQueue] pauseQueue failed:', e));
+      didStop = true;
+    }
+    if (didStop) {
       this.dispatchEvent(new CustomEvent('stop', {}));
     }
   }
@@ -832,12 +1083,18 @@ export class TaskQueueService extends EventTarget {
   }
 
   run() {
-    if (!this.currentRun) {
+    // mirror task 일시정지 상태 → resume
+    if (this.mirroredTasks.size > 0) {
+      backend.resumeQueue().catch((e) => console.warn('[TaskQueue] resumeQueue failed:', e));
+    }
+    if (!this.currentRun && !this.queue.isEmpty()) {
       this.currentRun = {
         stopped: false,
         delayCnt: this.getDelayCnt(),
       };
       this.runInternal(this.currentRun);
+    }
+    if (this.currentRun || this.mirroredTasks.size > 0) {
       this.dispatchEvent(new CustomEvent('start', {}));
     }
   }
