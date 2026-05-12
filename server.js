@@ -833,24 +833,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// 진단용 timing middleware. SDS_LOG_TIMING=1일 때만 fs/image endpoint 처리시간 log.
-// 씬 로딩 느림 등 병목 추적용.
-if (process.env.SDS_LOG_TIMING) {
-  app.use((req, res, next) => {
-    const start = Date.now();
-    res.on('finish', () => {
-      const ms = Date.now() - start;
-      const p = req.path || '';
-      if (p.startsWith('/api/fs/') || p.startsWith('/api/image/')) {
-        const q = req.query && req.query.path ? ' path=' + String(req.query.path).slice(-50) : '';
-        const ts = new Date().toISOString();
-        console.log('[' + ts + '] [timing] ' + ms + 'ms ' + req.method + ' ' + p + q + ' → ' + res.statusCode);
-      }
-    });
-    next();
-  });
-}
-
 // Serve static frontend.
 // public/ 은 사람·update.sh가 관리하는 정적 파일 (queue.html, build-info.json).
 // public/build/ 는 vite 빌드 산출물 (index.html, assets/*). vite emptyOutDir이
