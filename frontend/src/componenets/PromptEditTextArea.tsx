@@ -718,6 +718,7 @@ const PromptAutoComplete = ({
   clientY,
   selectedTag,
   onSelectTag,
+  inline = false,
 }: {
   tags: WordTag[];
   curWord: string;
@@ -725,6 +726,7 @@ const PromptAutoComplete = ({
   clientY: number;
   selectedTag: number;
   onSelectTag: (idx: number) => void;
+  inline?: boolean;
 }) => {
   const [posX, setPosX] = useState(0);
   const [posY, setPosY] = useState(0);
@@ -824,8 +826,53 @@ const PromptAutoComplete = ({
       </div>
     );
   };
-  // 모바일: popover를 텍스트 위에 띄움 (clientY 위쪽 222px). 공간 부족하면 상단 8px clamp.
-  // 키보드 + textarea가 화면 하단을 차지하므로 위로 띄우는 게 안전.
+  // inline: 부모 컨테이너 (fullScreen split) 안에 채워서 표시. 위치 계산 없음.
+  // popover: fixed positioning. 모바일은 텍스트 위에 띄움 (clientY - 222), 공간 부족 시 8px clamp.
+  if (inline) {
+    if (tags.length === 0) return null;
+    return (
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        className="w-full h-full overflow-y-auto bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-500 rounded-lg"
+      >
+        {tags.map((_, idx) => (
+          <div
+            key={idx}
+            className={
+              'hover:brightness-95 active:brightness-90 cursor-pointer ' +
+              (idx === selectedTag
+                ? 'flex items-center p-1 bg-gray-200 dark:bg-slate-500'
+                : 'flex items-center p-1')
+            }
+            onMouseDown={() => onSelectTag(idx)}
+          >
+            <span className="text-gray-600 dark:text-gray-300 mr-1 flex-none">
+              {tags[idx].word.startsWith('<') ? (
+                <FaStar />
+              ) : (
+                categoryIcon(tags[idx].category)
+              )}
+            </span>
+            <span className="flex-1 truncate text-sm text-default">
+              {matchMasks[idx]
+                ? processWord(tags[idx].word, matchMasks[idx]).map((sec, i) => (
+                    <span key={i} className={sec.bold ? 'font-bold' : ''}>
+                      {sec.text}
+                    </span>
+                  ))
+                : tags[idx].word}
+            </span>
+            {tags[idx].freq > 0 && (
+              <div className="flex-none text-right text-xs text-gray-500 dark:text-gray-400 ml-2">
+                {formatCount(tags[idx].freq)}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   const popoverTop = isMobile ? Math.max(8, clientY - 222) : posY;
   return (
     <div
@@ -1441,6 +1488,92 @@ const PromptEditTextArea = observer(
       : 'bg-gray-200 dark:bg-slate-700';
     if (fullScreen) bgColor = 'bg-white dark:bg-slate-600 shadow-lg';
 
+    const splitMode = fullScreen && tags.length > 0;
+    const textareaInner = (
+      <>
+        <div className="absolute right-0 top-0 z-10">
+          <button
+            onClick={() => {
+              if (!disabled) setFullScreen(!fullScreen);
+            }}
+            className="text-gray-500 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300 opacity-50 mr-1 mt-1"
+          >
+            {!fullScreen ? <FaExpand></FaExpand> : <FaTimes></FaTimes>}
+          </button>
+        </div>
+        <EditTextAreaImpl
+          ref={editorRef}
+          value={value}
+          disabled={disabled}
+          highlight={highlight}
+          onUpdated={onUpdated}
+          history={historyRef.current}
+          redo={redoRef.current}
+          onUpArrow={onUpArrow}
+          onDownArrow={onDownArrow}
+          onEnter={onEnter}
+          onEsc={onEsc}
+          closeAutoComplete={closeAutoComplete}
+          onFocus={onFoucs}
+          onBlur={onBlur}
+        />
+        {isMobile && fullScreen && (
+          <div className="absolute right-0 bottom-0 z-10 p-1 active:brightness-90">
+            <FaUndo
+              size={20}
+              className="opacity-50 mr-1 mb-1"
+              onClick={() => {
+                editorRef.current!.undo();
+              }}
+            />
+          </div>
+        )}
+      </>
+    );
+
+    if (fullScreen) {
+      return (
+        <>
+          <div className="prompt-full-container">
+            <div
+              ref={innerRef}
+              onClick={handleClick}
+              spellCheck={false}
+              draggable={true}
+              onDragStart={(event) => event.preventDefault()}
+              className={
+                bgColor +
+                ' p-2 overflow-hidden rounded-lg relative ' +
+                (splitMode ? 'prompt-half' : 'w-full h-full')
+              }
+            >
+              {textareaInner}
+            </div>
+            {splitMode && (
+              <div className="prompt-half">
+                <PromptAutoComplete
+                  key={id}
+                  inline
+                  curWord={curWord}
+                  tags={tags}
+                  clientX={clientX}
+                  clientY={clientY}
+                  selectedTag={selectedTag}
+                  onSelectTag={onSelectTag}
+                />
+              </div>
+            )}
+          </div>
+          <div
+            className="fixed bg-black opacity-15 w-screen h-screen top-0 left-0 z-20"
+            onClick={() => {
+              setFullScreen(false);
+            }}
+          ></div>
+        </>
+      );
+    }
+
     return (
       <>
         <div
@@ -1449,50 +1582,9 @@ const PromptEditTextArea = observer(
           spellCheck={false}
           draggable={true}
           onDragStart={(event) => event.preventDefault()}
-          className={
-            bgColor +
-            (!fullScreen
-              ? ' overflow-hidden h-full relative rounded-md'
-              : ' left-0 m-4 p-2 overflow-hidden fixed z-30 h-96 prompt-full rounded-lg')
-          }
+          className={bgColor + ' overflow-hidden h-full relative rounded-md'}
         >
-          <div className="absolute right-0 top-0 z-10">
-            <button
-              onClick={() => {
-                if (!disabled) setFullScreen(!fullScreen);
-              }}
-              className="text-gray-500 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300 opacity-50 mr-1 mt-1"
-            >
-              {!fullScreen ? <FaExpand></FaExpand> : <FaTimes></FaTimes>}
-            </button>
-          </div>
-          <EditTextAreaImpl
-            ref={editorRef}
-            value={value}
-            disabled={disabled}
-            highlight={highlight}
-            onUpdated={onUpdated}
-            history={historyRef.current}
-            redo={redoRef.current}
-            onUpArrow={onUpArrow}
-            onDownArrow={onDownArrow}
-            onEnter={onEnter}
-            onEsc={onEsc}
-            closeAutoComplete={closeAutoComplete}
-            onFocus={onFoucs}
-            onBlur={onBlur}
-          />
-          {isMobile && fullScreen && (
-            <div className="absolute right-0 bottom-0 z-10 p-1 active:brightness-90">
-              <FaUndo
-                size={20}
-                className="opacity-50 mr-1 mb-1"
-                onClick={() => {
-                  editorRef.current!.undo();
-                }}
-              />
-            </div>
-          )}
+          {textareaInner}
         </div>
         <PromptAutoComplete
           key={id}
@@ -1503,14 +1595,6 @@ const PromptEditTextArea = observer(
           selectedTag={selectedTag}
           onSelectTag={onSelectTag}
         />
-        {fullScreen && (
-          <div
-            className="fixed bg-black opacity-15 w-screen h-screen top-0 left-0 z-20"
-            onClick={() => {
-              setFullScreen(false);
-            }}
-          ></div>
-        )}
       </>
     );
   },
