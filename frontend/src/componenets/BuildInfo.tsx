@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { apiUrl } from '../models/util';
+import { backend } from '../models';
+
+const GITHUB_REPO_URL = 'https://github.com/danso0429/nai-studio';
 
 interface VersionInfo {
   current: string | null;
@@ -73,7 +76,17 @@ export const BuildInfoBadge = ({ variant }: BuildInfoBadgeProps) => {
     return (
       <>
         <span className="text-sub text-xs opacity-60 mr-2">
-          SDStudio v{buildInfo.sdstudioBase} | Remote v{buildInfo.version}
+          {updateAvailable ? (
+            <span>SDStudio v{buildInfo.sdstudioBase} | Remote v{buildInfo.version}</span>
+          ) : (
+            <button
+              onClick={() => backend.openWebPage(GITHUB_REPO_URL)}
+              className="hover:underline cursor-pointer"
+              title="GitHub 저장소 열기"
+            >
+              SDStudio v{buildInfo.sdstudioBase} | Remote v{buildInfo.version}
+            </button>
+          )}
           {updateAvailable && (
             <button
               onClick={() => setShowModal(true)}
@@ -101,14 +114,19 @@ export const BuildInfoBadge = ({ variant }: BuildInfoBadgeProps) => {
   return (
     <>
       <button
-        onClick={() => updateAvailable && setShowModal(true)}
-        className={`flex flex-col items-center justify-center px-2 py-0.5 rounded-full text-[9px] leading-tight font-medium select-none ${
+        onClick={() => {
+          if (updateAvailable) {
+            setShowModal(true);
+          } else {
+            backend.openWebPage(GITHUB_REPO_URL);
+          }
+        }}
+        className={`flex flex-col items-center justify-center px-2 py-0.5 rounded-full text-[9px] leading-tight font-medium select-none cursor-pointer ${
           updateAvailable
-            ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 cursor-pointer animate-pulse'
-            : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+            ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 animate-pulse'
+            : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
         }`}
-        title={updateAvailable ? `업데이트 v${versionInfo?.latest} 사용 가능` : ''}
-        disabled={!updateAvailable}
+        title={updateAvailable ? `업데이트 v${versionInfo?.latest} 사용 가능` : 'GitHub 저장소 열기'}
       >
         <span className="opacity-70">SD v{buildInfo.sdstudioBase}</span>
         <span className="font-semibold">

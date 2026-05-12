@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { FaSpinner } from 'react-icons/fa';
-import { FaPause, FaPlay, FaRegCalendarTimes } from 'react-icons/fa';
+import { FaCaretLeft, FaCaretRight, FaPause, FaPlay, FaRegCalendarTimes } from 'react-icons/fa';
 import { FaTimes } from 'react-icons/fa';
 import { FaRegClock } from 'react-icons/fa';
 import { taskQueueService } from '../models';
@@ -243,12 +243,18 @@ const TaskQueueControl = observer(({}) => {
           }}
         />
       )}
-      <div className="whitespace-nowrap">
+      <div className="whitespace-nowrap flex items-center gap-1">
         <span className="whitespace-nowrap text-default">개수:</span>
+        <button
+          className="round-button back-gray px-1.5 h-7"
+          onClick={() => { appState.samples = Math.max(1, appState.samples - 1); }}
+        >
+          <FaCaretLeft size={14} />
+        </button>
         <input
           min={1}
           max={99}
-          className={'ml-2 p-1 md:w-16 text-center gray-input'}
+          className={'p-1 w-10 md:w-12 text-center gray-input'}
           type="number"
           value={appState.samples}
           onChange={(e: any) => {
@@ -260,6 +266,12 @@ const TaskQueueControl = observer(({}) => {
             }
           }}
         />
+        <button
+          className="round-button back-gray px-1.5 h-7"
+          onClick={() => { appState.samples = Math.min(99, appState.samples + 1); }}
+        >
+          <FaCaretRight size={14} />
+        </button>
       </div>
       <div
         className="relative cursor-pointer hover:brightness-95 active:brightness-90"
@@ -372,12 +384,18 @@ export const TaskQueueControls = observer(({}) => {
   }, []);
   return (
     <div className="flex gap-2 items-center">
-      <div className="whitespace-nowrap">
+      <div className="whitespace-nowrap flex items-center gap-1">
         <span className="whitespace-nowrap text-default">개수:</span>
+        <button
+          className="round-button back-gray px-1.5 h-7"
+          onClick={() => { appState.samples = Math.max(1, appState.samples - 1); }}
+        >
+          <FaCaretLeft size={14} />
+        </button>
         <input
           min={1}
           max={99}
-          className={'ml-2 p-1 md:w-16 text-center gray-input'}
+          className={'p-1 w-10 md:w-12 text-center gray-input'}
           type="number"
           value={appState.samples}
           onChange={(e: any) => {
@@ -389,6 +407,12 @@ export const TaskQueueControls = observer(({}) => {
             }
           }}
         />
+        <button
+          className="round-button back-gray px-1.5 h-7"
+          onClick={() => { appState.samples = Math.min(99, appState.samples + 1); }}
+        >
+          <FaCaretRight size={14} />
+        </button>
       </div>
       <button
         className={`round-button back-gray px-2 h-8 md:px-6`}

@@ -146,7 +146,7 @@ export class AppState {
   @observable accessor curSession: Session | undefined = undefined;
   @observable accessor messages: { id: string; text: string }[] = [];
   @observable accessor dialogs: Dialog[] = [];
-  @observable accessor samples: number = 10;
+  @observable accessor samples: number = 1;
   @observable accessor progressDialogs: ProgressDialog[] = [];
   @observable accessor driveRetryStatus: DriveRetryStatus | null = null;
   @observable accessor driveRetryModalOpen: boolean = false;
