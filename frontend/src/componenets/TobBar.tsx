@@ -1,22 +1,17 @@
-import { useContext, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BuildInfoBadge } from './BuildInfo';
-import { FloatView } from './FloatView';
 import ConfigScreen from './ConfigScreen';
 import SessionSelect from './SessionSelect';
-import { Session } from '../models/types';
 import {
   loginService,
   backend,
   taskQueueService,
   imageService,
-  isMobile,
 } from '../models';
-import { VscChromeMinimize, VscChromeMaximize, VscChromeRestore, VscChromeClose } from 'react-icons/vsc';
 
 const TobBar = () => {
   const [loggedIn, setLoggedIn] = useState(false);
   const [credits, setCredits] = useState(0);
-  const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
     const onChange = () => {
@@ -39,19 +34,6 @@ const TobBar = () => {
     };
   }, []);
 
-  useEffect(() => {
-    if (isMobile || !window.electron) return;
-    const checkMaximized = async () => {
-      try {
-        setIsMaximized(max);
-      } catch (e) {}
-    };
-    checkMaximized();
-    const onResize = () => checkMaximized();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
   const [settings, setSettings] = useState(false);
 
   // 단축키에서 환경설정 열기 이벤트 수신
@@ -65,18 +47,6 @@ const TobBar = () => {
     window.addEventListener('shortcut-action', handler);
     return () => window.removeEventListener('shortcut-action', handler);
   }, []);
-
-  const handleMinimize = () => {
-    window.electron?.ipcRenderer.invoke('window-minimize');
-  };
-  const handleMaximize = () => {
-    window.electron?.ipcRenderer.invoke('window-maximize').then(() => {
-      window.electron?.ipcRenderer.invoke('window-is-maximized').then(setIsMaximized);
-    });
-  };
-  const handleClose = () => {
-    window.electron?.ipcRenderer.invoke('window-close');
-  };
 
   return (
     <div className="titlebar-drag flex border-b line-color px-3 py-2 items-center select-none gap-2">
@@ -116,30 +86,6 @@ const TobBar = () => {
       <div className="ml-auto block md:hidden titlebar-no-drag">
         <SessionSelect />
       </div>
-
-      {/* 윈도우 컨트롤 버튼 (PC only) */}
-      {!isMobile && (
-        <div className="titlebar-no-drag hidden md:flex items-center ml-2 -mr-1">
-          <button
-            className="window-control-btn"
-            onClick={handleMinimize}
-          >
-            <VscChromeMinimize size={16} />
-          </button>
-          <button
-            className="window-control-btn"
-            onClick={handleMaximize}
-          >
-            {isMaximized ? <VscChromeRestore size={16} /> : <VscChromeMaximize size={16} />}
-          </button>
-          <button
-            className="window-control-btn window-control-close"
-            onClick={handleClose}
-          >
-            <VscChromeClose size={16} />
-          </button>
-        </div>
-      )}
 
       {settings && (
         <ConfigScreen
