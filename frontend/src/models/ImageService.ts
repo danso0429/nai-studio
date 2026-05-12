@@ -585,8 +585,29 @@ export class ImageService extends EventTarget {
     // 각 refresh 호출은 독립적인 scene의 imageMap만 갱신 (race-free).
     // 청크 크기 8: 브라우저 동시 connection 한도와 서버 부하 사이 균형.
     const CHUNK_SIZE = 8;
-    const refreshOne = (scene: GenericScene) =>
-      this.refresh(session, scene, false, true).catch(() => {});
+    // per-scene timeout — 모바일 Safari cold start로 fetch가 stuck하는 경우 회복.
+    // 본인 보고 (2026-05-12): 페이지 로드 후 첫 50+씬 프로젝트 진입 시 화면 비어있음,
+    // 다른 프로젝트 우회 후 풀림. 첫 chunk의 listFiles 일부가 stuck → 후속 chunk 못
+    // 시작 패턴.
+    const SCENE_REFRESH_TIMEOUT_MS = 15000;
+    const refreshOne = async (scene: GenericScene) => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          await Promise.race([
+            this.refresh(session, scene, false, true),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('refresh timeout')), SCENE_REFRESH_TIMEOUT_MS),
+            ),
+          ]);
+          return; // 성공
+        } catch (e) {
+          // 첫 시도 timeout → 즉시 retry. 두 번째 실패면 skip (다음 chunk 진행).
+          if (attempt === 1) {
+            console.warn('[refreshBatch] scene refresh failed after retry:', scene.name);
+          }
+        }
+      }
+    };
 
     const refreshAll = async (scenes: Iterable<GenericScene>) => {
       const list = Array.from(scenes);
