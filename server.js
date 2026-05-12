@@ -780,21 +780,35 @@ async function processQueue() {
       if (completedJobs.length > COMPLETED_JOBS_MAX) completedJobs.shift();
       saveCompletedJobs();
     } catch (e) {
-      if (e.message && e.message.includes('429')) {
+      const msg = e.message || '';
+      const is429 = msg.includes('429');
+      const fiveXxMatch = msg.match(/Generate failed: (5\d\d)/);
+      const is5xx = !!(fiveXxMatch && fiveXxMatch[1] !== '501');
+
+      if (is429) {
         job._retries = (job._retries || 0) + 1;
         if (job._retries <= 10) {
           console.log(`[NAI Studio] Queue job ${job.jobId}: NAI rate limited, retry ${job._retries}/10 in 5s...`);
-          recordQueueError(job.jobId, e.message, true, job.meta);
+          recordQueueError(job.jobId, msg, true, job.meta);
           await new Promise(r => setTimeout(r, 5000));
           continue;
         }
-        console.error(`[NAI Studio] Queue job ${job.jobId}: max retries exceeded`);
+        console.error(`[NAI Studio] Queue job ${job.jobId}: max retries exceeded (429)`);
+      } else if (is5xx) {
+        job._5xxRetries = (job._5xxRetries || 0) + 1;
+        if (job._5xxRetries <= 10) {
+          console.log(`[NAI Studio] Queue job ${job.jobId}: NAI ${fiveXxMatch[1]}, retry ${job._5xxRetries}/10 in 5s...`);
+          recordQueueError(job.jobId, msg, true, job.meta);
+          await new Promise(r => setTimeout(r, 5000));
+          continue;
+        }
+        console.error(`[NAI Studio] Queue job ${job.jobId}: max retries exceeded (5xx)`);
       }
-      recordQueueError(job.jobId, e.message, false, job.meta);
-      broadcast('queue-job-error', { jobId: job.jobId, error: e.message, meta: job.meta || {} });
+      recordQueueError(job.jobId, msg, false, job.meta);
+      broadcast('queue-job-error', { jobId: job.jobId, error: msg, meta: job.meta || {} });
       broadcastQueueStatus();
       queueStats.failed++;
-      console.error(`[NAI Studio] Queue job ${job.jobId} error:`, e.message);
+      console.error(`[NAI Studio] Queue job ${job.jobId} error:`, msg);
     }
     genQueue.shift();
     saveQueueState();
