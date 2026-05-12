@@ -11,38 +11,50 @@ import { observer } from 'mobx-react-lite';
 interface ProgressBarProps {
   duration: number;
   isError: boolean;
+  isPaused?: boolean;
   text: string;
   key: number;
 }
 
-const ProgressBar = ({ duration, isError, text, key }: ProgressBarProps) => {
+const ProgressBar = ({ duration, isError, isPaused, text, key }: ProgressBarProps) => {
+  // paused 상태: 애니메이션 정지 + 회색 톤 + ⏸ 아이콘. 본인이 명확히 "큐 등록만 됨, 진행 X" 인지.
+  const barColor = isError
+    ? 'bg-red-500'
+    : isPaused
+      ? 'bg-gray-400 dark:bg-slate-500'
+      : 'bg-sky-500 dark:bg-indigo-400';
+  const effectiveDuration = isPaused ? 0 : duration;
   return (
     <div
       key={key}
       className="relative w-40 md:w-52 bg-gray-200 dark:bg-slate-700 rounded-full h-8"
     >
       <div className="top-0 left-0 w-40 md:w-52 h-8 absolute flex items-center justify-center text-gray-600 dark:text-white gap-2">
-        <FaRegClock size={20} />
+        {isPaused ? <FaPause size={16} /> : <FaRegClock size={20} />}
         <div className="w-28 md:w-40 text-xs md:text-sm text-center overflow-hidden text-nowrap">
           {text}
         </div>
       </div>
-      <div
-        className={
-          'top-0 left-0 absolute w-40 md:w-52 progress-transition rounded-full h-8 progress-clip-animation ' +
-          (!isError ? 'bg-sky-500 dark:bg-indigo-400' : 'bg-red-500')
-        }
-        style={{ animationDuration: `${duration}s` }}
-      ></div>
-      <div
-        className="top-0 left-0 w-40 md:w-52 h-8 absolute flex items-center justify-center text-white gap-2 progress-clip-animation"
-        style={{ animationDuration: `${duration}s` }}
-      >
-        <FaRegClock size={20} />
-        <div className="w-28 md:w-40 text-xs md:text-sm text-center overflow-hidden text-nowrap">
-          {text}
-        </div>
-      </div>
+      {!isPaused && (
+        <>
+          <div
+            className={
+              'top-0 left-0 absolute w-40 md:w-52 progress-transition rounded-full h-8 progress-clip-animation ' +
+              barColor
+            }
+            style={{ animationDuration: `${effectiveDuration}s` }}
+          ></div>
+          <div
+            className="top-0 left-0 w-40 md:w-52 h-8 absolute flex items-center justify-center text-white gap-2 progress-clip-animation"
+            style={{ animationDuration: `${effectiveDuration}s` }}
+          >
+            <FaRegClock size={20} />
+            <div className="w-28 md:w-40 text-xs md:text-sm text-center overflow-hidden text-nowrap">
+              {text}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };
@@ -141,6 +153,7 @@ export const TaskProgressBar = ({ fast }: TaskProgressBarProps) => {
       <ProgressBar
         key={key.current}
         isError={isError}
+        isPaused={taskQueueService.mirrorPaused && !taskQueueService.currentRun}
         duration={duration}
         text={getProgressText()}
       />

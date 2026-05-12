@@ -739,6 +739,8 @@ export class TaskQueueService extends EventTarget {
   // server-mirror: gen/inpaint/i2i task를 batch로 서버 큐에 push하고 WS event로 동기화.
   // queue에는 안 들어감 (queue는 augment/remove-bg 등 클라 처리 task 전용).
   mirroredTasks: Map<string, Task> = new Map();
+  // mirror 큐 paused 상태 추적 (server backend.pauseQueue/resumeQueue와 sync). 알약/UI 표시용.
+  mirrorPaused: boolean = false;
   // jobId → { taskId, outputFilePath } 매핑. WS queue-job-complete 받을 때 task 찾기 + afterGenComplete용.
   mirroredJobs: Map<string, { taskId: string; outputFilePath: string }> = new Map();
   // mirror 도중 prep 시간 측정 시작점 (시간 추정 보정용)
@@ -822,6 +824,7 @@ export class TaskQueueService extends EventTarget {
       this.mirroredJobs.clear();
       this.mirrorRunStartTimes.clear();
       this.mirrorTaskSceneKeys.clear();
+      this.mirrorPaused = false;
     }
     this.dispatchProgress();
     this.dispatchEvent(new CustomEvent('stop', {}));
@@ -937,6 +940,7 @@ export class TaskQueueService extends EventTarget {
       // push 전에 pause — 서버가 자동 처리 시작하지 않게.
       try {
         await backend.pauseQueue();
+        this.mirrorPaused = true;
       } catch (e) {
         console.warn('[TaskQueue] pauseQueue (initial) failed:', e);
       }
@@ -1023,8 +1027,9 @@ export class TaskQueueService extends EventTarget {
       this.mirroredTasks.delete(job.taskId);
       this.mirrorTaskSceneKeys.delete(job.taskId);
       delete this.taskSet[job.taskId];
-      if (this.mirroredTasks.size === 0 && !this.currentRun) {
-        this.dispatchEvent(new CustomEvent('stop', {}));
+      if (this.mirroredTasks.size === 0) {
+        this.mirrorPaused = false;
+        if (!this.currentRun) this.dispatchEvent(new CustomEvent('stop', {}));
       }
     }
   }
@@ -1053,8 +1058,9 @@ export class TaskQueueService extends EventTarget {
       this.mirroredTasks.delete(job.taskId);
       this.mirrorTaskSceneKeys.delete(job.taskId);
       delete this.taskSet[job.taskId];
-      if (this.mirroredTasks.size === 0 && !this.currentRun) {
-        this.dispatchEvent(new CustomEvent('stop', {}));
+      if (this.mirroredTasks.size === 0) {
+        this.mirrorPaused = false;
+        if (!this.currentRun) this.dispatchEvent(new CustomEvent('stop', {}));
       }
     }
   }
@@ -1084,6 +1090,9 @@ export class TaskQueueService extends EventTarget {
     this.mirrorRunStartTimes.clear();
     this.mirrorTaskSceneKeys.clear();
 
+    // server paused 상태 sync
+    this.mirrorPaused = !!(full.paused || full.pauseRequested);
+
     const groups = new Map<string, Array<{ jobId: string; meta: QueueJobMeta; outputFilePath?: string }>>();
     for (const j of full.jobs) {
       if (!j.meta || !j.meta.taskId) continue; // legacy job (meta 없음) 스킵
@@ -1091,6 +1100,7 @@ export class TaskQueueService extends EventTarget {
       groups.get(j.meta.taskId)!.push(j);
     }
     if (groups.size === 0) {
+      this.mirrorPaused = false; // 큐 비면 paused 의미 없음
       this.dispatchProgress();
       return;
     }
@@ -1180,6 +1190,7 @@ export class TaskQueueService extends EventTarget {
     // mirror task 진행 중이면 server 큐 pause (in-flight 완료 후 다음 job 안 시작)
     if (this.mirroredTasks.size > 0) {
       backend.pauseQueue().catch((e) => console.warn('[TaskQueue] pauseQueue failed:', e));
+      this.mirrorPaused = true;
       didStop = true;
     }
     if (didStop) {
@@ -1197,6 +1208,7 @@ export class TaskQueueService extends EventTarget {
     // mirror task 일시정지 상태 → resume
     if (this.mirroredTasks.size > 0) {
       backend.resumeQueue().catch((e) => console.warn('[TaskQueue] resumeQueue failed:', e));
+      this.mirrorPaused = false;
     }
     if (!this.currentRun && !this.queue.isEmpty()) {
       this.currentRun = {
