@@ -1545,13 +1545,19 @@ export class AppState {
         }
 
         const replacer = buildSpecialCharReplacer(charsToReplace);
+        // 줄바꿈 구분: 텍스트 뷰어에서 한 줄에 하나씩 스캔하기 쉽고, 콤마-스페이스 대비 LOC 작음.
         const names = replacer
-          ? selected.map((s) => s.name.replace(replacer, replacement)).join(', ')
-          : selected.map((s) => s.name).join(', ');
+          ? selected.map((s) => s.name.replace(replacer, replacement)).join('\n')
+          : selected.map((s) => s.name).join('\n');
         const path = 'exports/scene_names_' + Date.now().toString() + '.txt';
         await backend.writeFile(path, names);
-        await backend.showFile(path);
-        appState.pushMessage(`${selected.length}개 씬 이름을 내보냈습니다.`);
+        const pid = appState.pushProgressDialog('Drive 업로드 중 (씬 이름)...', 1);
+        await syncExportToDrive({
+          path,
+          pid,
+          successLabel: `✓ ${selected.length}개 씬 이름 Drive 업로드 완료`,
+          logTag: 'exportSceneNames',
+        });
       } else if (value === 'sortScenes') {
         const allScenes = this.curSession!.getScenes(type);
         const selectedSet = new Set(selected.map(s => s.name));
