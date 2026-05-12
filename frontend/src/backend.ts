@@ -55,12 +55,36 @@ export interface DriveRetryStatus {
   entries: DriveRetryEntry[];
 }
 
+// 클라가 큐 push 시 task 매핑용으로 함께 보내는 메타데이터.
+// 페이지 로드 시 GET /api/queue/full-state로 회수해 task 복원.
+export interface QueueJobMeta {
+  taskId?: string;        // 같은 task에 속한 jobs 그룹화
+  cls?: number;           // task handler index (gen-fast / gen-slow / inpaint-* 구분)
+  sceneKey?: string;      // sceneStats 매핑용 (session/type/sceneName)
+  sceneName?: string;     // 표시용
+  taskType?: string;      // 'gen' | 'inpaint' | 'i2i' 등
+}
+
+export interface QueueFullState {
+  pending: number;
+  processing: boolean;
+  paused: boolean;
+  pauseRequested: boolean;
+  jobs: Array<{
+    jobId: string;
+    meta: QueueJobMeta;
+    outputFilePath?: string;
+  }>;
+}
+
 export abstract class Backend {
   abstract getConfig(): Promise<Config>;
   abstract setConfig(newConfig: Config): Promise<void>;
   abstract getVersion(): Promise<string>;
   abstract openWebPage(url: string): Promise<void>;
   abstract generateImage(arg: ImageGenInput): Promise<void>;
+  abstract queueAddBatch(items: Array<{ params: ImageGenInput; meta?: QueueJobMeta }>): Promise<{ jobIds: string[]; rejected: number }>;
+  abstract queueGetFullState(): Promise<QueueFullState>;
   abstract pauseQueue(): Promise<void>;
   abstract resumeQueue(): Promise<void>;
   abstract getDriveRetryStatus(): Promise<DriveRetryStatus>;

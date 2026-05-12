@@ -1,6 +1,6 @@
 import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, DriveRetryStatus, FileEntry, FileStatEntry, ImageOptimizeMethod, RecursiveListResult, ResizeImageInput } from '../backend';
+import { Backend, DriveRetryStatus, FileEntry, FileStatEntry, ImageOptimizeMethod, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -79,6 +79,18 @@ export class ServerBackend extends Backend {
   async generateImage(arg: ImageGenInput): Promise<void> {
     // Submit to server queue — returns immediately, server processes in background
     await api('/queue/add', { method: 'POST', body: JSON.stringify(arg) });
+  }
+
+  async queueAddBatch(items: Array<{ params: ImageGenInput; meta?: QueueJobMeta }>): Promise<{ jobIds: string[]; rejected: number }> {
+    const data = await apiJSON('/queue/add-batch', {
+      method: 'POST',
+      body: JSON.stringify({ jobs: items }),
+    });
+    return { jobIds: data.jobIds || [], rejected: data.rejected || 0 };
+  }
+
+  async queueGetFullState(): Promise<QueueFullState> {
+    return apiJSON('/queue/full-state');
   }
 
   async pauseQueue(): Promise<void> {
@@ -278,8 +290,9 @@ export class ServerBackend extends Backend {
   onZipProgress(callback: (progress: any) => void): () => void { return this.on('zip-progress', callback); }
   onImageChanged(callback: (path: string) => void): () => void { return this.on('image-changed', callback); }
   onQueueStatus(callback: (data: any) => void): () => void { return this.on('queue-status', callback); }
-  onQueueJobComplete(callback: (data: any) => void): () => void { return this.on('queue-job-complete', callback); }
-  onQueueJobError(callback: (data: any) => void): () => void { return this.on('queue-job-error', callback); }
+  onQueueJobStart(callback: (data: { jobId: string; pending: number; meta: QueueJobMeta }) => void): () => void { return this.on('queue-job-start', callback); }
+  onQueueJobComplete(callback: (data: { jobId: string; outputFilePath?: string; meta: QueueJobMeta }) => void): () => void { return this.on('queue-job-complete', callback); }
+  onQueueJobError(callback: (data: { jobId: string; error: string; meta: QueueJobMeta }) => void): () => void { return this.on('queue-job-error', callback); }
   onDriveSyncComplete(callback: (data: { localPath: string; requestedPath: string | null; fileName: string }) => void): () => void {
     return this.on('drive-sync-complete', callback);
   }
