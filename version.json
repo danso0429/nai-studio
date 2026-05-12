@@ -1,6 +1,6 @@
 {
-  "version": "1.5.0-preview.6",
+  "version": "1.5.0",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-12",
-  "notes": "이미지 내보내기 서버 측 export pipeline (HTTP 202 + WS, resize/zip/Drive 모두 백그라운드) + 클라 측 endpoint 교체 + AlertWindow 색 통일 (빨강 → 슬레이트) + 이미지 내보내기 진행 상태를 DriveRetryWidget·queue.html에 통합 + Drive retry 큐 동시성 N=3 병렬 처리"
+  "notes": "Phase 9 정식 출시. 클라 → 서버 큐 통합 (mirror, 폰 닫아도 진행 + 다시 열면 자동 동기화) + 내보내기 프리셋 (3개 max, 다이얼로그 chain 없이 즉시) + 개수 ◀▶ 컨트롤 + 태그 자동완성 split layout (모바일 세로=상하, 가로/PC=좌우) + underscore→space + AlertWindow 색 통일 + 알약 stop→pause 아이콘 + DriveRetryWidget 통합 알약 + queue.html 소수점·timing-history sparkline·친절 NAI 에러·라이센스 footer + Drive retry N=3 병렬 + rclone remote 환경변수화 (RCLONE_REMOTE) + 큐 cancel disk 동기화 + WS reconnect/30s polling 자동 재동기화 + 버전 알약 → GitHub 저장소 링크 + README 뉴비 친화 재작성 + 아카라이브 오라클 가이드 통합."
 }

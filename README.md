@@ -237,6 +237,18 @@ sudo tailscale serve --bg --https=443 --set-path=/studio http://localhost:6247
 >
 > 인터넷에 직접 노출하려면 nginx/caddy basic auth 또는 Authelia 같은 인증 게이트웨이를 *반드시* 추가하세요.
 
+> ### 🔒 더 안전하게 — 외부 포트 닫기 (선택)
+>
+> Tailscale이 잘 동작하면 **SSH(22번)도 Tailscale 통해 접근 가능**해서 외부 22번 포트는 닫아도 돼요. 보안 그룹에서 22번을 닫으면 인터넷의 brute-force SSH 공격 자체가 차단됩니다.
+>
+> **순서 (꼭 이 순서로!)**:
+> 1. 먼저 Tailscale 설치 완료 + SSH 접속 테스트: `ssh -i key ubuntu@<서버의 Tailscale 호스트명>.tailNNNNN.ts.net`
+> 2. Tailscale로 SSH 접속이 잘 되는지 확인 후
+> 3. Oracle Cloud 보안 그룹에서 **22번 포트 수신 규칙 삭제**
+> 4. 80, 443은 Tailscale serve 통한 HTTPS 노출에 필요하니 유지 (또는 Tailscale Funnel 사용 시 변경 가능)
+>
+> 만약 Tailscale이 안 되는데 22번을 닫으면 서버 영영 못 들어가요. **반드시 Tailscale 동작 확인 후** 닫으세요.
+
 ### Step 7. 태그 자동완성 활성화 (선택)
 
 Danbooru 태그 DB(`db.csv`)를 서버 `~/nai-studio/data/` 폴더에 두면 자동완성이 켜져요.
