@@ -31,8 +31,6 @@ import {
   FaEdit,
 } from 'react-icons/fa';
 import Denque from 'denque';
-import { writeFileSync } from 'original-fs';
-import { windowsStore } from 'process';
 import Scrollbars from 'react-custom-scrollbars-2';
 import PromptEditTextArea from './PromptEditTextArea';
 import PreSetEditor, { UnionPreSetEditor } from './PreSetEdtior';

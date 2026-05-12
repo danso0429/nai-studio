@@ -16,7 +16,6 @@ import {
   areEqual,
 } from 'react-window';
 import ResizeObserver from 'resize-observer-polyfill';
-import { userInfo } from 'os';
 import { CustomScrollbars } from './UtilComponents';
 import Tournament from './Tournament';
 import {
