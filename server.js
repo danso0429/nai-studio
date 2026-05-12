@@ -350,6 +350,105 @@ async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
   return { succeeded, failed: newlyFailed, skipped };
 }
 
+// ─── Export pipeline queue (이미지 내보내기 서버 백그라운드) ───────────
+// 클라가 paths + outFilePath + optimize 옵션 보내면 enqueue + 202 즉시 반환.
+// 워커: (옵션) sharp resize → jszip 압축 → exports/<out>.tar 저장 → driveRetry enqueue.
+// WS 이벤트: export-progress / export-complete / export-failed.
+const exportQueue = [];
+let exportProcessing = false;
+
+async function processExportQueue() {
+  if (exportProcessing) return;
+  if (exportQueue.length === 0) return;
+  exportProcessing = true;
+  try {
+    while (exportQueue.length > 0) {
+      const job = exportQueue.shift();
+      try {
+        await runExportJob(job);
+      } catch (e) {
+        console.error('[Export] job ' + job.jobId + ' failed:', e.message);
+        broadcast('export-failed', { jobId: job.jobId, phase: job._phase || 'unknown', error: e.message });
+      }
+    }
+  } finally {
+    exportProcessing = false;
+  }
+}
+
+async function runExportJob(job) {
+  const { jobId, paths: items, outFilePath, optimize, imageSize } = job;
+  console.log('[Export] start jobId=' + jobId + ' items=' + items.length + ' optimize=' + optimize);
+
+  // Phase 1: resize (skip when optimize === 'none')
+  if (optimize && optimize !== 'none') {
+    if (!sharp) throw new Error('sharp not available');
+    job._phase = 'resize';
+    const ext = optimize === 'avif' ? '.avif' : '.webp';
+    let done = 0;
+    const total = items.length;
+    broadcast('export-progress', { jobId, phase: 'resize', done: 0, total });
+    const CHUNK = 4;
+    for (let i = 0; i < items.length; i += CHUNK) {
+      const chunk = items.slice(i, i + CHUNK);
+      await Promise.all(chunk.map(async (item) => {
+        const inputPath = resolvePath(item.srcPath);
+        const outputPath = resolvePath('tmp/' + uuidv4() + ext);
+        await fs.mkdir(path.dirname(outputPath), { recursive: true });
+        let pipeline = sharp(inputPath).resize(imageSize, imageSize, { fit: 'inside', withoutEnlargement: true });
+        if (optimize === 'lossy') pipeline = pipeline.webp({ quality: 80 });
+        else if (optimize === 'lossless') pipeline = pipeline.webp({ lossless: true });
+        else if (optimize === 'avif') pipeline = pipeline.avif({ quality: 65, effort: 2 });
+        await pipeline.toFile(outputPath);
+        item.processedPath = outputPath;
+      }));
+      done += chunk.length;
+      broadcast('export-progress', { jobId, phase: 'resize', done, total });
+    }
+  }
+
+  // Phase 2: zip
+  job._phase = 'zip';
+  broadcast('export-progress', { jobId, phase: 'zip', done: 0, total: 1 });
+  const JSZip = require('jszip');
+  const zip = new JSZip();
+  const skipped = [];
+  let included = 0;
+  for (const item of items) {
+    const sourceFile = item.processedPath || resolvePath(item.srcPath);
+    try {
+      const content = await fs.readFile(sourceFile);
+      zip.file(item.finalName, content);
+      included++;
+    } catch (e) {
+      if (e.code === 'ENOENT') {
+        skipped.push(item.srcPath);
+        console.warn('[Export] ENOENT, skipping:', item.srcPath);
+      } else {
+        throw e;
+      }
+    }
+  }
+  if (included === 0) {
+    throw new Error('아카이브할 파일이 없어요');
+  }
+  const buf = await zip.generateAsync({ type: 'nodebuffer' });
+  const outAbs = resolvePath(outFilePath);
+  await fs.mkdir(path.dirname(outAbs), { recursive: true });
+  await fs.writeFile(outAbs, buf);
+  broadcast('export-progress', { jobId, phase: 'zip', done: 1, total: 1 });
+
+  // Phase 3: Drive enqueue (fire-and-forget, drive-sync-* 이벤트로 별도 추적)
+  job._phase = 'drive-enqueue';
+  const cleaned = outFilePath.replace(/^exports[\/]/, '');
+  const remotePath = 'gdrivemain:NAI-Studio/data/exports/' + cleaned;
+  enqueueDriveRetry(outAbs, remotePath, null, outFilePath, true);
+  setImmediate(() => processDriveRetryQueue({ ignoreSchedule: true }));
+
+  console.log('[Export] complete jobId=' + jobId + ' included=' + included + ' skipped=' + skipped.length);
+  broadcast('export-complete', { jobId, outFilePath, included, skipped });
+}
+
 async function getDiskFreeGB() {
   try {
     const { execSync } = require('child_process');
@@ -1235,6 +1334,50 @@ app.post('/api/drive/retry-reset', (req, res) => {
   entry.nextRetryAt = Date.now() + DRIVE_RETRY_INTERVALS[0];
   saveDriveRetryQueue();
   res.json({ ok: true });
+});
+
+// ─── API: Export pipeline (이미지 내보내기 백그라운드) ─────────────────
+// body: { paths: [{ srcPath, finalName }], outFilePath, optimize: 'none'|'lossy'|'lossless'|'avif', imageSize }
+// 큐에 적재 + 즉시 처리 트리거, 202 + jobId 반환. WS 이벤트로 진행/완료 알림.
+app.post('/api/export/scene-pack', async (req, res) => {
+  const { paths: items, outFilePath, optimize, imageSize } = req.body || {};
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ ok: false, error: 'paths required' });
+  }
+  if (!outFilePath || typeof outFilePath !== 'string') {
+    return res.status(400).json({ ok: false, error: 'outFilePath required' });
+  }
+  // outFilePath는 exports/ 하위 단일 파일이어야 함 (path traversal 방지).
+  const exportsDir = path.join(__dirname, 'data', 'exports');
+  const cleaned = outFilePath.replace(/^exports[\/]/, '');
+  if (cleaned.includes('..') || cleaned.includes('/') || cleaned.includes('\\')) {
+    return res.status(400).json({ ok: false, error: 'Invalid outFilePath' });
+  }
+  const outAbs = path.join(exportsDir, cleaned);
+  if (!outAbs.startsWith(exportsDir + path.sep)) {
+    return res.status(400).json({ ok: false, error: 'outFilePath traversal' });
+  }
+  // 각 srcPath도 data dir 안에 있어야 함. resolvePath가 던지면 400.
+  try {
+    for (const item of items) {
+      if (!item || typeof item.srcPath !== 'string' || typeof item.finalName !== 'string') {
+        return res.status(400).json({ ok: false, error: 'paths[i] needs { srcPath, finalName }' });
+      }
+      resolvePath(item.srcPath);  // throws on traversal
+    }
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: 'srcPath invalid: ' + e.message });
+  }
+  const jobId = uuidv4();
+  exportQueue.push({
+    jobId,
+    paths: items,
+    outFilePath: 'exports/' + cleaned,
+    optimize: optimize || 'none',
+    imageSize: imageSize || 0,
+  });
+  setImmediate(() => processExportQueue());
+  res.status(202).json({ ok: true, jobId, queued: true });
 });
 
 app.post('/api/fs/zip', async (req, res) => {
