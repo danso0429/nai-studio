@@ -17,7 +17,7 @@ import {
   generateFilename,
   sanitizeFilename,
 } from '../models/ImageDownloadService';
-import { DownloadSettings } from '../../main/config';
+import { DownloadSettings } from '../main/config';
 
 interface DownloadDialogProps {
   session: Session;

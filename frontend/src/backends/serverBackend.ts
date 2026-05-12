@@ -1,4 +1,4 @@
-import { Config } from '../../main/config';
+import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
 import { Backend, DriveRetryStatus, FileEntry, FileStatEntry, ImageOptimizeMethod, RecursiveListResult, ResizeImageInput } from '../backend';
 

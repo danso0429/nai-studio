@@ -10,7 +10,7 @@ function getMirrorCropX(scene: GenericScene): number | undefined {
 }
 import { appState } from './AppService';
 import { cropMirrorResultFromDataUri, dataUriToBase64 } from './ImageService';
-import { DownloadSettings } from '../../main/config';
+import { DownloadSettings } from '../main/config';
 
 function isMirrorScene(scene: GenericScene): boolean {
   return scene.type === 'inpaint' && (scene as InpaintScene).workflowType === 'SDMirror';
