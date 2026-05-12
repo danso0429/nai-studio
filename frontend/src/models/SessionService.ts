@@ -462,48 +462,46 @@ export class SessionService extends ResourceSyncService<Session> {
     await this.createFrom(name, session);
   }
 
-  async importSessionDeep(tarpath: string, name: string) {
+  async importSessionDeep(
+    tarpath: string,
+    name: string,
+    onProgress?: (text: string, done: number, total: number) => void,
+  ) {
     if (name in this.resources) {
       throw new Error('Resource already exists');
     }
     const path = 'tmp/' + v4();
+
+    // 3단계: unzip → media 이동 (5개 동시) → session 생성
+    onProgress?.('아카이브 풀기...', 0, 3);
     await backend.unzipFiles(tarpath, path);
+
+    onProgress?.('미디어 파일 이동...', 1, 3);
     const session: Session = JSON.parse(
       await backend.readFile(path + '/project.json'),
     );
     session.name = name;
-    try {
-      await backend.renameDir(path + '/outs', 'outs/' + session.name);
-    } catch (e) {
-      console.error(e);
-    }
-    try {
-      await backend.renameDir(path + '/inpaints', 'inpaints/' + session.name);
-    } catch (e) {
-      console.error(e);
-    }
-    try {
-      await backend.renameDir(
-        path + '/inpaint_orgs',
-        'inpaint_orgs/' + session.name,
-      );
-    } catch (e) {
-      console.error(e);
-    }
-    try {
-      await backend.renameDir(
-        path + '/inpaint_masks',
-        'inpaint_masks/' + session.name,
-      );
-    } catch (e) {
-      console.error(e);
-    }
-    try {
-      await backend.renameDir(path + '/vibes', 'vibes/' + session.name);
-    } catch (e) {
-      console.error(e);
-    }
+
+    // 5개 renameDir를 직렬에서 병렬로 (디렉토리들이 서로 독립적이라 안전).
+    // 폴더가 비어있거나 없을 수도 있어서 각자 catch.
+    const renameSafe = async (src: string, dst: string) => {
+      try {
+        await backend.renameDir(src, dst);
+      } catch (e) {
+        // 빈/없는 디렉토리 — 정상 케이스 (백업에 outs 등이 없을 수 있음)
+      }
+    };
+    await Promise.all([
+      renameSafe(path + '/outs', 'outs/' + session.name),
+      renameSafe(path + '/inpaints', 'inpaints/' + session.name),
+      renameSafe(path + '/inpaint_orgs', 'inpaint_orgs/' + session.name),
+      renameSafe(path + '/inpaint_masks', 'inpaint_masks/' + session.name),
+      renameSafe(path + '/vibes', 'vibes/' + session.name),
+    ]);
+
+    onProgress?.('프로젝트 등록...', 2, 3);
     await this.createFrom(name, session);
+    onProgress?.('완료', 3, 3);
   }
 
   async migrateSession(session: ISession) {

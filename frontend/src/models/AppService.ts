@@ -470,16 +470,19 @@ export class AppState {
         const importCool = async () => {
           const sess = await sessionService.get(json.name);
           if (!sess) {
-            await sessionService.importSessionShallow(
-              json as ISession,
-              json.name,
-            );
-            const newSession = (await sessionService.get(json.name))!;
-            this.curSession = newSession;
-            this.pushDialog({
-              type: 'yes-only',
-              text: '프로젝트를 임포트 했습니다',
-            });
+            const pid = appState.pushProgressDialog('프로젝트 불러오는 중...', 1);
+            try {
+              await sessionService.importSessionShallow(
+                json as ISession,
+                json.name,
+              );
+              const newSession = (await sessionService.get(json.name))!;
+              this.curSession = newSession;
+              appState.finishProgressDialog(pid, '✓ 프로젝트를 불러왔습니다', true);
+            } catch (e: any) {
+              appState.finishProgressDialog(pid, '✗ 임포트 실패: ' + (e?.message || e), false);
+              return;
+            }
           } else {
             this.pushDialog({
               type: 'input-confirm',
@@ -488,6 +491,7 @@ export class AppState {
                 if (!value || value === '') {
                   return;
                 }
+                const pid = appState.pushProgressDialog('프로젝트 불러오는 중...', 1);
                 try {
                   await sessionService.importSessionShallow(
                     json as ISession,
@@ -495,7 +499,9 @@ export class AppState {
                   );
                   const newSession = (await sessionService.get(value))!;
                   this.curSession = newSession;
+                  appState.finishProgressDialog(pid, '✓ 프로젝트를 불러왔습니다', true);
                 } catch (e) {
+                  appState.finishProgressDialog(pid, '✗ 이미 존재하는 프로젝트 이름입니다.', false);
                   this.pushMessage('이미 존재하는 프로젝트 이름입니다.');
                 }
               },
@@ -831,9 +837,11 @@ export class AppState {
           appState.finishProgressDialog(upid, '✗ 업로드 실패: ' + e.message, false);
           return;
         }
-        const ipid = appState.pushProgressDialog('프로젝트 백업을 불러오는 중...', 1);
+        const ipid = appState.pushProgressDialog('프로젝트 백업을 불러오는 중...', 3);
         try {
-          await sessionService.importSessionDeep(tarPath, inputValue);
+          await sessionService.importSessionDeep(tarPath, inputValue, (text, done, total) => {
+            appState.updateProgressDialog(ipid, { text, done, total });
+          });
         } catch (e: any) {
           appState.finishProgressDialog(ipid, '✗ 임포트 실패: ' + e.message, false);
           return;
