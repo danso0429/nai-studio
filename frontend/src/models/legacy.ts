@@ -458,6 +458,7 @@ async function migrateInpaintScene(
 function migratePromptPiece(piece: any): IPromptPiece {
   return {
     prompt: piece.prompt,
+    characterPrompts: piece.characterPrompts ?? [],
     id: piece.id ?? v4(),
     enabled: piece.enabled,
   };
