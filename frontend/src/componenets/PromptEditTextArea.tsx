@@ -824,6 +824,9 @@ const PromptAutoComplete = ({
       </div>
     );
   };
+  // 모바일: popover를 텍스트 위에 띄움 (clientY 위쪽 222px). 공간 부족하면 상단 8px clamp.
+  // 키보드 + textarea가 화면 하단을 차지하므로 위로 띄우는 게 안전.
+  const popoverTop = isMobile ? Math.max(8, clientY - 222) : posY;
   return (
     <div
       onMouseDown={(e) => {
@@ -839,7 +842,7 @@ const PromptAutoComplete = ({
         maxWidth: '400px',
         height: '200px',
         left: isMobile ? '5vw' : posX,
-        top: posY,
+        top: popoverTop,
       }}
     >
       <List
