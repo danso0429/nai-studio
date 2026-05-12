@@ -112,6 +112,19 @@ export class ServerBackend extends Backend {
     });
   }
 
+  async startExportScenePack(opts: {
+    paths: Array<{ srcPath: string; finalName: string }>;
+    outFilePath: string;
+    optimize: 'none' | 'lossy' | 'lossless' | 'avif';
+    imageSize: number;
+  }): Promise<{ jobId: string; queued: boolean }> {
+    const data = await apiJSON('/export/scene-pack', {
+      method: 'POST',
+      body: JSON.stringify(opts),
+    });
+    return { jobId: data.jobId, queued: !!data.queued };
+  }
+
   async augmentImage(arg: ImageAugmentInput): Promise<void> {
     await api('/augment', { method: 'POST', body: JSON.stringify(arg) });
   }
@@ -272,6 +285,15 @@ export class ServerBackend extends Backend {
   }
   onDriveSyncFailed(callback: (data: { localPath: string; requestedPath: string | null; fileName: string; error: string; willRetry: boolean; attempts: number; nextRetryAt: number | null }) => void): () => void {
     return this.on('drive-sync-failed', callback);
+  }
+  onExportProgress(callback: (data: { jobId: string; phase: 'resize' | 'zip'; done: number; total: number }) => void): () => void {
+    return this.on('export-progress', callback);
+  }
+  onExportComplete(callback: (data: { jobId: string; outFilePath: string; included: number; skipped: string[] }) => void): () => void {
+    return this.on('export-complete', callback);
+  }
+  onExportFailed(callback: (data: { jobId: string; phase: string; error: string }) => void): () => void {
+    return this.on('export-failed', callback);
   }
   onClose(callback: () => void): () => void { return this.on('close', callback); }
 }

@@ -40,7 +40,7 @@ import {
   Session,
 } from './types';
 import { apiUrl, extractApiError, extractPromptDataFromBase64, getFirstFile } from './util';
-import { DriveRetryStatus, ImageOptimizeMethod } from '../backend';
+import { DriveRetryStatus } from '../backend';
 import { v4 } from 'uuid';
 import { Resolution, resolutionMap } from '../backends/imageGen';
 import { ProgressDialog } from '../componenets/ProgressWindow';
@@ -847,142 +847,131 @@ export class AppState {
       separator: string,
       charsToReplace: Set<string>,
     ) => {
-      const paths = [];
+      // 1. 클라 측 path 수집 (mobx session + game service ranking + mirror crop)
+      const items: Array<{ srcPath: string; finalName: string }> = [];
       await imageService.refreshBatch(this.curSession!);
+      const finalExt = opt === 'original' ? '.png' : (opt === 'avif' ? '.avif' : '.webp');
       const scenes = selected ?? this.curSession!.getScenes(type);
+      const replacer = buildSpecialCharReplacer(charsToReplace);
       for (const scene of scenes) {
         await gameService.refreshList(this.curSession!, scene);
         const cands = gameService.getOutputs(this.curSession!, scene);
         const imageMap: any = {};
-        cands.forEach((x) => {
-          imageMap[x] = true;
-        });
-        const images = [];
+        cands.forEach((x) => { imageMap[x] = true; });
+        const images: string[] = [];
         if (fav) {
           if (scene.mains.length) {
             for (const main of scene.mains) {
               if (imageMap[main]) images.push(main);
             }
-          } else {
-            if (cands.length) {
-              images.push(cands[0]);
-            }
+          } else if (cands.length) {
+            images.push(cands[0]);
           }
         } else {
-          for (const cand of cands) {
-            images.push(cand);
-          }
+          for (const cand of cands) images.push(cand);
         }
         let sceneName = scene.name;
         let finalPrefix = prefix;
-        const replacer = buildSpecialCharReplacer(charsToReplace);
         if (replacer) {
           sceneName = sceneName.replace(replacer, separator);
           finalPrefix = finalPrefix.replace(replacer, separator);
         }
         const isMirror = scene.type === 'inpaint' && (scene as InpaintScene).workflowType === 'SDMirror';
         for (let i = 0; i < images.length; i++) {
-          let imgPath = imageService.getOutputDir(this.curSession!, scene) + '/' + images[i];
+          let srcPath = imageService.getOutputDir(this.curSession!, scene) + '/' + images[i];
           if (isMirror) {
-            const imgData = await imageService.fetchImage(imgPath);
+            // SDMirror 결과는 RHS만 잘라 사용. Canvas API 필요 → 클라 단에서 tmp 파일 생성.
+            const imgData = await imageService.fetchImage(srcPath);
             if (imgData) {
               const cropped = await cropMirrorResultFromDataUri(imgData, (scene as InpaintScene).mirrorCropX);
               const tmpPath = 'tmp/' + v4() + '.png';
               await backend.writeDataFile(tmpPath, cropped);
-              imgPath = tmpPath;
+              srcPath = tmpPath;
             }
           }
-          const name = images.length === 1
-            ? finalPrefix + sceneName + '.png'
-            : finalPrefix + sceneName + separator + (i + 1).toString() + '.png';
-          paths.push({ path: imgPath, name });
+          const baseName = images.length === 1
+            ? finalPrefix + sceneName
+            : finalPrefix + sceneName + separator + (i + 1).toString();
+          items.push({ srcPath, finalName: baseName + finalExt });
         }
       }
-      let pid: string | undefined;
-      if (opt !== 'original') {
-        const ext = opt === 'avif' ? '.avif' : '.webp';
-        const optimizeMethod = opt === 'lossy'
-          ? ImageOptimizeMethod.LOSSY
-          : opt === 'avif'
-            ? ImageOptimizeMethod.AVIF
-            : ImageOptimizeMethod.LOSSLESS;
-        pid = appState.pushProgressDialog('이미지 크기 최적화 중..', paths.length);
-        try {
-          const CHUNK_SIZE = 4;
-          let done = 0;
-          for (let i = 0; i < paths.length; i += CHUNK_SIZE) {
-            const chunk = paths.slice(i, i + CHUNK_SIZE);
-            await Promise.all(
-              chunk.map(async (item) => {
-                const outputPath = 'tmp/' + v4() + ext;
-                await backend.resizeImage({
-                  inputPath: item.path,
-                  outputPath: outputPath,
-                  maxHeight: imageSize,
-                  maxWidth: imageSize,
-                  optimize: optimizeMethod,
-                });
-                item.path = outputPath;
-                item.name = item.name.substring(0, item.name.length - 4) + ext;
-                done++;
-                appState.updateProgressDialog(pid!, { done });
-              }),
-            );
-          }
-        } catch (e: any) {
-          appState.pushMessage(e.message);
-          appState.finishProgressDialog(pid, '✗ 이미지 최적화 실패', false);
+
+      if (items.length === 0) {
+        appState.pushMessage('내보낼 이미지가 없어요');
+        return;
+      }
+
+      // 2. 서버에 export 요청 → 즉시 202 + jobId 반환. resize/zip/Drive는 백그라운드.
+      const outFilePath =
+        'exports/' + this.curSession!.name + '_main_images_' + Date.now().toString() + '.tar';
+      const optimize = opt === 'original' ? 'none' : (opt as 'lossy' | 'lossless' | 'avif');
+      const pid = appState.pushProgressDialog('이미지 내보내기 큐 등록 중...', 1);
+      let jobId: string | null = null;
+      try {
+        const result = await backend.startExportScenePack({
+          paths: items,
+          outFilePath,
+          optimize,
+          imageSize: opt === 'original' ? 0 : imageSize,
+        });
+        jobId = result.queued ? result.jobId : null;
+      } catch (e: any) {
+        console.warn('[exportPackage] startExportScenePack threw:', e);
+      }
+      appState.finishProgressDialog(
+        pid,
+        jobId
+          ? '✓ 이미지 내보내기 큐 등록 (서버 백그라운드)'
+          : '✗ 이미지 내보내기 큐 등록 실패',
+        !!jobId,
+      );
+      if (!jobId) return;
+
+      // 3. WS terminal 이벤트 구독. 30분 timeout 후 자동 정리.
+      const unsubs: Array<() => void> = [];
+      const cleanup = () => unsubs.forEach((u) => u());
+      let exportTerminal = false;
+      let driveTerminal = false;
+      const tryFullCleanup = () => {
+        if (exportTerminal && driveTerminal) cleanup();
+      };
+      unsubs.push(backend.onExportComplete((data) => {
+        if (exportTerminal || data.jobId !== jobId) return;
+        exportTerminal = true;
+        if (data.skipped && data.skipped.length > 0) {
+          const preview = data.skipped.slice(0, 3).map((p) => p.split('/').pop()).join(', ');
+          const more = data.skipped.length > 3 ? ` 외 ${data.skipped.length - 3}개` : '';
+          appState.pushMessage(`${data.skipped.length}개 파일 누락 — 자동 제외 (${preview}${more})`);
+        }
+        // tar 생성 완료 — Drive sync 자동 트리거됨. drive-sync-* 이벤트로 후속 알림.
+        tryFullCleanup();
+      }));
+      unsubs.push(backend.onExportFailed((data) => {
+        if (exportTerminal || data.jobId !== jobId) return;
+        exportTerminal = true;
+        driveTerminal = true; // Drive sync 미진행이므로 함께 종료
+        appState.pushMessage(`✗ 이미지 내보내기 실패 (${data.phase}): ${data.error}`);
+        cleanup();
+      }));
+      unsubs.push(backend.onDriveSyncComplete((data) => {
+        if (driveTerminal || data.requestedPath !== outFilePath) return;
+        driveTerminal = true;
+        appState.pushMessage(`✓ 이미지 Drive 업로드 완료 (${data.fileName})`);
+        appState.refreshDriveRetryStatus();
+        tryFullCleanup();
+      }));
+      unsubs.push(backend.onDriveSyncFailed((data) => {
+        if (driveTerminal || data.requestedPath !== outFilePath) return;
+        if (data.willRetry) {
+          appState.refreshDriveRetryStatus();
           return;
         }
-      }
-      if (pid) {
-        appState.updateProgressDialog(pid, {
-          text: '이미지 압축파일 생성중..',
-          done: 0,
-          total: 1,
-        });
-      } else {
-        pid = appState.pushProgressDialog('이미지 압축파일 생성중..', 1);
-      }
-      const outFilePath =
-        'exports/' +
-        this.curSession!.name +
-        '_main_images_' +
-        Date.now().toString() +
-        '.tar';
-      if (zipService.isZipping) {
-        appState.finishProgressDialog(pid, '✗ 이미 다른 내보내기 진행 중', false);
-        return;
-      }
-      try {
-        const zipResult = await zipService.zipFiles(paths, outFilePath);
-        if (zipResult.skipped.length > 0) {
-          const preview = zipResult.skipped
-            .slice(0, 3)
-            .map((p) => p.split('/').pop())
-            .join(', ');
-          const more =
-            zipResult.skipped.length > 3 ? ` 외 ${zipResult.skipped.length - 3}개` : '';
-          appState.pushMessage(
-            `${zipResult.skipped.length}개 파일 누락 — 자동 제외하고 진행 (${preview}${more})`,
-          );
-        }
-      } catch (e: any) {
-        appState.pushMessage(extractApiError(e));
-        appState.finishProgressDialog(pid, '✗ 압축 실패', false);
-        return;
-      }
-      appState.updateProgressDialog(pid, {
-        text: 'Drive 업로드 중 (이미지)...',
-        done: 0,
-        total: 1,
-      });
-      await syncExportToDrive({
-        path: outFilePath,
-        pid,
-        successLabel: '✓ 이미지 내보내기 Drive 완료',
-        logTag: 'exportPackage',
-      });
+        driveTerminal = true;
+        appState.pushMessage(`✗ 이미지 Drive 최종 실패: ${data.fileName} (${data.error})`);
+        appState.refreshDriveRetryStatus();
+        tryFullCleanup();
+      }));
+      setTimeout(cleanup, 30 * 60 * 1000);
     };
     const menu = await appState.pushDialogAsync({
       type: 'select',
