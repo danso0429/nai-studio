@@ -24,7 +24,7 @@ import ExpiredProjectsDialog from './ExpiredProjectsDialog';
 import QueueControl from './SceneQueueControl';
 import { FloatView, FloatViewProvider } from './FloatView';
 import { observer, useObserver } from 'mobx-react-lite';
-import { FaGlobe, FaImages, FaPenFancy, FaStar } from 'react-icons/fa';
+import { FaImages, FaPenFancy, FaStar } from 'react-icons/fa';
 import { GlobalPresetTab, GlobalPresetPickerOverlay } from './GlobalPresetTab';
 import ModalOverlay from './ModalOverlay';
 import { DndProvider } from 'react-dnd';
@@ -35,7 +35,6 @@ import { usePreview } from 'react-dnd-preview';
 import React from 'react';
 import { CellPreview } from './ResultViewer';
 import { SlotPiece } from './SceneEditor';
-import EmbeddedBrowser from './EmbeddedBrowser';
 import { StackFixed, StackGrow, VerticalStack } from './LayoutComponents';
 import ProgressWindow, { ProgressDialog } from './ProgressWindow';
 import ResizableSplitter from './ResizableSplitter';
@@ -355,12 +354,6 @@ export const App = observer(() => {
       emoji: <FaStar />,
       banToggle: true,
     },
-    ...(!isMobile ? [{
-      label: '웹 검색',
-      content: <EmbeddedBrowser />,
-      emoji: <FaGlobe />,
-      banToggle: true,
-    }] : []),
   ];
   return (
     <DndProvider
