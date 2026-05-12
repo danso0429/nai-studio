@@ -1,5 +1,6 @@
 import { v4 } from 'uuid';
 import {
+  CharacterReference,
   convertResolution,
   ImageAugmentInput,
   ImageGenInput,
@@ -324,14 +325,14 @@ class GenerateImageTaskHandler implements TaskHandler {
     );
 
     // 캐릭터 레퍼런스 이미지 처리 - 캐싱 적용
-    let references: { image: string; info: number; strength: number; fidelity: number; referenceType: string; description: string }[] = [];
+    let references: CharacterReference[] = [];
     if (job.characterReferences?.length) {
       // Filter only enabled references before fetching images
       const enabledReferences = job.characterReferences.filter(
         (ref) => ref.enabled !== false && ref.path,
       );
       const allReferences = await Promise.all(
-        enabledReferences.map(async (ref) => {
+        enabledReferences.map(async (ref): Promise<CharacterReference | null> => {
           const cacheKey = ref.path;
 
           // 캐시에서 먼저 확인
@@ -342,7 +343,7 @@ class GenerateImageTaskHandler implements TaskHandler {
               info: ref.info,
               strength: ref.strength ?? 0.6,
               fidelity: ref.fidelity ?? 1.0,
-              referenceType: ref.referenceType || 'character',
+              referenceType: (ref.referenceType || 'character') as CharacterReference['referenceType'],
               description: ref.referenceType || 'character',
             };
           }
@@ -384,7 +385,7 @@ class GenerateImageTaskHandler implements TaskHandler {
               info: ref.info,
               strength: ref.strength ?? 0.6,
               fidelity: ref.fidelity ?? 1.0,
-              referenceType: ref.referenceType || 'character',
+              referenceType: (ref.referenceType || 'character') as CharacterReference['referenceType'],
               description: ref.referenceType || 'character',
             };
           } catch (e) {
@@ -395,12 +396,7 @@ class GenerateImageTaskHandler implements TaskHandler {
       );
       // Filter out references with empty or invalid image data to prevent 500 errors
       references = allReferences.filter(
-        (ref): ref is {
-          image: string;
-          info: number;
-          strength: number;
-          description: string;
-        } => ref !== null && !!ref.image && ref.image.length > 0,
+        (ref): ref is CharacterReference => ref !== null && !!ref.image && ref.image.length > 0,
       );
     }
     const resol = job.overrideResolution
@@ -419,7 +415,7 @@ class GenerateImageTaskHandler implements TaskHandler {
     const finalVibes = (isV4_5 && finalReferences.length > 0) ? [] : vibes;
     // Phase 7A: vibe가 실제로 비활성화될 때만 알림 이벤트 발행
     if (isV4_5 && finalReferences.length > 0 && vibes.length > 0) {
-      this.dispatchEvent(new CustomEvent('vibe-locked', {
+      taskQueueService.dispatchEvent(new CustomEvent('vibe-locked', {
         detail: { reason: 'v4.5_with_character_reference' }
       }));
     }
