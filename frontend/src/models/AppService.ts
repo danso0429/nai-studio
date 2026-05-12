@@ -1688,6 +1688,91 @@ export class AppState {
           successLabel: `✓ ${selected.length}개 씬 이름 Drive 업로드 완료`,
           logTag: 'exportSceneNames',
         });
+      } else if (value === 'mergeScenes') {
+        if (selected.length < 2) {
+          appState.pushMessage('통합할 씬을 2개 이상 선택해주세요');
+          return;
+        }
+        // 이름 결정: 직접 적기 + 선택된 씬 이름 중 최대 5개
+        const nameItems = [
+          { text: '✍️ 직접 적기 (새 이름)', value: 'custom' },
+          ...selected.slice(0, 5).map((s, i) => ({
+            text: s.name,
+            value: 'use:' + i,
+          })),
+        ];
+        const performMerge = (newName: string) => {
+          newName = (newName || '').trim();
+          if (!newName) {
+            appState.pushMessage('이름이 비어있습니다');
+            return;
+          }
+          const selectedNameSet = new Set(selected.map((s) => s.name));
+          // 새 이름이 선택 안 한 다른 씬과 충돌하면 거부
+          if (!selectedNameSet.has(newName) && this.curSession!.hasScene(type, newName)) {
+            appState.pushMessage('이미 존재하는 씬 이름입니다 (선택 안 한 씬과 충돌)');
+            return;
+          }
+          appState.pushDialog({
+            type: 'confirm',
+            text:
+              `선택한 ${selected.length}개 씬을 "${newName}"로 통합합니다.\n` +
+              `각 씬의 조합 에디터 슬롯이 모두 합쳐지고, 원본 씬들은 삭제됩니다. 계속?`,
+            callback: () => {
+              // selected[0]을 base로 시작. slots는 모두 concat.
+              const base = selected[0];
+              const baseJSON: any = (base as any).toJSON();
+              const allSlots: any[] = [];
+              const allCharPrompts: any[] = [];
+              for (const s of selected) {
+                const j: any = (s as any).toJSON();
+                if (Array.isArray(j.slots)) allSlots.push(...j.slots);
+                if (Array.isArray(j.sceneCharacterPrompts)) {
+                  allCharPrompts.push(...j.sceneCharacterPrompts);
+                }
+              }
+              const newJSON: any = { ...baseJSON, name: newName, slots: allSlots };
+              if (type === 'scene') {
+                newJSON.sceneCharacterPrompts = allCharPrompts;
+              }
+              // 원본 모두 삭제 (새 이름과 겹치는 것도 안전 — 다음 add는 새 객체)
+              for (const s of selected) {
+                this.curSession!.removeScene(type, s.name);
+              }
+              const newScene =
+                type === 'scene'
+                  ? Scene.fromJSON(newJSON)
+                  : InpaintScene.fromJSON(newJSON);
+              if (newScene) {
+                this.curSession!.addScene(newScene);
+                appState.pushMessage(
+                  `${selected.length}개 씬을 "${newName}"로 통합했습니다`,
+                );
+              } else {
+                appState.pushMessage('통합 실패: 새 씬 생성 안 됨');
+              }
+            },
+          });
+        };
+        appState.pushDialog({
+          type: 'select',
+          text: '통합 씬의 이름을 선택하거나 직접 입력하세요',
+          items: nameItems,
+          callback: (nameValue: string) => {
+            if (nameValue === 'custom') {
+              appState.pushDialog({
+                type: 'input-confirm',
+                text: '새 씬 이름을 입력하세요',
+                callback: (input: string) => performMerge(input),
+              });
+            } else if (nameValue && nameValue.startsWith('use:')) {
+              const idx = parseInt(nameValue.slice('use:'.length));
+              if (!isNaN(idx) && selected[idx]) {
+                performMerge(selected[idx].name);
+              }
+            }
+          },
+        });
       } else if (value === 'sortScenes') {
         const allScenes = this.curSession!.getScenes(type);
         const selectedSet = new Set(selected.map(s => s.name));
@@ -1718,6 +1803,7 @@ export class AppState {
         { text: '📝 씬 이름 내보내기', value: 'exportSceneNames' },
         { text: '🗂️ 씬 일괄 삭제', value: 'deleteScenes' },
         { text: '🔤 씬 이름순 정렬', value: 'sortScenes' },
+        { text: '🔗 씬들 통합', value: 'mergeScenes' },
         { text: '⏹️ 예약 일괄 취소', value: 'cancelReservations' },
       ];
       if (type === 'inpaint') {
