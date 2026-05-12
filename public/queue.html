@@ -221,31 +221,61 @@
       .replace(/'/g, '&#39;');
   }
 
+  const PHASE_LABEL = { queued: '대기', resize: '이미지 크기 조정', zip: 'zip 생성' };
+
   async function tickDrive() {
     try {
-      const r = await fetch(BASE + '/api/drive/retry-status', { cache: 'no-store' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const d = await r.json();
+      const [rDrive, rExport] = await Promise.all([
+        fetch(BASE + '/api/drive/retry-status', { cache: 'no-store' }),
+        fetch(BASE + '/api/export/status', { cache: 'no-store' }),
+      ]);
+      if (!rDrive.ok) throw new Error('drive HTTP ' + rDrive.status);
+      if (!rExport.ok) throw new Error('export HTTP ' + rExport.status);
+      const d = await rDrive.json();
+      const exp = await rExport.json();
       const pending = d.pendingCount || 0;
       const failed = d.failedCount || 0;
-      const total = d.count || 0;
+      const driveTotal = d.count || 0;
+      const exportTotal = (exp.current ? 1 : 0) + ((exp.waiting || []).length);
+      const grandTotal = driveTotal + exportTotal;
 
       let banner = '';
-      if (total === 0) {
+      if (grandTotal === 0) {
         banner = '<div class="paused" style="background:#1a2a1a; color:#86efac;">💤 활성 업로드 없음</div>';
       } else {
         const pills = [];
-        if (pending > 0) pills.push('<span class="pill pending">진행 ' + pending + '</span>');
+        if (exportTotal > 0) pills.push('<span class="pill pending">내보내기 ' + exportTotal + '</span>');
+        if (pending > 0) pills.push('<span class="pill pending">Drive ' + pending + '</span>');
         if (failed > 0) pills.push('<span class="pill failed">실패 ' + failed + '</span>');
-        banner = '<div class="card full" style="margin-bottom:8px;"><div class="label">상태</div><div class="value">' + total + '건' + pills.join('') + '</div></div>';
+        banner = '<div class="card full" style="margin-bottom:8px;"><div class="label">상태</div><div class="value">' + grandTotal + '건' + pills.join('') + '</div></div>';
       }
 
+      // export 진행 (서버 측 resize/zip pipeline)
+      let exportHtml = '';
+      if (exp.current) {
+        const c = exp.current;
+        const pct = c.total > 0 ? Math.round((c.done / c.total) * 100) : 0;
+        const label = PHASE_LABEL[c.phase] || c.phase;
+        exportHtml += '<div class="entry pending">'
+          + '<div class="row1"><div class="fn">' + escapeHtml(c.outFileName) + '</div>'
+          + '<span class="pill pending">' + label + (c.total > 0 ? ' ' + c.done + '/' + c.total : '') + '</span></div>'
+          + '<div class="bar" style="margin-top:6px; height:6px;"><div style="width:' + pct + '%"></div></div>'
+          + '</div>';
+      }
+      for (const w of (exp.waiting || [])) {
+        exportHtml += '<div class="entry pending">'
+          + '<div class="row1"><div class="fn">' + escapeHtml(w.outFileName) + '</div>'
+          + '<span class="pill pending">대기 ' + (w.total || 0) + '장</span></div>'
+          + '</div>';
+      }
+
+      // Drive 큐 entries
       const entriesHtml = (d.entries || []).map((e) => {
         const isFailed = e.status === 'failed';
         const cls = isFailed ? 'failed' : 'pending';
         const statusLabel = isFailed
           ? '<span class="pill failed">최종 실패</span>'
-          : '<span class="pill pending">시도 ' + (e.attempts || 0) + '/' + (d.maxAttempts || 6) + '</span>';
+          : '<span class="pill pending">Drive 시도 ' + (e.attempts || 0) + '/' + (d.maxAttempts || 6) + '</span>';
         const nextRetry = !isFailed && e.nextRetryAt
           ? '<div class="meta">다음 시도: ' + fmtRelative(e.nextRetryAt) + '</div>'
           : '';
@@ -253,7 +283,7 @@
         return '<div class="entry ' + cls + '"><div class="row1"><div class="fn">' + escapeHtml(e.fileName || e.localPath) + '</div>' + statusLabel + '</div>' + nextRetry + err + '</div>';
       }).join('');
 
-      driveRoot.innerHTML = banner + entriesHtml;
+      driveRoot.innerHTML = banner + exportHtml + entriesHtml;
     } catch (e) {
       driveRoot.innerHTML = '<div class="err">Drive 상태 오류: ' + (e.message || e) + '</div>';
     }

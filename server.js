@@ -356,6 +356,17 @@ async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
 // WS 이벤트: export-progress / export-complete / export-failed.
 const exportQueue = [];
 let exportProcessing = false;
+// 현재 진행 중인 export job (GET /api/export/status에서 노출용). null이면 idle.
+let currentExportJob = null;
+
+function setExportProgress(jobId, phase, done, total) {
+  if (currentExportJob && currentExportJob.jobId === jobId) {
+    currentExportJob.phase = phase;
+    currentExportJob.done = done;
+    currentExportJob.total = total;
+  }
+  broadcast('export-progress', { jobId, phase, done, total });
+}
 
 async function processExportQueue() {
   if (exportProcessing) return;
@@ -364,11 +375,21 @@ async function processExportQueue() {
   try {
     while (exportQueue.length > 0) {
       const job = exportQueue.shift();
+      currentExportJob = {
+        jobId: job.jobId,
+        outFileName: (job.outFilePath || '').split('/').pop() || '',
+        phase: 'queued',
+        done: 0,
+        total: (job.paths || []).length,
+        startedAt: Date.now(),
+      };
       try {
         await runExportJob(job);
       } catch (e) {
         console.error('[Export] job ' + job.jobId + ' failed:', e.message);
         broadcast('export-failed', { jobId: job.jobId, phase: job._phase || 'unknown', error: e.message });
+      } finally {
+        currentExportJob = null;
       }
     }
   } finally {
@@ -387,7 +408,7 @@ async function runExportJob(job) {
     const ext = optimize === 'avif' ? '.avif' : '.webp';
     let done = 0;
     const total = items.length;
-    broadcast('export-progress', { jobId, phase: 'resize', done: 0, total });
+    setExportProgress(jobId, 'resize', 0, total);
     const CHUNK = 4;
     for (let i = 0; i < items.length; i += CHUNK) {
       const chunk = items.slice(i, i + CHUNK);
@@ -403,13 +424,13 @@ async function runExportJob(job) {
         item.processedPath = outputPath;
       }));
       done += chunk.length;
-      broadcast('export-progress', { jobId, phase: 'resize', done, total });
+      setExportProgress(jobId, 'resize', done, total);
     }
   }
 
   // Phase 2: zip
   job._phase = 'zip';
-  broadcast('export-progress', { jobId, phase: 'zip', done: 0, total: 1 });
+  setExportProgress(jobId, 'zip', 0, 1);
   const JSZip = require('jszip');
   const zip = new JSZip();
   const skipped = [];
@@ -436,7 +457,7 @@ async function runExportJob(job) {
   const outAbs = resolvePath(outFilePath);
   await fs.mkdir(path.dirname(outAbs), { recursive: true });
   await fs.writeFile(outAbs, buf);
-  broadcast('export-progress', { jobId, phase: 'zip', done: 1, total: 1 });
+  setExportProgress(jobId, 'zip', 1, 1);
 
   // Phase 3: Drive enqueue (fire-and-forget, drive-sync-* 이벤트로 별도 추적)
   job._phase = 'drive-enqueue';
@@ -1378,6 +1399,17 @@ app.post('/api/export/scene-pack', async (req, res) => {
   });
   setImmediate(() => processExportQueue());
   res.status(202).json({ ok: true, jobId, queued: true });
+});
+
+app.get('/api/export/status', (req, res) => {
+  res.json({
+    current: currentExportJob, // null | { jobId, outFileName, phase, done, total, startedAt }
+    waiting: exportQueue.map((j) => ({
+      jobId: j.jobId,
+      outFileName: (j.outFilePath || '').split('/').pop() || '',
+      total: (j.paths || []).length,
+    })),
+  });
 });
 
 app.post('/api/fs/zip', async (req, res) => {
