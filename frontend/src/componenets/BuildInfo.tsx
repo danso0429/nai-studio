@@ -171,7 +171,7 @@ const UpdateModal = ({ current, latest, notes, released, onClose }: UpdateModalP
             서버에서 다음 명령 실행:
           </div>
           <div className="bg-gray-900 text-green-400 p-2 rounded font-mono text-[11px] overflow-x-auto">
-            cd ~/nai-studio && ./update.sh
+            cd ~/nai-studio-2 && ./update.sh
           </div>
           <div className="mt-2 text-blue-800 dark:text-blue-300 opacity-80">
             데이터(프리셋, 이미지, 설정)는 그대로 유지됩니다.
