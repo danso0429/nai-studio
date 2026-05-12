@@ -1921,6 +1921,197 @@ app.post('/api/project/cleanup-orphans', (req, res) => {
   runCleanupOrphans(jobId);
 });
 
+// ─── Scene import (LLM-friendly JSON schema) ─────────────────────────
+// 워크플로우: 본인이 GET /api/import-schema/scenes로 스키마 예시 받아
+// LLM에 prompt 함께 넣어 결과 JSON 생성 → POST /api/projects/import-scenes로 전송.
+// dryRun=true면 변경 계획만 반환 (UI에서 미리보기). dryRun=false면 백업 후 적용.
+//
+// 입력 형식 (예시):
+//   {
+//     "format": "sdstudio-scene-import-v1",
+//     "scenes": {
+//       "씬 이름": {
+//         "resolution": "portrait",       // 선택, 새 씬일 때만 사용
+//         "slots": [                       // 필수, 2차원 배열
+//           ["슬롯 0 단일 piece"],
+//           ["슬롯 1 변형 A", "슬롯 1 변형 B"],
+//           [{ "prompt": "객체형도 가능", "enabled": false }]
+//         ]
+//       }
+//     }
+//   }
+//
+// piece는 string 또는 {prompt, enabled?, characterPrompts?} 객체. id는 자동 생성.
+
+const SCENE_IMPORT_FORMAT = 'sdstudio-scene-import-v1';
+
+const SCENE_IMPORT_SCHEMA_EXAMPLE = {
+  format: SCENE_IMPORT_FORMAT,
+  _note: '슬롯은 2차원 배열. 항목은 string (= prompt 텍스트) 또는 {prompt, enabled?} 객체. ' +
+         'id/characterPrompts/mains/meta 등은 자동 채움. 기존 씬과 이름이 겹치면 ' +
+         'policy에서 overwrite|skip을 선택 (기본 skip). 새 씬은 자동 추가.',
+  scenes: {
+    '예시 씬.variant': {
+      resolution: 'portrait',
+      slots: [
+        ['슬롯 0 단일 piece'],
+        ['슬롯 1 변형 A', '슬롯 1 변형 B'],
+        [{ prompt: '객체형 piece (enabled=false면 후보에서 제외)', enabled: false }],
+      ],
+    },
+  },
+};
+
+async function findProjectFile(name) {
+  const projectsDir = resolvePath('projects');
+  const walked = await walkDir(projectsDir, 1);
+  for (const f of walked.files) {
+    if (!f.endsWith('.json')) continue;
+    if (path.basename(f, '.json') === name) {
+      return path.join(projectsDir, f);
+    }
+  }
+  return null;
+}
+
+function normalizeSceneImport(body) {
+  if (!body || typeof body !== 'object') throw new Error('body required');
+  if (body.format !== SCENE_IMPORT_FORMAT) {
+    throw new Error(`format must be "${SCENE_IMPORT_FORMAT}" (got "${body.format}")`);
+  }
+  if (!body.scenes || typeof body.scenes !== 'object' || Array.isArray(body.scenes)) {
+    throw new Error('scenes object required');
+  }
+  const out = {};
+  for (const [name, scene] of Object.entries(body.scenes)) {
+    if (!scene || typeof scene !== 'object') throw new Error(`scenes["${name}"] must be object`);
+    if (!Array.isArray(scene.slots)) throw new Error(`scenes["${name}"].slots must be array`);
+    const slots = scene.slots.map((slot, si) => {
+      if (!Array.isArray(slot)) throw new Error(`scenes["${name}"].slots[${si}] must be array`);
+      return slot.map((piece, pi) => {
+        if (typeof piece === 'string') {
+          return { prompt: piece, characterPrompts: [], id: uuidv4(), enabled: true };
+        }
+        if (piece && typeof piece === 'object' && typeof piece.prompt === 'string') {
+          return {
+            prompt: piece.prompt,
+            characterPrompts: Array.isArray(piece.characterPrompts) ? piece.characterPrompts : [],
+            id: typeof piece.id === 'string' && piece.id ? piece.id : uuidv4(),
+            enabled: piece.enabled !== false,
+          };
+        }
+        throw new Error(`scenes["${name}"].slots[${si}][${pi}] must be string or {prompt}`);
+      });
+    });
+    out[name] = {
+      slots,
+      resolution: typeof scene.resolution === 'string' ? scene.resolution : null,
+    };
+  }
+  return out;
+}
+
+app.get('/api/import-schema/scenes', (req, res) => {
+  res.json(SCENE_IMPORT_SCHEMA_EXAMPLE);
+});
+
+app.post('/api/projects/import-scenes', async (req, res) => {
+  try {
+    const name = sanitizeProjectName(req.body && req.body.projectName);
+    if (!name) return res.status(400).json({ ok: false, error: 'Invalid projectName' });
+    const dryRun = !!req.body.dryRun;
+    const policy = (req.body && req.body.policy && typeof req.body.policy === 'object') ? req.body.policy : {};
+
+    let normalized;
+    try {
+      normalized = normalizeSceneImport(req.body);
+    } catch (e) {
+      return res.status(400).json({ ok: false, error: e.message });
+    }
+
+    const projectPath = await findProjectFile(name);
+    if (!projectPath) {
+      return res.status(404).json({ ok: false, error: `Project "${name}" not found` });
+    }
+
+    const raw = await fs.readFile(projectPath, 'utf-8');
+    const data = JSON.parse(raw);
+    if (!data.scenes || typeof data.scenes !== 'object') data.scenes = {};
+
+    const plan = { new: [], conflicts: [], skipped: [], applied: [] };
+    for (const [scName, scNew] of Object.entries(normalized)) {
+      const newSlotCounts = scNew.slots.map((s) => s.length);
+      const newCombos = newSlotCounts.reduce((a, b) => a * b, 1);
+      if (data.scenes[scName]) {
+        const curSlots = Array.isArray(data.scenes[scName].slots) ? data.scenes[scName].slots : [];
+        const curSlotCounts = curSlots.map((s) => s.length);
+        const curCombos = curSlotCounts.reduce((a, b) => a * b, 1);
+        const action = policy[scName] || 'skip';
+        plan.conflicts.push({
+          name: scName,
+          currentSlots: curSlotCounts,
+          currentCombos: curCombos,
+          newSlots: newSlotCounts,
+          newCombos,
+          action,
+        });
+      } else {
+        plan.new.push({ name: scName, newSlots: newSlotCounts, newCombos });
+      }
+    }
+
+    if (dryRun) {
+      return res.json({ ok: true, dryRun: true, projectPath: path.basename(projectPath), plan });
+    }
+
+    // Apply
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const backupPath = projectPath + '.bak-import-' + ts;
+    await fs.copyFile(projectPath, backupPath);
+
+    for (const [scName, scNew] of Object.entries(normalized)) {
+      if (data.scenes[scName]) {
+        const action = policy[scName] || 'skip';
+        if (action === 'skip') {
+          plan.skipped.push(scName);
+          continue;
+        }
+        if (action === 'overwrite') {
+          data.scenes[scName].slots = scNew.slots;
+          if (scNew.resolution) data.scenes[scName].resolution = scNew.resolution;
+          plan.applied.push({ name: scName, action: 'overwrite' });
+        } else {
+          return res.status(400).json({ ok: false, error: `Invalid policy for "${scName}": ${action}` });
+        }
+      } else {
+        data.scenes[scName] = {
+          name: scName,
+          resolution: scNew.resolution || 'portrait',
+          imageMap: [],
+          mains: [],
+          type: 'scene',
+          slots: scNew.slots,
+          meta: { SDImageGen: { type: 'SDImageGen' } },
+          sceneCharacterPrompts: [],
+          useSceneCharacterPrompts: false,
+          sceneCharacterUC: '',
+        };
+        plan.applied.push({ name: scName, action: 'new' });
+      }
+    }
+
+    const tmp = projectPath + '.tmp';
+    await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
+    await fs.rename(tmp, projectPath);
+
+    console.log(`[Import] project="${name}" applied=${plan.applied.length} skipped=${plan.skipped.length} backup=${path.basename(backupPath)}`);
+    res.json({ ok: true, backup: path.basename(backupPath), plan });
+  } catch (e) {
+    console.error('[Import] error:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.get('/api/fs/exists', async (req, res) => {
   try {
     await fs.access(resolvePath(req.query.path));
