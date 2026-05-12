@@ -13,13 +13,8 @@ interface TrashSceneEntry {
   deletedAt: number;
 }
 
-interface TrashProjectEntry {
-  deletedAt: number;
-}
-
 interface TrashData {
   scenes: { [compositeKey: string]: TrashSceneEntry };
-  projects: { [projectName: string]: TrashProjectEntry };
 }
 
 // --- Constants ---
@@ -30,12 +25,11 @@ const TRASH_META_FILE = '.trash_meta.json';
 
 const IMAGE_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;    // 3 days
 const SCENE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;   // 14 days
-const PROJECT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;  // 30 days
 
 // --- Service class ---
 
 export class TrashService extends EventTarget {
-  private data: TrashData = { scenes: {}, projects: {} };
+  private data: TrashData = { scenes: {} };
   private loaded: boolean = false;
 
   // ===== Core persistence =====
@@ -44,12 +38,12 @@ export class TrashService extends EventTarget {
     try {
       const str = await backend.readFile(TRASH_FILE);
       const parsed = JSON.parse(str);
+      // legacy: 이전 버전의 trash.json에 projects 필드가 남아있을 수 있음 — 무시.
       this.data = {
         scenes: parsed.scenes || {},
-        projects: parsed.projects || {},
       };
     } catch (e) {
-      this.data = { scenes: {}, projects: {} };
+      this.data = { scenes: {} };
     }
     this.loaded = true;
   }
@@ -382,111 +376,6 @@ export class TrashService extends EventTarget {
 
     delete this.data.scenes[key];
     await this.saveTrash();
-  }
-
-  // ===== Project trash =====
-
-  async moveProjectToTrash(projectName: string): Promise<void> {
-    this.ensureLoaded();
-    this.data.projects[projectName] = { deletedAt: Date.now() };
-    await this.saveTrash();
-  }
-
-  async getDeletedProjects(): Promise<{name: string, deletedAt: number}[]> {
-    this.ensureLoaded();
-    let files: string[];
-    try {
-      // depth=1 recursive: .deleted markers may live inside folders too.
-      const result = await backend.listFilesRecursive('projects', 1);
-      files = result.files;
-    } catch (e) {
-      return [];
-    }
-    const jsonSet = new Set(
-      files.filter((f: string) => f.endsWith('.json'))
-        .map((f: string) => f.substring(0, f.length - '.json'.length))
-    );
-    const deletedFiles = files
-      .filter((f: string) => f.endsWith('.deleted'))
-      .map((f: string) => f.substring(0, f.length - '.deleted'.length))
-      // Exclude orphan .deleted files where an active .json also exists
-      .filter((name: string) => !jsonSet.has(name));
-
-    return deletedFiles.map((name: string) => ({
-      name,
-      deletedAt: this.data.projects[name]?.deletedAt || 0,
-    }));
-  }
-
-  async restoreProject(name: string): Promise<void> {
-    this.ensureLoaded();
-    // Safety: if .json already exists, don't overwrite — just remove the orphan .deleted
-    const activeExists = await backend.existFile('projects/' + name + '.json');
-    if (activeExists) {
-      // Orphan .deleted: just delete it, the active project is fine
-      try {
-        await backend.deleteFile('projects/' + name + '.deleted');
-      } catch (e) {}
-    } else {
-      await backend.renameFile('projects/' + name + '.deleted', 'projects/' + name + '.json');
-    }
-    delete this.data.projects[name];
-    await this.saveTrash();
-  }
-
-  async permanentlyDeleteProject(name: string): Promise<void> {
-    this.ensureLoaded();
-
-    // CRITICAL: Check if an active .json exists for this project.
-    // If both .json and .deleted coexist (legacy duplicate), only remove
-    // the .deleted file — NEVER touch the directories.
-    const activeExists = await backend.existFile('projects/' + name + '.json');
-
-    // Delete the .deleted file
-    try {
-      await backend.deleteFile('projects/' + name + '.deleted');
-    } catch (e) {}
-
-    // Only delete directories if there is NO active project with same name
-    if (!activeExists) {
-      for (const dir of ['outs', 'inpaints', 'vibes', 'inpaint_masks', 'inpaint_orgs']) {
-        try {
-          await backend.deleteDir(dir + '/' + name);
-        } catch (e) {}
-      }
-    }
-
-    // Clean up trash.json entries for this project's scenes
-    const prefix = name + ':';
-    for (const key of Object.keys(this.data.scenes)) {
-      if (key.startsWith(prefix)) {
-        delete this.data.scenes[key];
-      }
-    }
-    delete this.data.projects[name];
-    await this.saveTrash();
-  }
-
-  // ===== Expired project management =====
-
-  async getExpiredProjects(): Promise<{name: string, deletedAt: number}[]> {
-    this.ensureLoaded();
-    const now = Date.now();
-    const deleted = await this.getDeletedProjects();
-    return deleted.filter(p => (now - p.deletedAt) >= PROJECT_RETENTION_MS);
-  }
-
-  async deferProjects(names: string[]): Promise<void> {
-    this.ensureLoaded();
-    const now = Date.now();
-    for (const name of names) {
-      if (this.data.projects[name]) {
-        this.data.projects[name].deletedAt = now;
-      }
-    }
-    if (names.length > 0) {
-      await this.saveTrash();
-    }
   }
 
   // ===== Auto-cleanup =====

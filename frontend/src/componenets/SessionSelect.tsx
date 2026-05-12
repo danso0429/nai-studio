@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { useState } from 'react';
 import SessionTreePicker from './SessionTreePicker';
-import { FaPlus, FaPuzzlePiece, FaTrashAlt, FaTrashRestore, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaRegBookmark } from 'react-icons/fa';
+import { FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaRegBookmark } from 'react-icons/fa';
 import Tooltip from './Tooltip';
-import { sessionService, imageService, backend, zipService, workFlowService, trashService } from '../models';
+import { sessionService, imageService, backend, zipService, workFlowService } from '../models';
 import { appState } from '../models/AppService';
 import { josaIGa } from '../models/util';
 import { observer } from 'mobx-react-lite';
@@ -45,63 +45,20 @@ const SessionSelect = observer(() => {
 
   const deleteSession = () => {
     if (appState.blockIfBusy()) return;
+    const name = appState.curSession!.name;
     appState.pushDialog({
       type: 'confirm',
-      text: '정말로 이 프로젝트를 삭제하시겠습니까? (휴지통으로 이동)',
+      text: `"${name}" 프로젝트를 영구 삭제합니다. 로컬과 Google Drive의 모든 데이터(outs/inpaints/vibes/inpaint_masks/inpaint_orgs/exports)가 함께 지워지며 되돌릴 수 없습니다. 진행할까요?`,
       callback: async () => {
-        await sessionService.delete(appState.curSession!.name);
-        appState.curSession = undefined;
+        try {
+          await sessionService.delete(name);
+          appState.curSession = undefined;
+          appState.pushMessage(`프로젝트 "${name}"${josaIGa(name)} 영구 삭제되었습니다.`);
+        } catch (e: any) {
+          appState.pushMessage(e?.message || '프로젝트 삭제에 실패했습니다.');
+        }
       },
     });
-  };
-
-  const openProjectTrash = async () => {
-    const deletedProjects = await trashService.getDeletedProjects();
-    if (deletedProjects.length === 0) {
-      appState.pushMessage('프로젝트 휴지통이 비어있습니다.');
-      return;
-    }
-    const items = deletedProjects.map((p) => {
-      const d = new Date(p.deletedAt);
-      const dateStr = p.deletedAt
-        ? d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        : '알 수 없음';
-      return {
-        text: p.name + ' (' + dateStr + ')',
-        value: p.name,
-      };
-    });
-    const selected = await appState.pushDialogAsync({
-      type: 'select',
-      text: '복원 또는 영구삭제할 프로젝트를 선택하세요',
-      items: items,
-    });
-    if (!selected) return;
-    const action = await appState.pushDialogAsync({
-      type: 'select',
-      text: `"${selected}" 프로젝트에 대해 수행할 작업을 선택하세요`,
-      items: [
-        { text: '프로젝트 복원', value: 'restore' },
-        { text: '영구 삭제', value: 'delete' },
-      ],
-    });
-    if (action === 'restore') {
-      try {
-        await trashService.restoreProject(selected);
-        appState.pushMessage(`프로젝트 "${selected}"${josaIGa(selected)} 복원되었습니다.`);
-      } catch (e: any) {
-        appState.pushMessage(e.message || '프로젝트 복원에 실패했습니다.');
-      }
-    } else if (action === 'delete') {
-      appState.pushDialog({
-        type: 'confirm',
-        text: `"${selected}" 프로젝트를 영구 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`,
-        callback: async () => {
-          await trashService.permanentlyDeleteProject(selected);
-          appState.pushMessage(`프로젝트 "${selected}"${josaIGa(selected)} 영구 삭제되었습니다.`);
-        },
-      });
-    }
   };
 
   return (
@@ -242,15 +199,9 @@ const SessionSelect = observer(() => {
         <span className="hidden md:inline text-sm">즐겨찾기</span>
       </button>
       </Tooltip>
+      <Tooltip content="프로젝트 영구 삭제 (로컬 + Drive)">
       <button className={`icon-button nback-red mx-1`} onClick={deleteSession}>
         <FaTrashAlt size={18} />{' '}
-      </button>
-      <Tooltip content="프로젝트 휴지통">
-      <button
-        className={`icon-button nback-gray mx-1`}
-        onClick={openProjectTrash}
-      >
-        <FaTrashRestore size={18} />
       </button>
       </Tooltip>
       <button

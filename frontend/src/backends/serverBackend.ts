@@ -1,6 +1,6 @@
 import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, DriveRetryStatus, FileEntry, FileStatEntry, ImageOptimizeMethod, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
+import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteProjectResult, DriveRetryStatus, FileEntry, FileStatEntry, ImageOptimizeMethod, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -307,6 +307,27 @@ export class ServerBackend extends Backend {
 
   async removeBackground(inputImageBase64: string, outputPath: string): Promise<void> {
     await api('/image/remove-bg', { method: 'POST', body: JSON.stringify({ image: inputImageBase64, outputPath }) });
+  }
+
+  async deleteProjectNow(name: string): Promise<DeleteProjectResult> {
+    return await apiJSON('/project/delete-now', { method: 'POST', body: JSON.stringify({ name }) });
+  }
+
+  async cleanupOrphans(): Promise<CleanupOrphansStart> {
+    return await apiJSON('/project/cleanup-orphans', { method: 'POST' });
+  }
+
+  onCleanupOrphansStart(callback: (data: { jobId: string }) => void): () => void {
+    return this.on('cleanup-orphans-start', callback);
+  }
+  onCleanupOrphansProgress(callback: (data: CleanupOrphansProgress) => void): () => void {
+    return this.on('cleanup-orphans-progress', callback);
+  }
+  onCleanupOrphansDone(callback: (data: CleanupOrphansDone) => void): () => void {
+    return this.on('cleanup-orphans-done', callback);
+  }
+  onCleanupOrphansError(callback: (data: CleanupOrphansError) => void): () => void {
+    return this.on('cleanup-orphans-error', callback);
   }
 
   onDownloadProgress(callback: (progress: any) => void): () => void { return this.on('download-progress', callback); }

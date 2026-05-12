@@ -291,6 +291,164 @@ const FolderCleanupSection = ({ folder, label, description }: { folder: string; 
   );
 };
 
+/* ── Orphan 프로젝트 정리 (로컬 + Drive) ── */
+// 진행도는 상단 pinned toast로 표시되고, 마지막 결과는 이 섹션에 캐시. WS 이벤트로
+// 진행도/완료/에러 받아서 toast/state 갱신. fetch 응답은 jobId만 즉시 반환되므로
+// iPhone Safari fetch timeout과 무관함.
+const PHASE_LABEL: Record<string, string> = {
+  'local-folders': '로컬 폴더',
+  'local-exports': '로컬 exports',
+  'drive-folders': 'Drive 폴더',
+  'drive-exports': 'Drive exports',
+};
+
+const OrphanCleanupSection = () => {
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    deleted: { local: string[]; drive: string[] };
+    errors: string[];
+    driveSkipped: boolean;
+  } | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsubStart = backend.onCleanupOrphansStart((data) => {
+      setActiveJobId(data.jobId);
+      setResult(null);
+      setErrorMsg(null);
+      appState.pushPinnedProgress(
+        'orphan-cleanup-' + data.jobId,
+        'Orphan 정리 시작…',
+        4,
+      );
+    });
+    const unsubProgress = backend.onCleanupOrphansProgress((data) => {
+      const phaseText = PHASE_LABEL[data.phase] || data.phase;
+      const counts =
+        `로컬 ${data.deleted.local} · Drive ${data.deleted.drive}` +
+        (data.errors > 0 ? ` · 오류 ${data.errors}` : '');
+      const item = data.currentItem ? `: ${data.currentItem}` : '';
+      // phase에 따라 done 값 단계적으로 (시각적 가이드)
+      const doneMap: Record<string, number> = {
+        'local-folders': 1,
+        'local-exports': 2,
+        'drive-folders': 3,
+        'drive-exports': 4,
+      };
+      appState.updatePinnedProgress('orphan-cleanup-' + data.jobId, {
+        text: `Orphan 정리 (${phaseText})${item} — ${counts}`,
+        done: doneMap[data.phase] || 0,
+      });
+    });
+    const unsubDone = backend.onCleanupOrphansDone((data) => {
+      setActiveJobId(null);
+      setResult({
+        deleted: data.deleted,
+        errors: data.errors,
+        driveSkipped: data.driveSkipped,
+      });
+      const final =
+        `✓ Orphan 정리 완료 — 로컬 ${data.deleted.local.length}건 · Drive ${data.deleted.drive.length}건` +
+        (data.driveSkipped ? ' (rclone 미설정)' : '') +
+        (data.errors.length > 0 ? ` · 오류 ${data.errors.length}건` : '');
+      appState.finishPinnedProgress(
+        'orphan-cleanup-' + data.jobId,
+        final,
+        data.errors.length === 0,
+        5000,
+      );
+    });
+    const unsubError = backend.onCleanupOrphansError((data) => {
+      setActiveJobId(null);
+      setErrorMsg(data.error);
+      // 부분 결과라도 보여줌
+      setResult({
+        deleted: data.deleted,
+        errors: data.errors,
+        driveSkipped: false,
+      });
+      appState.finishPinnedProgress(
+        'orphan-cleanup-' + data.jobId,
+        '✗ Orphan 정리 실패: ' + data.error,
+        false,
+        7000,
+      );
+    });
+    return () => {
+      unsubStart();
+      unsubProgress();
+      unsubDone();
+      unsubError();
+    };
+  }, []);
+
+  const run = async () => {
+    if (
+      !window.confirm(
+        '현재 살아있는 프로젝트 이름과 비교해서, 매칭되지 않는 로컬/Drive의 데이터(outs/inpaints/vibes/inpaint_masks/inpaint_orgs/exports)를 모두 영구 삭제합니다. 휴지통 거치지 않으며 되돌릴 수 없습니다. 진행할까요?',
+      )
+    ) {
+      return;
+    }
+    try {
+      const r = await backend.cleanupOrphans();
+      if (r.alreadyRunning) {
+        alert('이미 정리가 진행 중이에요. 상단 진행도를 확인해주세요.');
+        // 진행 중이면 listener가 이미 토스트 갱신 중이므로 별도 처리 없음
+      }
+    } catch (e: any) {
+      alert('Orphan 정리 시작 실패: ' + (e?.message || e));
+    }
+  };
+
+  const running = activeJobId !== null;
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-sm gray-label font-bold">Orphan 프로젝트 정리 (로컬 + Drive)</label>
+      <div className="text-xs text-gray-400 dark:text-gray-500">
+        살아있는 프로젝트 이름과 비교해 매칭되지 않는 outs/inpaints/vibes/inpaint_masks/inpaint_orgs 폴더 및 exports 파일을 로컬과 Google Drive 양쪽에서 영구 삭제합니다. 진행도는 상단 알림에 표시돼요.
+      </div>
+      <button
+        className="text-sm back-red px-3 py-1.5 rounded hover:brightness-95 active:brightness-90 disabled:opacity-50"
+        onClick={run}
+        disabled={running}
+      >
+        {running ? '정리 중…' : 'Orphan 일괄 정리'}
+      </button>
+      {errorMsg && (
+        <div className="text-sm text-red-500">오류: {errorMsg}</div>
+      )}
+      {result && (
+        <div className="text-sm space-y-1 mt-2">
+          <div className="gray-label">
+            로컬 {result.deleted.local.length}건, Drive {result.deleted.drive.length}건 삭제됨
+            {result.driveSkipped && ' (Drive: rclone 미설정 — 로컬만 정리)'}
+            {result.errors.length > 0 && ` · 오류 ${result.errors.length}건`}
+          </div>
+          {(result.deleted.local.length + result.deleted.drive.length) > 0 && (
+            <details className="text-xs">
+              <summary className="cursor-pointer gray-label">삭제 항목 보기</summary>
+              <div className="max-h-48 overflow-y-auto border rounded p-2 mt-1 font-mono whitespace-pre-wrap break-all">
+                {result.deleted.local.map((p) => <div key={'L:' + p}>로컬 · {p}</div>)}
+                {result.deleted.drive.map((p) => <div key={'D:' + p}>Drive · {p}</div>)}
+              </div>
+            </details>
+          )}
+          {result.errors.length > 0 && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-red-500">오류 보기</summary>
+              <div className="max-h-48 overflow-y-auto border rounded p-2 mt-1 font-mono text-red-500 whitespace-pre-wrap break-all">
+                {result.errors.map((e, i) => <div key={i}>{e}</div>)}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* ── 탭 4: 기타 설정 ── */
 const OtherTab = ({
   whiteMode, setWhiteMode,
@@ -371,6 +529,8 @@ const OtherTab = ({
       <FolderCleanupSection folder="exports" label="exports 폴더 정리" />
       <hr className="border-gray-200 dark:border-slate-600" />
       <FolderCleanupSection folder="tmp" label="tmp 폴더 정리" description="이미지 내보내기 시 생성되는 임시 파일이 저장됩니다." />
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <OrphanCleanupSection />
       <hr className="border-gray-200 dark:border-slate-600" />
       <TaskLogSection />
       <hr className="border-gray-200 dark:border-slate-600" />

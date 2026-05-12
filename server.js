@@ -1552,6 +1552,369 @@ app.post('/api/trash/auto-cleanup', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ─── Project permanent deletion (local + Drive, no trash) ──────────
+// 본인 정책: 휴지통 거치지 않고 즉시 영구 삭제. Drive 휴지통도 우회(--drive-use-trash=false).
+
+const RCLONE_TRASH_BYPASS = '--drive-use-trash=false';
+const PROJECT_SUB_DIRS = ['outs', 'inpaints', 'vibes', 'inpaint_masks', 'inpaint_orgs'];
+
+function sanitizeProjectName(name) {
+  if (typeof name !== 'string' || !name) return null;
+  if (name.includes('/') || name.includes('\\')) return null;
+  if (name === '.' || name === '..') return null;
+  if (name.startsWith('.')) return null;
+  return name;
+}
+
+function checkRcloneAvailable() {
+  const { execSync } = require('child_process');
+  try {
+    execSync('which rclone', { stdio: 'pipe' });
+    execSync(`rclone listremotes 2>/dev/null | grep ${RCLONE_REMOTE}`, { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function rcloneRun(cmd, timeoutMs) {
+  return new Promise((resolve) => {
+    const { exec } = require('child_process');
+    exec(cmd, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+      resolve({
+        ok: !err,
+        stdout: stdout ? stdout.toString() : '',
+        stderr: stderr ? stderr.toString() : '',
+        error: err ? err.message : null,
+      });
+    });
+  });
+}
+
+// Drive purge가 디렉토리 없을 때 출력하는 메시지 — 에러로 안 셈
+function isNotFoundError(text) {
+  const t = (text || '').toLowerCase();
+  return t.includes('not found') ||
+    t.includes("doesn't exist") ||
+    t.includes('directory not found') ||
+    t.includes('object not found');
+}
+
+// projects 안에서 살아있는 프로젝트 basename set (폴더 depth 1 포함)
+async function listActiveProjectNames() {
+  const projectsDir = resolvePath('projects');
+  const walked = await walkDir(projectsDir, 1);
+  const names = new Set();
+  for (const f of walked.files) {
+    if (!f.endsWith('.json')) continue;
+    const base = path.basename(f, '.json');
+    if (base) names.add(base);
+  }
+  return names;
+}
+
+// exports 파일명에서 프로젝트 prefix 추출. 프로젝트 export가 아니면 null.
+// 패턴: <name>.json, <name>.tar, <name>_main_images_<ts>.tar
+function deriveProjectPrefixFromExport(filename) {
+  if (filename.endsWith('.json')) return filename.slice(0, -5);
+  if (filename.endsWith('.tar')) {
+    const m = filename.match(/^(.+)_main_images_\d+\.tar$/);
+    if (m) return m[1];
+    return filename.slice(0, -4);
+  }
+  return null;
+}
+
+async function permanentlyDeleteProjectFiles(name) {
+  const deleted = { local: [], drive: [] };
+  const errors = [];
+
+  // 1. 로컬 projects/<...>.json + <...>.deleted (폴더형 포함)
+  const projectsDir = resolvePath('projects');
+  try {
+    const walked = await walkDir(projectsDir, 1);
+    for (const f of walked.files) {
+      if (!f.endsWith('.json') && !f.endsWith('.deleted')) continue;
+      const base = path.basename(f, path.extname(f));
+      if (base !== name) continue;
+      try {
+        await fs.unlink(path.join(projectsDir, f));
+        deleted.local.push('projects/' + f);
+      } catch (e) {
+        errors.push('local rm projects/' + f + ': ' + e.message);
+      }
+    }
+  } catch (e) {
+    errors.push('local scan projects: ' + e.message);
+  }
+
+  // 2. 로컬 5개 폴더의 <name>/ 디렉토리
+  for (const d of PROJECT_SUB_DIRS) {
+    const p = path.join(DATA_DIR, d, name);
+    try {
+      // 존재 확인 후만 push (존재하지 않으면 rm 자체는 force라 조용히 통과)
+      let exists = false;
+      try { await fs.access(p); exists = true; } catch {}
+      if (!exists) continue;
+      await fs.rm(p, { recursive: true, force: true });
+      deleted.local.push(d + '/' + name);
+    } catch (e) {
+      errors.push('local rm ' + d + '/' + name + ': ' + e.message);
+    }
+  }
+
+  // 3. 로컬 exports — <name>.json + <name>.tar + <name>_main_images_*.tar
+  const exportsDir = path.join(DATA_DIR, 'exports');
+  try {
+    const entries = await fs.readdir(exportsDir);
+    for (const f of entries) {
+      const prefix = deriveProjectPrefixFromExport(f);
+      if (prefix !== name) continue;
+      try {
+        await fs.unlink(path.join(exportsDir, f));
+        deleted.local.push('exports/' + f);
+      } catch (e) {
+        errors.push('local rm exports/' + f + ': ' + e.message);
+      }
+    }
+  } catch {
+    // 디렉토리 자체가 없으면 무시
+  }
+
+  // 4. Drive — rclone 없으면 skip
+  if (!checkRcloneAvailable()) {
+    return { deleted, errors, driveSkipped: true };
+  }
+
+  // 4a. Drive 5개 폴더 purge
+  for (const d of PROJECT_SUB_DIRS) {
+    const remotePath = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/${d}/${name}`;
+    const r = await rcloneRun(
+      `rclone purge ${JSON.stringify(remotePath)} ${RCLONE_TRASH_BYPASS} 2>&1`,
+      60000,
+    );
+    if (r.ok) {
+      deleted.drive.push(d + '/' + name);
+    } else if (!isNotFoundError(r.stderr || r.stdout || r.error)) {
+      errors.push('drive purge ' + d + '/' + name + ': ' + (r.stderr || r.error));
+    }
+  }
+
+  // 4b. Drive projects/ 안 <name>.json / <name>.deleted (폴더형 포함, lsf --recursive)
+  const projRemoteDir = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/projects`;
+  const lsfProj = await rcloneRun(
+    `rclone lsf ${JSON.stringify(projRemoteDir)} --recursive --files-only`,
+    30000,
+  );
+  if (lsfProj.ok) {
+    const lines = lsfProj.stdout.split('\n').filter(Boolean);
+    for (const line of lines) {
+      const base = path.basename(line);
+      if (!base.endsWith('.json') && !base.endsWith('.deleted')) continue;
+      const baseName = base.replace(/\.(json|deleted)$/, '');
+      if (baseName !== name) continue;
+      const remoteFile = `${projRemoteDir}/${line}`;
+      const dr = await rcloneRun(
+        `rclone deletefile ${JSON.stringify(remoteFile)} ${RCLONE_TRASH_BYPASS}`,
+        30000,
+      );
+      if (dr.ok) {
+        deleted.drive.push('projects/' + line);
+      } else if (!isNotFoundError(dr.stderr || dr.error)) {
+        errors.push('drive del projects/' + line + ': ' + (dr.stderr || dr.error));
+      }
+    }
+  }
+
+  // 4c. Drive exports prefix 매칭
+  const exportRemoteDir = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/exports`;
+  const lsfExp = await rcloneRun(
+    `rclone lsf ${JSON.stringify(exportRemoteDir)} --files-only`,
+    30000,
+  );
+  if (lsfExp.ok) {
+    const lines = lsfExp.stdout.split('\n').filter(Boolean);
+    for (const f of lines) {
+      const prefix = deriveProjectPrefixFromExport(f);
+      if (prefix !== name) continue;
+      const remoteFile = `${exportRemoteDir}/${f}`;
+      const dr = await rcloneRun(
+        `rclone deletefile ${JSON.stringify(remoteFile)} ${RCLONE_TRASH_BYPASS}`,
+        30000,
+      );
+      if (dr.ok) {
+        deleted.drive.push('exports/' + f);
+      } else if (!isNotFoundError(dr.stderr || dr.error)) {
+        errors.push('drive del exports/' + f + ': ' + (dr.stderr || dr.error));
+      }
+    }
+  }
+
+  return { deleted, errors, driveSkipped: false };
+}
+
+app.post('/api/project/delete-now', async (req, res) => {
+  try {
+    const name = sanitizeProjectName(req.body && req.body.name);
+    if (!name) return res.status(400).json({ ok: false, error: 'Invalid project name' });
+    const result = await permanentlyDeleteProjectFiles(name);
+    console.log(`[Project] delete-now "${name}": local=${result.deleted.local.length}, drive=${result.deleted.drive.length}, errors=${result.errors.length}`);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error('[Project] delete-now error:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// cleanup-orphans는 Drive purge 다수로 long-running. iPhone Safari fetch
+// timeout과 충돌하지 않게 fire-and-forget + WS 진행도 broadcast 방식.
+let cleanupOrphansActiveJobId = null;
+
+function emitOrphansProgress(jobId, phase, currentItem, deleted, errors) {
+  broadcast('cleanup-orphans-progress', {
+    jobId,
+    phase,
+    currentItem: currentItem || '',
+    deleted: { local: deleted.local.length, drive: deleted.drive.length },
+    errors: errors.length,
+  });
+}
+
+async function runCleanupOrphans(jobId) {
+  const deleted = { local: [], drive: [] };
+  const errors = [];
+  try {
+    const activeSet = await listActiveProjectNames();
+
+    // 1. 로컬 5폴더
+    emitOrphansProgress(jobId, 'local-folders', '', deleted, errors);
+    for (const d of PROJECT_SUB_DIRS) {
+      const dirPath = path.join(DATA_DIR, d);
+      let entries;
+      try { entries = await fs.readdir(dirPath, { withFileTypes: true }); } catch { continue; }
+      for (const e of entries) {
+        if (!e.isDirectory()) continue;
+        if (e.name.startsWith('.')) continue;
+        if (activeSet.has(e.name)) continue;
+        const item = d + '/' + e.name;
+        emitOrphansProgress(jobId, 'local-folders', item, deleted, errors);
+        try {
+          await fs.rm(path.join(dirPath, e.name), { recursive: true, force: true });
+          deleted.local.push(item);
+        } catch (err) {
+          errors.push('local rm ' + item + ': ' + err.message);
+        }
+      }
+    }
+
+    // 2. 로컬 exports prefix
+    emitOrphansProgress(jobId, 'local-exports', '', deleted, errors);
+    const exportsDir = path.join(DATA_DIR, 'exports');
+    try {
+      const entries = await fs.readdir(exportsDir);
+      for (const f of entries) {
+        const prefix = deriveProjectPrefixFromExport(f);
+        if (prefix == null) continue;
+        if (activeSet.has(prefix)) continue;
+        const item = 'exports/' + f;
+        emitOrphansProgress(jobId, 'local-exports', item, deleted, errors);
+        try {
+          await fs.unlink(path.join(exportsDir, f));
+          deleted.local.push(item);
+        } catch (err) {
+          errors.push('local rm ' + item + ': ' + err.message);
+        }
+      }
+    } catch {}
+
+    // 3. Drive — rclone 없으면 skip
+    if (!checkRcloneAvailable()) {
+      console.log(`[Project] cleanup-orphans done jobId=${jobId}: local=${deleted.local.length}, drive=0(rclone skipped), errors=${errors.length}`);
+      broadcast('cleanup-orphans-done', { jobId, deleted, errors, driveSkipped: true });
+      return;
+    }
+
+    // 3a. Drive 5폴더
+    emitOrphansProgress(jobId, 'drive-folders', '', deleted, errors);
+    for (const d of PROJECT_SUB_DIRS) {
+      const remoteDir = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/${d}`;
+      const r = await rcloneRun(
+        `rclone lsf ${JSON.stringify(remoteDir)} --dirs-only`,
+        30000,
+      );
+      if (!r.ok) continue;
+      const lines = r.stdout.split('\n').filter(Boolean);
+      for (const line of lines) {
+        const dirName = line.replace(/\/$/, '');
+        if (!dirName || dirName.startsWith('.')) continue;
+        if (activeSet.has(dirName)) continue;
+        const item = d + '/' + dirName;
+        emitOrphansProgress(jobId, 'drive-folders', item, deleted, errors);
+        const remotePath = `${remoteDir}/${dirName}`;
+        const pr = await rcloneRun(
+          `rclone purge ${JSON.stringify(remotePath)} ${RCLONE_TRASH_BYPASS} 2>&1`,
+          60000,
+        );
+        if (pr.ok) {
+          deleted.drive.push(item);
+        } else if (!isNotFoundError(pr.stderr || pr.stdout || pr.error)) {
+          errors.push('drive purge ' + item + ': ' + (pr.stderr || pr.error));
+        }
+      }
+    }
+
+    // 3b. Drive exports prefix
+    emitOrphansProgress(jobId, 'drive-exports', '', deleted, errors);
+    const exportRemoteDir = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/exports`;
+    const lsfExp = await rcloneRun(
+      `rclone lsf ${JSON.stringify(exportRemoteDir)} --files-only`,
+      30000,
+    );
+    if (lsfExp.ok) {
+      const lines = lsfExp.stdout.split('\n').filter(Boolean);
+      for (const f of lines) {
+        const prefix = deriveProjectPrefixFromExport(f);
+        if (prefix == null) continue;
+        if (activeSet.has(prefix)) continue;
+        const item = 'exports/' + f;
+        emitOrphansProgress(jobId, 'drive-exports', item, deleted, errors);
+        const remoteFile = `${exportRemoteDir}/${f}`;
+        const dr = await rcloneRun(
+          `rclone deletefile ${JSON.stringify(remoteFile)} ${RCLONE_TRASH_BYPASS}`,
+          30000,
+        );
+        if (dr.ok) {
+          deleted.drive.push(item);
+        } else if (!isNotFoundError(dr.stderr || dr.error)) {
+          errors.push('drive del ' + item + ': ' + (dr.stderr || dr.error));
+        }
+      }
+    }
+
+    console.log(`[Project] cleanup-orphans done jobId=${jobId}: local=${deleted.local.length}, drive=${deleted.drive.length}, errors=${errors.length}`);
+    broadcast('cleanup-orphans-done', { jobId, deleted, errors, driveSkipped: false });
+  } catch (e) {
+    console.error('[Project] cleanup-orphans error jobId=' + jobId + ':', e);
+    broadcast('cleanup-orphans-error', { jobId, error: e.message, deleted, errors });
+  } finally {
+    if (cleanupOrphansActiveJobId === jobId) cleanupOrphansActiveJobId = null;
+  }
+}
+
+app.post('/api/project/cleanup-orphans', (req, res) => {
+  // 이미 진행 중이면 동일 jobId 반환 (동시 실행 가드)
+  if (cleanupOrphansActiveJobId) {
+    return res.json({ ok: true, jobId: cleanupOrphansActiveJobId, alreadyRunning: true });
+  }
+  const jobId = 'cleanup-' + Date.now().toString() + '-' + Math.random().toString(36).slice(2, 8);
+  cleanupOrphansActiveJobId = jobId;
+  console.log('[Project] cleanup-orphans started jobId=' + jobId);
+  broadcast('cleanup-orphans-start', { jobId });
+  res.json({ ok: true, jobId, alreadyRunning: false });
+  // fire-and-forget — 응답 보낸 뒤 백그라운드 진행
+  runCleanupOrphans(jobId);
+});
+
 app.get('/api/fs/exists', async (req, res) => {
   try {
     await fs.access(resolvePath(req.query.path));

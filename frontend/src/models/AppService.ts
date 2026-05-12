@@ -162,6 +162,9 @@ export class AppState {
   @observable accessor dialogs: Dialog[] = [];
   @observable accessor samples: number = 1;
   @observable accessor progressDialogs: ProgressDialog[] = [];
+  // pinned toast: 일반 progressDialogs와 별도 row(아래 줄)에 표시. 가로 flex-1 균등분할에
+  // 끼지 않아 길이 줄어들지 않음. orphan 정리 같은 long-running 진행도 전용.
+  @observable accessor pinnedProgressDialogs: ProgressDialog[] = [];
   @observable accessor driveRetryStatus: DriveRetryStatus | null = null;
   @observable accessor driveRetryModalOpen: boolean = false;
   // 진행 중인 export pipeline (resize/zip). tar 생성 끝나면 null로 → driveRetry가 인계.
@@ -177,9 +180,6 @@ export class AppState {
 
   // 이미지 클립보드
   @observable accessor imageClipboard: string[] = [];
-
-  // 만료 프로젝트 알림
-  @observable accessor pendingExpiredProjects: {name: string, deletedAt: number}[] = [];
 
   // 씬 카드 디자인 설정
   @observable accessor classicSceneCard: boolean = false;
@@ -384,6 +384,44 @@ export class AppState {
     );
     if (autoDismissMs > 0) {
       setTimeout(() => this.removeProgressDialog(id), autoDismissMs);
+    }
+  }
+
+  // ─── Pinned progress (별도 row, 가로 길이 고정) ────────────────────
+  pushPinnedProgress(id: string, text: string, total: number = 1): string {
+    this.pinnedProgressDialogs = [
+      ...this.pinnedProgressDialogs,
+      { id, text, done: 0, total, status: 'active' },
+    ];
+    return id;
+  }
+
+  updatePinnedProgress(
+    id: string,
+    partial: Partial<Omit<ProgressDialog, 'id'>>,
+  ) {
+    this.pinnedProgressDialogs = this.pinnedProgressDialogs.map((p) =>
+      p.id === id ? { ...p, ...partial } : p,
+    );
+  }
+
+  removePinnedProgress(id: string) {
+    this.pinnedProgressDialogs = this.pinnedProgressDialogs.filter((p) => p.id !== id);
+  }
+
+  finishPinnedProgress(
+    id: string,
+    finalText: string,
+    success: boolean,
+    autoDismissMs: number = 5000,
+  ) {
+    this.pinnedProgressDialogs = this.pinnedProgressDialogs.map((p) =>
+      p.id === id
+        ? { ...p, text: finalText, done: p.total, status: success ? 'success' : 'error' }
+        : p,
+    );
+    if (autoDismissMs > 0) {
+      setTimeout(() => this.removePinnedProgress(id), autoDismissMs);
     }
   }
 

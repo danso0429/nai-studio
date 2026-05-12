@@ -79,6 +79,45 @@ export interface QueueFullState {
   }>;
 }
 
+export interface DeleteProjectResult {
+  deleted: { local: string[]; drive: string[] };
+  errors: string[];
+  driveSkipped: boolean;
+}
+
+export interface CleanupOrphansStart {
+  jobId: string;
+  alreadyRunning: boolean;
+}
+
+export type CleanupOrphansPhase =
+  | 'local-folders'
+  | 'local-exports'
+  | 'drive-folders'
+  | 'drive-exports';
+
+export interface CleanupOrphansProgress {
+  jobId: string;
+  phase: CleanupOrphansPhase;
+  currentItem: string;
+  deleted: { local: number; drive: number };
+  errors: number;
+}
+
+export interface CleanupOrphansDone {
+  jobId: string;
+  deleted: { local: string[]; drive: string[] };
+  errors: string[];
+  driveSkipped: boolean;
+}
+
+export interface CleanupOrphansError {
+  jobId: string;
+  error: string;
+  deleted: { local: string[]; drive: string[] };
+  errors: string[];
+}
+
 export abstract class Backend {
   abstract getConfig(): Promise<Config>;
   abstract setConfig(newConfig: Config): Promise<void>;
@@ -147,4 +186,10 @@ export abstract class Backend {
   abstract onImageChanged(callback: (path: string) => void): () => void;
   abstract onClose(callback: () => void): () => void;
   abstract onWsReconnect(callback: () => void): () => void;
+  abstract deleteProjectNow(name: string): Promise<DeleteProjectResult>;
+  abstract cleanupOrphans(): Promise<CleanupOrphansStart>;
+  abstract onCleanupOrphansStart(callback: (data: { jobId: string }) => void): () => void;
+  abstract onCleanupOrphansProgress(callback: (data: CleanupOrphansProgress) => void): () => void;
+  abstract onCleanupOrphansDone(callback: (data: CleanupOrphansDone) => void): () => void;
+  abstract onCleanupOrphansError(callback: (data: CleanupOrphansError) => void): () => void;
 }

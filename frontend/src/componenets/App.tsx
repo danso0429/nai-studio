@@ -21,7 +21,6 @@ import { DropdownSelect, TabComponent } from './UtilComponents';
 import PieceEditor, { PieceCell } from './PieceEditor';
 import PromptTooltip from './PromptTooltip';
 import ConfirmWindow, { Dialog } from './ConfirmWindow';
-import ExpiredProjectsDialog from './ExpiredProjectsDialog';
 import QueueControl from './SceneQueueControl';
 import { FloatView, FloatViewProvider } from './FloatView';
 import { observer, useObserver } from 'mobx-react-lite';
@@ -471,11 +470,16 @@ export const App = observer(() => {
         </ErrorBoundary>
         <AlertWindow />
         <ConfirmWindow />
-        <ExpiredProjectsDialog />
         <GlobalPresetPickerOverlay />
         <ProgressWindow
           dialogs={appState.progressDialogs}
           messagesCount={appState.messages.length}
+        />
+        <ProgressWindow
+          dialogs={appState.pinnedProgressDialogs}
+          messagesCount={appState.messages.length}
+          pinned
+          topOffset={appState.progressDialogs.length > 0 ? 48 : 0}
         />
         <DriveRetryWidget />
         <ExportPresetsDialog />

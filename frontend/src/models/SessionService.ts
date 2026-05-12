@@ -131,14 +131,9 @@ export class SessionService extends ResourceSyncService<Session> {
     await this.loadFavorites();
     await this.loadBookmarks();
     const { trashService } = await import('.');
+    // trash.json은 legacy data (씬 휴지통이 아직 사용 중) — 로드 유지
     await trashService.loadTrash();
     await trashService.autoCleanup();
-    // 만료 프로젝트 감지 → UI 다이얼로그에 전달
-    const expired = await trashService.getExpiredProjects();
-    if (expired.length > 0) {
-      const { appState } = await import('./AppService');
-      appState.pendingExpiredProjects = expired;
-    }
     await super.run();
   }
 
@@ -152,10 +147,15 @@ export class SessionService extends ResourceSyncService<Session> {
     if (keysToDelete.length > 0 || this.bookmarkData.scenes[name]) {
       await this.saveBookmarks();
     }
-    await super.delete(name);
-    // 휴지통에 삭제 시점 기록
-    const { trashService } = await import('.');
-    await trashService.moveProjectToTrash(name);
+    // 메모리 캐시 정리
+    if (name in this.resources) {
+      delete this.resources[name];
+      this.disposes[name]();
+      delete this.disposes[name];
+    }
+    // 로컬 파일 + Drive까지 즉시 영구 삭제 (휴지통 거치지 않음)
+    await backend.deleteProjectNow(name);
+    await this.update();
   }
 
   async rename(oldName: string, newName: string) {
