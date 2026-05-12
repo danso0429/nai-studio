@@ -182,6 +182,83 @@ export class SessionService extends ResourceSyncService<Session> {
     await super.rename(oldName, newName);
   }
 
+  // ===== Folder API =====
+  // 정책: basename은 전역 unique. 폴더는 단순 그룹핑. outs/inpaints/vibes는 평면 유지 (basename만 사용).
+  // 빈 폴더는 디렉토리 자체로 표현 (마커 파일 없음 — listFilesRecursive가 빈 dirs도 반환).
+
+  private folderPath(folderName: string): string {
+    return 'projects/' + folderName;
+  }
+  private projectFilePath(name: string, folder: string | null): string {
+    return folder ? 'projects/' + folder + '/' + name + '.json' : 'projects/' + name + '.json';
+  }
+
+  async createFolder(folderName: string): Promise<void> {
+    if (!folderName || folderName.includes('/')) {
+      throw new Error('폴더 이름이 올바르지 않습니다.');
+    }
+    if (this.folderList.includes(folderName)) {
+      throw new Error('이미 존재하는 폴더입니다.');
+    }
+    // 빈 디렉토리 생성: fs/write는 dirname auto-mkdir이므로 .keep 마커 후 즉시 삭제로 빈 디렉토리만 남김.
+    const keepPath = this.folderPath(folderName) + '/.keep';
+    await backend.writeFile(keepPath, '');
+    try { await backend.deleteFile(keepPath); } catch {}
+    await this.update();
+  }
+
+  async renameFolder(oldName: string, newName: string): Promise<void> {
+    if (!newName || newName.includes('/')) {
+      throw new Error('폴더 이름이 올바르지 않습니다.');
+    }
+    if (oldName === newName) return;
+    if (this.folderList.includes(newName)) {
+      throw new Error('이미 존재하는 폴더입니다.');
+    }
+    await backend.renameDir(this.folderPath(oldName), this.folderPath(newName));
+    // folderMap에 추적되던 프로젝트들의 folder 갱신은 update() 한 번이면 충분.
+    await this.update();
+  }
+
+  async deleteFolder(folderName: string): Promise<void> {
+    // 정책: 폴더는 영구 삭제. 안의 프로젝트들은 휴지통 경유 (개별 복원 가능).
+    // 주의: super.delete()는 같은 디렉토리에 .deleted suffix를 남김. 만약 폴더 안에서
+    // delete 후 폴더를 삭제하면 .deleted 파일도 같이 사라져 복원 불가능. 그래서 먼저
+    // 각 프로젝트의 .json을 루트로 옮긴 후 delete를 호출.
+    const projectsInFolder = this.resourceList.filter(n => this.folderMap[n] === folderName);
+    for (const projName of projectsInFolder) {
+      const srcPath = this.projectFilePath(projName, folderName);
+      const destPath = this.projectFilePath(projName, null);
+      await backend.renameFile(srcPath, destPath);
+      this.folderMap[projName] = null;
+    }
+    // 이제 각 프로젝트를 휴지통으로 (.deleted suffix가 루트에 생김 → 복원 시 루트로)
+    for (const projName of projectsInFolder) {
+      await this.delete(projName);
+    }
+    // 폴더 디렉토리 자체 삭제 (잔류 .keep 등 청소)
+    try {
+      await backend.deleteDir(this.folderPath(folderName));
+    } catch {}
+    await this.update();
+  }
+
+  async moveToFolder(name: string, targetFolder: string | null): Promise<void> {
+    const currentFolder = this.folderMap[name] ?? null;
+    if (currentFolder === targetFolder) return;
+    if (targetFolder && targetFolder.includes('/')) {
+      throw new Error('폴더 이름이 올바르지 않습니다.');
+    }
+    if (targetFolder && !this.folderList.includes(targetFolder)) {
+      throw new Error('대상 폴더가 존재하지 않습니다.');
+    }
+    const srcPath = this.projectFilePath(name, currentFolder);
+    const destPath = this.projectFilePath(name, targetFolder);
+    await backend.renameFile(srcPath, destPath);
+    this.folderMap[name] = targetFolder;
+    await this.update();
+  }
+
   async getHook(rc: Session, name: string) {
     rc.name = name;
   }

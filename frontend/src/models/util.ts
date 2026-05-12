@@ -5,6 +5,22 @@ export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// 한글 받침 유무에 따라 조사 형태 결정. 한글 외/빈 문자열은 받침 없음으로 처리.
+export function hasFinalConsonant(word: string): boolean {
+  if (!word) return false;
+  const lastChar = word[word.length - 1];
+  const code = lastChar.charCodeAt(0);
+  if (code < 0xAC00 || code > 0xD7A3) return false;
+  return (code - 0xAC00) % 28 !== 0;
+}
+
+// 받침에 맞춘 조사 헬퍼. 사용: `${name}${josaIGa(name)} 복원되었습니다`.
+export function josaIGa(word: string): string { return hasFinalConsonant(word) ? '이' : '가'; }
+export function josaEunNeun(word: string): string { return hasFinalConsonant(word) ? '은' : '는'; }
+export function josaEulReul(word: string): string { return hasFinalConsonant(word) ? '을' : '를'; }
+export function josaRo(word: string): string { return hasFinalConsonant(word) ? '으로' : '로'; }
+export function josaWaGwa(word: string): string { return hasFinalConsonant(word) ? '과' : '와'; }
+
 // Base path (e.g. '/nainai') with trailing slash stripped. Empty string when not reverse-proxied.
 export const API_BASE_PATH = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -40,12 +56,13 @@ export async function getPlatform() {
   return 'mac-x64';
 }
 
-export async function getFirstFile() {
+export async function getFirstFile(accept?: string) {
   return new Promise((resolve, reject) => {
     // Create a hidden file input element
     const input = document.createElement('input');
     input.type = 'file';
     input.style.display = 'none';
+    if (accept) input.accept = accept;
 
     // Listen for file selection
     input.addEventListener('change', (event: any) => {

@@ -39,7 +39,7 @@ import {
   Scene,
   Session,
 } from './types';
-import { apiUrl, extractApiError, extractPromptDataFromBase64, getFirstFile } from './util';
+import { apiUrl, extractApiError, extractPromptDataFromBase64, getFirstFile, josaRo, josaEulReul } from './util';
 import { DriveRetryStatus } from '../backend';
 import { v4 } from 'uuid';
 import { Resolution, resolutionMap } from '../backends/imageGen';
@@ -708,182 +708,177 @@ export class AppState {
   }
 
   @action
-  projectBackupMenu() {
-    appState.pushDialog({
-      type: 'select',
-      text: '메뉴를 선택해주세요',
-      items: [
-        {
-          text: '파일 불러오기 (.json 프로젝트 / .tar 백업 / .png 이미지)',
-          value: 'load',
-        },
-        {
-          text: '프로젝트 파일 내보내기 (이미지 미포함)',
-          value: 'save',
-        },
-        {
-          text: '프로젝트 백업 내보내기 (이미지 포함)',
-          value: 'saveDeep',
-        },
-        {
-          text: '✏️ 프로젝트 이름 수정',
-          value: 'rename',
-        },
-        {
-          text: appState.curSession && sessionService.isFavorite(appState.curSession.name)
-            ? '⭐ 즐겨찾기 해제'
-            : '⭐ 즐겨찾기 지정',
-          value: 'toggleFavorite',
-        },
-      ],
+  async projectExportShallow() {
+    if (!appState.curSession) return;
+    const proj = await sessionService.exportSessionShallow(appState.curSession);
+    const path = 'exports/' + appState.curSession.name + '.json';
+    await backend.writeFile(path, JSON.stringify(proj));
+    const pid = appState.pushProgressDialog('Drive 업로드 중 (프로젝트 파일)...', 1);
+    await syncExportToDrive({
+      path,
+      pid,
+      successLabel: '✓ 프로젝트 파일 Drive 업로드 완료',
+      logTag: 'save',
+    });
+  }
 
-      callback: async (value) => {
-        if (value === 'save') {
-          if (appState.curSession) {
-            const proj = await sessionService.exportSessionShallow(
-              appState.curSession,
-            );
-            const path = 'exports/' + appState.curSession.name + '.json';
-            await backend.writeFile(path, JSON.stringify(proj));
-            const pid = appState.pushProgressDialog('Drive 업로드 중 (프로젝트 파일)...', 1);
-            await syncExportToDrive({
-              path,
-              pid,
-              successLabel: '✓ 프로젝트 파일 Drive 업로드 완료',
-              logTag: 'save',
-            });
-          }
-        } else if (value === 'saveDeep') {
-          if (appState.curSession) {
-            const path = 'exports/' + appState.curSession.name + '.tar';
-            if (zipService.isZipping) {
-              appState.pushMessage('이미 내보내기 작업이 진행중입니다.');
-              return;
-            }
-            const pid = appState.pushProgressDialog('프로젝트 백업 압축 중..', 1);
-            try {
-              await sessionService.exportSessionDeep(appState.curSession, path);
-            } catch (e: any) {
-              appState.finishProgressDialog(pid, '✗ 백업 압축 실패', false);
-              return;
-            }
-            appState.updateProgressDialog(pid, {
-              text: 'Drive 업로드 중 (백업)...',
-              done: 0,
-              total: 1,
-            });
-            await syncExportToDrive({
-              path,
-              pid,
-              successLabel: '✓ 프로젝트 백업 Drive 업로드 완료',
-              logTag: 'saveDeep',
-            });
-          }
-        } else if (value === 'load') {
-          let file: File;
-          try {
-            file = (await getFirstFile()) as File;
-          } catch {
-            return; // 사용자 취소
-          }
-          const isTar = /\.(tar|tar\.gz|tgz)$/i.test(file.name);
-          if (!isTar) {
-            // .json / .png 등은 기존 shallow 임포트 흐름
-            appState.handleFile(file);
-            return;
-          }
-          // .tar 백업은 deep 임포트 — 이름 입력 → 서버 업로드 → unzip
-          appState.pushDialog({
-            type: 'input-confirm',
-            text: '새로운 프로젝트 이름을 입력해주세요',
-            callback: async (inputValue) => {
-              if (!inputValue) return;
-              if (sessionService.list().includes(inputValue)) {
-                appState.pushMessage('이미 존재하는 프로젝트 이름입니다.');
-                return;
-              }
-              const upid = appState.pushProgressDialog(
-                '프로젝트 백업 업로드 중...',
-                1,
-              );
-              let tarPath: string;
-              try {
-                const base64: string = await new Promise((resolve, reject) => {
-                  const reader = new FileReader();
-                  reader.onload = (e: any) => {
-                    const result = e.target?.result as string;
-                    resolve(result.split(',')[1] || result);
-                  };
-                  reader.onerror = reject;
-                  reader.readAsDataURL(file);
-                });
-                tarPath = 'tmp/import_' + Date.now() + '_' + file.name;
-                await backend.writeDataFile(tarPath, base64);
-                appState.finishProgressDialog(upid, '✓ 업로드 완료', true);
-              } catch (e: any) {
-                appState.finishProgressDialog(
-                  upid,
-                  '✗ 업로드 실패: ' + e.message,
-                  false,
-                );
-                return;
-              }
-              const ipid = appState.pushProgressDialog(
-                '프로젝트 백업을 불러오는 중...',
-                1,
-              );
-              try {
-                await sessionService.importSessionDeep(tarPath, inputValue);
-              } catch (e: any) {
-                appState.finishProgressDialog(
-                  ipid,
-                  '✗ 임포트 실패: ' + e.message,
-                  false,
-                );
-                return;
-              }
-              appState.finishProgressDialog(
-                ipid,
-                '✓ 프로젝트 백업을 불러왔습니다',
-                true,
-              );
-              const sess = await sessionService.get(inputValue);
-              this.curSession = sess;
-            },
-          });
-        } else if (value === 'rename') {
-          if (!appState.curSession) {
-            appState.pushMessage('프로젝트를 먼저 선택해주세요');
-            return;
-          }
-          if (appState.blockIfBusy()) return;
-          appState.pushDialog({
-            type: 'input-confirm',
-            text: '새로운 프로젝트 이름을 입력해주세요',
-            callback: async (inputValue) => {
-              if (!inputValue) return;
-              if (sessionService.list().includes(inputValue)) {
-                appState.pushMessage('이미 존재하는 프로젝트 이름입니다.');
-                return;
-              }
-              const oldName = appState.curSession!.name;
-              await imageService.onRenameSession(oldName, inputValue);
-              await sessionService.rename(oldName, inputValue);
-              appState.curSession!.name = inputValue;
-              appState.pushMessage('프로젝트 이름이 변경되었습니다.');
-            },
-          });
-        } else if (value === 'toggleFavorite') {
-          if (!appState.curSession) {
-            appState.pushMessage('프로젝트를 먼저 선택해주세요');
-            return;
-          }
-          await sessionService.toggleFavorite(appState.curSession.name);
-          const isFav = sessionService.isFavorite(appState.curSession.name);
-          appState.pushMessage(isFav ? '즐겨찾기에 추가되었습니다' : '즐겨찾기가 해제되었습니다');
+  @action
+  async projectExportDeep() {
+    if (!appState.curSession) return;
+    const path = 'exports/' + appState.curSession.name + '.tar';
+    if (zipService.isZipping) {
+      appState.pushMessage('이미 내보내기 작업이 진행중입니다.');
+      return;
+    }
+    const pid = appState.pushProgressDialog('프로젝트 백업 압축 중..', 1);
+    try {
+      await sessionService.exportSessionDeep(appState.curSession, path);
+    } catch (e: any) {
+      appState.finishProgressDialog(pid, '✗ 백업 압축 실패', false);
+      return;
+    }
+    appState.updateProgressDialog(pid, {
+      text: 'Drive 업로드 중 (백업)...',
+      done: 0,
+      total: 1,
+    });
+    await syncExportToDrive({
+      path,
+      pid,
+      successLabel: '✓ 프로젝트 백업 Drive 업로드 완료',
+      logTag: 'saveDeep',
+    });
+  }
+
+  @action
+  async projectImport() {
+    // 프로젝트(.json)만 허용. .tar/.png 등 다른 파일은 거부.
+    let file: File;
+    try {
+      file = (await getFirstFile('.json,application/json')) as File;
+    } catch {
+      return; // 사용자 취소
+    }
+    // iOS Safari가 .json에 빈 file.type을 주는 경우 → 확장자 fallback.
+    const isJson = file.type === 'application/json' || /\.json$/i.test(file.name);
+    if (!isJson) {
+      appState.pushMessage('프로젝트 파일(.json)만 불러올 수 있습니다.');
+      return;
+    }
+    appState.handleFile(file);
+  }
+
+  @action
+  async mediaImport() {
+    // 선택 다이얼로그로 형식 분기. 각 선택지가 해당 확장자만 accept.
+    const choice = await appState.pushDialogAsync({
+      type: 'select',
+      text: '불러올 파일 형식을 선택하세요',
+      items: [
+        { text: '📦 프로젝트 백업 (.tar)', value: 'tar' },
+        { text: '🖼️ 이미지 (.png) — 현재 프로젝트에 추가', value: 'png' },
+      ],
+    });
+    if (!choice) return;
+    let file: File;
+    try {
+      file = (await getFirstFile(
+        choice === 'tar' ? '.tar,.tar.gz,.tgz' : '.png,image/png',
+      )) as File;
+    } catch {
+      return;
+    }
+    if (choice === 'png') {
+      const isPng = file.type === 'image/png' || /\.png$/i.test(file.name);
+      if (!isPng) {
+        appState.pushMessage('.png 파일만 받을 수 있습니다.');
+        return;
+      }
+      appState.handleFile(file);
+      return;
+    }
+    // choice === 'tar'
+    const isTar = /\.(tar|tar\.gz|tgz)$/i.test(file.name);
+    if (!isTar) {
+      appState.pushMessage('.tar 파일만 받을 수 있습니다.');
+      return;
+    }
+    appState.pushDialog({
+      type: 'input-confirm',
+      text: '새로운 프로젝트 이름을 입력해주세요',
+      callback: async (inputValue) => {
+        if (!inputValue) return;
+        if (sessionService.list().includes(inputValue)) {
+          appState.pushMessage('이미 존재하는 프로젝트 이름입니다.');
+          return;
         }
+        const upid = appState.pushProgressDialog('프로젝트 백업 업로드 중...', 1);
+        let tarPath: string;
+        try {
+          const base64: string = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e: any) => {
+              const result = e.target?.result as string;
+              resolve(result.split(',')[1] || result);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          tarPath = 'tmp/import_' + Date.now() + '_' + file.name;
+          await backend.writeDataFile(tarPath, base64);
+          appState.finishProgressDialog(upid, '✓ 업로드 완료', true);
+        } catch (e: any) {
+          appState.finishProgressDialog(upid, '✗ 업로드 실패: ' + e.message, false);
+          return;
+        }
+        const ipid = appState.pushProgressDialog('프로젝트 백업을 불러오는 중...', 1);
+        try {
+          await sessionService.importSessionDeep(tarPath, inputValue);
+        } catch (e: any) {
+          appState.finishProgressDialog(ipid, '✗ 임포트 실패: ' + e.message, false);
+          return;
+        }
+        appState.finishProgressDialog(ipid, '✓ 프로젝트 백업을 불러왔습니다', true);
+        const sess = await sessionService.get(inputValue);
+        this.curSession = sess;
       },
     });
+  }
+
+  @action
+  projectRename() {
+    if (!appState.curSession) {
+      appState.pushMessage('프로젝트를 먼저 선택해주세요');
+      return;
+    }
+    if (appState.blockIfBusy()) return;
+    appState.pushDialog({
+      type: 'input-confirm',
+      text: '새로운 프로젝트 이름을 입력해주세요',
+      callback: async (inputValue) => {
+        if (!inputValue) return;
+        if (sessionService.list().includes(inputValue)) {
+          appState.pushMessage('이미 존재하는 프로젝트 이름입니다.');
+          return;
+        }
+        const oldName = appState.curSession!.name;
+        await imageService.onRenameSession(oldName, inputValue);
+        await sessionService.rename(oldName, inputValue);
+        appState.curSession!.name = inputValue;
+        appState.pushMessage('프로젝트 이름이 변경되었습니다.');
+      },
+    });
+  }
+
+  @action
+  async projectToggleFavorite() {
+    if (!appState.curSession) {
+      appState.pushMessage('프로젝트를 먼저 선택해주세요');
+      return;
+    }
+    await sessionService.toggleFavorite(appState.curSession.name);
+    const isFav = sessionService.isFavorite(appState.curSession.name);
+    appState.pushMessage(isFav ? '즐겨찾기에 추가되었습니다' : '즐겨찾기가 해제되었습니다');
   }
   async exportPackage(type: 'scene' | 'inpaint', selected?: GenericScene[], preset?: ExportPreset) {
     const exportImpl = async (
@@ -1057,7 +1052,7 @@ export class AppState {
     }
     // 프리셋 항목들 + 기본 옵션 + 설정 항목. 프리셋은 최대 3개.
     const presetItems = appState.exportPresets.slice(0, 3).map((p) => ({
-      text: `★ ${p.name}(으)로 내보내기`,
+      text: `★ ${p.name}${josaRo(p.name)} 내보내기`,
       value: `preset:${p.id}`,
     }));
     const menu = await appState.pushDialogAsync({
@@ -1252,7 +1247,7 @@ export class AppState {
 
     this.pushDialog({
       type: 'select',
-      text: `이미지에서 ${presetLabel}프리셋${typeLabel}을(를) 발견했습니다.\n어떻게 가져올까요?`,
+      text: `이미지에서 ${presetLabel}프리셋${typeLabel}${josaEulReul(typeLabel)} 발견했습니다.\n어떻게 가져올까요?`,
       items,
       callback: async (option?: string) => {
         if (!option) return;

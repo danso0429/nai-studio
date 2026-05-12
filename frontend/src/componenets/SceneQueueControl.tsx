@@ -41,7 +41,7 @@ import {
   PieceLibrary,
   Piece,
 } from '../models/types';
-import { extractApiError, extractPromptDataFromBase64 } from '../models/util';
+import { extractApiError, extractPromptDataFromBase64, josaIGa, josaEulReul } from '../models/util';
 import { appState, SceneSelectorItem } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { createInpaintPreset, prepareMirrorCanvas } from '../models/workflows/SDWorkFlow';
@@ -517,7 +517,7 @@ const SceneTrashView = ({ projectName, onClose }: SceneTrashViewProps) => {
   }) => {
     try {
       await trashService.restoreScene(appState.curSession!, item.name);
-      appState.pushMessage(`씬 "${item.name}"이(가) 복원되었습니다.`);
+      appState.pushMessage(`씬 "${item.name}"${josaIGa(item.name)} 복원되었습니다.`);
       await refresh();
     } catch (e: any) {
       appState.pushMessage(e.message || '씬 복원에 실패했습니다.');
@@ -531,7 +531,7 @@ const SceneTrashView = ({ projectName, onClose }: SceneTrashViewProps) => {
   }) => {
     appState.pushDialog({
       type: 'confirm',
-      text: `씬 "${item.name}"을(를) 영구 삭제하시겠습니까?`,
+      text: `씬 "${item.name}"${josaEulReul(item.name)} 영구 삭제하시겠습니까?`,
       callback: async () => {
         await trashService.permanentlyDeleteScene(
           projectName,

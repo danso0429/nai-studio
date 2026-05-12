@@ -14,6 +14,8 @@ export abstract class ResourceSyncService<
   dirty: { [name: string]: boolean };
   resourceList: string[];
   folderList: string[];
+  // basename → 소속 폴더(루트면 null). getList()가 갱신.
+  folderMap: { [name: string]: string | null };
   disposes: { [name: string]: () => void };
   resourceDir: string;
   updateInterval: number;
@@ -27,6 +29,7 @@ export abstract class ResourceSyncService<
     this.resourceDir = resourceDir;
     this.resourceList = [];
     this.folderList = [];
+    this.folderMap = {};
     this.updateInterval = interval;
     this.running = true;
     (async () => {
@@ -68,17 +71,26 @@ export abstract class ResourceSyncService<
   }
 
   getPath(name: string) {
-    return this.resourceDir + '/' + name + '.json';
+    const folder = this.folderMap[name];
+    return folder
+      ? this.resourceDir + '/' + folder + '/' + name + '.json'
+      : this.resourceDir + '/' + name + '.json';
+  }
+
+  getFolderOf(name: string): string | null {
+    return this.folderMap[name] ?? null;
+  }
+
+  getDeletedPath(name: string) {
+    // .deleted suffix는 .json과 같은 디렉토리(폴더 안이면 그 안)에 둠.
+    return this.getPath(name).replace(/\.json$/, '.deleted');
   }
 
   async delete(name: string) {
     if (name in this.resources) {
       delete this.resources[name];
       this.disposes[name]();
-      await backend.renameFile(
-        this.resourceDir + '/' + name + '.json',
-        this.resourceDir + '/' + name + '.deleted',
-      );
+      await backend.renameFile(this.getPath(name), this.getDeletedPath(name));
       await this.update();
     }
   }
@@ -109,9 +121,7 @@ export abstract class ResourceSyncService<
   async get(name: string): Promise<T | undefined> {
     if (!(name in this.resources)) {
       try {
-        const str = await backend.readFile(
-          this.resourceDir + '/' + name + '.json',
-        );
+        const str = await backend.readFile(this.getPath(name));
         let obj = JSON.parse(str);
         obj = await this.migrate(obj);
         obj = await this.fillEmptyPresetVars(obj);
@@ -133,10 +143,7 @@ export abstract class ResourceSyncService<
       if (!(name in this.resources)) continue;
       const l = this.getFast(name);
       if (l) {
-        await backend.writeFile(
-          this.resourceDir + '/' + name + '.json',
-          JSON.stringify(l.toJSON()),
-        );
+        await backend.writeFile(this.getPath(name), JSON.stringify(l.toJSON()));
       }
     }
     this.dirty = {};
@@ -147,10 +154,7 @@ export abstract class ResourceSyncService<
   async saveAll() {
     for (const name of Object.keys(this.resources)) {
       const l = this.resources[name];
-      await backend.writeFile(
-        this.resourceDir + '/' + name + '.json',
-        JSON.stringify(l.toJSON()),
-      );
+      await backend.writeFile(this.getPath(name), JSON.stringify(l.toJSON()));
     }
   }
 
@@ -181,13 +185,30 @@ export abstract class ResourceSyncService<
 
   private async getList() {
     // depth=1 recursive: includes files in 1-level subfolders.
-    // session.name keeps the slash (e.g. 'folderA/projX') so storage paths
-    // stay consistent without further code changes.
+    // 정책: resource name은 basename(슬래시 없음). 폴더는 folderMap에 별도 매핑.
+    // 동명 충돌 시 첫 발견 우선 (안전 — 폴더 안/밖에 같은 이름 막기).
     const result = await backend.listFilesRecursive(this.resourceDir, 1);
     this.folderList = result.dirs.slice();
-    return result.files
-      .filter((x: string) => x.endsWith('.json'))
-      .map((x: string) => x.substring(0, x.length - 5));
+    const newMap: { [name: string]: string | null } = {};
+    const names: string[] = [];
+    for (const f of result.files) {
+      if (!f.endsWith('.json')) continue;
+      const slashIdx = f.indexOf('/');
+      let name: string;
+      let folder: string | null;
+      if (slashIdx >= 0) {
+        folder = f.substring(0, slashIdx);
+        name = f.substring(slashIdx + 1, f.length - 5);
+      } else {
+        folder = null;
+        name = f.substring(0, f.length - 5);
+      }
+      if (name in newMap) continue; // 동명 충돌 — 첫 발견 유지
+      newMap[name] = folder;
+      names.push(name);
+    }
+    this.folderMap = newMap;
+    return names;
   }
 
   listFolders(): string[] {

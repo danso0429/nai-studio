@@ -1,28 +1,18 @@
 import * as React from 'react';
-import { useEffect, useState } from 'react';
-import { DropdownSelect, Option } from './UtilComponents';
-import { FaPlus, FaPuzzlePiece, FaShare, FaTrashAlt, FaTrashRestore, FaUserAlt, FaTimes } from 'react-icons/fa';
+import { useState } from 'react';
+import SessionTreePicker from './SessionTreePicker';
+import { FaPlus, FaPuzzlePiece, FaTrashAlt, FaTrashRestore, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaRegBookmark } from 'react-icons/fa';
 import Tooltip from './Tooltip';
 import { sessionService, imageService, backend, zipService, workFlowService, trashService } from '../models';
 import { appState } from '../models/AppService';
+import { josaIGa } from '../models/util';
 import { observer } from 'mobx-react-lite';
 import { CharacterPresetFloatEditor } from './CharacterPresetEditor';
 import { CharacterPreset, VibeItem, ReferenceItem } from '../models/types';
 import { runInAction } from 'mobx';
 
 const SessionSelect = observer(() => {
-  const [sessionNames, setSessionNames] = useState<string[]>([]);
   const [showCharacterPresets, setShowCharacterPresets] = useState(false);
-  useEffect(() => {
-    const onListUpdated = () => {
-      setSessionNames(sessionService.list());
-    };
-    onListUpdated();
-    sessionService.addEventListener('listupdated', onListUpdated);
-    return () => {
-      sessionService.removeEventListener('listupdated', onListUpdated);
-    };
-  }, []);
   const addSession = () => {
     (async () => {
       appState.pushDialog({
@@ -30,7 +20,7 @@ const SessionSelect = observer(() => {
         text: '신규 프로젝트 이름을 입력해주세요',
         callback: async (inputValue) => {
           if (inputValue) {
-            if (sessionNames.includes(inputValue)) {
+            if (sessionService.list().includes(inputValue)) {
               appState.pushMessage('이미 존재하는 프로젝트 이름입니다.');
               return;
             }
@@ -43,9 +33,9 @@ const SessionSelect = observer(() => {
     })();
   };
 
-  const selectSession = (opt: Option<string>) => {
+  const selectSession = (name: string) => {
     (async () => {
-      const session = await sessionService.get(opt.value);
+      const session = await sessionService.get(name);
       if (session) {
         imageService.refreshBatch(session);
         appState.curSession = session;
@@ -98,7 +88,7 @@ const SessionSelect = observer(() => {
     if (action === 'restore') {
       try {
         await trashService.restoreProject(selected);
-        appState.pushMessage(`프로젝트 "${selected}"이(가) 복원되었습니다.`);
+        appState.pushMessage(`프로젝트 "${selected}"${josaIGa(selected)} 복원되었습니다.`);
       } catch (e: any) {
         appState.pushMessage(e.message || '프로젝트 복원에 실패했습니다.');
       }
@@ -108,7 +98,7 @@ const SessionSelect = observer(() => {
         text: `"${selected}" 프로젝트를 영구 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`,
         callback: async () => {
           await trashService.permanentlyDeleteProject(selected);
-          appState.pushMessage(`프로젝트 "${selected}"이(가) 영구 삭제되었습니다.`);
+          appState.pushMessage(`프로젝트 "${selected}"${josaIGa(selected)} 영구 삭제되었습니다.`);
         },
       });
     }
@@ -202,40 +192,8 @@ const SessionSelect = observer(() => {
         프로젝트:{' '}
       </span>
       <div className="md:max-w-80 flex-1 min-w-40">
-        <DropdownSelect
-          menuPlacement="top"
-          selectedOption={appState.curSession?.name}
-          options={
-            [...sessionNames]
-              .sort((a, b) => {
-                // 1. favorites first
-                const aFav = sessionService.isFavorite(a);
-                const bFav = sessionService.isFavorite(b);
-                if (aFav !== bFav) return aFav ? -1 : 1;
-                // 2. folder grouping: root projects first, then folders alphabetical
-                const aFolder = a.includes('/') ? a.substring(0, a.indexOf('/')) : '';
-                const bFolder = b.includes('/') ? b.substring(0, b.indexOf('/')) : '';
-                if (aFolder !== bFolder) return aFolder.localeCompare(bFolder);
-                // 3. within same group: locale alphabetical
-                return a.localeCompare(b);
-              })
-              .map((name) => {
-                const fav = sessionService.isFavorite(name);
-                const slashIdx = name.indexOf('/');
-                let label: string;
-                if (slashIdx >= 0) {
-                  const folder = name.substring(0, slashIdx);
-                  const leaf = name.substring(slashIdx + 1);
-                  label = `📁 ${folder} / ${leaf}`;
-                } else {
-                  label = name;
-                }
-                return {
-                  label: fav ? '⭐ ' + label : label,
-                  value: name,
-                };
-              })
-          }
+        <SessionTreePicker
+          selectedName={appState.curSession?.name}
           onSelect={selectSession}
         />
       </div>
@@ -256,14 +214,34 @@ const SessionSelect = observer(() => {
         <FaUserAlt size={18} />
       </button>
       </Tooltip>
+      <Tooltip content="프로젝트 이름 수정">
       <button
-        className={`icon-button nback-orange mx-1`}
-        onClick={() => {
-          appState.projectBackupMenu();
-        }}
+        className={`icon-button nback-orange mx-1 flex items-center gap-1`}
+        onClick={() => appState.projectRename()}
       >
-        <FaShare />
+        <FaPen size={14} />
+        <span className="hidden md:inline text-sm">이름</span>
       </button>
+      </Tooltip>
+      <Tooltip content="백업(.tar) 또는 이미지(.png) 불러오기">
+      <button
+        className={`icon-button nback-teal mx-1`}
+        onClick={() => appState.mediaImport()}
+      >
+        <FaShare size={14} />
+      </button>
+      </Tooltip>
+      <Tooltip content={appState.curSession && sessionService.isFavorite(appState.curSession.name) ? '즐겨찾기 해제' : '즐겨찾기 지정'}>
+      <button
+        className={`icon-button nback-yellow mx-1 flex items-center gap-1`}
+        onClick={() => appState.projectToggleFavorite()}
+      >
+        {appState.curSession && sessionService.isFavorite(appState.curSession.name)
+          ? <FaBookmark size={14} style={{ color: '#facc15' }} />
+          : <FaRegBookmark size={14} style={{ color: '#9ca3af' }} />}
+        <span className="hidden md:inline text-sm">즐겨찾기</span>
+      </button>
+      </Tooltip>
       <button className={`icon-button nback-red mx-1`} onClick={deleteSession}>
         <FaTrashAlt size={18} />{' '}
       </button>
