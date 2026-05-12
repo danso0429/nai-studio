@@ -59,32 +59,68 @@ export interface SceneSelectorItem {
 }
 
 // Upload `path` to Drive via the server-side single-file sync endpoint.
-// Closes `pid` progress dialog with success/failure label, refreshes retry widget on failure.
-// Phase 7A: server reads single file path from body — no full exports/ rclone copy.
+// Phase 9: 백그라운드 모드. 서버는 큐에 등록 후 즉시 202 반환. 완료/실패는 WS 이벤트
+// (drive-sync-complete / drive-sync-failed)로 broadcast됨. 클라가 닫혀도 서버 진행.
+// - progressDialog: 큐 등록 즉시 close (백그라운드 진행 표시).
+// - 완료/최종 실패는 별도 토스트로 알림.
+// - 자동 재시도 진행 중은 widget(좌측 하단 + queue.html)에서 확인.
 async function syncExportToDrive(opts: {
   path: string;
   pid: string;
   successLabel: string;
   logTag: string;
 }): Promise<boolean> {
-  const { path, pid, successLabel, logTag } = opts;
-  const failureLabel = '✗ Drive 업로드 실패 — 자동 재시도 중 (좌측 하단 위젯)';
-  let syncOk = false;
+  const { path: jobPath, pid, successLabel, logTag } = opts;
+  let queued = false;
   try {
     const r = await fetch(apiUrl('/api/fs/sync-exports'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path }),
+      body: JSON.stringify({ path: jobPath }),
     });
     const data = await r.json();
-    syncOk = !!data.ok;
-    if (!syncOk) console.warn('[' + logTag + '] sync-exports failed:', data);
+    queued = !!(data.ok && data.queued);
+    if (!queued) console.warn('[' + logTag + '] sync-exports queue rejection:', data);
   } catch (e) {
     console.warn('[' + logTag + '] sync-exports threw:', e);
   }
-  appState.finishProgressDialog(pid, syncOk ? successLabel : failureLabel, syncOk);
-  if (!syncOk) appState.refreshDriveRetryStatus();
-  return syncOk;
+  appState.finishProgressDialog(
+    pid,
+    queued
+      ? '✓ Drive 업로드 큐 등록 (백그라운드 진행)'
+      : '✗ Drive 큐 등록 실패',
+    queued,
+  );
+  appState.refreshDriveRetryStatus();
+
+  if (queued) {
+    // WS terminal 이벤트 구독. 첫 매칭 또는 15분 timeout 후 자동 unsubscribe.
+    const unsubs: Array<() => void> = [];
+    const cleanup = () => unsubs.forEach((u) => u());
+    let done = false;
+    unsubs.push(backend.onDriveSyncComplete((data) => {
+      if (done || data.requestedPath !== jobPath) return;
+      done = true;
+      cleanup();
+      appState.pushMessage(`${successLabel} (${data.fileName})`);
+      appState.refreshDriveRetryStatus();
+    }));
+    unsubs.push(backend.onDriveSyncFailed((data) => {
+      if (done || data.requestedPath !== jobPath) return;
+      if (data.willRetry) {
+        // 재시도 예정 — 위젯에서 진행 확인. 토스트 안 띄움.
+        appState.refreshDriveRetryStatus();
+        return;
+      }
+      done = true;
+      cleanup();
+      appState.pushMessage(`✗ Drive 업로드 최종 실패: ${data.fileName} (${data.error})`);
+      appState.refreshDriveRetryStatus();
+    }));
+    setTimeout(() => { if (!done) { done = true; cleanup(); } }, 15 * 60 * 1000);
+  }
+
+  return queued;
 }
 
 const SPECIAL_CHAR_REGEX = /[^a-zA-Z0-9가-힣ぁ-んァ-ヶ一-龥\u3000-\u303F]/g;

@@ -267,5 +267,11 @@ export class ServerBackend extends Backend {
   onQueueStatus(callback: (data: any) => void): () => void { return this.on('queue-status', callback); }
   onQueueJobComplete(callback: (data: any) => void): () => void { return this.on('queue-job-complete', callback); }
   onQueueJobError(callback: (data: any) => void): () => void { return this.on('queue-job-error', callback); }
+  onDriveSyncComplete(callback: (data: { localPath: string; requestedPath: string | null; fileName: string }) => void): () => void {
+    return this.on('drive-sync-complete', callback);
+  }
+  onDriveSyncFailed(callback: (data: { localPath: string; requestedPath: string | null; fileName: string; error: string; willRetry: boolean; attempts: number; nextRetryAt: number | null }) => void): () => void {
+    return this.on('drive-sync-failed', callback);
+  }
   onClose(callback: () => void): () => void { return this.on('close', callback); }
 }

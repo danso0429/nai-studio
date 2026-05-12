@@ -214,17 +214,20 @@ async function saveDriveRetryQueue() {
   }
 }
 
-function enqueueDriveRetry(localPath, remotePath, initialError) {
+// requestedPath: 클라가 보낸 path (jobId 역할). WS broadcast 시 클라 매칭용.
+// immediate: true면 nextRetryAt=now (초기 sync), false면 INTERVALS[0]만큼 띄움 (실패 후 재시도).
+function enqueueDriveRetry(localPath, remotePath, initialError, requestedPath = null, immediate = false) {
   const existingIdx = driveRetryQueue.findIndex((e) => e.localPath === localPath);
   const now = Date.now();
   // 새 enqueue는 attempts 0부터 시작 (이전 failed 상태도 reset)
   const entry = {
     localPath,
     remotePath,
+    requestedPath: requestedPath || (existingIdx >= 0 ? driveRetryQueue[existingIdx].requestedPath : null),
     addedAt: existingIdx >= 0 ? driveRetryQueue[existingIdx].addedAt : now,
     attempts: 0,
     status: 'pending',
-    nextRetryAt: now + DRIVE_RETRY_INTERVALS[0],
+    nextRetryAt: immediate ? now : (now + DRIVE_RETRY_INTERVALS[0]),
     lastError: initialError || null,
     lastAttemptAt: now,
   };
@@ -262,51 +265,76 @@ function rcloneCopytoOnce(localPath, remotePath, timeoutMs) {
   });
 }
 
+// 동시 실행 가드: setImmediate 트리거 + 5초 폴링이 겹쳐도 한 번에 한 tick만.
+let driveRetryProcessing = false;
+
 async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
+  if (driveRetryProcessing) return { succeeded: 0, failed: 0, skipped: 0 };
   if (driveRetryQueue.length === 0) return { succeeded: 0, failed: 0, skipped: 0 };
-  const now = Date.now();
-  const next = [];
+  driveRetryProcessing = true;
   let succeeded = 0;
   let newlyFailed = 0;
   let skipped = 0;
-  for (const entry of driveRetryQueue) {
-    if (entry.status === 'failed') {
+  try {
+    const now = Date.now();
+    const next = [];
+    for (const entry of driveRetryQueue) {
+      if (entry.status === 'failed') {
+        next.push(entry);
+        skipped++;
+        continue;
+      }
+      if (!ignoreSchedule && now < (entry.nextRetryAt || 0)) {
+        next.push(entry);
+        skipped++;
+        continue;
+      }
+      const result = await rcloneCopytoOnce(entry.localPath, entry.remotePath, 30000);
+      if (result.ok) {
+        console.log('[Drive retry] success: ' + entry.localPath);
+        succeeded++;
+        broadcast('drive-sync-complete', {
+          localPath: entry.localPath,
+          requestedPath: entry.requestedPath,
+          fileName: path.basename(entry.localPath),
+        });
+        continue;
+      }
+      entry.attempts += 1;
+      entry.lastError = result.error;
+      entry.lastAttemptAt = Date.now();
+      let willRetry = true;
+      if (entry.attempts >= DRIVE_RETRY_MAX_ATTEMPTS) {
+        entry.status = 'failed';
+        entry.nextRetryAt = null;
+        newlyFailed++;
+        willRetry = false;
+        console.error(
+          '[Drive retry] giving up (status=failed) after ' +
+            entry.attempts +
+            ' attempts: ' +
+            entry.localPath,
+        );
+      } else {
+        const delay = DRIVE_RETRY_INTERVALS[entry.attempts];
+        entry.nextRetryAt = Date.now() + delay;
+      }
+      broadcast('drive-sync-failed', {
+        localPath: entry.localPath,
+        requestedPath: entry.requestedPath,
+        fileName: path.basename(entry.localPath),
+        error: result.error,
+        willRetry,
+        attempts: entry.attempts,
+        nextRetryAt: entry.nextRetryAt,
+      });
       next.push(entry);
-      skipped++;
-      continue;
     }
-    if (!ignoreSchedule && now < (entry.nextRetryAt || 0)) {
-      next.push(entry);
-      skipped++;
-      continue;
-    }
-    const result = await rcloneCopytoOnce(entry.localPath, entry.remotePath, 30000);
-    if (result.ok) {
-      console.log('[Drive retry] success: ' + entry.localPath);
-      succeeded++;
-      continue;
-    }
-    entry.attempts += 1;
-    entry.lastError = result.error;
-    entry.lastAttemptAt = Date.now();
-    if (entry.attempts >= DRIVE_RETRY_MAX_ATTEMPTS) {
-      entry.status = 'failed';
-      entry.nextRetryAt = null;
-      newlyFailed++;
-      console.error(
-        '[Drive retry] giving up (status=failed) after ' +
-          entry.attempts +
-          ' attempts: ' +
-          entry.localPath,
-      );
-    } else {
-      const delay = DRIVE_RETRY_INTERVALS[entry.attempts];
-      entry.nextRetryAt = Date.now() + delay;
-    }
-    next.push(entry);
+    driveRetryQueue = next;
+    await saveDriveRetryQueue();
+  } finally {
+    driveRetryProcessing = false;
   }
-  driveRetryQueue = next;
-  await saveDriveRetryQueue();
   if (succeeded > 0 || newlyFailed > 0) {
     console.log(
       '[Drive retry] tick. success=' +
@@ -1110,19 +1138,14 @@ app.get('/api/fs/image', async (req, res) => {
 });
 
 app.post('/api/fs/sync-exports', async (req, res) => {
-  // Phase 7A: 단일 파일 업로드로 재설계
-  // 기존: 전체 exports/ rclone copy (~3분, 모바일 timeout)
-  // 신규: 요청에서 받은 단일 파일만 rclone copyto (~2초)
-  const { exec } = require('child_process');
+  // Phase 9: 단일 파일 모드는 백그라운드 큐. 클라가 응답 안 기다리고,
+  // 서버는 driveRetryQueue에 enqueue + setImmediate 트리거 후 즉시 202 반환.
+  // 완료/실패는 WS (drive-sync-complete/failed) 이벤트로 broadcast.
   const exportsDir = path.join(__dirname, 'data', 'exports');
   const requestedPath = (req.body && typeof req.body.path === 'string') ? req.body.path : '';
 
-  // 보안: exports/ 하위 단일 파일로 제한
-  let mode = 'dir';
-  let localPath = exportsDir;
-  let remotePath = 'gdrivemain:NAI-Studio/data/exports/';
   if (requestedPath) {
-    // 'exports/foo.tar' 또는 'foo.tar' 둘 다 허용
+    // 보안: exports/ 하위 단일 파일로 제한. 'exports/foo.tar' 또는 'foo.tar' 둘 다 허용.
     const cleaned = requestedPath.replace(/^exports[\/]/, '');
     if (cleaned.includes('..') || cleaned.includes('/') || cleaned.includes('\\')) {
       return res.status(400).json({ ok: false, error: 'Invalid path' });
@@ -1136,36 +1159,25 @@ app.post('/api/fs/sync-exports', async (req, res) => {
     } catch {
       return res.status(404).json({ ok: false, error: 'File not found' });
     }
-    mode = 'file';
-    localPath = candidate;
-    remotePath = 'gdrivemain:NAI-Studio/data/exports/' + cleaned;
+    const localPath = candidate;
+    const remotePath = 'gdrivemain:NAI-Studio/data/exports/' + cleaned;
+    // 큐에 enqueue + 즉시 처리 트리거 (setImmediate로 event loop 양보 후 처리).
+    enqueueDriveRetry(localPath, remotePath, null, requestedPath, true);
+    setImmediate(() => processDriveRetryQueue({ ignoreSchedule: true }));
+    return res.status(202).json({ ok: true, jobId: requestedPath, queued: true });
   }
 
-  const rcloneCmd = mode === 'file'
-    ? 'rclone copyto ' + JSON.stringify(localPath) + ' ' + JSON.stringify(remotePath) + ' --log-level INFO'
-    : 'rclone copy ' + JSON.stringify(localPath + '/') + ' ' + JSON.stringify(remotePath) + ' --log-level INFO';
-
-  // 단일 파일은 30초로 충분, 디렉토리는 기존 180초 유지
-  const timeoutMs = mode === 'file' ? 30000 : 180000;
-
-  exec(rcloneCmd, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+  // 레거시 dir 모드: 전체 exports/ 디렉토리 동기 업로드. 현재 클라에서 호출하는 경로 없음.
+  // backwards compat 유지차 동기 흐름 그대로 둠.
+  const { exec } = require('child_process');
+  const rcloneCmd = 'rclone copy ' + JSON.stringify(exportsDir + '/') + ' gdrivemain:NAI-Studio/data/exports/ --log-level INFO';
+  exec(rcloneCmd, { timeout: 180000, maxBuffer: 4 * 1024 * 1024 }, (err) => {
     if (err) {
-      console.error('[Sync exports] error (mode=' + mode + '):', err.message);
-      if (mode === 'file') {
-        enqueueDriveRetry(localPath, remotePath, err.message);
-      }
-      return res.status(500).json({
-        ok: false,
-        error: err.message,
-        mode,
-        retryQueued: mode === 'file',
-      });
+      console.error('[Sync exports] error (mode=dir):', err.message);
+      return res.status(500).json({ ok: false, error: err.message, mode: 'dir' });
     }
-    console.log('[Sync exports] uploaded (mode=' + mode + ')');
-    if (mode === 'file') {
-      dequeueDriveRetry(localPath);
-    }
-    res.json({ ok: true, mode });
+    console.log('[Sync exports] uploaded (mode=dir)');
+    res.json({ ok: true, mode: 'dir' });
   });
 });
 
@@ -1178,6 +1190,7 @@ app.get('/api/drive/retry-status', (req, res) => {
     maxAttempts: DRIVE_RETRY_MAX_ATTEMPTS,
     entries: driveRetryQueue.map((e) => ({
       localPath: e.localPath,
+      requestedPath: e.requestedPath || null,
       fileName: path.basename(e.localPath),
       addedAt: e.addedAt,
       attempts: e.attempts,
