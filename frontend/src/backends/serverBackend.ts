@@ -44,6 +44,7 @@ async function apiJSON(path: string, options?: RequestInit) {
 export class ServerBackend extends Backend {
   private ws: WebSocket | null = null;
   private eventHandlers: Map<string, Set<Function>> = new Map();
+  private isFirstConnect: boolean = true;
 
   constructor() {
     super();
@@ -54,6 +55,15 @@ export class ServerBackend extends Backend {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${location.host}${API_BASE}/ws`;
     this.ws = new WebSocket(wsUrl);
+    this.ws.onopen = () => {
+      // 첫 연결은 skip (constructor에서 별도 init 호출). 재연결만 broadcast.
+      if (this.isFirstConnect) {
+        this.isFirstConnect = false;
+        return;
+      }
+      const handlers = this.eventHandlers.get('ws-reconnect');
+      if (handlers) handlers.forEach((h) => h({}));
+    };
     this.ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
@@ -306,6 +316,7 @@ export class ServerBackend extends Backend {
   onQueueJobStart(callback: (data: { jobId: string; pending: number; meta: QueueJobMeta }) => void): () => void { return this.on('queue-job-start', callback); }
   onQueueJobComplete(callback: (data: { jobId: string; outputFilePath?: string; meta: QueueJobMeta }) => void): () => void { return this.on('queue-job-complete', callback); }
   onQueueJobError(callback: (data: { jobId: string; error: string; meta: QueueJobMeta }) => void): () => void { return this.on('queue-job-error', callback); }
+  onWsReconnect(callback: () => void): () => void { return this.on('ws-reconnect', callback); }
   onDriveSyncComplete(callback: (data: { localPath: string; requestedPath: string | null; fileName: string }) => void): () => void {
     return this.on('drive-sync-complete', callback);
   }

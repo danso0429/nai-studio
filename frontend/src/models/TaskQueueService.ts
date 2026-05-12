@@ -767,6 +767,19 @@ export class TaskQueueService extends EventTarget {
     this.restoreMirroredState().catch((e) => {
       console.warn('[TaskQueue] restoreMirroredState failed:', e);
     });
+
+    // 자동 재동기화: WS reconnect 즉시 + 30초 주기 polling.
+    // WS 끊긴 사이 놓친 queue-job-complete 회복.
+    backend.onWsReconnect(() => {
+      this.restoreMirroredState().catch((e) => {
+        console.warn('[TaskQueue] restoreMirroredState (ws-reconnect) failed:', e);
+      });
+    });
+    setInterval(() => {
+      this.restoreMirroredState().catch((e) => {
+        console.warn('[TaskQueue] restoreMirroredState (polling) failed:', e);
+      });
+    }, 30000);
   }
 
   addLog(level: TaskLog['level'], scene: string, message: string) {
@@ -1044,17 +1057,41 @@ export class TaskQueueService extends EventTarget {
     }
   }
 
-  // 페이지 로드 시: 서버 큐의 jobs를 meta.taskId로 그룹화하고 mirroredTasks 재구성.
+  // 페이지 로드 / WS reconnect / 30s polling 시: 서버 큐의 jobs를 meta.taskId로 그룹화하고
+  // mirroredTasks 전체 재구성. idempotent — 매번 기존 mirror state unwind 후 재구축.
   // task.params는 서버에 저장 안 됨 → 빈 placeholder. 알약/리스트 표시만 가능, imageService 갱신 X.
   async restoreMirroredState() {
     const full = await backend.queueGetFullState();
+
+    // 기존 mirror state 전체 unwind (groupStats/sceneStats 정확히 빼기)
+    for (const [taskId, task] of this.mirroredTasks) {
+      this.groupStats[task.cls].total -= task.total;
+      this.groupStats[task.cls].done -= task.done;
+      const sk = this.mirrorTaskSceneKeys.get(taskId);
+      if (sk && sk in this.sceneStats) {
+        this.sceneStats[sk].total -= task.total;
+        this.sceneStats[sk].done -= task.done;
+        if (this.sceneStats[sk].total <= 0 && this.sceneStats[sk].done <= 0) {
+          delete this.sceneStats[sk];
+        }
+      }
+      delete this.taskSet[taskId];
+    }
+    this.mirroredTasks.clear();
+    this.mirroredJobs.clear();
+    this.mirrorRunStartTimes.clear();
+    this.mirrorTaskSceneKeys.clear();
+
     const groups = new Map<string, Array<{ jobId: string; meta: QueueJobMeta; outputFilePath?: string }>>();
     for (const j of full.jobs) {
       if (!j.meta || !j.meta.taskId) continue; // legacy job (meta 없음) 스킵
       if (!groups.has(j.meta.taskId)) groups.set(j.meta.taskId, []);
       groups.get(j.meta.taskId)!.push(j);
     }
-    if (groups.size === 0) return;
+    if (groups.size === 0) {
+      this.dispatchProgress();
+      return;
+    }
     for (const [taskId, jobs] of groups) {
       const meta = jobs[0].meta;
       const cls = meta.cls ?? 0;

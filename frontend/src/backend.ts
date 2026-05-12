@@ -144,4 +144,5 @@ export abstract class Backend {
   abstract onZipProgress(callback: (progress: any) => void): () => void;
   abstract onImageChanged(callback: (path: string) => void): () => void;
   abstract onClose(callback: () => void): () => void;
+  abstract onWsReconnect(callback: () => void): () => void;
 }
