@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { FaSpinner } from 'react-icons/fa';
-import { FaPlay, FaRegCalendarTimes, FaStop } from 'react-icons/fa';
+import { FaPause, FaPlay, FaRegCalendarTimes } from 'react-icons/fa';
 import { FaTimes } from 'react-icons/fa';
 import { FaRegClock } from 'react-icons/fa';
 import { taskQueueService } from '../models';
@@ -313,7 +313,7 @@ const TaskQueueControl = observer(({}) => {
             taskQueueService.stop();
           }}
         >
-          <FaStop size={15} />
+          <FaPause size={15} />
         </button>
       )}
     </div>
@@ -428,7 +428,7 @@ export const TaskQueueControls = observer(({}) => {
           className={`round-button back-red px-2 h-8 md:px-6`}
           onClick={() => { taskQueueService.stop(); }}
         >
-          <FaStop size={15} />
+          <FaPause size={15} />
         </button>
       )}
     </div>

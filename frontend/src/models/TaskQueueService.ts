@@ -850,6 +850,10 @@ export class TaskQueueService extends EventTarget {
       ? getSceneKey(task.params.session, task.params.scene)
       : '';
 
+    // 새 큐 시작이면 paused 상태로 push (사용자 run 눌러야 진행). 이미 mirror 진행 중이면
+    // 그대로 추가 (기존 처리 흐름에 합류). stop 누른 후 추가도 paused 유지 (이미 paused).
+    const wasEmpty = this.mirroredTasks.size === 0 && !this.currentRun;
+
     // mirroredTasks에 등록 + stats total 증가 (done은 WS event로 갱신)
     this.mirroredTasks.set(taskId, task);
     this.groupStats[task.cls].total += task.total;
@@ -862,7 +866,15 @@ export class TaskQueueService extends EventTarget {
     this.taskSet[taskId] = true;
     this.mirrorRunStartTimes.set(taskId, Date.now());
     this.dispatchProgress();
-    this.dispatchEvent(new CustomEvent('start', {}));
+
+    if (wasEmpty) {
+      // push 전에 pause — 서버가 자동 처리 시작하지 않게.
+      try {
+        await backend.pauseQueue();
+      } catch (e) {
+        console.warn('[TaskQueue] pauseQueue (initial) failed:', e);
+      }
+    }
 
     // prep N번. 같은 run 객체 전달 → cachedVibes/Refs 재사용 (같은 task의 N장은 vibes 동일).
     const run: TaskQueueRun = { stopped: false, delayCnt: 0 };
