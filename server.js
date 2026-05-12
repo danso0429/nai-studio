@@ -146,6 +146,40 @@ function loadTimingHistory() {
     }
   } catch {}
 }
+
+// ─── Completed jobs (ring buffer + 4h retention) — queue.html 완료 탭용 ───
+let completedJobs = []; // [{ jobId, outputFilePath, meta, completedAt, durationMs }]
+const COMPLETED_JOBS_MAX = 500;
+const COMPLETED_RETENTION_MS = 4 * 60 * 60 * 1000; // 4시간
+
+function pruneCompletedJobs() {
+  const now = Date.now();
+  completedJobs = completedJobs.filter((e) => now - e.completedAt < COMPLETED_RETENTION_MS);
+}
+const COMPLETED_JOBS_FILE = path.join(DATA_DIR, '.queue_completed.json');
+let _completedSaveTimeout = null;
+function _writeCompletedJobsSync() {
+  try {
+    require('fs').writeFileSync(COMPLETED_JOBS_FILE, JSON.stringify(completedJobs));
+  } catch {}
+}
+function saveCompletedJobs() {
+  if (_completedSaveTimeout) return;
+  _completedSaveTimeout = setTimeout(() => {
+    _completedSaveTimeout = null;
+    _writeCompletedJobsSync();
+  }, 5000);
+}
+function loadCompletedJobs() {
+  try {
+    const raw = require('fs').readFileSync(COMPLETED_JOBS_FILE, 'utf8');
+    completedJobs = JSON.parse(raw) || [];
+    if (completedJobs.length > 0) {
+      console.log('[NAI Studio] Loaded ' + completedJobs.length + ' completed jobs');
+    }
+  } catch {}
+}
+
 const QUEUE_MAX_SIZE = 5000;
 const DISK_WARN_GB = 15;
 const DISK_CRIT_GB = 10;
@@ -734,6 +768,17 @@ async function processQueue() {
       timingHistory.push({ finishedAt: Date.now(), durationMs });
       if (timingHistory.length > TIMING_HISTORY_MAX) timingHistory.shift();
       saveTimingHistory();
+      // 완료 jobs (queue.html 완료 탭용). 4시간 retention.
+      completedJobs.push({
+        jobId: job.jobId,
+        outputFilePath: job.params.outputFilePath,
+        meta: job.meta || {},
+        completedAt: Date.now(),
+        durationMs,
+      });
+      pruneCompletedJobs();
+      if (completedJobs.length > COMPLETED_JOBS_MAX) completedJobs.shift();
+      saveCompletedJobs();
     } catch (e) {
       if (e.message && e.message.includes('429')) {
         job._retries = (job._retries || 0) + 1;
@@ -935,6 +980,18 @@ app.get('/api/queue/full-state', (req, res) => {
 });
 
 // ─── Raw timing history (분석용, 본인이 시간대별 패턴 보고 싶을 때) ───
+// 완료된 jobs ring buffer. queue.html 완료 탭용. 4시간 이내만, 최근부터.
+app.get('/api/queue/completed', (req, res) => {
+  pruneCompletedJobs(); // GET 시점에도 한 번 정리 (서버 idle 시 누적 방지)
+  const limit = Math.min(parseInt(req.query.limit) || COMPLETED_JOBS_MAX, COMPLETED_JOBS_MAX);
+  res.json({
+    entries: completedJobs.slice().reverse().slice(0, limit),
+    count: completedJobs.length,
+    maxSize: COMPLETED_JOBS_MAX,
+    retentionMs: COMPLETED_RETENTION_MS,
+  });
+});
+
 app.get('/api/queue/timing-history', (req, res) => {
   res.json({ entries: timingHistory, count: timingHistory.length, maxSize: TIMING_HISTORY_MAX });
 });
@@ -1695,6 +1752,7 @@ async function start() {
     console.log(`[NAI Studio] Server running on port ${PORT}`);
   loadQueueState();
   loadTimingHistory();
+  loadCompletedJobs();
     loadDriveRetryQueue().then(() => {
       // Migrate legacy entries (pre-F1): no status/nextRetryAt fields.
       // 부팅 직후 모두 즉시 시도하지 않게 nextRetryAt을 띄움.

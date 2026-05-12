@@ -141,13 +141,77 @@
   .entry .meta { color: #8a8f98; font-size: 11px; margin-top: 4px; }
   .entry.failed { border-left: 3px solid #f87171; }
   .entry.pending { border-left: 3px solid #93c5fd; }
+  .entry.done { border-left: 3px solid #86efac; }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid #2a2e36;
+  }
+  .tab-btn {
+    background: transparent;
+    color: #8a8f98;
+    border: none;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    font-family: inherit;
+  }
+  .tab-btn.active { color: #e6e8eb; border-bottom-color: #4a9eff; }
+  .tab-btn:hover:not(.active) { color: #b8bdc7; }
+  .batch {
+    background: #1a1d23;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .batch-head {
+    padding: 10px 14px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .batch-head:hover { background: #20242a; }
+  .batch-project { font-weight: 500; font-size: 13px; flex: 1; min-width: 0; word-break: break-all; }
+  .batch-meta { color: #8a8f98; font-size: 11px; white-space: nowrap; }
+  .batch-body {
+    padding: 0 14px 10px;
+    border-top: 1px solid #2a2e36;
+  }
+  .scene-row {
+    padding: 5px 0;
+    font-size: 11px;
+    color: #b8bdc7;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    border-bottom: 1px solid #20242a;
+  }
+  .scene-row:last-child { border-bottom: none; }
+  .scene-name { flex: 1; min-width: 0; word-break: break-all; }
+  .scene-time { color: #6a6f78; flex: none; }
 </style>
 </head>
 <body>
-  <h1>NAI 이미지 생성 큐</h1>
-  <div id="root">로딩 중...</div>
-  <h2 class="section-h">Drive 업로드</h2>
-  <div id="drive-root">로딩 중...</div>
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-current" onclick="window.switchTab('current')">현재</button>
+    <button class="tab-btn" id="tab-completed" onclick="window.switchTab('completed')">완료</button>
+  </div>
+  <div id="view-current">
+    <h1>NAI 이미지 생성 큐</h1>
+    <div id="root">로딩 중...</div>
+    <h2 class="section-h">Drive 업로드</h2>
+    <div id="drive-root">로딩 중...</div>
+  </div>
+  <div id="view-completed" style="display:none;">
+    <h1>최근 4시간 완료</h1>
+    <div id="completed-root">로딩 중...</div>
+  </div>
   <div class="ts" id="ts"></div>
   <div style="text-align:center; margin-top:24px; padding:12px 0; border-top:1px solid #2a2e36; font-size:10px; color:#5a5f68;">
     <a href="https://github.com/danso0429/nai-studio" target="_blank" rel="noopener noreferrer" style="color:#5a5f68; text-decoration:none;">
@@ -203,7 +267,108 @@
 
   const root = document.getElementById('root');
   const driveRoot = document.getElementById('drive-root');
+  const completedRoot = document.getElementById('completed-root');
   const tsEl = document.getElementById('ts');
+
+  // 탭 전환
+  let activeTab = 'current';
+  window.switchTab = (tab) => {
+    activeTab = tab;
+    document.getElementById('tab-current').classList.toggle('active', tab === 'current');
+    document.getElementById('tab-completed').classList.toggle('active', tab === 'completed');
+    document.getElementById('view-current').style.display = tab === 'current' ? '' : 'none';
+    document.getElementById('view-completed').style.display = tab === 'completed' ? '' : 'none';
+    if (tab === 'completed') tickCompleted();
+  };
+
+  // 완료 batch 펼침 상태 (batchIdx → bool)
+  const expandedBatches = {};
+  window.toggleBatch = (idx) => {
+    expandedBatches[idx] = !expandedBatches[idx];
+    tickCompleted();
+  };
+
+  function extractProject(entry) {
+    if (entry.meta && entry.meta.sceneKey) {
+      const sk = entry.meta.sceneKey;
+      const slash = sk.indexOf('/');
+      return slash > 0 ? sk.substring(0, slash) : sk;
+    }
+    if (entry.outputFilePath) {
+      const parts = entry.outputFilePath.split('/');
+      if (parts[0] === 'outs' && parts.length > 1) return parts[1];
+    }
+    return '(unknown)';
+  }
+
+  function groupBatches(entries) {
+    // 같은 프로젝트 + 30분 이내 인접 → 같은 batch. 시간 끊김 또는 다른 프로젝트면 새 batch.
+    const GAP = 30 * 60 * 1000;
+    const batches = [];
+    for (const e of entries) {
+      const project = extractProject(e);
+      const last = batches[batches.length - 1];
+      if (last && last.project === project && Math.abs(last.lastAt - e.completedAt) <= GAP) {
+        last.jobs.push(e);
+        last.firstAt = Math.min(last.firstAt, e.completedAt);
+        last.lastAt = Math.max(last.lastAt, e.completedAt);
+      } else {
+        batches.push({
+          project,
+          firstAt: e.completedAt,
+          lastAt: e.completedAt,
+          jobs: [e],
+        });
+      }
+    }
+    return batches;
+  }
+
+  function fmtTime(ts) {
+    const d = new Date(ts);
+    const pad = (n) => (n < 10 ? '0' + n : '' + n);
+    return pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  async function tickCompleted() {
+    try {
+      const r = await fetch(BASE + '/api/queue/completed', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const entries = d.entries || [];
+      if (entries.length === 0) {
+        completedRoot.innerHTML = '<div class="paused" style="background:#1a2a1a; color:#86efac;">📭 최근 4시간 완료 없음</div>';
+        return;
+      }
+      const batches = groupBatches(entries);
+      const html = batches.map((b, idx) => {
+        const open = !!expandedBatches[idx];
+        const timeLabel = b.firstAt === b.lastAt ? fmtTime(b.firstAt) : (fmtTime(b.firstAt) + '~' + fmtTime(b.lastAt));
+        const shown = b.jobs.slice(0, 10);
+        const more = b.jobs.length - shown.length;
+        const body = open ? (
+          '<div class="batch-body">'
+          + shown.map((j) => {
+            const sn = (j.meta && j.meta.sceneName) || '(unknown)';
+            const idx = j.meta && j.meta.jobIndex ? ' ' + j.meta.jobIndex + '/' + (j.meta.jobTotal || '?') : '';
+            return '<div class="scene-row"><span class="scene-name">' + escapeHtml(sn) + escapeHtml(idx) + '</span><span class="scene-time">' + fmtTime(j.completedAt) + '</span></div>';
+          }).join('')
+          + (more > 0 ? '<div class="scene-row" style="color:#6a6f78; justify-content:center;">+ ' + more + '개 더</div>' : '')
+          + '</div>'
+        ) : '';
+        return '<div class="batch">'
+          + '<div class="batch-head" onclick="window.toggleBatch(' + idx + ')">'
+          + '<div class="batch-project">' + (open ? '▼ ' : '▶ ') + escapeHtml(b.project) + '</div>'
+          + '<div class="batch-meta">' + timeLabel + ' · ' + b.jobs.length + '장</div>'
+          + '</div>'
+          + body
+          + '</div>';
+      }).join('');
+      completedRoot.innerHTML = html;
+    } catch (e) {
+      completedRoot.innerHTML = '<div class="err">완료 목록 오류: ' + (e.message || e) + '</div>';
+    }
+  }
 
   // timing-history inline 위젯 상태. 평균(누적) card 클릭 시 토글.
   let showTimingHistory = false;
@@ -471,6 +636,8 @@
   setInterval(tick, 3000);
   tickDrive();
   setInterval(tickDrive, 3000);
+  // 완료 탭은 활성 시에만 fetch (3초 주기)
+  setInterval(() => { if (activeTab === 'completed') tickCompleted(); }, 3000);
 </script>
 </body>
 </html>
