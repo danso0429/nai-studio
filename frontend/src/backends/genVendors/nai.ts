@@ -328,7 +328,7 @@ export class NovelAiImageGenService implements ImageGenService {
     }
 
     // 디버그 로깅은 개발 환경에서만 활성화 (성능 최적화)
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.DEV) {
       console.log('NAI Request:', { model: body.model, action: body.action });
     }
 
@@ -388,7 +388,7 @@ export class NovelAiImageGenService implements ImageGenService {
       body.prompt = params.emotion! + ';;' + body.prompt;
     }
     // 디버그 로깅은 개발 환경에서만 활성화 (성능 최적화)
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.DEV) {
       console.log('NAI Augment Request:', { method: params.method });
     }
     const headers = {
