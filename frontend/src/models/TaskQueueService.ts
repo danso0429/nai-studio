@@ -1003,7 +1003,11 @@ export class TaskQueueService extends EventTarget {
     for (const [taskId, jobs] of groups) {
       const meta = jobs[0].meta;
       const cls = meta.cls ?? 0;
-      // params는 placeholder. session/scene 없음 → afterGenComplete 호출 안 함 (위에서 분기).
+      // params는 placeholder. scene은 meta.sceneName/taskType으로 fake 객체 — getInfo에서 name 표시용.
+      // session/job는 없음. handleMirroredComplete에서 task.params.session 체크해서 afterGenComplete 스킵.
+      const placeholderScene = meta.sceneName
+        ? ({ name: meta.sceneName, type: meta.taskType || 'scene' } as any)
+        : (undefined as any);
       const restoredTask: Task = {
         id: taskId,
         cls,
@@ -1011,7 +1015,7 @@ export class TaskQueueService extends EventTarget {
           session: undefined as any,
           job: undefined as any,
           outputPath: '',
-          scene: undefined as any,
+          scene: placeholderScene,
         },
         done: 0,
         total: jobs.length,
