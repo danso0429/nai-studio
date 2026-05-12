@@ -6,6 +6,7 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const { NaiClient } = require('./lib/nai-client');
+const tagSearch = require('./lib/tag-search');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
@@ -79,59 +80,6 @@ async function prewarmThumbnails(outPath, relativeFilePath, source) {
       await sharp(outPath).resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true }).png().toFile(cp);
     } catch (e) { console.error('[Prewarm ' + source + '] size=' + size + ' error:', e.message); }
   }
-}
-
-// ─── Tag Search (db.csv based) ──────────────────────────────────────
-let tagDB = [];
-let piecesDB = [];
-
-async function loadTagDB() {
-  const dbPath = path.join(DATA_DIR, 'db.csv');
-  try {
-    const content = await fs.readFile(dbPath, 'utf-8');
-    tagDB = content.split('\n').filter(Boolean).map(line => {
-      // danbooru.csv format: word,category,freq,"alias1,alias2,..."
-      // or SDStudio format: word,category,freq,redirect
-      const i1 = line.indexOf(',');
-      if (i1 === -1) return null;
-      const i2 = line.indexOf(',', i1 + 1);
-      if (i2 === -1) return null;
-      const i3 = line.indexOf(',', i2 + 1);
-      if (i3 === -1) return null;
-      const word = line.substring(0, i1);
-      const category = parseInt(line.substring(i1 + 1, i2)) || 0;
-      const freq = parseInt(line.substring(i2 + 1, i3)) || 0;
-      let rest = line.substring(i3 + 1).replace(/^"|"$/g, '');
-      // If rest contains commas, it's aliases — split and store for search
-      const aliases = rest ? rest.split(',').map(a => a.trim()) : [];
-      // redirect = "null" means "use word as-is"
-      return { word, normalized: word, freq, category, redirect: 'null', priority: 0, aliases };
-    }).filter(Boolean);
-    console.log(`[NAI Studio] Loaded ${tagDB.length} tags`);
-  } catch {
-    console.log('[NAI Studio] No db.csv found, tag search disabled');
-  }
-}
-
-function searchTagsInDB(query) {
-  if (!tagDB.length) return [];
-  const q = query.toLowerCase().replace(/ /g, '_');
-  const exact = [];
-  const prefix = [];
-  const contains = [];
-  for (const tag of tagDB) {
-    const w = tag.word.toLowerCase();
-    if (w === q) { exact.push(tag); continue; }
-    if (w.startsWith(q)) { prefix.push(tag); if (prefix.length > 50) continue; continue; }
-    if (contains.length < 20) {
-      if (w.includes(q)) { contains.push(tag); continue; }
-      // Also match aliases
-      if (tag.aliases && tag.aliases.some(a => a.toLowerCase().includes(q))) {
-        contains.push(tag);
-      }
-    }
-  }
-  return [...exact, ...prefix.sort((a, b) => b.freq - a.freq), ...contains].slice(0, 30);
 }
 
 // ─── Server-side generation queue ───────────────────────────────
@@ -1455,14 +1403,13 @@ app.post('/api/image/encode-vibe', async (req, res) => {
 
 // ─── API: Tags ──────────────────────────────────────────────────────
 app.get('/api/tags/search', (req, res) => {
-  const results = searchTagsInDB(req.query.q || '');
+  const results = tagSearch.searchTagsInDB(req.query.q || '');
   // Strip aliases from response (frontend doesn't need them)
   res.json(results.map(({ aliases, ...rest }) => rest));
 });
 
 app.get('/api/tags/lookup', (req, res) => {
-  const q = (req.query.q || '').toLowerCase().replace(/ /g, '_');
-  const tag = tagDB.find(t => t.word.toLowerCase() === q);
+  const tag = tagSearch.lookupTag(req.query.q || '');
   if (tag) {
     const { aliases, ...rest } = tag;
     res.json(rest);
@@ -1473,14 +1420,12 @@ app.get('/api/tags/lookup', (req, res) => {
 
 // ─── API: Pieces ────────────────────────────────────────────────────
 app.post('/api/pieces/load', (req, res) => {
-  piecesDB = req.body.pieces || [];
+  tagSearch.setPieces(req.body.pieces);
   res.json({ ok: true });
 });
 
 app.get('/api/pieces/search', (req, res) => {
-  const q = (req.query.q || '').toLowerCase();
-  const results = piecesDB.filter(p => p.toLowerCase().includes(q)).slice(0, 30);
-  res.json(results);
+  res.json(tagSearch.searchPieces(req.query.q || ''));
 });
 
 // ─── SPA fallback ───────────────────────────────────────────────────
@@ -1497,7 +1442,7 @@ app.get('*', (req, res) => {
 // ─── Start server ───────────────────────────────────────────────────
 async function start() {
   await ensureDirs();
-  await loadTagDB();
+  await tagSearch.loadTagDB(path.join(DATA_DIR, 'db.csv'));
 
   // Try to load saved token
   try {
