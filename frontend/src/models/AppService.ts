@@ -58,6 +58,35 @@ export interface SceneSelectorItem {
   scenes?: GenericScene[];
 }
 
+// Upload `path` to Drive via the server-side single-file sync endpoint.
+// Closes `pid` progress dialog with success/failure label, refreshes retry widget on failure.
+// Phase 7A: server reads single file path from body — no full exports/ rclone copy.
+async function syncExportToDrive(opts: {
+  path: string;
+  pid: string;
+  successLabel: string;
+  logTag: string;
+}): Promise<boolean> {
+  const { path, pid, successLabel, logTag } = opts;
+  const failureLabel = '✗ Drive 업로드 실패 — 자동 재시도 중 (좌측 하단 위젯)';
+  let syncOk = false;
+  try {
+    const r = await fetch(apiUrl('/api/fs/sync-exports'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+    const data = await r.json();
+    syncOk = !!data.ok;
+    if (!syncOk) console.warn('[' + logTag + '] sync-exports failed:', data);
+  } catch (e) {
+    console.warn('[' + logTag + '] sync-exports threw:', e);
+  }
+  appState.finishProgressDialog(pid, syncOk ? successLabel : failureLabel, syncOk);
+  if (!syncOk) appState.refreshDriveRetryStatus();
+  return syncOk;
+}
+
 const SPECIAL_CHAR_REGEX = /[^a-zA-Z0-9가-힣ぁ-んァ-ヶ一-龥\u3000-\u303F]/g;
 
 function detectSpecialChars(scenes: { name: string }[]): Set<string> {
@@ -634,32 +663,12 @@ export class AppState {
             const path = 'exports/' + appState.curSession.name + '.json';
             await backend.writeFile(path, JSON.stringify(proj));
             const pid = appState.pushProgressDialog('Drive 업로드 중 (프로젝트 파일)...', 1);
-            let syncOk = false;
-            try {
-              const r = await fetch(
-                apiUrl('/api/fs/sync-exports'),
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ path }),
-                },
-              );
-              const data = await r.json();
-              syncOk = !!data.ok;
-              if (!syncOk) {
-                console.warn('[save] sync-exports failed:', data);
-              }
-            } catch (e) {
-              console.warn('[save] sync-exports threw:', e);
-            }
-            appState.finishProgressDialog(
+            await syncExportToDrive({
+              path,
               pid,
-              syncOk
-                ? '✓ 프로젝트 파일 Drive 업로드 완료'
-                : '✗ Drive 업로드 실패 — 자동 재시도 중 (좌측 하단 위젯)',
-              syncOk,
-            );
-            if (!syncOk) appState.refreshDriveRetryStatus();
+              successLabel: '✓ 프로젝트 파일 Drive 업로드 완료',
+              logTag: 'save',
+            });
           }
         } else if (value === 'saveDeep') {
           if (appState.curSession) {
@@ -680,32 +689,12 @@ export class AppState {
               done: 0,
               total: 1,
             });
-            let syncOk = false;
-            try {
-              const r = await fetch(
-                apiUrl('/api/fs/sync-exports'),
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ path }),
-                },
-              );
-              const data = await r.json();
-              syncOk = !!data.ok;
-              if (!syncOk) {
-                console.warn('[saveDeep] sync-exports failed:', data);
-              }
-            } catch (e) {
-              console.warn('[saveDeep] sync-exports threw:', e);
-            }
-            appState.finishProgressDialog(
+            await syncExportToDrive({
+              path,
               pid,
-              syncOk
-                ? '✓ 프로젝트 백업 Drive 업로드 완료'
-                : '✗ Drive 업로드 실패 — 자동 재시도 중 (좌측 하단 위젯)',
-              syncOk,
-            );
-            if (!syncOk) appState.refreshDriveRetryStatus();
+              successLabel: '✓ 프로젝트 백업 Drive 업로드 완료',
+              logTag: 'saveDeep',
+            });
           }
         } else if (value === 'load') {
           let file: File;
@@ -960,33 +949,12 @@ export class AppState {
         done: 0,
         total: 1,
       });
-      let syncOk = false;
-      try {
-        // Phase 7A: tar 파일 경로를 body로 전달 → 서버가 단일 파일만 업로드
-        const r = await fetch(
-          apiUrl('/api/fs/sync-exports'),
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: outFilePath }),
-          }
-        );
-        const data = await r.json();
-        syncOk = !!data.ok;
-        if (!syncOk) {
-          console.warn('[exportPackage] sync-exports failed:', data);
-        }
-      } catch (e) {
-        console.warn('[exportPackage] sync-exports threw:', e);
-      }
-      appState.finishProgressDialog(
+      await syncExportToDrive({
+        path: outFilePath,
         pid,
-        syncOk
-          ? '✓ 이미지 내보내기 Drive 완료'
-          : '✗ Drive 업로드 실패 — 자동 재시도 중 (좌측 하단 위젯)',
-        syncOk,
-      );
-      if (!syncOk) appState.refreshDriveRetryStatus();
+        successLabel: '✓ 이미지 내보내기 Drive 완료',
+        logTag: 'exportPackage',
+      });
     };
     const menu = await appState.pushDialogAsync({
       type: 'select',
