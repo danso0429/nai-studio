@@ -481,7 +481,7 @@ interface SceneTrashViewProps {
 
 const SceneTrashView = ({ projectName, onClose }: SceneTrashViewProps) => {
   const [deletedScenes, setDeletedScenes] = useState<
-    { name: string; type: string; deletedAt: number }[]
+    { name: string; type: 'scene' | 'inpaint'; deletedAt: number }[]
   >([]);
   const [loading, setLoading] = useState(false);
 
@@ -512,7 +512,7 @@ const SceneTrashView = ({ projectName, onClose }: SceneTrashViewProps) => {
 
   const handleRestore = async (item: {
     name: string;
-    type: string;
+    type: 'scene' | 'inpaint';
     deletedAt: number;
   }) => {
     try {
@@ -526,7 +526,7 @@ const SceneTrashView = ({ projectName, onClose }: SceneTrashViewProps) => {
 
   const handlePermanentDelete = async (item: {
     name: string;
-    type: string;
+    type: 'scene' | 'inpaint';
     deletedAt: number;
   }) => {
     appState.pushDialog({

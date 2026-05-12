@@ -19,7 +19,6 @@ import {
   createImageWithText,
   embedJSONInPNG,
   importPreset,
-  importPresets,
   normalizePresetJson,
   readJSONFromPNG,
 } from './SessionService';
