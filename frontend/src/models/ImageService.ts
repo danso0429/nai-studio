@@ -1,4 +1,3 @@
-import { cast } from 'mobx-state-tree';
 import { backend, isMobile, gameService, imageService } from '.';
 import { GenericScene, InpaintScene, Scene, Session } from './types';
 import { assert } from './util';
@@ -363,27 +362,6 @@ export class ImageService extends EventTarget {
     }
   }
 
-  async resizeImageBrowser(
-    dataUrl: string,
-    maxWidth: number,
-    maxHeight: number,
-  ): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.src = dataUrl;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-
-        let scale = Math.max(maxWidth / img.width, maxHeight / img.height);
-
-        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/png'));
-      };
-      img.onerror = reject;
-    });
-  }
-
   async normalizeReferenceImage(data: string): Promise<string> {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -531,22 +509,20 @@ export class ImageService extends EventTarget {
     return path.split('/').pop()!;
   }
 
+  private _imagePath(dir: string, name: string, suffix: string = '') {
+    return dir + '/' + name.split('/').pop()! + suffix;
+  }
+
   getVibeImagePath(session: Session, name: string) {
-    return imageService.getVibesDir(session) + '/' + name.split('/').pop()!;
+    return this._imagePath(imageService.getVibesDir(session), name);
   }
 
   getEncodedVibeImagePath(session: Session, name: string, info: number) {
-    return (
-      imageService.getEncodedVibesDir(session) +
-      '/' +
-      name.split('/').pop()! +
-      '&info=' +
-      info
-    );
+    return this._imagePath(imageService.getEncodedVibesDir(session), name, '&info=' + info);
   }
 
   getReferenceImagePath(session: Session, name: string) {
-    return imageService.getReferenceDir(session) + '/' + name.split('/').pop()!;
+    return this._imagePath(imageService.getReferenceDir(session), name);
   }
 
   async refresh(

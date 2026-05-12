@@ -106,7 +106,6 @@ export abstract class Backend {
   abstract watchImage(inputPath: string): Promise<void>;
   abstract unwatchImage(inputPath: string): Promise<void>;
   abstract loadModel(modelPath: string): Promise<void>;
-  abstract extractZip(zipPath: string, outPath: string): Promise<void>;
   abstract copyImageToClipboard(imagePath: string): Promise<void>;
   abstract spawnLocalAI(): Promise<void>;
   abstract isLocalAIRunning(): Promise<boolean>;

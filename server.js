@@ -64,6 +64,23 @@ try {
   console.warn('[NAI Studio] sharp not available, image resize disabled');
 }
 
+// Generate 200/400/500 thumbnails for the given output file into its fastcache/ sibling.
+// `source` is a free-form tag included in error log prefix ('queue' or 'direct').
+async function prewarmThumbnails(outPath, relativeFilePath, source) {
+  if (!sharp) return;
+  for (const size of [200, 400, 500]) {
+    try {
+      const pp = relativeFilePath.split('/');
+      const fn = size + '_' + pp.pop();
+      pp.push('fastcache', fn);
+      const cp = resolvePath(pp.join('/'));
+      await fs.mkdir(path.dirname(cp), { recursive: true });
+      const maxDim = Math.ceil((size <= 200 ? 1.25 : 1.1) * size);
+      await sharp(outPath).resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true }).png().toFile(cp);
+    } catch (e) { console.error('[Prewarm ' + source + '] size=' + size + ' error:', e.message); }
+  }
+}
+
 // ─── Tag Search (db.csv based) ──────────────────────────────────────
 let tagDB = [];
 let piecesDB = [];
@@ -386,34 +403,32 @@ async function diskCleanupStage1() {
   return cleaned;
 }
 
-async function diskCleanupStage2() {
-  // fastcache/ — 전부 삭제 가능 (재생성됨)
-  let cleaned = 0;
+// Delete all files matching `pathPattern` (find -path), then remove now-empty
+// `dirName` directories anywhere under DATA_DIR. Errors silently absorbed.
+async function cleanupDirByPattern(pathPattern, dirName) {
   const { execSync } = require('child_process');
+  let cleaned = 0;
   try {
-    const output = execSync(`find "${DATA_DIR}" -path "*/fastcache/*" -type f 2>/dev/null`).toString().trim();
+    const output = execSync(`find "${DATA_DIR}" -path "${pathPattern}" -type f 2>/dev/null`).toString().trim();
     const files = output ? output.split('\n') : [];
     for (const f of files) {
       try { await fs.unlink(f); cleaned++; } catch {}
     }
-    execSync(`find "${DATA_DIR}" -name "fastcache" -type d -empty -delete 2>/dev/null`);
+    execSync(`find "${DATA_DIR}" -name "${dirName}" -type d -empty -delete 2>/dev/null`);
   } catch {}
+  return cleaned;
+}
+
+async function diskCleanupStage2() {
+  // fastcache/ — 전부 삭제 가능 (재생성됨)
+  const cleaned = await cleanupDirByPattern('*/fastcache/*', 'fastcache');
   if (cleaned > 0) console.log(`[Disk] Stage 2: deleted ${cleaned} fastcache files`);
   return cleaned;
 }
 
 async function diskCleanupStage3() {
   // .trash/ — 이미 삭제된 이미지
-  let cleaned = 0;
-  const { execSync } = require('child_process');
-  try {
-    const output = execSync(`find "${DATA_DIR}" -path "*/.trash/*" -type f 2>/dev/null`).toString().trim();
-    const files = output ? output.split('\n') : [];
-    for (const f of files) {
-      try { await fs.unlink(f); cleaned++; } catch {}
-    }
-    execSync(`find "${DATA_DIR}" -name ".trash" -type d -empty -delete 2>/dev/null`);
-  } catch {}
+  const cleaned = await cleanupDirByPattern('*/.trash/*', '.trash');
   if (cleaned > 0) console.log(`[Disk] Stage 3: deleted ${cleaned} trash files`);
   return cleaned;
 }
@@ -563,20 +578,7 @@ async function processQueue() {
         const outPath = resolvePath(job.params.outputFilePath);
         await fs.mkdir(path.dirname(outPath), { recursive: true });
         await fs.writeFile(outPath, Buffer.from(base64, 'base64'));
-        // Pre-generate thumbnails (200/400 sizes; 500 generated on-demand by thumb endpoint)
-        if (sharp) {
-          for (const size of [200, 400, 500]) {
-            try {
-              const pp = job.params.outputFilePath.split('/');
-              const fn = size + '_' + pp.pop();
-              pp.push('fastcache', fn);
-              const cp = resolvePath(pp.join('/'));
-              await fs.mkdir(path.dirname(cp), { recursive: true });
-              const maxDim = Math.ceil((size <= 200 ? 1.25 : 1.1) * size);
-              await sharp(outPath).resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true }).png().toFile(cp);
-            } catch (e) { console.error('[Prewarm queue] size=' + size + ' error:', e.message); }
-          }
-        }
+        await prewarmThumbnails(outPath, job.params.outputFilePath, 'queue');
       }
 
       broadcast('queue-job-complete', {
@@ -893,21 +895,7 @@ app.post('/api/generate', async (req, res) => {
       const outPath = resolvePath(params.outputFilePath);
       await fs.mkdir(path.dirname(outPath), { recursive: true });
       await fs.writeFile(outPath, Buffer.from(base64, 'base64'));
-
-      // Pre-generate thumbnails so gallery shows instantly
-      if (sharp) {
-        for (const size of [200, 400, 500]) {
-          try {
-            const pp = params.outputFilePath.split('/');
-            const fn = size + '_' + pp.pop();
-            pp.push('fastcache', fn);
-            const cp = resolvePath(pp.join('/'));
-            await fs.mkdir(path.dirname(cp), { recursive: true });
-            const maxDim = Math.ceil((size <= 200 ? 1.25 : 1.1) * size);
-            await sharp(outPath).resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true }).png().toFile(cp);
-          } catch (e) { console.error('[Prewarm direct] size=' + size + ' error:', e.message); }
-        }
-      }
+      await prewarmThumbnails(outPath, params.outputFilePath, 'direct');
     }
 
     broadcast('image-changed', params.outputFilePath);
@@ -1133,9 +1121,6 @@ app.post('/api/trash/auto-cleanup', async (req, res) => {
     const projectDir = resolvePath('projects');
     try {
       const walked = await walkDir(projectDir, 1);
-      const jsonSet = new Set(
-        walked.files.filter(f => f.endsWith('.json')).map(f => f.slice(0, -5))
-      );
       for (const f of walked.files) {
         if (f.endsWith('.deleted')) {
           try { await fs.unlink(path.join(projectDir, f)); cleanedOrphans++; } catch {}
@@ -1365,26 +1350,6 @@ app.post('/api/fs/unzip', async (req, res) => {
   try {
     const JSZip = require('jszip');
     const buf = await fs.readFile(resolvePath(req.body.tarPath));
-    const zip = await JSZip.loadAsync(buf);
-    const outDir = resolvePath(req.body.outPath);
-    await fs.mkdir(outDir, { recursive: true });
-    for (const [name, file] of Object.entries(zip.files)) {
-      if (file.dir) {
-        await fs.mkdir(path.join(outDir, name), { recursive: true });
-      } else {
-        const filePath = path.join(outDir, name);
-        await fs.mkdir(path.dirname(filePath), { recursive: true });
-        await fs.writeFile(filePath, await file.async('nodebuffer'));
-      }
-    }
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/fs/extract-zip', async (req, res) => {
-  try {
-    const JSZip = require('jszip');
-    const buf = await fs.readFile(resolvePath(req.body.zipPath));
     const zip = await JSZip.loadAsync(buf);
     const outDir = resolvePath(req.body.outPath);
     await fs.mkdir(outDir, { recursive: true });

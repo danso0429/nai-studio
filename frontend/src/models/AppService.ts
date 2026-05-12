@@ -58,6 +58,25 @@ export interface SceneSelectorItem {
   scenes?: GenericScene[];
 }
 
+const SPECIAL_CHAR_REGEX = /[^a-zA-Z0-9가-힣ぁ-んァ-ヶ一-龥\u3000-\u303F]/g;
+
+function detectSpecialChars(scenes: { name: string }[]): Set<string> {
+  const result = new Set<string>();
+  for (const s of scenes) {
+    const matches = s.name.match(SPECIAL_CHAR_REGEX);
+    if (matches) matches.forEach((c) => result.add(c));
+  }
+  return result;
+}
+
+function buildSpecialCharReplacer(chars: Set<string>): RegExp | null {
+  if (chars.size === 0) return null;
+  const escaped = Array.from(chars)
+    .map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+  return new RegExp(`(${escaped})+`, 'g');
+}
+
 export class AppState {
   @observable accessor curSession: Session | undefined = undefined;
   @observable accessor messages: { id: string; text: string }[] = [];
@@ -144,18 +163,6 @@ export class AppState {
   toggleLeftPanel() {
     this.leftPanelCollapsed = !this.leftPanelCollapsed;
     localStorage.setItem('sdstudio-left-panel-collapsed', String(this.leftPanelCollapsed));
-  }
-
-  @action
-  addMessage(message: string): void {
-    const id = v4();
-    this.messages.push({ id, text: message });
-    this._scheduleMessageDismiss(id);
-  }
-
-  @action
-  addDialog(dialog: Dialog): void {
-    this.dialogs.push(dialog);
   }
 
   @action
@@ -847,13 +854,10 @@ export class AppState {
         }
         let sceneName = scene.name;
         let finalPrefix = prefix;
-        if (charsToReplace.size > 0) {
-          const escaped = Array.from(charsToReplace).map(
-            (c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-          ).join('|');
-          const regex = new RegExp(`(${escaped})+`, 'g');
-          sceneName = sceneName.replace(regex, separator);
-          finalPrefix = finalPrefix.replace(regex, separator);
+        const replacer = buildSpecialCharReplacer(charsToReplace);
+        if (replacer) {
+          sceneName = sceneName.replace(replacer, separator);
+          finalPrefix = finalPrefix.replace(replacer, separator);
         }
         const isMirror = scene.type === 'inpaint' && (scene as InpaintScene).workflowType === 'SDMirror';
         for (let i = 0; i < images.length; i++) {
@@ -1042,13 +1046,8 @@ export class AppState {
     const separator = separatorInput || '.';
 
     // 씬 이름에서 특수문자 감지
-    const specialCharRegex = /[^a-zA-Z0-9가-힣ぁ-んァ-ヶ一-龥\u3000-\u303F]/g;
-    const detectedChars = new Set<string>();
     const scenes = selected || this.curSession!.getScenes(type);
-    for (const s of scenes) {
-      const matches = s.name.match(specialCharRegex);
-      if (matches) matches.forEach((c) => detectedChars.add(c));
-    }
+    const detectedChars = detectSpecialChars(scenes);
 
     let charsToReplace = new Set<string>();
     if (detectedChars.size > 0) {
@@ -1560,12 +1559,7 @@ export class AppState {
         }
       } else if (value === 'exportSceneNames') {
         // 씬 이름에서 특수문자 구분자 감지
-        const specialCharRegex = /[^a-zA-Z0-9가-힣ぁ-んァ-ヶ一-龥\u3000-\u303F]/g;
-        const detectedChars = new Set<string>();
-        for (const s of selected) {
-          const matches = s.name.match(specialCharRegex);
-          if (matches) matches.forEach((c) => detectedChars.add(c));
-        }
+        const detectedChars = detectSpecialChars(selected);
 
         let charsToReplace = new Set<string>();
         let replacement = '_';
@@ -1594,16 +1588,10 @@ export class AppState {
           }
         }
 
-        let names: string;
-        if (charsToReplace.size > 0) {
-          const escaped = Array.from(charsToReplace).map(
-            (c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-          ).join('|');
-          const regex = new RegExp(`(${escaped})+`, 'g');
-          names = selected.map((s) => s.name.replace(regex, replacement)).join(', ');
-        } else {
-          names = selected.map((s) => s.name).join(', ');
-        }
+        const replacer = buildSpecialCharReplacer(charsToReplace);
+        const names = replacer
+          ? selected.map((s) => s.name.replace(replacer, replacement)).join(', ')
+          : selected.map((s) => s.name).join(', ');
         const path = 'exports/scene_names_' + Date.now().toString() + '.txt';
         await backend.writeFile(path, names);
         await backend.showFile(path);

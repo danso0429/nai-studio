@@ -242,10 +242,6 @@ export class ServerBackend extends Backend {
   async unwatchImage(_inputPath: string): Promise<void> {}
   async loadModel(_modelPath: string): Promise<void> {}
 
-  async extractZip(zipPath: string, outPath: string): Promise<void> {
-    await api('/fs/extract-zip', { method: 'POST', body: JSON.stringify({ zipPath, outPath }) });
-  }
-
   async copyImageToClipboard(imagePath: string): Promise<void> {
     try {
       const res = await fetch(`${API_BASE}/api/fs/image?path=${encodeURIComponent(imagePath)}`);
