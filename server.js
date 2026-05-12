@@ -268,6 +268,10 @@ function rcloneCopytoOnce(localPath, remotePath, timeoutMs) {
 // 동시 실행 가드: setImmediate 트리거 + 5초 폴링이 겹쳐도 한 번에 한 tick만.
 let driveRetryProcessing = false;
 
+// rclone 동시 실행 수. 본인 환경(Oracle ARM Ampere A1)에서 3 정도가 안전 마진.
+// 너무 높이면 NW 대역폭/rclone 토큰 race 위험. env로 오버라이드 가능.
+const DRIVE_RETRY_CONCURRENCY = Math.max(1, parseInt(process.env.DRIVE_RETRY_CONCURRENCY) || 3);
+
 async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
   if (driveRetryProcessing) return { succeeded: 0, failed: 0, skipped: 0 };
   if (driveRetryQueue.length === 0) return { succeeded: 0, failed: 0, skipped: 0 };
@@ -277,18 +281,20 @@ async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
   let skipped = 0;
   try {
     const now = Date.now();
-    const next = [];
+    const workEntries = [];
     for (const entry of driveRetryQueue) {
       if (entry.status === 'failed') {
-        next.push(entry);
         skipped++;
         continue;
       }
       if (!ignoreSchedule && now < (entry.nextRetryAt || 0)) {
-        next.push(entry);
         skipped++;
         continue;
       }
+      workEntries.push(entry);
+    }
+    // Process work entries N concurrent.
+    const processOne = async (entry) => {
       const result = await rcloneCopytoOnce(entry.localPath, entry.remotePath, 30000);
       if (result.ok) {
         console.log('[Drive retry] success: ' + entry.localPath);
@@ -298,7 +304,7 @@ async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
           requestedPath: entry.requestedPath,
           fileName: path.basename(entry.localPath),
         });
-        continue;
+        return { entry, removed: true };
       }
       entry.attempts += 1;
       entry.lastError = result.error;
@@ -328,9 +334,18 @@ async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
         attempts: entry.attempts,
         nextRetryAt: entry.nextRetryAt,
       });
-      next.push(entry);
+      return { entry, removed: false };
+    };
+    const removedEntries = new Set();
+    for (let i = 0; i < workEntries.length; i += DRIVE_RETRY_CONCURRENCY) {
+      const chunk = workEntries.slice(i, i + DRIVE_RETRY_CONCURRENCY);
+      const results = await Promise.all(chunk.map(processOne));
+      for (const r of results) {
+        if (r.removed) removedEntries.add(r.entry);
+      }
     }
-    driveRetryQueue = next;
+    // 원본 순서 보존 — entry 객체는 in-place 업데이트라 reference 그대로.
+    driveRetryQueue = driveRetryQueue.filter((e) => !removedEntries.has(e));
     await saveDriveRetryQueue();
   } finally {
     driveRetryProcessing = false;
