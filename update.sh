@@ -58,7 +58,7 @@ npm install --silent
 echo "🔨 프론트엔드 빌드..."
 cd frontend
 npm install --silent
-npm run build
+npx vite build --emptyOutDir
 cd ..
 
 echo "📋 build-info.json 갱신..."
