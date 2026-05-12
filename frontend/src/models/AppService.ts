@@ -1545,10 +1545,13 @@ export class AppState {
         }
 
         const replacer = buildSpecialCharReplacer(charsToReplace);
-        // 줄바꿈 구분: 텍스트 뷰어에서 한 줄에 하나씩 스캔하기 쉽고, 콤마-스페이스 대비 LOC 작음.
-        const names = replacer
-          ? selected.map((s) => s.name.replace(replacer, replacement)).join('\n')
-          : selected.map((s) => s.name).join('\n');
+        // 백틱으로 감싸 각 씬 이름 경계 명시 (특수문자 포함되어도 시각적 구분 명확).
+        const wrap = (s: string) => '`' + s + '`';
+        const names = (
+          replacer
+            ? selected.map((s) => wrap(s.name.replace(replacer, replacement)))
+            : selected.map((s) => wrap(s.name))
+        ).join(', ');
         const path = 'exports/scene_names_' + Date.now().toString() + '.txt';
         await backend.writeFile(path, names);
         const pid = appState.pushProgressDialog('Drive 업로드 중 (씬 이름)...', 1);
