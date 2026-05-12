@@ -1,6 +1,6 @@
 {
-  "version": "1.5.0-preview.5",
+  "version": "1.5.0-preview.6",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-12",
-  "notes": "코드 정독/최적화 (-90줄) + 모듈 분리 (tag-search, version-check) + apiUrl/syncExportToDrive/extractApiError 헬퍼 + 씬 이름 내보내기 Drive 업로드 + Drive 백그라운드 sync (HTTP 202 + WS) + queue.html Drive 위젯 + retry 간격 분→초 단축"
+  "notes": "이미지 내보내기 서버 측 export pipeline (HTTP 202 + WS, resize/zip/Drive 모두 백그라운드) + 클라 측 endpoint 교체 + AlertWindow 색 통일 (빨강 → 슬레이트) + 이미지 내보내기 진행 상태를 DriveRetryWidget·queue.html에 통합 + Drive retry 큐 동시성 N=3 병렬 처리"
 }
