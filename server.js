@@ -13,6 +13,9 @@ const DATA_DIR = path.join(__dirname, 'data');
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const PORT = process.env.PORT || 6247;
 const URL_PREFIX = process.env.URL_PREFIX || '';
+// rclone Google Drive remote 이름. 'rclone config'로 만든 remote와 동일해야 함.
+const RCLONE_REMOTE = process.env.RCLONE_REMOTE || 'gdrivemain';
+const RCLONE_REMOTE_BASE = process.env.RCLONE_REMOTE_BASE || 'NAI-Studio';
 
 // ─── Ensure directories ────────────────────────────────────────────
 async function ensureDirs() {
@@ -497,7 +500,7 @@ async function runExportJob(job) {
   // Phase 3: Drive enqueue (fire-and-forget, drive-sync-* 이벤트로 별도 추적)
   job._phase = 'drive-enqueue';
   const cleaned = outFilePath.replace(/^exports[\/]/, '');
-  const remotePath = 'gdrivemain:NAI-Studio/data/exports/' + cleaned;
+  const remotePath = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/exports/${cleaned}`;
   enqueueDriveRetry(outAbs, remotePath, null, outFilePath, true);
   setImmediate(() => processDriveRetryQueue({ ignoreSchedule: true }));
 
@@ -574,16 +577,16 @@ async function diskCleanupStage4() {
   const { execSync } = require('child_process');
   const outsDir = path.join(DATA_DIR, 'outs');
 
-  // rclone이 있는지, gdrivemain이 설정되어 있는지 확인
+  // rclone이 있는지, RCLONE_REMOTE가 설정되어 있는지 확인
   let rcloneOK = false;
   try {
     execSync('which rclone', { stdio: 'pipe' });
-    execSync('rclone listremotes 2>/dev/null | grep gdrivemain', { stdio: 'pipe' });
+    execSync(`rclone listremotes 2>/dev/null | grep ${RCLONE_REMOTE}`, { stdio: 'pipe' });
     rcloneOK = true;
   } catch {}
 
   if (!rcloneOK) {
-    console.log('[Disk] Stage 4: skipped — rclone/gdrivemain not available');
+    console.log(`[Disk] Stage 4: skipped — rclone/${RCLONE_REMOTE} not available`);
     return 0;
   }
 
@@ -596,7 +599,7 @@ async function diskCleanupStage4() {
     let driveSet;
     try {
       const lsjsonOutput = execSync(
-        `rclone lsjson "gdrivemain:NAI-Studio/data/outs" --recursive --files-only 2>/dev/null`,
+        `rclone lsjson "${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/outs" --recursive --files-only 2>/dev/null`,
         { maxBuffer: 100 * 1024 * 1024 }
       ).toString();
       const entries = JSON.parse(lsjsonOutput);
@@ -1360,7 +1363,7 @@ app.post('/api/fs/sync-exports', async (req, res) => {
       return res.status(404).json({ ok: false, error: 'File not found' });
     }
     const localPath = candidate;
-    const remotePath = 'gdrivemain:NAI-Studio/data/exports/' + cleaned;
+    const remotePath = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/exports/${cleaned}`;
     // 큐에 enqueue + 즉시 처리 트리거 (setImmediate로 event loop 양보 후 처리).
     enqueueDriveRetry(localPath, remotePath, null, requestedPath, true);
     setImmediate(() => processDriveRetryQueue({ ignoreSchedule: true }));
@@ -1370,7 +1373,7 @@ app.post('/api/fs/sync-exports', async (req, res) => {
   // 레거시 dir 모드: 전체 exports/ 디렉토리 동기 업로드. 현재 클라에서 호출하는 경로 없음.
   // backwards compat 유지차 동기 흐름 그대로 둠.
   const { exec } = require('child_process');
-  const rcloneCmd = 'rclone copy ' + JSON.stringify(exportsDir + '/') + ' gdrivemain:NAI-Studio/data/exports/ --log-level INFO';
+  const rcloneCmd = `rclone copy ${JSON.stringify(exportsDir + '/')} ${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/exports/ --log-level INFO`;
   exec(rcloneCmd, { timeout: 180000, maxBuffer: 4 * 1024 * 1024 }, (err) => {
     if (err) {
       console.error('[Sync exports] error (mode=dir):', err.message);
