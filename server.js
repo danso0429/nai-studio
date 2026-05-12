@@ -933,6 +933,24 @@ app.post('/api/queue/cancel', (req, res) => {
   const cancelled = genQueue.length;
   genQueue.length = 0;
   broadcastQueueStatus();
+  saveQueueState();
+  res.json({ ok: true, cancelled });
+});
+
+// 특정 task의 jobs만 cancel. mirror에서 한 씬/씬 집합 취소 시 사용.
+app.post('/api/queue/cancel-by-task-ids', (req, res) => {
+  const taskIds = new Set(req.body.taskIds || []);
+  if (taskIds.size === 0) return res.json({ ok: true, cancelled: 0 });
+  const before = genQueue.length;
+  for (let i = genQueue.length - 1; i >= 0; i--) {
+    const tid = genQueue[i].meta && genQueue[i].meta.taskId;
+    if (tid && taskIds.has(tid)) {
+      genQueue.splice(i, 1);
+    }
+  }
+  const cancelled = before - genQueue.length;
+  broadcastQueueStatus();
+  saveQueueState();
   res.json({ ok: true, cancelled });
 });
 

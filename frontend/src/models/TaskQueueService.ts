@@ -743,6 +743,9 @@ export class TaskQueueService extends EventTarget {
   mirroredJobs: Map<string, { taskId: string; outputFilePath: string }> = new Map();
   // mirror 도중 prep 시간 측정 시작점 (시간 추정 보정용)
   private mirrorRunStartTimes: Map<string, number> = new Map();
+  // mirror task의 sceneKey 보존 (placeholder restored task는 task.params.session 없어서 getSceneKey로 추출 불가).
+  // removeAllTasks/removeTasksFromScene에서 정확한 stats unwind에 사용.
+  private mirrorTaskSceneKeys: Map<string, string> = new Map();
   constructor(handlers: TaskHandler[]) {
     super();
     this.handlers = handlers;
@@ -783,26 +786,36 @@ export class TaskQueueService extends EventTarget {
       this.removeTaskInternal(task);
       this.queue.dequeue();
     }
-    // mirror task: 서버 큐 cancel + 클라 측 mirror state 비우기
+    // mirror task: 서버 큐 cancel + 클라 측 mirror state 비우기 + stats 완전 unwind
     if (this.mirroredTasks.size > 0) {
       backend.cancelQueue().catch((e) => console.warn('[TaskQueue] cancelQueue failed:', e));
-      // mirror task별 stats 보정 — 남은 done/total 차이만큼 빼기 (이미 done은 ws event로 갱신된 상태)
       for (const [taskId, task] of this.mirroredTasks) {
-        const remain = task.total - task.done;
-        this.groupStats[task.cls].total -= remain;
-        // sceneKey는 task.params에서 또는 mirroredJobs entry의 meta? — 저장 안 해서 여기선 스킵
-        // sceneStats는 다음 렌더에서 음수 안 되게 정리 필요. 일단 단순 처리.
+        // groupStats 완전 unwind (total + done 둘 다 — mirror 기여분 제거)
+        this.groupStats[task.cls].total -= task.total;
+        this.groupStats[task.cls].done -= task.done;
+        // sceneStats unwind (mirrorTaskSceneKeys에서 sceneKey 조회)
+        const sceneKey = this.mirrorTaskSceneKeys.get(taskId);
+        if (sceneKey && sceneKey in this.sceneStats) {
+          this.sceneStats[sceneKey].total -= task.total;
+          this.sceneStats[sceneKey].done -= task.done;
+          // 0 이하면 entry 제거 (씬 카드에 0/0 안 보이게)
+          if (this.sceneStats[sceneKey].total <= 0 && this.sceneStats[sceneKey].done <= 0) {
+            delete this.sceneStats[sceneKey];
+          }
+        }
         delete this.taskSet[taskId];
       }
       this.mirroredTasks.clear();
       this.mirroredJobs.clear();
       this.mirrorRunStartTimes.clear();
+      this.mirrorTaskSceneKeys.clear();
     }
     this.dispatchProgress();
     this.dispatchEvent(new CustomEvent('stop', {}));
   }
 
   removeTasksFromScene(scene: GenericScene) {
+    // legacy queue: scene 매칭 task 제거
     const oldQueue = this.queue;
     this.queue = new CircularQueue<Task>();
     while (!oldQueue.isEmpty()) {
@@ -811,6 +824,45 @@ export class TaskQueueService extends EventTarget {
       this.removeTaskInternal(task);
       if (task.params.scene !== scene) {
         this.addTaskInternal(task);
+      }
+    }
+    // mirror: scene 매칭은 name + type으로 (placeholder restored task는 reference 매칭 안 됨)
+    const matchedTaskIds: string[] = [];
+    for (const [taskId, task] of this.mirroredTasks) {
+      if (
+        task.params.scene &&
+        task.params.scene.name === scene.name &&
+        task.params.scene.type === scene.type
+      ) {
+        matchedTaskIds.push(taskId);
+      }
+    }
+    if (matchedTaskIds.length > 0) {
+      backend.cancelQueueByTaskIds(matchedTaskIds).catch((e) =>
+        console.warn('[TaskQueue] cancelQueueByTaskIds failed:', e),
+      );
+      for (const taskId of matchedTaskIds) {
+        const mtask = this.mirroredTasks.get(taskId)!;
+        this.groupStats[mtask.cls].total -= mtask.total;
+        this.groupStats[mtask.cls].done -= mtask.done;
+        const sceneKey = this.mirrorTaskSceneKeys.get(taskId);
+        if (sceneKey && sceneKey in this.sceneStats) {
+          this.sceneStats[sceneKey].total -= mtask.total;
+          this.sceneStats[sceneKey].done -= mtask.done;
+          if (this.sceneStats[sceneKey].total <= 0 && this.sceneStats[sceneKey].done <= 0) {
+            delete this.sceneStats[sceneKey];
+          }
+        }
+        // 이 task 소속 jobIds 제거
+        for (const [jobId, jobInfo] of this.mirroredJobs) {
+          if (jobInfo.taskId === taskId) {
+            this.mirroredJobs.delete(jobId);
+          }
+        }
+        this.mirroredTasks.delete(taskId);
+        this.mirrorTaskSceneKeys.delete(taskId);
+        this.mirrorRunStartTimes.delete(taskId);
+        delete this.taskSet[taskId];
       }
     }
     this.dispatchProgress();
@@ -865,6 +917,7 @@ export class TaskQueueService extends EventTarget {
     }
     this.taskSet[taskId] = true;
     this.mirrorRunStartTimes.set(taskId, Date.now());
+    this.mirrorTaskSceneKeys.set(taskId, sceneKey);
     this.dispatchProgress();
 
     if (wasEmpty) {
@@ -953,6 +1006,7 @@ export class TaskQueueService extends EventTarget {
     this.dispatchProgress();
     if (task.done >= task.total) {
       this.mirroredTasks.delete(job.taskId);
+      this.mirrorTaskSceneKeys.delete(job.taskId);
       delete this.taskSet[job.taskId];
       if (this.mirroredTasks.size === 0 && !this.currentRun) {
         this.dispatchEvent(new CustomEvent('stop', {}));
@@ -982,6 +1036,7 @@ export class TaskQueueService extends EventTarget {
     this.dispatchProgress();
     if (task.done >= task.total) {
       this.mirroredTasks.delete(job.taskId);
+      this.mirrorTaskSceneKeys.delete(job.taskId);
       delete this.taskSet[job.taskId];
       if (this.mirroredTasks.size === 0 && !this.currentRun) {
         this.dispatchEvent(new CustomEvent('stop', {}));
@@ -1037,6 +1092,7 @@ export class TaskQueueService extends EventTarget {
         }
         this.sceneStats[meta.sceneKey].total += jobs.length;
       }
+      this.mirrorTaskSceneKeys.set(taskId, meta.sceneKey || '');
     }
     this.dispatchProgress();
     this.dispatchEvent(new CustomEvent('start', {}));

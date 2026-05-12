@@ -107,6 +107,14 @@ export class ServerBackend extends Backend {
     return { cancelled: data.cancelled || 0 };
   }
 
+  async cancelQueueByTaskIds(taskIds: string[]): Promise<{ cancelled: number }> {
+    const data = await apiJSON('/queue/cancel-by-task-ids', {
+      method: 'POST',
+      body: JSON.stringify({ taskIds }),
+    });
+    return { cancelled: data.cancelled || 0 };
+  }
+
   async getDriveRetryStatus(): Promise<DriveRetryStatus> {
     return apiJSON('/drive/retry-status');
   }
