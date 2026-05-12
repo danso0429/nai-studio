@@ -361,6 +361,21 @@
             <div class="value">${d.processing ? '🔄 처리 중' : d.pending > 0 ? '⏸ 대기' : '💤 idle'}</div>
           </div>
         </div>
+        ${(d.recentErrors && d.recentErrors.length > 0) ? `
+          <h2 class="section-h">최근 NAI 큐 에러 (최대 10개)</h2>
+          ${d.recentErrors.slice().reverse().map((e) => {
+            const kindLabel = e.kind === '429' ? '<span class="pill" style="background:#3a2f0a;color:#fbbf24;">429 rate-limit</span>'
+              : e.kind === '5xx' ? '<span class="pill failed">5xx</span>'
+              : '<span class="pill failed">기타</span>';
+            const retryLabel = e.retried ? '<span class="pill pending">재시도됨</span>' : '<span class="pill failed">최종 실패</span>';
+            const tsStr = new Date(e.ts).toLocaleTimeString();
+            return '<div class="entry ' + (e.retried ? 'pending' : 'failed') + '">'
+              + '<div class="row1"><div class="fn">' + tsStr + ' · ' + escapeHtml((e.jobId || '').slice(0, 8)) + '</div>'
+              + kindLabel + retryLabel + '</div>'
+              + '<div class="meta">' + escapeHtml(e.error || '').slice(0, 200) + '</div>'
+              + '</div>';
+          }).join('')}
+        ` : ''}
       `;
       tsEl.textContent = '갱신: ' + new Date().toLocaleTimeString();
     } catch (e) {

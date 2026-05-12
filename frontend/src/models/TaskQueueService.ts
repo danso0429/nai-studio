@@ -1136,14 +1136,19 @@ export class TaskQueueService extends EventTarget {
   }
 
   estimateTopTaskTime(type: 'median' | 'mean'): number {
-    if (this.queue.isEmpty()) {
-      return 0;
+    // legacy 큐 우선 (실행 순서상 먼저). 비어있으면 mirror 큐 첫 task.
+    let cls: number | null = null;
+    if (!this.queue.isEmpty()) {
+      cls = this.queue.peek().cls;
+    } else if (this.mirroredTasks.size > 0) {
+      const first = this.mirroredTasks.values().next().value as Task | undefined;
+      if (first) cls = first.cls;
     }
-    const task = this.queue.peek();
+    if (cls === null) return 0;
     if (type === 'mean') {
-      return this.timeEstimators[task.cls].estimateMean();
+      return this.timeEstimators[cls].estimateMean();
     }
-    return this.timeEstimators[task.cls].estimateMedian();
+    return this.timeEstimators[cls].estimateMedian();
   }
 
   estimateTime(type: 'median' | 'mean'): number {

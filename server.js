@@ -89,6 +89,19 @@ let queueProcessing = false;
 let queuePaused = false;
 let pauseRequested = false; // 사용자 명시 pause (대량 삭제 등 race 방지용)
 let queueStats = { completed: 0, failed: 0, totalProcessTimeMs: 0, completedWithTiming: 0 };
+// 최근 큐 에러 ring buffer (NAI 429, 5xx, 네트워크 등). queue.html 진단용.
+const QUEUE_ERROR_HISTORY_MAX = 20;
+let queueErrorHistory = []; // [{ts, jobId, error, kind: '429'|'5xx'|'other', retried: boolean}, ...]
+function recordQueueError(jobId, error, retried) {
+  let kind = 'other';
+  const msg = String(error || '');
+  if (msg.includes('429')) kind = '429';
+  else if (/5\d\d/.test(msg.slice(0, 50))) kind = '5xx';
+  queueErrorHistory.push({ ts: Date.now(), jobId, error: msg.slice(0, 300), kind, retried: !!retried });
+  if (queueErrorHistory.length > QUEUE_ERROR_HISTORY_MAX) {
+    queueErrorHistory.shift();
+  }
+}
 
 // ─── Timing history (ring buffer, 최대 1만개) ─────────────────────
 let timingHistory = []; // [{finishedAt: ts, durationMs: number}, ...]
@@ -716,11 +729,13 @@ async function processQueue() {
         job._retries = (job._retries || 0) + 1;
         if (job._retries <= 10) {
           console.log(`[NAI Studio] Queue job ${job.jobId}: NAI rate limited, retry ${job._retries}/10 in 5s...`);
+          recordQueueError(job.jobId, e.message, true);
           await new Promise(r => setTimeout(r, 5000));
           continue;
         }
         console.error(`[NAI Studio] Queue job ${job.jobId}: max retries exceeded`);
       }
+      recordQueueError(job.jobId, e.message, false);
       broadcast('queue-job-error', { jobId: job.jobId, error: e.message, meta: job.meta || {} });
       broadcastQueueStatus();
       queueStats.failed++;
@@ -890,6 +905,7 @@ app.get('/api/queue/status', async (req, res) => {
     recentAvgMs: Math.round(recentAvgMs),
     timingHistoryCount: timingHistory.length,
     etaMs,
+    recentErrors: queueErrorHistory.slice(-10), // 최근 10개 (queue.html 표시용)
   });
 });
 
