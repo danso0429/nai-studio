@@ -184,9 +184,12 @@ function loadQueueState() {
 // 6회(60s,2m,5m,10m,20m,30m) 다 실패하면 status='failed'로 두고 폴링 대상에서 제외,
 // 사용자가 widget에서 dismiss 또는 reset 할 때까지 큐에 남아 표시됨.
 const DRIVE_RETRY_QUEUE_FILE = path.join(DATA_DIR, '.drive-retry-queue.json');
-const DRIVE_RETRY_INTERVALS = [60000, 120000, 300000, 600000, 1200000, 1800000];
+// Drive 업로드 실패 후 재시도 간격: 네트워크 일시 끊김은 보통 10~30초면 회복.
+// 분 단위는 너무 늦어 본인 체감 불편 → 초 단위로 단축 (2026-05-12 본인 요청).
+const DRIVE_RETRY_INTERVALS = [10000, 20000, 30000, 60000, 120000, 300000];
 const DRIVE_RETRY_MAX_ATTEMPTS = DRIVE_RETRY_INTERVALS.length;
-const DRIVE_RETRY_POLL_MS = 30000;
+// 폴링 주기도 단축 — 빈 큐일 땐 early-return이라 부담 거의 없음.
+const DRIVE_RETRY_POLL_MS = 5000;
 let driveRetryQueue = [];
 
 async function loadDriveRetryQueue() {
