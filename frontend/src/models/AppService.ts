@@ -150,6 +150,14 @@ export class AppState {
   @observable accessor progressDialogs: ProgressDialog[] = [];
   @observable accessor driveRetryStatus: DriveRetryStatus | null = null;
   @observable accessor driveRetryModalOpen: boolean = false;
+  // 진행 중인 export pipeline (resize/zip). tar 생성 끝나면 null로 → driveRetry가 인계.
+  @observable accessor exportPipelineJobs: {
+    jobId: string;
+    phase: 'queued' | 'resize' | 'zip';
+    done: number;
+    total: number;
+    outFileName: string;
+  }[] = [];
   @observable accessor externalImage: string | undefined = undefined;
   @observable accessor appliedCharacterPreset: string | undefined = undefined; // 현재 적용된 캐릭터 프리셋 이름
 
@@ -927,6 +935,16 @@ export class AppState {
       );
       if (!jobId) return;
 
+      // 위젯에 진행 상태 표시 (DriveRetryWidget이 driveRetry + exportPipelineJobs 둘 다 표시).
+      const outFileName = outFilePath.split('/').pop()!;
+      appState.exportPipelineJobs = [
+        ...appState.exportPipelineJobs,
+        { jobId, phase: 'queued', done: 0, total: items.length, outFileName },
+      ];
+      const removeFromWidget = () => {
+        appState.exportPipelineJobs = appState.exportPipelineJobs.filter((j) => j.jobId !== jobId);
+      };
+
       // 3. WS terminal 이벤트 구독. 30분 timeout 후 자동 정리.
       const unsubs: Array<() => void> = [];
       const cleanup = () => unsubs.forEach((u) => u());
@@ -935,21 +953,31 @@ export class AppState {
       const tryFullCleanup = () => {
         if (exportTerminal && driveTerminal) cleanup();
       };
+      unsubs.push(backend.onExportProgress((data) => {
+        if (exportTerminal || data.jobId !== jobId) return;
+        appState.exportPipelineJobs = appState.exportPipelineJobs.map((j) =>
+          j.jobId === jobId
+            ? { ...j, phase: data.phase, done: data.done, total: data.total }
+            : j,
+        );
+      }));
       unsubs.push(backend.onExportComplete((data) => {
         if (exportTerminal || data.jobId !== jobId) return;
         exportTerminal = true;
+        removeFromWidget(); // tar 생성 완료 → 이후는 driveRetry가 인계
+        appState.refreshDriveRetryStatus(); // Drive 큐 entry 즉시 보이게
         if (data.skipped && data.skipped.length > 0) {
           const preview = data.skipped.slice(0, 3).map((p) => p.split('/').pop()).join(', ');
           const more = data.skipped.length > 3 ? ` 외 ${data.skipped.length - 3}개` : '';
           appState.pushMessage(`${data.skipped.length}개 파일 누락 — 자동 제외 (${preview}${more})`);
         }
-        // tar 생성 완료 — Drive sync 자동 트리거됨. drive-sync-* 이벤트로 후속 알림.
         tryFullCleanup();
       }));
       unsubs.push(backend.onExportFailed((data) => {
         if (exportTerminal || data.jobId !== jobId) return;
         exportTerminal = true;
         driveTerminal = true; // Drive sync 미진행이므로 함께 종료
+        removeFromWidget();
         appState.pushMessage(`✗ 이미지 내보내기 실패 (${data.phase}): ${data.error}`);
         cleanup();
       }));

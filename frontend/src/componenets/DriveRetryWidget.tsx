@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import { FaCloudUploadAlt, FaTimes, FaExclamationTriangle } from 'react-icons/fa';
+import { FaCloudUploadAlt, FaTimes, FaExclamationTriangle, FaFileArchive } from 'react-icons/fa';
 import { appState } from '../models/AppService';
 import { DriveRetryEntry } from '../backend';
 
@@ -13,10 +13,24 @@ const formatRelative = (ts: number | null): string => {
   return m + '분 후';
 };
 
+const PHASE_LABEL: Record<string, string> = {
+  queued: '대기 중',
+  resize: '이미지 크기 조정',
+  zip: 'zip 생성',
+};
+
 const DriveRetryWidget = observer(() => {
   const status = appState.driveRetryStatus;
-  if (!status || status.count === 0) return null;
-  const allFailed = status.pendingCount === 0 && status.failedCount > 0;
+  const exportJobs = appState.exportPipelineJobs;
+  const driveCount = status?.count || 0;
+  const exportCount = exportJobs.length;
+  if (driveCount === 0 && exportCount === 0) return null;
+  const allFailed =
+    exportCount === 0 &&
+    status != null &&
+    status.pendingCount === 0 &&
+    status.failedCount > 0;
+  const totalCount = driveCount + exportCount;
   return (
     <>
       <button
@@ -31,7 +45,7 @@ const DriveRetryWidget = observer(() => {
       >
         {allFailed ? <FaTimes /> : <FaCloudUploadAlt />}
         <span>
-          Drive {allFailed ? '실패' : '대기'} {status.count}건
+          업로드 {allFailed ? '실패' : '진행'} {totalCount}건
         </span>
       </button>
       {appState.driveRetryModalOpen && <DriveRetryModal />}
@@ -41,7 +55,9 @@ const DriveRetryWidget = observer(() => {
 
 const DriveRetryModal = observer(() => {
   const status = appState.driveRetryStatus;
-  if (!status) return null;
+  const exportJobs = appState.exportPipelineJobs;
+  const driveCount = status?.count || 0;
+  const exportCount = exportJobs.length;
   return (
     <div
       className="fixed inset-0 flex items-center justify-center"
@@ -53,7 +69,7 @@ const DriveRetryModal = observer(() => {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-2">
-          <h2 className="text-lg font-bold">Drive 업로드 대기 ({status.count}건)</h2>
+          <h2 className="text-lg font-bold">업로드 진행 ({driveCount + exportCount}건)</h2>
           <button
             onClick={() => (appState.driveRetryModalOpen = false)}
             className="text-2xl leading-none px-2"
@@ -61,17 +77,29 @@ const DriveRetryModal = observer(() => {
             ×
           </button>
         </div>
+        {exportCount > 0 && (
+          <>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
+              내보내기 처리 중 (서버)
+            </div>
+            {exportJobs.map((j) => <ExportPipelineRow key={j.jobId} job={j} />)}
+            <div className="h-3" />
+          </>
+        )}
+        <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
+          Drive 업로드
+        </div>
         <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
           자동 재시도 간격: 1분 → 2분 → 5분 → 10분 → 20분 → 30분 (총 6회). 마지막
           시도까지 실패하면 X로 표시되고, [재시도] 버튼으로 다시 큐에 넣거나 [포기]로
           제거할 수 있어요.
         </div>
-        {status.entries.length === 0 ? (
-          <div className="text-sm text-gray-500">대기 항목이 없어요.</div>
+        {!status || status.entries.length === 0 ? (
+          <div className="text-sm text-gray-500">Drive 대기 항목이 없어요.</div>
         ) : (
           status.entries.map((e) => <DriveRetryRow key={e.localPath} entry={e} maxAttempts={status.maxAttempts} />)
         )}
-        {status.pendingCount > 0 && (
+        {status && status.pendingCount > 0 && (
           <div className="mt-4 flex justify-end">
             <button
               onClick={() => appState.driveRetryNowAndRefresh()}
@@ -85,6 +113,40 @@ const DriveRetryModal = observer(() => {
     </div>
   );
 });
+
+interface ExportRowProps {
+  job: {
+    jobId: string;
+    phase: 'queued' | 'resize' | 'zip';
+    done: number;
+    total: number;
+    outFileName: string;
+  };
+}
+
+const ExportPipelineRow = ({ job }: ExportRowProps) => {
+  const label = PHASE_LABEL[job.phase] || job.phase;
+  const pct = job.total > 0 ? Math.round((job.done / job.total) * 100) : 0;
+  return (
+    <div className="border-b border-gray-200 dark:border-slate-700 py-2 flex items-center gap-2">
+      <div className="flex-shrink-0">
+        <FaFileArchive className="text-sky-500" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm truncate font-medium">{job.outFileName}</div>
+        <div className="text-xs text-gray-500 dark:text-gray-400">
+          {label} {job.total > 0 ? `(${job.done}/${job.total})` : ''}
+        </div>
+        <div className="relative h-1.5 mt-1 bg-gray-200 dark:bg-slate-700 rounded overflow-hidden">
+          <div
+            className="absolute top-0 left-0 h-full bg-sky-500 dark:bg-indigo-400"
+            style={{ width: pct + '%' }}
+          ></div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface RowProps {
   entry: DriveRetryEntry;
