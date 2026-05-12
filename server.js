@@ -7,6 +7,7 @@ const { WebSocketServer } = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const { NaiClient } = require('./lib/nai-client');
 const tagSearch = require('./lib/tag-search');
+const versionCheck = require('./lib/version-check');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
@@ -602,52 +603,9 @@ app.post('/api/config', async (req, res) => {
 });
 
 // ─── API: Version ───────────────────────────────────────────────────
-// ─── Version check (GitHub-based) ───
-let _versionCache = { fetchedAt: 0, latest: null, repoUrl: null };
-const VERSION_CACHE_TTL = 5 * 60 * 1000;  // 5분
-
-function getRepoVersionUrl() {
-  if (process.env.NAI_STUDIO_VERSION_URL) return process.env.NAI_STUDIO_VERSION_URL;
-  try {
-    const { execSync } = require('child_process');
-    const remote = execSync('git -C ' + __dirname + ' remote get-url origin', { encoding: 'utf8', timeout: 2000 }).trim();
-    const m = remote.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
-    if (m) return 'https://raw.githubusercontent.com/' + m[1] + '/' + m[2] + '/main/version.json';
-  } catch {}
-  return null;
-}
-
 app.get('/api/version-check', async (req, res) => {
   try {
-    const now = Date.now();
-    const repoUrl = getRepoVersionUrl();
-    if (!repoUrl) return res.json({ current: null, latest: null, updateAvailable: false, error: 'no-repo-url' });
-
-    if (now - _versionCache.fetchedAt > VERSION_CACHE_TTL || _versionCache.repoUrl !== repoUrl) {
-      try {
-        const r = await fetch(repoUrl, { signal: AbortSignal.timeout(5000) });
-        if (r.ok) {
-          const data = await r.json();
-          _versionCache = { fetchedAt: now, latest: data.version, repoUrl, notes: data.notes || null, released: data.released || null };
-        }
-      } catch (e) {
-        console.warn('[version-check] fetch failed:', e.message);
-      }
-    }
-
-    let current = null;
-    try {
-      const bi = JSON.parse(await fs.readFile(path.join(__dirname, 'public', 'build-info.json'), 'utf8'));
-      current = bi.version;
-    } catch {}
-
-    res.json({
-      current,
-      latest: _versionCache.latest,
-      updateAvailable: !!(current && _versionCache.latest && current !== _versionCache.latest),
-      notes: _versionCache.notes,
-      released: _versionCache.released,
-    });
+    res.json(await versionCheck.checkVersion({ projectDir: __dirname }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
