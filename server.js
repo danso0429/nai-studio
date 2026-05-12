@@ -552,6 +552,12 @@ async function processExportQueue() {
         console.error('[Export] job ' + job.jobId + ' failed:', e.message);
         broadcast('export-failed', { jobId: job.jobId, phase: job._phase || 'unknown', error: e.message });
       } finally {
+        // Phase 1 resize 산출물 정리 (data/tmp 누적 방지). 어떤 경로로 끝나든 실행.
+        for (const item of (job.paths || [])) {
+          if (item.processedPath) {
+            try { await fs.unlink(item.processedPath); } catch {}
+          }
+        }
         currentExportJob = null;
       }
     }

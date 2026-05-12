@@ -1,8 +1,8 @@
 #!/bin/bash
 # cleanup_old_files.sh — 7일 이상 된 tmp/exports 파일 자동 삭제
-# cron: 0 5 * * * ~/nai-studio/cleanup_old_files.sh
+# cron: 0 5 * * * ~/nai-studio-2/cleanup_old_files.sh
 
-DATA_DIR="$HOME/nai-studio/data"
+DATA_DIR="$HOME/nai-studio-2/data"
 
 for DIR in "$DATA_DIR/tmp" "$DATA_DIR/exports"; do
   if [ -d "$DIR" ]; then
