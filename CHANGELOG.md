@@ -9,6 +9,18 @@
 
 ---
 
+## v1.5.0-preview.4 (2026-05-12)
+- **investigate**: P15 Step A (SceneCell 썸네일 base64 → native `<img src=getThumbURL>`) 시도 후 본인 L3 회귀 보고. 환경 변수 (집 외 위치 + 도메인 변경) 가능성으로 진단 불가 → `git reset --hard v1.5.0-preview.3`. JOURNAL Phase 9 참조.
+- **chore**: TS 26 → 3 (88% 정리). 안전 묶음 + Electron 잔재 제거.
+  - P13a: `importPresets` dead import 제거 / SceneTrashView `type` narrow / `lib` ES2021
+  - P13b-1: type-only import 경로 정정 6건 (`'../main/config'` 등 잘못된 상대 경로)
+  - P13b-2: `nai.ts` `process.env.NODE_ENV` → `import.meta.env.DEV` (vite 표준)
+  - P13b-3: ResultViewer/SceneEditor 죽은 `'os'`/`'original-fs'`/`'process'` import 제거
+  - P13b-4: TobBar Electron 분기 (`window.electron`, 윈도우 컨트롤 버튼) 제거
+  - P13b-5: EmbeddedBrowser PC Electron only 컴포넌트 제거 (~393줄)
+  - P13c: `legacy.ts` `characterPrompts` default 추가 + `util.ts` `BufferSource` cast
+- 산출물 변경은 dead code 제거로 bundle 축소 — 본인 사용 영향 0. 남은 3건은 P12 TaskQueueService 영역 (대수술 시 자연 정리).
+
 ## v1.5.0-preview.3 (2026-05-11)
 - **fix**: `/api/fs/zip`이 전부 누락 케이스에서 500 던지던 흐름을 400으로 정정 + 클라 측 zip catch가 raw `API error 500: {...}` 대신 응답 JSON의 `error` 필드만 추출해 "아카이브할 파일이 없어요" 깔끔 표시.
 - **feat**: 상단 알림/진행 띠 touch-through. 띠 본체 영역 클릭이 뒤의 프로젝트 칸/버튼으로 통과 (모바일에서 띠가 가리던 UX 회귀). 알림 dismiss는 3초 자동 유지.
