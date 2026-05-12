@@ -120,7 +120,12 @@
 
 - **리눅스 서버** (Ubuntu 22.04+ 추천. ARM64 OK)
   - 무료로 받으려면 **Oracle Cloud Always Free**의 ARM Ampere A1 추천 — 4 vCPU + 24GB RAM 무료 (이 프로젝트가 실제로 동작 중인 환경)
-  - 한국어 가이드: [아카라이브 — 오라클 클라우드 무료 서버 가이드](https://arca.live/b/characterai/137016430) (일부 부분은 본 프로젝트와 다를 수 있어요)
+  - 한국어 가이드: [아카라이브 오라클 가이드](https://arca.live/b/characterai/137016430) + [할당량 부족 시 PAYG 업그레이드](https://arca.live/b/characterai/137100634)
+  - **본 프로젝트와 다른 부분 (주의)**:
+    - 가이드의 **포트 6001**은 노드리스용. 본 프로젝트는 기본 **6247** → 보안 규칙(수신 규칙)에 6001 대신 **6247** 추가
+    - 가이드의 4단계(RisuAI 설치) + 6단계(https 인증서)는 **SKIP**. 본 README의 [설치 단계](#설치-뉴비-친화-단계별)를 따라하세요
+    - 사양 추천: **2 CPU / 12 GB RAM** 또는 그 이상 (SDStudio Remote도 동일)
+    - HTTPS는 본 프로젝트에서 **Tailscale serve로 자동 처리** (Let's Encrypt 불필요). 가이드의 self-signed 인증서는 안 만들어도 됨
 - **NovelAI 계정** + Persistent API Token (받는 방법은 아래 step 3에)
 - **선택**: Tailscale 계정 (외부 접속용, 무료)
 
