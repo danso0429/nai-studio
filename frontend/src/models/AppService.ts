@@ -1717,39 +1717,106 @@ export class AppState {
             type: 'confirm',
             text:
               `선택한 ${selected.length}개 씬을 "${newName}"로 통합합니다.\n` +
-              `각 씬의 조합 에디터 슬롯이 모두 합쳐지고, 원본 씬들은 삭제됩니다. 계속?`,
-            callback: () => {
-              // selected[0]을 base로 시작. slots는 모두 concat.
-              const base = selected[0];
-              const baseJSON: any = (base as any).toJSON();
-              const allSlots: any[] = [];
-              const allCharPrompts: any[] = [];
-              for (const s of selected) {
-                const j: any = (s as any).toJSON();
-                if (Array.isArray(j.slots)) allSlots.push(...j.slots);
-                if (Array.isArray(j.sceneCharacterPrompts)) {
-                  allCharPrompts.push(...j.sceneCharacterPrompts);
+              `조합 슬롯 + 이미지 + 즐겨찾기가 합쳐지고, 원본 씬들은 삭제됩니다.\n` +
+              `(정확히 같은 조합 슬롯은 중복 제거)`,
+            callback: async () => {
+              const pid = appState.pushProgressDialog('씬 통합 중...', 1);
+              try {
+                const sessionName = this.curSession!.name;
+                const newDir = 'outs/' + sessionName + '/' + newName;
+                // 1. slots dedup (정확히 같은 JSON은 중복 제거)
+                const allSlotsRaw: any[] = [];
+                const allCharPrompts: any[] = [];
+                for (const s of selected) {
+                  const j: any = (s as any).toJSON();
+                  if (Array.isArray(j.slots)) allSlotsRaw.push(...j.slots);
+                  if (Array.isArray(j.sceneCharacterPrompts)) {
+                    allCharPrompts.push(...j.sceneCharacterPrompts);
+                  }
                 }
-              }
-              const newJSON: any = { ...baseJSON, name: newName, slots: allSlots };
-              if (type === 'scene') {
-                newJSON.sceneCharacterPrompts = allCharPrompts;
-              }
-              // 원본 모두 삭제 (새 이름과 겹치는 것도 안전 — 다음 add는 새 객체)
-              for (const s of selected) {
-                this.curSession!.removeScene(type, s.name);
-              }
-              const newScene =
-                type === 'scene'
-                  ? Scene.fromJSON(newJSON)
-                  : InpaintScene.fromJSON(newJSON);
-              if (newScene) {
+                const seenSlots = new Set<string>();
+                const allSlots: any[] = [];
+                for (const slot of allSlotsRaw) {
+                  const key = JSON.stringify(slot);
+                  if (!seenSlots.has(key)) {
+                    seenSlots.add(key);
+                    allSlots.push(slot);
+                  }
+                }
+                // 2. 이미지 합치기. 새 이름이 selected 안 이름이면 그 폴더 유지 (파일
+                // 이동 X). 그 외 selected의 png들을 새 폴더로 renameFile (server가
+                // mkdir 자동).
+                const keepIdx = selected.findIndex((s) => s.name === newName);
+                const allMainsSet = new Set<string>();
+                if (keepIdx >= 0) {
+                  for (const m of selected[keepIdx].mains) allMainsSet.add(m);
+                }
+                let movedCount = 0;
+                for (let i = 0; i < selected.length; i++) {
+                  if (i === keepIdx) continue;
+                  const oldScene = selected[i];
+                  const oldDir =
+                    'outs/' + sessionName + '/' + oldScene.name;
+                  let files: string[] = [];
+                  try {
+                    files = await backend.listFiles(oldDir);
+                  } catch {
+                    files = [];
+                  }
+                  const pngs = files.filter((f) => f.endsWith('.png'));
+                  for (const file of pngs) {
+                    try {
+                      await backend.renameFile(oldDir + '/' + file, newDir + '/' + file);
+                      movedCount++;
+                      if (oldScene.mains.includes(file)) allMainsSet.add(file);
+                    } catch (e) {
+                      console.warn('[mergeScenes] rename failed:', oldDir + '/' + file, e);
+                    }
+                  }
+                }
+                // 3. 새 Scene 객체 만들기
+                const base = selected[0];
+                const baseJSON: any = (base as any).toJSON();
+                const newJSON: any = {
+                  ...baseJSON,
+                  name: newName,
+                  slots: allSlots,
+                  mains: Array.from(allMainsSet),
+                  imageMap: [],
+                };
+                if (type === 'scene') {
+                  newJSON.sceneCharacterPrompts = allCharPrompts;
+                }
+                // 4. 원본 모두 삭제
+                for (const s of selected) {
+                  this.curSession!.removeScene(type, s.name);
+                }
+                // 5. 새 씬 추가
+                const newScene =
+                  type === 'scene'
+                    ? Scene.fromJSON(newJSON)
+                    : InpaintScene.fromJSON(newJSON);
+                if (!newScene) {
+                  appState.finishProgressDialog(pid, '✗ 통합 실패: 새 씬 생성 안 됨', false);
+                  return;
+                }
                 this.curSession!.addScene(newScene);
-                appState.pushMessage(
-                  `${selected.length}개 씬을 "${newName}"로 통합했습니다`,
+                // 6. imageService refresh (새 폴더의 파일 목록 갱신)
+                try {
+                  await imageService.refresh(this.curSession!, newScene);
+                } catch {}
+                const dedupCount = allSlotsRaw.length - allSlots.length;
+                appState.finishProgressDialog(
+                  pid,
+                  `✓ "${newName}"로 통합 완료 (이미지 ${movedCount}장 이동${dedupCount > 0 ? `, 중복 슬롯 ${dedupCount}개 제거` : ''})`,
+                  true,
                 );
-              } else {
-                appState.pushMessage('통합 실패: 새 씬 생성 안 됨');
+              } catch (e: any) {
+                appState.finishProgressDialog(
+                  pid,
+                  '✗ 통합 중 오류: ' + (e?.message || String(e)),
+                  false,
+                );
               }
             },
           });
