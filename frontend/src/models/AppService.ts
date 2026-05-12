@@ -1734,10 +1734,21 @@ export class AppState {
                     allCharPrompts.push(...j.sceneCharacterPrompts);
                   }
                 }
+                // 같은 슬롯 비교용 key — PromptPiece.id는 인스턴스마다 unique라
+                // JSON.stringify로 그대로 쓰면 모두 다름. id 제외 + characterPrompts
+                // 정렬해서 내용 기준 비교.
+                const slotKey = (slot: any[]): string =>
+                  JSON.stringify(
+                    (slot || []).map((p: any) => ({
+                      prompt: p?.prompt ?? '',
+                      characterPrompts: [...(p?.characterPrompts || [])].sort(),
+                      enabled: p?.enabled === true,
+                    })),
+                  );
                 const seenSlots = new Set<string>();
                 const allSlots: any[] = [];
                 for (const slot of allSlotsRaw) {
-                  const key = JSON.stringify(slot);
+                  const key = slotKey(slot);
                   if (!seenSlots.has(key)) {
                     seenSlots.add(key);
                     allSlots.push(slot);
