@@ -702,6 +702,9 @@ export async function getMainImage(
   scene: GenericScene,
   size: number,
 ) {
+  // 모바일 씬 카드 썸네일: 200_ fastcache 사용 (원본 1.6MB → 121KB, 14배 작음).
+  // 첫 진입 시 N장 다운로드 시간 1~2분 → 수초로 단축.
+  if (isMobile && size > 200) size = 200;
   if (scene.mains.length) {
     const path =
       imageService.getOutputDir(session, scene) + '/' + scene.mains[0];
