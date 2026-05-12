@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { apiUrl } from '../models/util';
 
 interface QueueJob {
   jobId: string;
@@ -14,7 +15,7 @@ interface QueueState {
   jobs?: QueueJob[];
 }
 
-const API = `${location.protocol}//${location.host}${import.meta.env.BASE_URL.replace(/\/$/, '')}/api`;
+const API = apiUrl('/api');
 
 // outputFilePath에서 표시용 라벨 추출
 // 예: "outs/프로젝트/씬이름/파일.png" → "씬이름"

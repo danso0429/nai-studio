@@ -5,6 +5,15 @@ export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Base path (e.g. '/nainai') with trailing slash stripped. Empty string when not reverse-proxied.
+export const API_BASE_PATH = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+// Absolute URL for an /api endpoint. Use when full origin is needed.
+// `path` should start with '/api/...' (or any path beginning with '/').
+export function apiUrl(path: string): string {
+  return location.protocol + '//' + location.host + API_BASE_PATH + path;
+}
+
 export async function getPlatform() {
   const platform = window.navigator.platform;
   if (platform.startsWith('Win')) return 'windows';

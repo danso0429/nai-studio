@@ -39,7 +39,7 @@ import {
   Scene,
   Session,
 } from './types';
-import { extractPromptDataFromBase64, getFirstFile } from './util';
+import { apiUrl, extractPromptDataFromBase64, getFirstFile } from './util';
 import { DriveRetryStatus, ImageOptimizeMethod } from '../backend';
 import { v4 } from 'uuid';
 import { Resolution, resolutionMap } from '../backends/imageGen';
@@ -637,9 +637,7 @@ export class AppState {
             let syncOk = false;
             try {
               const r = await fetch(
-                (location.protocol + '//' + location.host) +
-                  import.meta.env.BASE_URL.replace(/\/$/, '') +
-                  '/api/fs/sync-exports',
+                apiUrl('/api/fs/sync-exports'),
                 {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -685,9 +683,7 @@ export class AppState {
             let syncOk = false;
             try {
               const r = await fetch(
-                (location.protocol + '//' + location.host) +
-                  import.meta.env.BASE_URL.replace(/\/$/, '') +
-                  '/api/fs/sync-exports',
+                apiUrl('/api/fs/sync-exports'),
                 {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -968,7 +964,7 @@ export class AppState {
       try {
         // Phase 7A: tar 파일 경로를 body로 전달 → 서버가 단일 파일만 업로드
         const r = await fetch(
-          (location.protocol + '//' + location.host) + import.meta.env.BASE_URL.replace(/\/$/, '') + '/api/fs/sync-exports',
+          apiUrl('/api/fs/sync-exports'),
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

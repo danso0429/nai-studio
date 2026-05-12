@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { apiUrl } from '../models/util';
 
 interface VersionInfo {
   current: string | null;
@@ -16,7 +17,7 @@ interface BuildInfo {
   buildTime?: string;
 }
 
-const API = `${location.protocol}//${location.host}${import.meta.env.BASE_URL.replace(/\/$/, '')}/api`;
+const API = apiUrl('/api');
 
 let _cachedBuildInfo: BuildInfo | null = null;
 let _cachedVersionInfo: VersionInfo | null = null;
