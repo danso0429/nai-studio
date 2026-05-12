@@ -113,14 +113,64 @@ function recordQueueError(jobId, error, retried, meta) {
   }
 }
 
-// ─── Timing history (ring buffer, 최대 1만개) ─────────────────────
-let timingHistory = []; // [{finishedAt: ts, durationMs: number}, ...]
-const TIMING_HISTORY_MAX = 10000;
+// ─── Timing history (raw, 2일 retention) + aggregate stats (영구) ──
+// raw: [{finishedAt: ts, durationMs: number}, ...]. 시각 패턴 분석/sparkline용.
+// stats: 2시간 단위 12개 bucket + allTime aggregate. raw가 prune돼도 영구 보존.
+let timingHistory = [];
+const TIMING_RETENTION_MS = 2 * 24 * 60 * 60 * 1000; // 2일
+const TIMING_HISTORY_HARD_CAP = 100000; // 안전망 (정상은 age 기반 prune)
 const TIMING_HISTORY_FILE = path.join(DATA_DIR, '.queue_timing.json');
+
+// 12 bucket = 2시간 단위 (0=[0,2), 1=[2,4), ..., 11=[22,24)). KST 기준 (본인 시간대).
+const TIMING_BUCKET_COUNT = 12;
+const TIMING_BUCKET_HOURS = 24 / TIMING_BUCKET_COUNT;
+const TIMING_TZ = 'Asia/Seoul';
+const TIMING_TZ_OFFSET_MS = 9 * 60 * 60 * 1000; // KST = UTC+9
+function bucketIndexFor(ts) {
+  // 서버는 UTC, 본인은 KST. ts에 KST offset을 가산하고 UTC 메서드로 시각 추출 → KST hour.
+  return Math.floor(new Date(ts + TIMING_TZ_OFFSET_MS).getUTCHours() / TIMING_BUCKET_HOURS);
+}
+let timingStats = {
+  buckets: Array.from({ length: TIMING_BUCKET_COUNT }, () => ({ count: 0, totalMs: 0 })),
+  allTime: { count: 0, totalMs: 0 },
+  tz: TIMING_TZ,
+};
+const TIMING_STATS_FILE = path.join(DATA_DIR, '.queue_timing_stats.json');
+
+function pruneTimingHistory() {
+  const cutoff = Date.now() - TIMING_RETENTION_MS;
+  let removed = 0;
+  while (timingHistory.length > 0 && timingHistory[0].finishedAt < cutoff) {
+    timingHistory.shift();
+    removed++;
+  }
+  // 하드 캡 (이론상 도달 어렵지만 안전망)
+  while (timingHistory.length > TIMING_HISTORY_HARD_CAP) {
+    timingHistory.shift();
+    removed++;
+  }
+  return removed;
+}
+
+function recordTiming(finishedAt, durationMs) {
+  timingHistory.push({ finishedAt, durationMs });
+  const idx = bucketIndexFor(finishedAt);
+  timingStats.buckets[idx].count++;
+  timingStats.buckets[idx].totalMs += durationMs;
+  timingStats.allTime.count++;
+  timingStats.allTime.totalMs += durationMs;
+  pruneTimingHistory();
+}
+
 let _timingSaveTimeout = null;
 function _writeTimingHistorySync() {
   try {
     require('fs').writeFileSync(TIMING_HISTORY_FILE, JSON.stringify(timingHistory));
+  } catch {}
+}
+function _writeTimingStatsSync() {
+  try {
+    require('fs').writeFileSync(TIMING_STATS_FILE, JSON.stringify(timingStats));
   } catch {}
 }
 function saveTimingHistory() {
@@ -128,6 +178,7 @@ function saveTimingHistory() {
   _timingSaveTimeout = setTimeout(() => {
     _timingSaveTimeout = null;
     _writeTimingHistorySync();
+    _writeTimingStatsSync();
   }, 5000);
 }
 function flushTimingHistory() {
@@ -136,15 +187,55 @@ function flushTimingHistory() {
     _timingSaveTimeout = null;
   }
   _writeTimingHistorySync();
+  _writeTimingStatsSync();
 }
 function loadTimingHistory() {
+  // raw
   try {
     const raw = require('fs').readFileSync(TIMING_HISTORY_FILE, 'utf8');
     timingHistory = JSON.parse(raw) || [];
-    if (timingHistory.length > 0) {
-      console.log('[NAI Studio] Loaded ' + timingHistory.length + ' timing history entries');
-    }
   } catch {}
+  // stats (영구). raw에서 재계산하지 않음 — raw는 prune되니까.
+  // 단, tz 마커가 없거나 다르면 raw에서 재집계 (timezone 변경 마이그레이션).
+  let needsBootstrap = false;
+  try {
+    const raw = require('fs').readFileSync(TIMING_STATS_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.buckets) && parsed.buckets.length === TIMING_BUCKET_COUNT && parsed.tz === TIMING_TZ) {
+      timingStats = {
+        buckets: parsed.buckets.map(b => ({ count: b.count || 0, totalMs: b.totalMs || 0 })),
+        allTime: { count: parsed.allTime?.count || 0, totalMs: parsed.allTime?.totalMs || 0 },
+        tz: TIMING_TZ,
+      };
+    } else {
+      console.log('[NAI Studio] timing stats tz mismatch (was ' + (parsed?.tz || 'none') + ', now ' + TIMING_TZ + ') — rebuilding from raw');
+      needsBootstrap = true;
+    }
+  } catch {
+    needsBootstrap = true;
+  }
+  if (needsBootstrap && timingHistory.length > 0) {
+    // raw에서 KST bucket으로 재집계
+    timingStats = {
+      buckets: Array.from({ length: TIMING_BUCKET_COUNT }, () => ({ count: 0, totalMs: 0 })),
+      allTime: { count: 0, totalMs: 0 },
+      tz: TIMING_TZ,
+    };
+    for (const e of timingHistory) {
+      const idx = bucketIndexFor(e.finishedAt);
+      timingStats.buckets[idx].count++;
+      timingStats.buckets[idx].totalMs += e.durationMs;
+      timingStats.allTime.count++;
+      timingStats.allTime.totalMs += e.durationMs;
+    }
+    _writeTimingStatsSync();
+    console.log('[NAI Studio] Bootstrapped timing stats from raw (' + timingHistory.length + ' entries, tz=' + TIMING_TZ + ')');
+  }
+  // 로드 직후 prune (서버 다운 동안 2일 경과한 entry 제거)
+  const removed = pruneTimingHistory();
+  if (timingHistory.length > 0 || timingStats.allTime.count > 0) {
+    console.log('[NAI Studio] Loaded timing: raw=' + timingHistory.length + ' (pruned ' + removed + '), aggregate=' + timingStats.allTime.count);
+  }
 }
 
 // ─── Completed jobs (ring buffer + 4h retention) — queue.html 완료 탭용 ───
@@ -764,9 +855,8 @@ async function processQueue() {
       queueStats.totalProcessTimeMs += durationMs;
       queueStats.completedWithTiming++;
       queueStats.completed++;
-      // ring buffer 누적
-      timingHistory.push({ finishedAt: Date.now(), durationMs });
-      if (timingHistory.length > TIMING_HISTORY_MAX) timingHistory.shift();
+      // raw + aggregate (2시간 bucket + allTime). raw는 2일 retention, aggregate 영구.
+      recordTiming(Date.now(), durationMs);
       saveTimingHistory();
       // 완료 jobs (queue.html 완료 탭용). 4시간 retention.
       completedJobs.push({
@@ -973,6 +1063,17 @@ app.get('/api/queue/status', async (req, res) => {
     avgProcessTimeMs: Math.round(avgMs),
     recentAvgMs: Math.round(recentAvgMs),
     timingHistoryCount: timingHistory.length,
+    // 영구 aggregate. queueStats는 일시적이라(큐 idle시 휘발 가능) timingStats를 신뢰 소스로 사용.
+    allTimeCount: timingStats.allTime.count,
+    allTimeAvgMs: timingStats.allTime.count > 0
+      ? Math.round(timingStats.allTime.totalMs / timingStats.allTime.count)
+      : 0,
+    // 현재 시간대(2h bucket) 평균 — 추세 vs 현재 비교용
+    currentBucket: bucketIndexFor(Date.now()),
+    currentBucketAvgMs: (() => {
+      const b = timingStats.buckets[bucketIndexFor(Date.now())];
+      return b.count > 0 ? Math.round(b.totalMs / b.count) : 0;
+    })(),
     etaMs,
     recentErrors: queueErrorHistory.slice(-10), // 최근 10개 (queue.html 표시용)
   });
@@ -1052,10 +1153,33 @@ app.get('/api/queue/completed', (req, res) => {
   });
 });
 
-// ─── Raw timing history (분석용, 본인이 시간대별 패턴 보고 싶을 때) ───
+// ─── Raw timing history + aggregate stats ────────────────────────
+// raw entries: 최근 2일 (sparkline용). stats: 2시간 단위 12 bucket + allTime, 영구 누적.
 
 app.get('/api/queue/timing-history', (req, res) => {
-  res.json({ entries: timingHistory, count: timingHistory.length, maxSize: TIMING_HISTORY_MAX });
+  // 응답 전 한번 prune (장시간 idle 후 호출되면 stale entry가 섞여있을 수 있음)
+  pruneTimingHistory();
+  const buckets = timingStats.buckets.map((b, i) => ({
+    index: i,
+    hourStart: i * TIMING_BUCKET_HOURS,
+    hourEnd: (i + 1) * TIMING_BUCKET_HOURS,
+    count: b.count,
+    avgMs: b.count > 0 ? Math.round(b.totalMs / b.count) : 0,
+  }));
+  res.json({
+    entries: timingHistory,
+    count: timingHistory.length,
+    retentionMs: TIMING_RETENTION_MS,
+    stats: {
+      buckets,
+      bucketHours: TIMING_BUCKET_HOURS,
+      currentBucket: bucketIndexFor(Date.now()),
+      allTimeCount: timingStats.allTime.count,
+      allTimeAvgMs: timingStats.allTime.count > 0
+        ? Math.round(timingStats.allTime.totalMs / timingStats.allTime.count)
+        : 0,
+    },
+  });
 });
 
 app.post('/api/queue/cancel', (req, res) => {

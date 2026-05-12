@@ -563,14 +563,27 @@
             <div class="label">완료 / 실패</div>
             <div class="value">${d.completed || 0} <span class="muted">/</span> <span class="${d.failed > 0 ? 'red' : 'muted'}">${d.failed || 0}</span></div>
           </div>
-          <div class="card" style="cursor: pointer;" onclick="window.toggleTimingHistory()" title="클릭해서 최근 처리 기록 보기">
+          <div class="card" style="cursor: pointer;" onclick="window.toggleTimingHistory()" title="클릭해서 시간대별 통계 보기">
             <div class="label">평균 (누적) ${showTimingHistory ? '▼' : '▶'}</div>
-            <div class="value">${avg > 0 ? fmtDur(avg) : '<span class="muted">측정 전</span>'}</div>
-            <div class="small">기록 ${d.timingHistoryCount || 0}개 / 1만</div>
+            <div class="value">${(d.allTimeAvgMs || avg) > 0 ? fmtDur(d.allTimeAvgMs || avg) : '<span class="muted">측정 전</span>'}</div>
+            <div class="small">총 ${d.allTimeCount != null ? d.allTimeCount.toLocaleString() : '-'}건 · raw ${d.timingHistoryCount || 0}개 (2일)</div>
           </div>
           <div class="card">
             <div class="label">평균 (최근 100건)</div>
             <div class="value">${d.recentAvgMs > 0 ? fmtDur(d.recentAvgMs) : '<span class="muted">측정 전</span>'}</div>
+            ${(() => {
+              // 현재 시간대 평균 대비 빠름/느림
+              const cur = d.recentAvgMs || 0;
+              const bucket = d.currentBucketAvgMs || 0;
+              if (cur <= 0 || bucket <= 0) return '';
+              const ratio = cur / bucket;
+              const pct = Math.round((ratio - 1) * 100);
+              if (Math.abs(pct) < 3) return '<div class="small muted">현 시간대 평균과 비슷</div>';
+              const fast = pct < 0;
+              const color = fast ? '#86efac' : '#fbbf24';
+              const sign = fast ? '' : '+';
+              return '<div class="small" style="color:' + color + ';">현 시간대 대비 ' + sign + pct + '% (' + (fast ? '빠름' : '느림') + ')</div>';
+            })()}
           </div>
           <div class="card full">
             <div class="label">남은 시간 (최근 평균 기준)</div>
@@ -595,29 +608,72 @@
           </div>
         </div>
         ${showTimingHistory ? (() => {
-          if (!timingHistoryData || !timingHistoryData.entries || timingHistoryData.entries.length === 0) {
-            return '<div class="card full" style="margin-top:8px;"><div class="label">최근 처리 기록</div><div class="value muted">기록 없음</div></div>';
+          const parts = [];
+          // 시간대별(2h bucket) 통계 — 영구 누적
+          if (timingHistoryData && timingHistoryData.stats && timingHistoryData.stats.buckets) {
+            const s = timingHistoryData.stats;
+            const buckets = s.buckets;
+            const maxAvg = Math.max(...buckets.map(b => b.avgMs), 1);
+            // 막대 위 평균 텍스트 + 아래 시각 라벨 자리 확보. 단위는 절대 px로 두고 SVG 자체는 가로 100% 스케일.
+            const chartW = 600, chartH = 80, topPad = 14, bottomPad = 16, gap = 4;
+            const barW = (chartW - gap * (buckets.length - 1)) / buckets.length;
+            const bucketBars = buckets.map((b, i) => {
+              const x = i * (barW + gap);
+              const h = b.avgMs > 0 ? (b.avgMs / maxAvg) * chartH : 0;
+              const isCurrent = i === s.currentBucket;
+              const fill = isCurrent ? '#fbbf24' : (b.count > 0 ? '#4a9eff' : '#2a2e36');
+              const opacity = b.count > 0 ? 0.85 : 0.3;
+              const hourStart = String(i * s.bucketHours).padStart(2, '0');
+              const hourEnd = String(i * s.bucketHours + s.bucketHours).padStart(2, '0');
+              const avgLabel = b.avgMs > 0 ? fmtDur(b.avgMs) : '-';
+              const countLabel = b.count > 0 ? b.count.toLocaleString() + '건' : '없음';
+              const valueText = b.avgMs > 0
+                ? '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (topPad + chartH - h - 3).toFixed(1) + '" text-anchor="middle" font-size="9" fill="' + (isCurrent ? '#fbbf24' : '#c0c4cc') + '">' + avgLabel + '</text>'
+                : '';
+              return '<g>'
+                + '<rect x="' + x.toFixed(1) + '" y="' + (topPad + chartH - h).toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" fill="' + fill + '" opacity="' + opacity + '">'
+                + '<title>' + hourStart + ':00~' + hourEnd + ':00 · ' + countLabel + ' · 평균 ' + avgLabel + '</title>'
+                + '</rect>'
+                + valueText
+                + '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (topPad + chartH + 11) + '" text-anchor="middle" font-size="9" fill="' + (isCurrent ? '#fbbf24' : '#6a6f78') + '">' + hourStart + '</text>'
+                + '</g>';
+            }).join('');
+            const totalSvgH = topPad + chartH + bottomPad;
+            parts.push(
+              '<div class="card full" style="margin-top:8px;">'
+              + '<div class="label">시간대별 평균 (KST 2시간 단위, 영구 누적 ' + s.allTimeCount.toLocaleString() + '건)</div>'
+              + '<svg viewBox="0 0 ' + chartW + ' ' + totalSvgH + '" preserveAspectRatio="none" style="width:100%; height:140px; margin:8px 0; background:#1a1d23; border-radius:4px;">'
+              + bucketBars
+              + '</svg>'
+              + '<div class="small muted">노란색 = 현재 시간대 (KST) · 막대 위 숫자 = 평균 소요시간</div>'
+              + '</div>'
+            );
           }
-          const entries = timingHistoryData.entries.slice(-200).reverse();
-          // sparkline (vertical bars) — 최근 N개 duration 추세
-          const maxMs = Math.max(...entries.map(e => e.durationMs));
-          const sparkW = 600, sparkH = 40, n = entries.length;
-          const bars = entries.slice().reverse().map((e, i) => {
-            const x = (i / n) * sparkW;
-            const h = maxMs > 0 ? (e.durationMs / maxMs) * sparkH : 0;
-            return '<rect x="' + x.toFixed(1) + '" y="' + (sparkH - h).toFixed(1) + '" width="' + (sparkW / n - 0.5).toFixed(1) + '" height="' + h.toFixed(1) + '" fill="#4a9eff" opacity="0.7"/>';
-          }).join('');
-          const listHtml = entries.map(e => {
-            const t = new Date(e.finishedAt).toLocaleTimeString();
-            return '<div style="display:flex; justify-content:space-between; padding:3px 8px; border-bottom:1px solid #2a2e36; font-size:11px;"><span style="color:#8a8f98;">' + t + '</span><span>' + fmtDur(e.durationMs) + '</span></div>';
-          }).join('');
-          return '<div class="card full" style="margin-top:8px;">'
-            + '<div class="label">최근 처리 기록 (총 ' + timingHistoryData.count + '개, 최근 200개 표시)</div>'
-            + '<svg viewBox="0 0 ' + sparkW + ' ' + sparkH + '" preserveAspectRatio="none" style="width:100%; height:40px; margin:8px 0; background:#1a1d23; border-radius:4px;">'
-            + bars
-            + '</svg>'
-            + '<div style="max-height:200px; overflow-y:auto; background:#1a1d23; border-radius:4px;">' + listHtml + '</div>'
-            + '</div>';
+          // 최근 raw 기록 (sparkline + list)
+          if (!timingHistoryData || !timingHistoryData.entries || timingHistoryData.entries.length === 0) {
+            parts.push('<div class="card full" style="margin-top:8px;"><div class="label">최근 처리 기록 (2일)</div><div class="value muted">기록 없음</div></div>');
+          } else {
+            const entries = timingHistoryData.entries.slice(-200).reverse();
+            const maxMs = Math.max(...entries.map(e => e.durationMs));
+            const sparkW = 600, sparkH = 40, n = entries.length;
+            const bars = entries.slice().reverse().map((e, i) => {
+              const x = (i / n) * sparkW;
+              const h = maxMs > 0 ? (e.durationMs / maxMs) * sparkH : 0;
+              return '<rect x="' + x.toFixed(1) + '" y="' + (sparkH - h).toFixed(1) + '" width="' + (sparkW / n - 0.5).toFixed(1) + '" height="' + h.toFixed(1) + '" fill="#4a9eff" opacity="0.7"/>';
+            }).join('');
+            const listHtml = entries.map(e => {
+              const t = new Date(e.finishedAt).toLocaleTimeString();
+              return '<div style="display:flex; justify-content:space-between; padding:3px 8px; border-bottom:1px solid #2a2e36; font-size:11px;"><span style="color:#8a8f98;">' + t + '</span><span>' + fmtDur(e.durationMs) + '</span></div>';
+            }).join('');
+            parts.push('<div class="card full" style="margin-top:8px;">'
+              + '<div class="label">최근 처리 기록 (raw ' + timingHistoryData.count + '개, 최근 200개 표시)</div>'
+              + '<svg viewBox="0 0 ' + sparkW + ' ' + sparkH + '" preserveAspectRatio="none" style="width:100%; height:40px; margin:8px 0; background:#1a1d23; border-radius:4px;">'
+              + bars
+              + '</svg>'
+              + '<div style="max-height:200px; overflow-y:auto; background:#1a1d23; border-radius:4px;">' + listHtml + '</div>'
+              + '</div>');
+          }
+          return parts.join('');
         })() : ''}
         ${(d.recentErrors && d.recentErrors.length > 0) ? `
           <h2 class="section-h">최근 NAI 큐 에러 (최대 10개)</h2>
