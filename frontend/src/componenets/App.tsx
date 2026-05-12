@@ -54,6 +54,7 @@ import { AppContextMenu } from './AppContextMenu';
 import { configure } from 'mobx';
 import { ExternalImageView } from './ExternalImageView';
 import FindReplaceDialog from './FindReplaceDialog';
+import SceneImporterDialog from './SceneImporterDialog';
 import { BuildInfoBadge } from './BuildInfo';
 configure({
   enforceActions: 'never',
@@ -493,6 +494,7 @@ export const App = observer(() => {
           {appState.curSession && <PieceEditor />}
         </ModalOverlay>
         <FindReplaceDialog />
+        <SceneImporterDialog />
         {dragOverlay && (
           <div
             className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none"

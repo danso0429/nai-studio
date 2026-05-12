@@ -220,6 +220,9 @@ export class AppState {
   // 찾기 및 변환 다이얼로그
   @observable accessor findReplaceOpen: boolean = false;
 
+  // 씬 일괄 임포트 다이얼로그
+  @observable accessor sceneImporterOpen: boolean = false;
+
   // 단축키 시스템용 상태
   @observable accessor floatViewCount: number = 0;
   @observable accessor resultViewerOpen: boolean = false;
@@ -254,6 +257,16 @@ export class AppState {
   @action
   closeFindReplace() {
     this.findReplaceOpen = false;
+  }
+
+  @action
+  openSceneImporter() {
+    this.sceneImporterOpen = true;
+  }
+
+  @action
+  closeSceneImporter() {
+    this.sceneImporterOpen = false;
   }
 
   // 좌측 패널 상태

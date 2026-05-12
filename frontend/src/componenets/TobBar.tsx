@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { FaFileImport } from 'react-icons/fa';
 import { BuildInfoBadge } from './BuildInfo';
 import ConfigScreen from './ConfigScreen';
 import SessionSelect from './SessionSelect';
+import { appState } from '../models/AppService';
 import {
   loginService,
   backend,
@@ -66,6 +68,14 @@ const TobBar = () => {
           </>
         )}
       </p>
+      <button
+        className="titlebar-no-drag round-button back-gray flex items-center gap-1"
+        onClick={() => appState.openSceneImporter()}
+        title="씬 일괄 임포트"
+      >
+        <FaFileImport size={12} />
+        <span className="hidden md:inline">씬 임포트</span>
+      </button>
       <button
         className={`titlebar-no-drag round-button back-sky`}
         onClick={() => {
