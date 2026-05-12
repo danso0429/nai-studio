@@ -3,14 +3,15 @@
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm_NC_1.0.0-blue.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)](https://ubuntu.com/)
-[![Status](https://img.shields.io/badge/Status-Alpha%20%E2%80%94%20v1.5.0-orange)](https://github.com/danso0429/nai-studio/releases)
-
-> **🧪 알파 테스트 중 (v1.5.0-alpha)** — 소수의 테스터에게 먼저 공개합니다. PC/모바일 사용 중 문제나 개선 의견 환영해요. v1.7~1.10에서 베타로, v2.0.0에서 정식 출시 예정.
 
 [SDStudio](https://github.com/Dd154663/SDStudio) (Electron 데스크톱 앱)를 **웹 서버**로 이식한 프로젝트입니다.
 자기 서버에 한 번 설치하면 PC·태블릿·스마트폰 어디서든 브라우저로 접속해 NovelAI 이미지 생성을 사용할 수 있어요. **이미지 생성은 서버에서 처리되니까 브라우저나 폰을 닫아도 대량 생성이 멈추지 않아요.**
 
 > 이 프로젝트는 [Dd154663/SDStudio](https://github.com/Dd154663/SDStudio)의 fork이며, 원작 [sunho/SDStudio](https://github.com/sunho/SDStudio)에서 파생된 프론트엔드를 사용합니다.
+
+> ### 🤖 막히면 LLM에게 물어보세요
+>
+> 이 프로젝트는 **Claude + Claude Code의 100% 도움으로 제작**됐어요. 설치/사용 중 막히는 부분이 있으면 Claude·ChatGPT·Gemini 같은 LLM에게 **에러 메시지·명령어·이 README를 그대로 붙여넣고** 물어보면 거의 다 풀려요. 코딩 경험 없어도 LLM 안내 따라가면 충분히 해결됩니다.
 
 ![메인 화면](https://raw.githubusercontent.com/Dd154663/SDStudio/main/images/img1.png)
 
@@ -18,13 +19,13 @@
 
 ## 누가 쓰면 좋아요?
 
-- 본인 NovelAI 계정 가지고 있고
-- 모바일/태블릿에서도 NAI 쓰고 싶고
+- 본인 **NovelAI 계정 (Opus 티어 필수)** 가지고 있고
+- 모바일/태블릿에서도 SDStudio 쓰고 싶고
 - 폰 화면 꺼두고 잠들어도 N장 생성이 진행됐으면 하고
 - 큐가 어떻게 진행되고 있는지 다른 페이지에서 모니터링하고 싶고
 - 직접 서버에 설치할 의지가 있는 사람
 
-코딩 처음이어도 가이드 따라하면 30분~1시간 안에 동작합니다.
+코딩 처음이어도 가이드 따라하면 30분~1시간 안에 동작합니다. 막히면 LLM에게 물어보세요.
 
 ---
 
@@ -61,24 +62,24 @@
 
 ### 🌐 웹/모바일 전용 추가 기능
 
-- **🖥️ 서버 큐 백그라운드 처리** — 브라우저 닫아도, 폰 꺼도 서버가 계속 처리. 다시 열면 진행 상태 자동 복원 (v1.5.0)
+- **🖥️ 서버 큐 백그라운드 처리** — 브라우저 닫아도, 폰 꺼도 서버가 계속 처리. 다시 열면 진행 상태 자동 복원
 - **📱 어디서든 접속** — Tailscale로 PC·모바일에서 동일 서버에 접근
 - **🔄 자동 업데이트 알림** — 새 버전 출시 시 우측 상단 / 모바일 알약에 표시. 알림 클릭 → 모달에 정확한 업데이트 명령
 - **📊 상단 진행 알약** — 진행률 + 예상 남은 시간 표시. 클릭 시 task 리스트
-- **🎚️ 개수 컨트롤** — ◀▶ 버튼으로 ±1, 텍스트 입력도 가능 (v1.5.0)
-- **📁 프로젝트 폴더 분류** — 폴더로 프로젝트 카테고리화 (Phase 8.1~8.3)
-- **🗂️ 내보내기 프리셋** — 자주 쓰는 내보내기 설정 (전체/즐겨찾기, 형식, 크기, 구분자) 저장. 한 번 설정하고 다이얼로그 없이 즉시 내보내기. 최대 3개 (v1.5.0)
-- **☁️ Google Drive 자동 동기화 (선택)** — rclone 설정하면 내보내기 결과를 즉시 업로드. 실패 시 6회 자동 재시도. 좌측 하단 위젯에서 진행 확인 (v1.5.0)
-- **🚀 Drive 병렬 업로드** — 씬 이름 / 프로젝트 / 이미지 내보내기 동시 처리 (v1.5.0)
-- **🔍 태그 자동완성 split 레이아웃** — 모바일 세로 = 상하 분할, 가로/PC = 좌우 분할 (v1.5.0)
+- **🎚️ 개수 컨트롤** — ◀▶ 버튼으로 ±1, 텍스트 입력도 가능
+- **📁 프로젝트 폴더 분류** — 폴더로 프로젝트 카테고리화
+- **🗂️ 내보내기 프리셋** — 자주 쓰는 내보내기 설정 (전체/즐겨찾기, 형식, 크기, 구분자) 저장. 한 번 설정하고 다이얼로그 없이 즉시 내보내기. 최대 3개
+- **☁️ Google Drive 자동 동기화 (선택)** — rclone 설정하면 내보내기 결과를 즉시 업로드. 실패 시 6회 자동 재시도. 좌측 하단 위젯에서 진행 확인
+- **🚀 Drive 병렬 업로드** — 씬 이름 / 프로젝트 / 이미지 내보내기 동시 처리
+- **🔍 태그 자동완성 split 레이아웃** — 모바일 세로 = 상하 분할, 가로/PC = 좌우 분할
 - **⏸️ 큐 일시정지/재개** — 진행 중 stop 누르면 in-flight 후 일시정지. run 누르면 재개. 상태는 disk에 영속화 (서버 재시작해도 큐 유지)
-- **📈 /queue.html 진행 페이지** — 별도 페이지에서 큐 상태, NAI 에러 history, Drive 업로드, 최근 처리 시간 sparkline 표시 (v1.5.0)
+- **📈 /queue.html 진행 페이지** — 별도 페이지에서 큐 상태, NAI 에러 history, Drive 업로드, 최근 처리 시간 sparkline 표시
 
 ---
 
 ## SDStudio PC 버전과의 차이점
 
-> 기준: SDStudio Remote **v1.5.0-alpha** (SDStudio v4.7.1 기반)
+> 기준: SDStudio Remote **v1.5.0** (SDStudio v4.7.1 기반)
 
 | 항목 | SDStudio PC (v4.7.1) | SDStudio Remote |
 | --- | --- | --- |
@@ -119,7 +120,7 @@
 
 - **리눅스 서버** (Ubuntu 22.04+ 추천. ARM64 OK)
   - 무료로 받으려면 **Oracle Cloud Always Free**의 ARM Ampere A1 추천 — 4 vCPU + 24GB RAM 무료 (이 프로젝트가 실제로 동작 중인 환경)
-  - "Oracle Cloud 무료 서버 만들기" 같은 키워드로 가이드 쉽게 찾을 수 있어요
+  - 한국어 가이드: [아카라이브 — 오라클 클라우드 무료 서버 가이드](https://arca.live/b/characterai/137016430) (일부 부분은 본 프로젝트와 다를 수 있어요)
 - **NovelAI 계정** + Persistent API Token (받는 방법은 아래 step 3에)
 - **선택**: Tailscale 계정 (외부 접속용, 무료)
 
@@ -233,11 +234,30 @@ sudo tailscale serve --bg --https=443 --set-path=/studio http://localhost:6247
 
 ### Step 7. 태그 자동완성 활성화 (선택)
 
-Danbooru 태그 DB(`db.csv`)를 `data/`에 두면 자동완성이 켜져요. SDStudio PC 버전에 포함된 db.csv 그대로 사용 가능.
+Danbooru 태그 DB(`db.csv`)를 서버 `~/nai-studio/data/` 폴더에 두면 자동완성이 켜져요.
+
+**db.csv 받는 법** — SDStudio PC 버전(Windows)에 포함된 파일 그대로 사용 가능:
+
+1. Windows PC에서 SDStudio Electron 앱 데이터 폴더 열기:
+   - 경로: `%APPDATA%\SDStudio\SDStudio\db.csv`
+   - 또는 윈도우 키 → "실행" → `%APPDATA%\SDStudio\SDStudio` 입력 → Enter
+2. `db.csv` 파일을 본인 PC 어딘가에 복사
+3. SCP/SFTP 등으로 서버에 업로드. WinSCP 같은 GUI 툴 또는 명령어:
 
 ```bash
-cp /경로/to/sdstudio/db.csv data/db.csv
+# 본인 PC (Windows PowerShell 또는 Mac/Linux terminal)에서:
+scp 본인PC의db.csv경로 ubuntu@서버주소:~/nai-studio/data/db.csv
+
+# 예) Windows PowerShell:
+scp "$env:APPDATA\SDStudio\SDStudio\db.csv" ubuntu@1.2.3.4:~/nai-studio/data/db.csv
 ```
+
+서버에 이미 있는 db.csv를 옮기는 경우엔 서버 SSH 안에서:
+```bash
+mv ~/어딘가/db.csv ~/nai-studio/data/db.csv
+```
+
+db.csv 없어도 SDStudio Remote는 동작합니다 (자동완성 기능만 비활성화).
 
 ### Step 8. SDStudio PC 데이터 이전 (선택)
 
@@ -422,16 +442,12 @@ Safari 보안 정책이라 직접 다운로드 막혀있어요. Drive 동기화 
 전체 변경 이력은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
 
 **최근 변경 (요약)**:
-- **v1.5.0-alpha** (Phase 9 + post-9, 2026-05): 클라 → 서버 큐 통합 (mirror, 폰 닫아도 진행), 내보내기 프리셋, 개수 ◀▶ 컨트롤, 태그 자동완성 split layout, queue.html sparkline + 친절 에러, Drive 병렬 업로드, rclone remote 환경변수화, 큐 cancel disk 동기화 등 다수
-- **v1.5.0-preview.1~6** (Phase E~F, 2026-05): Progress UI 알약 통합, Drive 재시도 backoff, zip ENOENT skip, 이미지 내보내기 server pipeline (HTTP 202 + WS), 알림 색 통일, mirror 인프라
-- **v1.4.x** (Phase 7C~9, 2026-05): PolyForm Noncommercial 1.0.0 라이센스, 환경변수 분리, 폴더 시스템, 대량 삭제 병렬화, update.sh 자동 감지
-- **v1.2.0~v1.3.x** (Phase 6~7A, 2026-05): README 풀 리뉴얼, Drive 자동 동기화, 자동 업데이트 알림
-- **v1.0.0** (Phase 5, 2026-05): NAI v4.5 검증 후 첫 정식 출시
-- **v1.0.0 이전** (Phase 1~4, 2026-04~05): 인프라 구축, UI 이식, 큐 시스템
-
-### 다음 단계 (로드맵)
-- **v1.7~1.10 (베타)**: 알파 테스터 피드백 + 안정성 강화
-- **v2.0.0 (정식)**: 모든 알려진 이슈 해결 + 다중 사용자/인증 검토
+- **v1.5.0** (2026-05-12): 클라 → 서버 큐 통합 (mirror, 폰 닫아도 진행), 내보내기 프리셋, 개수 ◀▶ 컨트롤, 태그 자동완성 split layout, queue.html sparkline + 친절 에러, Drive 병렬 업로드, rclone remote 환경변수화, 큐 cancel disk 동기화
+- **v1.5.0-preview.1~6** (2026-05): Progress UI 알약 통합, Drive 재시도 backoff, zip ENOENT skip, 이미지 내보내기 server pipeline (HTTP 202 + WS), 알림 색 통일, mirror 인프라
+- **v1.4.x** (2026-05): PolyForm Noncommercial 1.0.0 라이센스, 환경변수 분리, 폴더 시스템, 대량 삭제 병렬화, update.sh 자동 감지
+- **v1.2.0~v1.3.x** (2026-05): README 풀 리뉴얼, Drive 자동 동기화, 자동 업데이트 알림
+- **v1.0.0** (2026-05): NAI v4.5 검증 후 첫 정식 출시
+- **v1.0.0 이전** (2026-04~05): 인프라 구축, UI 이식, 큐 시스템
 
 ---
 
@@ -461,12 +477,12 @@ CC 라이센스는 코드용으로 부적절하고 ND 조항이 fork 권장 워�
 
 - **원작**: [Dd154663/SDStudio](https://github.com/Dd154663/SDStudio) (MIT) — Electron 데스크톱 앱
 - **원원작**: [sunho/SDStudio](https://github.com/sunho/SDStudio) (MIT) — 프론트엔드 원본
-- **본 fork (서버 이식 + Phase 1~9+)**: [danso0429/nai-studio](https://github.com/danso0429/nai-studio) (PolyForm Noncommercial 1.0.0)
+- **본 fork (서버 이식 + 운영 안정화)**: [danso0429/nai-studio](https://github.com/danso0429/nai-studio) (PolyForm Noncommercial 1.0.0)
 
 원본 MIT 부분의 attribution은 [LICENSE-NOTICES.md](LICENSE-NOTICES.md)를 보세요.
 
 ### 기여
 
-알파 테스트 단계라 피드백·이슈 환영합니다. PR 보내시는 분은 본인 기여가 PolyForm Noncommercial 1.0.0 하에 라이센스됨을 동의하는 것으로 간주합니다.
+피드백·이슈 환영합니다. PR 보내시는 분은 본인 기여가 PolyForm Noncommercial 1.0.0 하에 라이센스됨을 동의하는 것으로 간주합니다.
 
 이슈, 버그 리포트, 기능 제안은 [GitHub Issues](https://github.com/danso0429/nai-studio/issues)로 부탁드립니다.
