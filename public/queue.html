@@ -221,6 +221,37 @@
       .replace(/'/g, '&#39;');
   }
 
+  // 친절 에러 메시지로 변환:
+  //   "Generate failed: 429 {\"statusCode\":429,\"message\":\"Concurrent generation is locked\"}"
+  //   → "Error 429: Concurrent generation is locked"
+  function friendlyErrorMessage(raw) {
+    const msg = String(raw || '');
+    // JSON { ... } 부분 추출 시도. status 코드 + message만 남기기.
+    const jsonMatch = msg.match(/\{[^{}]*"message"\s*:\s*"([^"]*)"[^{}]*\}/);
+    const statusMatch = msg.match(/\b([2-5]\d\d)\b/);
+    if (statusMatch && jsonMatch) {
+      return `Error ${statusMatch[1]}: ${jsonMatch[1]}`;
+    }
+    if (statusMatch) {
+      // status만 있고 JSON 없으면 prefix 정리 후 그대로
+      const cleaned = msg.replace(/^Generate failed:?\s*/i, '').trim();
+      return `Error ${statusMatch[1]}: ${cleaned.slice(0, 200)}`;
+    }
+    // fallback: prefix만 정리
+    return msg.replace(/^Generate failed:?\s*/i, '').slice(0, 200);
+  }
+
+  // meta로 "씬이름 N" 라벨. meta 없으면 jobId 앞 8자.
+  function labelFromMeta(meta, jobId) {
+    if (meta && meta.sceneName) {
+      if (meta.jobIndex && meta.jobTotal) {
+        return `${meta.sceneName} ${meta.jobIndex}/${meta.jobTotal}`;
+      }
+      return meta.sceneName;
+    }
+    return (jobId || '').slice(0, 8);
+  }
+
   const PHASE_LABEL = { queued: '대기', resize: '이미지 크기 조정', zip: 'zip 생성' };
 
   async function tickDrive() {
@@ -364,15 +395,17 @@
         ${(d.recentErrors && d.recentErrors.length > 0) ? `
           <h2 class="section-h">최근 NAI 큐 에러 (최대 10개)</h2>
           ${d.recentErrors.slice().reverse().map((e) => {
-            const kindLabel = e.kind === '429' ? '<span class="pill" style="background:#3a2f0a;color:#fbbf24;">429 rate-limit</span>'
+            const kindLabel = e.kind === '429' ? '<span class="pill" style="background:#3a2f0a;color:#fbbf24;">429</span>'
               : e.kind === '5xx' ? '<span class="pill failed">5xx</span>'
               : '<span class="pill failed">기타</span>';
             const retryLabel = e.retried ? '<span class="pill pending">재시도됨</span>' : '<span class="pill failed">최종 실패</span>';
             const tsStr = new Date(e.ts).toLocaleTimeString();
+            const friendly = friendlyErrorMessage(e.error || '');
+            const label = labelFromMeta(e.meta, e.jobId);
             return '<div class="entry ' + (e.retried ? 'pending' : 'failed') + '">'
-              + '<div class="row1"><div class="fn">' + tsStr + ' · ' + escapeHtml((e.jobId || '').slice(0, 8)) + '</div>'
+              + '<div class="row1"><div class="fn">' + tsStr + ' · ' + escapeHtml(label) + '</div>'
               + kindLabel + retryLabel + '</div>'
-              + '<div class="meta">' + escapeHtml(e.error || '').slice(0, 200) + '</div>'
+              + '<div class="meta">' + escapeHtml(friendly) + '</div>'
               + '</div>';
           }).join('')}
         ` : ''}

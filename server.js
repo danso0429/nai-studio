@@ -92,12 +92,19 @@ let queueStats = { completed: 0, failed: 0, totalProcessTimeMs: 0, completedWith
 // 최근 큐 에러 ring buffer (NAI 429, 5xx, 네트워크 등). queue.html 진단용.
 const QUEUE_ERROR_HISTORY_MAX = 20;
 let queueErrorHistory = []; // [{ts, jobId, error, kind: '429'|'5xx'|'other', retried: boolean}, ...]
-function recordQueueError(jobId, error, retried) {
+function recordQueueError(jobId, error, retried, meta) {
   let kind = 'other';
   const msg = String(error || '');
   if (msg.includes('429')) kind = '429';
   else if (/5\d\d/.test(msg.slice(0, 50))) kind = '5xx';
-  queueErrorHistory.push({ ts: Date.now(), jobId, error: msg.slice(0, 300), kind, retried: !!retried });
+  queueErrorHistory.push({
+    ts: Date.now(),
+    jobId,
+    error: msg.slice(0, 500),
+    kind,
+    retried: !!retried,
+    meta: meta || {},
+  });
   if (queueErrorHistory.length > QUEUE_ERROR_HISTORY_MAX) {
     queueErrorHistory.shift();
   }
@@ -729,13 +736,13 @@ async function processQueue() {
         job._retries = (job._retries || 0) + 1;
         if (job._retries <= 10) {
           console.log(`[NAI Studio] Queue job ${job.jobId}: NAI rate limited, retry ${job._retries}/10 in 5s...`);
-          recordQueueError(job.jobId, e.message, true);
+          recordQueueError(job.jobId, e.message, true, job.meta);
           await new Promise(r => setTimeout(r, 5000));
           continue;
         }
         console.error(`[NAI Studio] Queue job ${job.jobId}: max retries exceeded`);
       }
-      recordQueueError(job.jobId, e.message, false);
+      recordQueueError(job.jobId, e.message, false, job.meta);
       broadcast('queue-job-error', { jobId: job.jobId, error: e.message, meta: job.meta || {} });
       broadcastQueueStatus();
       queueStats.failed++;

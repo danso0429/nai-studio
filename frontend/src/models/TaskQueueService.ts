@@ -957,6 +957,8 @@ export class TaskQueueService extends EventTarget {
           sceneKey,
           sceneName: task.params.scene?.name,
           taskType: task.params.scene?.type,
+          jobIndex: i + 1,
+          jobTotal: task.total,
         },
       });
     }

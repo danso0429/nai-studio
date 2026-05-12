@@ -63,6 +63,8 @@ export interface QueueJobMeta {
   sceneKey?: string;      // sceneStats 매핑용 (session/type/sceneName)
   sceneName?: string;     // 표시용
   taskType?: string;      // 'gen' | 'inpaint' | 'i2i' 등
+  jobIndex?: number;      // task 내 1-based 순번 (queue.html 표시용)
+  jobTotal?: number;      // task의 총 jobs 수 (queue.html 표시용)
 }
 
 export interface QueueFullState {
