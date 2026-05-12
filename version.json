@@ -1,6 +1,6 @@
 {
-  "version": "1.5.1-preview.1",
+  "version": "1.5.1-preview.2",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-12",
-  "notes": "씬 통합 기능 (대량 작업 → 🔗 씬들 통합, 조합 슬롯 dedup + 이미지/즐겨찾기 합치기) + 모바일 씬 카드 fastcache 200_ 사용 (다운로드 14배 감소) + 첫 진입 stuck 회복 (refreshBatch per-scene 15s timeout + retry) + 알약 paused 상태 명확 표시 (회색 + ⏸) + queue.html 완료 탭 (4시간 retention, 30분 gap 기준 batch, 파일시스템 fallback 옛 jobs 복원)."
+  "notes": "프로젝트 폴더 시스템 (1단계 평면, basename 식별자, outs/는 평면 유지, 폴더 삭제 cascading) + SessionTreePicker 트리 popover + 프로젝트 백업 메뉴 분리 (이름/즐겨찾기/내보내기/불러오기 작은 버튼) + 백업·이미지는 형식 선택 다이얼로그로 분기 (.tar/.png 각자 accept filter) + queue 통계 (2시간 단위 12-bucket KST, raw 2일 retention + aggregate 영구) + 한글 받침 헬퍼 josaIGa/EunNeun/EulReul/Ro/WaGwa (6곳 적용) + ConfigScreen 로그인 탭 가로 스크롤 fix (visibility:hidden → display:none, input min-w-0)."
 }
