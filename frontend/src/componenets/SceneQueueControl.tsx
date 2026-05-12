@@ -1358,6 +1358,13 @@ const QueueControl = observer(
               </button>
               <button
                 className={`round-button back-gray`}
+                onClick={() => appState.openExportPresetsDialog(type)}
+                title="내보내기 프리셋 — 저장된 설정으로 다이얼로그 없이 즉시 내보내기"
+              >
+                {isMobile ? '프리셋' : '내보내기 프리셋'}
+              </button>
+              <button
+                className={`round-button back-gray`}
                 onClick={() => {
                   appState.openBatchProcessMenu(type, setSceneSelector);
                 }}

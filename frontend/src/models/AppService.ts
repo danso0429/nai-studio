@@ -58,6 +58,20 @@ export interface SceneSelectorItem {
   scenes?: GenericScene[];
 }
 
+// 이미지 내보내기 프리셋: exportPackage 다이얼로그 chain의 모든 옵션을 한 묶음으로 저장.
+// 적용 시 다이얼로그 안 띄우고 즉시 exportImpl 호출.
+export interface ExportPreset {
+  id: string;
+  name: string;
+  imageSelection: 'fav' | 'all'; // 즐겨찾기만 / 모두
+  fileNameFormat: 'normal' | 'prefix'; // (씬).(번호) / (캐릭터).(씬).(번호)
+  prefixName: string; // prefix 형식일 때 캐릭터 이름. normal이면 빈 string.
+  optimize: 'original' | 'lossy' | 'lossless' | 'avif';
+  imageSize: number; // optimize !== 'original'일 때만 사용
+  separator: string; // 파일명 구분자 (기본 '.')
+  charsToReplace: string[]; // 변환할 특수문자 list
+}
+
 // Upload `path` to Drive via the server-side single-file sync endpoint.
 // Phase 9: 백그라운드 모드. 서버는 큐에 등록 후 즉시 202 반환. 완료/실패는 WS 이벤트
 // (drive-sync-complete / drive-sync-failed)로 broadcast됨. 클라가 닫혀도 서버 진행.
@@ -174,6 +188,31 @@ export class AppState {
   @observable accessor fullWordAutoComplete: boolean = (() => {
     return localStorage.getItem('sdstudio-full-word-autocomplete') === 'true';
   })();
+
+  // 이미지 내보내기 프리셋 — localStorage에 영속화. exportPackage 시 다이얼로그 chain 건너뜀.
+  @observable accessor exportPresets: ExportPreset[] = (() => {
+    try {
+      const raw = localStorage.getItem('sdstudio-export-presets');
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return [];
+  })();
+  @observable accessor exportPresetsDialogOpen: boolean = false;
+  @observable accessor exportPresetsDialogType: 'scene' | 'inpaint' = 'scene';
+
+  saveExportPresets() {
+    try {
+      localStorage.setItem(
+        'sdstudio-export-presets',
+        JSON.stringify(this.exportPresets),
+      );
+    } catch {}
+  }
+
+  openExportPresetsDialog(type: 'scene' | 'inpaint') {
+    this.exportPresetsDialogType = type;
+    this.exportPresetsDialogOpen = true;
+  }
 
   // 프롬프트조각 에디터 오버레이
   @observable accessor pieceEditorOpen: boolean = false;
@@ -846,7 +885,7 @@ export class AppState {
       },
     });
   }
-  async exportPackage(type: 'scene' | 'inpaint', selected?: GenericScene[]) {
+  async exportPackage(type: 'scene' | 'inpaint', selected?: GenericScene[], preset?: ExportPreset) {
     const exportImpl = async (
       prefix: string,
       fav: boolean,
@@ -1001,6 +1040,21 @@ export class AppState {
       }));
       setTimeout(cleanup, 30 * 60 * 1000);
     };
+    // 프리셋이 주어지면 다이얼로그 chain skip — 옵션 직접 사용해 즉시 실행.
+    if (preset) {
+      const prefix = preset.fileNameFormat === 'prefix' && preset.prefixName
+        ? preset.prefixName + preset.separator
+        : '';
+      await exportImpl(
+        prefix,
+        preset.imageSelection === 'fav',
+        preset.optimize,
+        preset.imageSize,
+        preset.separator || '.',
+        new Set(preset.charsToReplace || []),
+      );
+      return;
+    }
     const menu = await appState.pushDialogAsync({
       type: 'select',
       text: '내보낼 이미지를 선택해주세요',
