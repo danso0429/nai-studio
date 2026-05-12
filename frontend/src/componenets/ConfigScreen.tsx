@@ -39,9 +39,9 @@ const LoginTab = ({
     <div>
       <label className="block text-sm font-semibold gray-label mb-2">NAI 로그인</label>
       <div className="flex gap-2 mb-2">
-        <input className="gray-input block flex-1" type="text" placeholder="이메일"
+        <input className="gray-input block flex-1 min-w-0" type="text" placeholder="이메일"
           value={email} onChange={(e) => setEmail(e.target.value)} />
-        <input className="gray-input block flex-1" type="password" placeholder="암호"
+        <input className="gray-input block flex-1 min-w-0" type="password" placeholder="암호"
           value={password} onChange={(e) => setPassword(e.target.value)} />
       </div>
       <div className="flex items-center">
@@ -63,7 +63,7 @@ const LoginTab = ({
         액세스 토큰으로 로그인 (구글 연동 계정용)
       </label>
       <div className="flex gap-2 mb-2">
-        <input className="gray-input block flex-1" type="password"
+        <input className="gray-input block flex-1 min-w-0" type="password"
           placeholder="액세스 토큰을 붙여넣으세요"
           value={accessToken} onChange={(e) => setAccessToken(e.target.value)} />
       </div>
@@ -846,26 +846,17 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
             </button>
           ))}
         </div>
-        {/* 탭 콘텐츠 — CSS Grid로 모든 탭을 같은 셀에 겹쳐 높이 통일 */}
+        {/* 탭 콘텐츠 — 비활성 탭은 display:none으로 layout에서 빼서 active 탭 크기만 반영. */}
+        {/* 이전엔 CSS Grid + visibility:hidden으로 겹쳤지만 비활성 탭의 크기가 grid cell을 키워 모바일에서 불필요한 가로/세로 스크롤을 만들었음. */}
         <div className="flex-1 overflow-auto p-5" style={{ minHeight: 0 }}>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr',
-            gridTemplateRows: '1fr',
-          }}>
-            {tabs.map((_, i) => (
-              <div
-                key={i}
-                style={{
-                  gridRow: 1,
-                  gridColumn: 1,
-                  visibility: activeTab === i ? 'visible' : 'hidden',
-                }}
-              >
-                {getTabContent(i)}
-              </div>
-            ))}
-          </div>
+          {tabs.map((_, i) => (
+            <div
+              key={i}
+              style={{ display: activeTab === i ? 'block' : 'none' }}
+            >
+              {getTabContent(i)}
+            </div>
+          ))}
         </div>
         {/* 저장 버튼 */}
         <div className="flex-none p-4 border-t border-gray-200 dark:border-slate-600">
