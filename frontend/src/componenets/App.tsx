@@ -13,7 +13,6 @@ import SessionSelect from './SessionSelect';
 import PreSetEditor from './PreSetEdtior';
 import SceneQueuControl, { SceneCell } from './SceneQueueControl';
 import TaskQueueControl, { TaskQueueProgress, TaskQueueControls } from './TaskQueueControl';
-import ServerQueueStatus from './ServerQueueStatus';
 import TobBar from './TobBar';
 import AlertWindow from './AlertWindow';
 import DriveRetryWidget from './DriveRetryWidget';
@@ -433,14 +432,12 @@ export const App = observer(() => {
                             <SessionSelect />
                           </div>
                           <div className="flex flex-none gap-4 ml-auto">
-                            <ServerQueueStatus />
                             <TaskQueueControl />
                           </div>
                         </div>
                         {/* Mobile: two-row layout (alpha split: pills row / controls row) */}
                         <div className="flex md:hidden flex-col gap-2">
                           <div className="flex gap-3 items-center justify-end">
-                            <ServerQueueStatus />
                             <TaskQueueProgress />
                             <BuildInfoBadge variant="mobile" />
                           </div>

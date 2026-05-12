@@ -152,7 +152,11 @@ const TaskQueueList = ({ onClose }: { onClose?: () => void }) => {
   const [tasks, setTasks] = useState<any[]>([]);
   useEffect(() => {
     const onChange = () => {
-      setTasks([...taskQueueService.queue]);
+      // 클라 큐 (augment/remove-bg) + server-mirror 큐 (gen/inpaint/i2i) 합쳐서 표시
+      setTasks([
+        ...taskQueueService.queue,
+        ...Array.from(taskQueueService.mirroredTasks.values()),
+      ]);
     };
     taskQueueService.addEventListener('start', onChange);
     taskQueueService.addEventListener('stop', onChange);
