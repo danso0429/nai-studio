@@ -37,17 +37,6 @@ if [ "$LOCAL" = "$REMOTE" ]; then
     echo "ℹ️  git은 최신이지만 빌드가 stale (built=${BUILT_HASH:-none}, HEAD=$LOCAL_SHORT) → 재빌드 진행"
 fi
 
-# 큐 활성 체크 (선택)
-if command -v pm2 &> /dev/null && pm2 describe "$PM2_NAME" &> /dev/null; then
-    QUEUE=$(curl -s "localhost:$PORT/api/queue/status" 2>/dev/null || echo '{}')
-    PENDING=$(echo "$QUEUE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('pending',0))" 2>/dev/null || echo "0")
-    if [ "$PENDING" != "0" ]; then
-        echo "⚠️  대기 중인 이미지 생성 작업 $PENDING개"
-        read -p "   업데이트하면 큐가 초기화됩니다. 계속? (y/N): " CONFIRM
-        [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ] && { echo "취소됨."; exit 0; }
-    fi
-fi
-
 echo ""
 echo "📥 코드 업데이트..."
 git pull origin main
