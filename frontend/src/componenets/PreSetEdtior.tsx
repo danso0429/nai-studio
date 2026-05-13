@@ -1049,7 +1049,7 @@ const InnerEditor: React.FC<InnerEditorProps> = ({ type, shared, preset }) => {
       type,
       curSession!,
       scene,
-      prompts[0],
+      prompts[0].prompt,
       characterPrompts[0],
       preset,
       dummyShared,
@@ -1057,6 +1057,7 @@ const InnerEditor: React.FC<InnerEditorProps> = ({ type, shared, preset }) => {
       undefined,
       callback,
       true,
+      prompts[0].uc,
     );
     taskQueueService.run();
   };

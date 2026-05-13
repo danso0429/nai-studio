@@ -30,6 +30,9 @@ export interface WorkFlowDef {
   createPreset?: WFCreatePreset;
 }
 
+// 조합 단위 negative 지원: 각 조합의 prompt(PromptNode)에 더해 그 조합에서 선택된
+// piece들의 uc를 합친 extraUc도 함께 받음. extraUc는 base_caption negative에 append.
+// 2026-05-13.
 export type WFHandler = (
   session: Session,
   scene: GenericScene,
@@ -41,14 +44,17 @@ export type WFHandler = (
   meta?: any,
   onComplete?: (img: string) => void,
   nodelay?: boolean,
+  extraUc?: string,
 ) => void | Promise<void>;
 
+// WFCreatePrompt 반환: 각 조합의 prompt + 그 조합의 piece들이 가진 uc 합.
+export type WFCreatePromptResult = { prompt: PromptNode; uc: string };
 export type WFCreatePrompt = (
   session: Session,
   scene: GenericScene,
   preset: any,
   shared: any,
-) => PromptNode[] | Promise<PromptNode[]>;
+) => WFCreatePromptResult[] | Promise<WFCreatePromptResult[]>;
 
 export type WFCreateCharacterPrompts = (
   session: Session,

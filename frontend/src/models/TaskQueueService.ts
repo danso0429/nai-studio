@@ -1454,12 +1454,15 @@ export const queueWorkflow = async (
     await def.handler(
       session,
       scene,
-      prompts[i],
+      prompts[i].prompt,
       characterPrompts[i],
       preset,
       shared,
       samples,
       scene_.meta.get(type),
+      undefined,
+      undefined,
+      prompts[i].uc,
     );
   }
 };

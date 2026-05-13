@@ -162,6 +162,7 @@ export class WorkFlowService {
     meta?: any,
     onComplete?: (img: string) => void,
     nodelay?: boolean,
+    extraUc?: string,
   ) {
     const wf = this.workflows.get(type);
     if (!wf) {
@@ -178,6 +179,7 @@ export class WorkFlowService {
       meta,
       onComplete,
       nodelay,
+      extraUc,
     );
   }
 }

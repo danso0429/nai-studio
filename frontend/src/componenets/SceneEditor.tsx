@@ -106,6 +106,8 @@ interface BigPromptEditorProps {
   queuePrompt: (middle: string, callback: (path: string) => void) => void;
   setMainImage?: (path: string) => void;
   initialImagePath?: string;
+  sceneUc?: string;
+  onSceneUcChange?: (v: string) => void;
 }
 
 export const BigPromptEditor = observer(
@@ -122,6 +124,8 @@ export const BigPromptEditor = observer(
     initialImagePath,
     queuePrompt,
     setMainImage,
+    sceneUc,
+    onSceneUcChange,
   }: BigPromptEditorProps) => {
     const [image, setImage] = useState<string | undefined>(undefined);
     const [path, setPath] = useState<string | undefined>(initialImagePath);
@@ -190,19 +194,36 @@ export const BigPromptEditor = observer(
             'overflow-auto flex-none h-1/3 md:h-auto md:w-1/3 md:h-full'
           }
         >
-          <div className={'hidden md:block h-full '}>
-            <UnionPreSetEditor
-              general={general}
-              type={type}
-              preset={preset}
-              meta={meta}
-              shared={shared}
-              middlePromptMode={true}
-              getMiddlePrompt={getMiddlePrompt}
-              onMiddlePromptChange={setMiddlePrompt}
-              getCharacterMiddlePrompt={getCharacterMiddlePrompt}
-              onCharacterMiddlePromptChange={setCharacterMiddlePrompt}
-            />
+          <div className={'hidden md:flex md:flex-col h-full'}>
+            <div className="flex-1 min-h-0 overflow-auto">
+              <UnionPreSetEditor
+                general={general}
+                type={type}
+                preset={preset}
+                meta={meta}
+                shared={shared}
+                middlePromptMode={true}
+                getMiddlePrompt={getMiddlePrompt}
+                onMiddlePromptChange={setMiddlePrompt}
+                getCharacterMiddlePrompt={getCharacterMiddlePrompt}
+                onCharacterMiddlePromptChange={setCharacterMiddlePrompt}
+              />
+            </div>
+            {/* 씬 전용 네거티브 — 중위 프롬프트 밑. 모든 조합에 적용 (2026-05-13) */}
+            {onSceneUcChange && (
+              <div className="flex-none px-3 py-2 border-t line-color">
+                <label className="text-xs text-red-500 dark:text-red-400 select-none block mb-1">
+                  씬 전용 네거티브
+                </label>
+                <input
+                  type="text"
+                  className="w-full px-2 py-1 text-xs rounded bg-white dark:bg-slate-700 dark:text-white border border-gray-300 dark:border-slate-500 placeholder:text-gray-400"
+                  placeholder="(없음)"
+                  value={sceneUc || ''}
+                  onChange={(e) => onSceneUcChange(e.currentTarget.value)}
+                />
+              </div>
+            )}
           </div>
           <div className="h-full flex flex-col p-2 overflow-hidden block md:hidden">
             <div className="flex-none font-bold text-sub">
@@ -215,6 +236,21 @@ export const BigPromptEditor = observer(
                 value={getMiddlePrompt()}
               />
             </div>
+            {/* 씬 전용 네거티브 — 중위 프롬프트 밑 (2026-05-13) */}
+            {onSceneUcChange && (
+              <div className="flex-none px-2 pb-2">
+                <label className="text-xs text-red-500 dark:text-red-400 select-none block mb-1">
+                  씬 전용 네거티브
+                </label>
+                <input
+                  type="text"
+                  className="w-full px-2 py-1 text-xs rounded bg-white dark:bg-slate-700 dark:text-white border border-gray-300 dark:border-slate-500 placeholder:text-gray-400"
+                  placeholder="(없음)"
+                  value={sceneUc || ''}
+                  onChange={(e) => onSceneUcChange(e.currentTarget.value)}
+                />
+              </div>
+            )}
             <div className="flex-none">
               <button
                 className={`round-button back-sky`}
@@ -439,6 +475,23 @@ export const SlotPiece = observer(
             onChange={(s) => {
               if (!moveSlotPiece) return;
               piece.prompt = s;
+            }}
+          />
+        </div>
+        {/* 조합 단위 네거티브 — 같은 조합에 들어간 모든 piece의 uc를 합쳐 base negative에 추가 (2026-05-13) */}
+        <div className="mb-2 w-28 md:w-48">
+          <label className="text-xs text-red-500 dark:text-red-400 select-none block">
+            조합 네거티브
+          </label>
+          <input
+            type="text"
+            className="w-full px-1 py-0.5 text-xs rounded bg-white dark:bg-slate-700 dark:text-white border border-gray-300 dark:border-slate-500 placeholder:text-gray-400"
+            placeholder="(없음)"
+            disabled={!moveSlotPiece}
+            value={piece.uc || ''}
+            onChange={(e) => {
+              if (!moveSlotPiece) return;
+              piece.uc = e.currentTarget.value;
             }}
           />
         </div>
@@ -697,6 +750,8 @@ const SceneCharacterPromptEditor = observer(({ scene }: SceneCharacterPromptEdit
             }}
           />
         </div>
+
+        {/* 씬 전용 일반 UC 입력은 BigPromptEditor(중위 프롬프트 밑)로 이동 — 2026-05-13 */}
       </div>
     </div>
   );
@@ -862,7 +917,7 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
         type,
         curSession!,
         scene,
-        prompts[0],
+        prompts[0].prompt,
         characterPrompts[0],
         preset,
         shared,
@@ -870,6 +925,7 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
         scene.meta.get(type),
         callback,
         true,
+        prompts[0].uc,
       );
       taskQueueService.run();
     } catch (e: any) {
@@ -885,18 +941,24 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
     }
   };
 
-  const [previews, setPreviews] = useState<PromptNode[]>([]);
+  const [previews, setPreviews] = useState<{ prompt: PromptNode; uc: string }[]>([]);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const PromptPreview = previewError ? (
     <div className="bg-red-500 p-2 m-2">{previewError}</div>
   ) : (
     <div>
       {previews.map((preview, index) => (
-        <PromptHighlighter
-          className="inline-block word-breaks p-2 m-2"
-          key={index}
-          text={lowerPromptNode(preview)}
-        />
+        <div key={index} className="m-2 border-b border-gray-300 dark:border-gray-700 pb-2">
+          <PromptHighlighter
+            className="inline-block word-breaks p-2"
+            text={lowerPromptNode(preview.prompt)}
+          />
+          {preview.uc && (
+            <div className="px-2 pt-1 text-xs text-red-500 break-all">
+              <span className="font-semibold">조합 단위 네거티브:</span> {preview.uc}
+            </div>
+          )}
+        </div>
       ))}
     </div>
   );
@@ -914,6 +976,8 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
       queuePrompt={queuePrompt}
       setMainImage={setMainImage}
       initialImagePath={getMainImagePath(curSession!, scene)}
+      sceneUc={scene.uc}
+      onSceneUcChange={(v) => { scene.uc = v; }}
     />
   );
 

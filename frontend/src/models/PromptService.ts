@@ -313,11 +313,14 @@ export const createSDPrompts = async (
   shared: any,
   scene: Scene,
 ) => {
+  // collectFn이 piece 전체 객체를 수집 (prompt + uc). processFn에서 prompt 합치고
+  // uc는 별도로 모아 { prompt: PromptNode, uc: string } 형태로 반환.
   return await dfsPrompts(
     session,
     scene,
-    (piece) => piece?.prompt,
-    async (promptComb) => {
+    (piece) => piece,
+    async (pieceComb: any[]) => {
+      const promptComb = pieceComb.map((p) => p?.prompt);
       let front = toPARR(preset.frontPrompt);
       if (shared.type === 'SDImageGenEasy') {
         front = front.concat(toPARR(shared.characterPrompt));
@@ -394,7 +397,11 @@ export const createSDPrompts = async (
       for (const word of cur) {
         newNode.children.push(promptService.parseWord(word, session, scene));
       }
-      return newNode;
+      // 조합 단위 uc — 선택된 piece들의 uc를 ', '로 합침 (빈 값은 skip)
+      const ucParts = pieceComb
+        .map((p) => (p && typeof p.uc === 'string' ? p.uc.trim() : ''))
+        .filter((s) => s.length > 0);
+      return { prompt: newNode, uc: ucParts.join(', ') };
     },
   );
 };

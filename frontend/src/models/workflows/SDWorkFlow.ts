@@ -183,6 +183,7 @@ const SDImageGenHandler = async (
   meta?: any,
   onComplete?: (img: string) => void,
   nodelay?: boolean,
+  extraUc?: string,
 ) => {
   // 씬 전용 캐릭터 프롬프트 사용 여부 확인
   const sceneObj = scene as Scene;
@@ -242,13 +243,21 @@ const SDImageGenHandler = async (
     seed: shared.seed,
   };
   
-  // 씬 전용 캐릭터 UC 추가
+  // SDImageGenEasy: shared.uc 합성을 base 위에서 (재할당 X — 이전 누적 보존). 2026-05-13 fix.
+  if (shared.type === 'SDImageGenEasy' && shared.uc) {
+    job.uc = shared.uc + ', ' + job.uc;
+  }
+  // 씬 전용 캐릭터 UC (useSceneCharacterPrompts일 때만 의미 있음)
   if (useSceneCharacterPrompts && sceneObj.sceneCharacterUC) {
     job.uc = job.uc + ', ' + sceneObj.sceneCharacterUC;
   }
-  
-  if (shared.type === 'SDImageGenEasy') {
-    job.uc = shared.uc + ', ' + preset.uc;
+  // 씬 전용 일반 UC — 모든 모드 + useSceneCharacterPrompts 무관 (2026-05-13 신규).
+  if (sceneObj.uc) {
+    job.uc = job.uc + ', ' + sceneObj.uc;
+  }
+  // 조합 단위 UC — 그 조합에서 선택된 slot piece들의 uc 합 (2026-05-13 신규).
+  if (extraUc) {
+    job.uc = job.uc + ', ' + extraUc;
   }
   const param: TaskParam = {
     session: session,

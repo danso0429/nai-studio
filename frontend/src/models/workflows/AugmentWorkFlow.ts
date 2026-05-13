@@ -125,6 +125,7 @@ const AugmentGenHandler = async (
   meta?: any,
   onComplete?: (img: string) => void,
   nodelay?: boolean,
+  _extraUc?: string, // Augment는 negative 없음 — 시그니처만 맞춤
 ) => {
   if (!meta) {
     meta = workFlowService.buildMeta('AugmentGen');
@@ -250,6 +251,7 @@ const AugmentHandler = async (
   meta?: any,
   onComplete?: (img: string) => void,
   nodelay?: boolean,
+  _extraUc?: string,
 ) => {
   const image = (await imageService.fetchVibeImage(session, preset.image))!;
   const promptNode: PromptNode = {

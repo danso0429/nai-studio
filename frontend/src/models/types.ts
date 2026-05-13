@@ -177,6 +177,7 @@ export interface IPromptPiece {
   characterPrompts: string[];
   id: string;
   enabled?: boolean;
+  uc?: string; // 조합 단위 네거티브 — 같은 조합에 들어간 모든 piece의 uc를 합쳐 base negative에 추가. 2026-05-13.
 }
 
 export class PromptPiece implements IPromptPiece {
@@ -184,6 +185,7 @@ export class PromptPiece implements IPromptPiece {
   @observable accessor characterPrompts: string[] = [];
   @observable accessor id: string = '';
   @observable accessor enabled: boolean | undefined = undefined;
+  @observable accessor uc: string = '';
 
   static fromJSON(json: IPromptPiece): PromptPiece {
     const promptPiece = new PromptPiece();
@@ -192,6 +194,7 @@ export class PromptPiece implements IPromptPiece {
     if (!Array.isArray(promptPiece.characterPrompts)) {
       promptPiece.characterPrompts = [];
     }
+    promptPiece.uc = json.uc || '';
     return promptPiece;
   }
 
@@ -201,6 +204,7 @@ export class PromptPiece implements IPromptPiece {
       characterPrompts: [...(this.characterPrompts || [])],
       id: this.id,
       enabled: this.enabled,
+      uc: this.uc,
     };
   }
 }
@@ -276,6 +280,7 @@ export interface IScene extends IAbstractScene {
   sceneCharacterPrompts?: CharacterPrompt[]; // 씬 전용 캐릭터 프롬프트
   useSceneCharacterPrompts?: boolean; // 씬 전용 캐릭터 프롬프트 사용 여부
   sceneCharacterUC?: string; // 씬 전용 캐릭터 네거티브 프롬프트
+  uc?: string; // 씬 전용 네거티브 (base_caption negative에 append). 2026-05-13.
 }
 
 export class Scene extends AbstractScene implements IScene {
@@ -285,6 +290,7 @@ export class Scene extends AbstractScene implements IScene {
   @observable accessor sceneCharacterPrompts: CharacterPrompt[] = []; // 씬 전용 캐릭터 프롬프트
   @observable accessor useSceneCharacterPrompts: boolean = false; // 씬 전용 캐릭터 프롬프트 사용 여부
   @observable accessor sceneCharacterUC: string = ''; // 씬 전용 캐릭터 네거티브 프롬프트
+  @observable accessor uc: string = ''; // 씬 전용 네거티브 (base_caption negative에 append)
 
   static fromJSON(json: IScene): Scene {
     const scene = new Scene();
@@ -300,6 +306,7 @@ export class Scene extends AbstractScene implements IScene {
     }));
     scene.useSceneCharacterPrompts = json.useSceneCharacterPrompts || false;
     scene.sceneCharacterUC = json.sceneCharacterUC || '';
+    scene.uc = json.uc || '';
     return scene;
   }
 
@@ -312,6 +319,7 @@ export class Scene extends AbstractScene implements IScene {
       sceneCharacterPrompts: this.sceneCharacterPrompts,
       useSceneCharacterPrompts: this.useSceneCharacterPrompts,
       sceneCharacterUC: this.sceneCharacterUC,
+      uc: this.uc,
     };
   }
 }
