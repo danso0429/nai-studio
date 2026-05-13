@@ -1654,20 +1654,19 @@ async function permanentlyDeleteProjectFiles(name) {
     errors.push('local scan projects: ' + e.message);
   }
 
-  // 2. 로컬 5개 폴더의 <name>/ 디렉토리
-  for (const d of PROJECT_SUB_DIRS) {
+  // 2. 로컬 5개 폴더의 <name>/ 디렉토리 — 서로 독립이라 병렬화
+  await Promise.all(PROJECT_SUB_DIRS.map(async (d) => {
     const p = path.join(DATA_DIR, d, name);
     try {
-      // 존재 확인 후만 push (존재하지 않으면 rm 자체는 force라 조용히 통과)
       let exists = false;
       try { await fs.access(p); exists = true; } catch {}
-      if (!exists) continue;
+      if (!exists) return;
       await fs.rm(p, { recursive: true, force: true });
       deleted.local.push(d + '/' + name);
     } catch (e) {
       errors.push('local rm ' + d + '/' + name + ': ' + e.message);
     }
-  }
+  }));
 
   // 3. 로컬 exports — <name>.json + <name>.tar + <name>_main_images_*.tar
   const exportsDir = path.join(DATA_DIR, 'exports');
@@ -1692,8 +1691,9 @@ async function permanentlyDeleteProjectFiles(name) {
     return { deleted, errors, driveSkipped: true };
   }
 
-  // 4a. Drive 5개 폴더 purge
-  for (const d of PROJECT_SUB_DIRS) {
+  // 4a. Drive 5개 폴더 purge — 각 rclone purge는 네트워크 RT가 커서 직렬 5번이
+  // 가장 큰 병목 (15-25초). 서로 독립적인 다른 remote path라 동시 실행 안전.
+  await Promise.all(PROJECT_SUB_DIRS.map(async (d) => {
     const remotePath = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/${d}/${name}`;
     const r = await rcloneRun(
       `rclone purge ${JSON.stringify(remotePath)} ${RCLONE_TRASH_BYPASS} 2>&1`,
@@ -1704,7 +1704,7 @@ async function permanentlyDeleteProjectFiles(name) {
     } else if (!isNotFoundError(r.stderr || r.stdout || r.error)) {
       errors.push('drive purge ' + d + '/' + name + ': ' + (r.stderr || r.error));
     }
-  }
+  }));
 
   // 4b. Drive projects/ 안 <name>.json / <name>.deleted (폴더형 포함, lsf --recursive)
   const projRemoteDir = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/projects`;
