@@ -569,6 +569,12 @@ async function processExportQueue() {
               phase: job._phase || 'unknown',
               error: canceled ? 'canceled' : e.message,
             });
+            // 취소/실패 시 부분 tar 산출물 정리 — 사용 불가능하고 디스크만 차지.
+            // 정상 완료 path는 catch에 안 들어오니까 outAbs 유지.
+            try {
+              const outAbs = resolvePath(job.outFilePath);
+              await fs.unlink(outAbs);
+            } catch {} // 아직 안 생성되었거나 권한 없으면 무시
           } finally {
             // Phase 1 resize 산출물 정리 (data/tmp 누적 방지). 어떤 경로로 끝나든 실행.
             for (const item of (job.paths || [])) {
@@ -620,14 +626,17 @@ async function runExportJob(job) {
 
   if (isExportCanceled(jobId)) throw new Error('canceled');
 
-  // Phase 2: zip
+  // Phase 2: zip — file add 루프 + generate + write 각각의 경계에서 cancel 체크
   job._phase = 'zip';
-  setExportProgress(jobId, 'zip', 0, 1);
+  const totalForZip = items.length;
+  setExportProgress(jobId, 'zip', 0, totalForZip);
   const JSZip = require('jszip');
   const zip = new JSZip();
   const skipped = [];
   let included = 0;
+  let processed = 0;
   for (const item of items) {
+    if (isExportCanceled(jobId)) throw new Error('canceled');
     const sourceFile = item.processedPath || resolvePath(item.srcPath);
     try {
       const content = await fs.readFile(sourceFile);
@@ -641,15 +650,27 @@ async function runExportJob(job) {
         throw e;
       }
     }
+    processed++;
+    // 진행도는 매 16개나 끝에서 broadcast (너무 잦은 broadcast 회피)
+    if (processed % 16 === 0 || processed === totalForZip) {
+      setExportProgress(jobId, 'zip', processed, totalForZip);
+    }
   }
   if (included === 0) {
     throw new Error('아카이브할 파일이 없어요');
   }
+  if (isExportCanceled(jobId)) throw new Error('canceled');
   const buf = await zip.generateAsync({ type: 'nodebuffer' });
+  if (isExportCanceled(jobId)) throw new Error('canceled');
   const outAbs = resolvePath(outFilePath);
   await fs.mkdir(path.dirname(outAbs), { recursive: true });
   await fs.writeFile(outAbs, buf);
-  setExportProgress(jobId, 'zip', 1, 1);
+  // tar 작성 후에도 한 번 더 체크 — 직후 취소 들어왔으면 정리하고 throw
+  if (isExportCanceled(jobId)) {
+    try { await fs.unlink(outAbs); } catch {}
+    throw new Error('canceled');
+  }
+  setExportProgress(jobId, 'zip', totalForZip, totalForZip);
 
   // Phase 3: Drive enqueue (fire-and-forget, drive-sync-* 이벤트로 별도 추적)
   job._phase = 'drive-enqueue';
@@ -2238,8 +2259,11 @@ app.post('/api/drive/retry-now', async (req, res) => {
   res.json({ ok: true, before, after: driveRetryQueue.length, ...result });
 });
 
-// 특정 entry 큐에서 제거 (성공이든 실패든 무조건 제거). widget의 dismiss/포기 버튼용.
-app.post('/api/drive/retry-dismiss', (req, res) => {
+// 특정 entry 큐에서 제거 + 로컬 파일도 삭제. widget의 dismiss/포기 버튼용.
+// "포기" = Drive 동기화 + 로컬 산출물 둘 다 완전 취소 (2026-05-13 본인 요청).
+// localPath는 enqueueDriveRetry가 항상 resolvePath() 출력 (DATA_DIR 하위)이라
+// path traversal 위험은 없지만 startsWith 검증 한 번 더.
+app.post('/api/drive/retry-dismiss', async (req, res) => {
   const { localPath } = req.body || {};
   if (!localPath || typeof localPath !== 'string') {
     return res.status(400).json({ ok: false, error: 'localPath required' });
@@ -2248,7 +2272,15 @@ app.post('/api/drive/retry-dismiss', (req, res) => {
   if (idx < 0) return res.json({ ok: true, removed: false });
   driveRetryQueue.splice(idx, 1);
   saveDriveRetryQueue();
-  res.json({ ok: true, removed: true });
+  // 로컬 파일 삭제 — DATA_DIR 하위만 허용
+  let localRemoved = false;
+  if (localPath.startsWith(DATA_DIR + path.sep)) {
+    try {
+      await fs.unlink(localPath);
+      localRemoved = true;
+    } catch {} // 이미 없거나 권한 없으면 무시
+  }
+  res.json({ ok: true, removed: true, localRemoved });
 });
 
 // failed entry를 다시 pending으로 (attempts=0). widget의 reset 버튼용.
