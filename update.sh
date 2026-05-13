@@ -37,6 +37,22 @@ if [ "$LOCAL" = "$REMOTE" ]; then
     echo "ℹ️  git은 최신이지만 빌드가 stale (built=${BUILT_HASH:-none}, HEAD=$LOCAL_SHORT) → 재빌드 진행"
 fi
 
+# Dirty working tree 가드: vite build가 commit 안 된 source까지 빌드해 배포되는
+# 사고 방지. public/build/는 vite가 곧 재생성하니 제외. 그 외 modified/untracked는 차단.
+# 우회: ALLOW_DIRTY=1 ./update.sh
+DIRTY=$(git status --porcelain --untracked-files=normal \
+    | grep -Ev '^.. public/build/' || true)
+if [ -n "$DIRTY" ] && [ "${ALLOW_DIRTY:-0}" != "1" ]; then
+    echo ""
+    echo "⚠️  working tree에 commit 안 된 변경이 있어요. vite build가 그 source까지"
+    echo "    빌드해서 의도치 않은 변경이 배포될 수 있어요."
+    echo ""
+    echo "$DIRTY"
+    echo ""
+    echo "해결: (1) commit 또는 git stash, 또는 (2) ALLOW_DIRTY=1 ./update.sh"
+    exit 1
+fi
+
 echo ""
 echo "📥 코드 업데이트..."
 git pull origin main
