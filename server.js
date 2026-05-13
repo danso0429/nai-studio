@@ -1081,8 +1081,19 @@ app.use((req, res, next) => {
 // public/ 은 사람·update.sh가 관리하는 정적 파일 (queue.html, build-info.json).
 // public/build/ 는 vite 빌드 산출물 (index.html, assets/*). vite emptyOutDir이
 // public/build/ 만 휩쓸어서 사람·update.sh 파일은 안전.
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(path.join(__dirname, 'public/build')));
+// 정적 파일 캐시 정책:
+// - public/build/assets/* : vite hash-named — immutable 1년
+// - 그 외 (queue.html, build/index.html, build-info.json 등) : no-cache → 매번 ETag/304로 revalidate
+//   (모바일 Safari 캐시가 너무 stale해서 본인이 변경 후 새로고침해도 옛날 버전 봄)
+const staticHeaders = (res, filePath) => {
+  if (filePath.includes(`${path.sep}build${path.sep}assets${path.sep}`)) {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  } else {
+    res.setHeader('Cache-Control', 'no-cache');
+  }
+};
+app.use(express.static(path.join(__dirname, 'public'), { setHeaders: staticHeaders }));
+app.use(express.static(path.join(__dirname, 'public/build'), { setHeaders: staticHeaders }));
 
 // ─── API: Config ────────────────────────────────────────────────────
 app.get('/api/config', async (req, res) => {
