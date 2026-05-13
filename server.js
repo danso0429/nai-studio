@@ -2033,16 +2033,22 @@ const SCENE_IMPORT_FORMAT = 'sdstudio-scene-import-v1';
 
 const SCENE_IMPORT_SCHEMA_EXAMPLE = {
   format: SCENE_IMPORT_FORMAT,
-  _note: '슬롯은 2차원 배열. 항목은 string (= prompt 텍스트) 또는 {prompt, enabled?} 객체. ' +
+  _note: '슬롯은 2차원 배열. 항목은 string (= prompt 텍스트) 또는 {prompt, enabled?, uc?} 객체. ' +
+         'piece.uc: 조합 단위 네거티브 — 그 piece가 들어간 조합에만 적용. ' +
+         'scene.uc: 씬 단위 네거티브 — 모든 조합에 적용. ' +
          'id/characterPrompts/mains/meta 등은 자동 채움. 기존 씬과 이름이 겹치면 ' +
          'policy에서 overwrite|skip을 선택 (기본 skip). 새 씬은 자동 추가.',
   scenes: {
     '예시 씬.variant': {
       resolution: 'portrait',
+      uc: '씬 전용 네거티브 토큰 (선택)',
       slots: [
         ['슬롯 0 단일 piece'],
         ['슬롯 1 변형 A', '슬롯 1 변형 B'],
-        [{ prompt: '객체형 piece (enabled=false면 후보에서 제외)', enabled: false }],
+        [
+          { prompt: '객체형 piece (enabled=false면 후보에서 제외)', enabled: false },
+          { prompt: '조합 단위 네거티브를 가지는 piece', uc: 'fellatio, blowjob' },
+        ],
       ],
     },
   },
@@ -2076,7 +2082,7 @@ function normalizeSceneImport(body) {
       if (!Array.isArray(slot)) throw new Error(`scenes["${name}"].slots[${si}] must be array`);
       return slot.map((piece, pi) => {
         if (typeof piece === 'string') {
-          return { prompt: piece, characterPrompts: [], id: uuidv4(), enabled: true };
+          return { prompt: piece, characterPrompts: [], id: uuidv4(), enabled: true, uc: '' };
         }
         if (piece && typeof piece === 'object' && typeof piece.prompt === 'string') {
           return {
@@ -2084,14 +2090,16 @@ function normalizeSceneImport(body) {
             characterPrompts: Array.isArray(piece.characterPrompts) ? piece.characterPrompts : [],
             id: typeof piece.id === 'string' && piece.id ? piece.id : uuidv4(),
             enabled: piece.enabled !== false,
+            uc: typeof piece.uc === 'string' ? piece.uc : '',
           };
         }
-        throw new Error(`scenes["${name}"].slots[${si}][${pi}] must be string or {prompt}`);
+        throw new Error(`scenes["${name}"].slots[${si}][${pi}] must be string or {prompt, uc?}`);
       });
     });
     out[name] = {
       slots,
       resolution: typeof scene.resolution === 'string' ? scene.resolution : null,
+      uc: typeof scene.uc === 'string' ? scene.uc : '',
     };
   }
   return out;
@@ -2165,6 +2173,11 @@ app.post('/api/projects/import-scenes', async (req, res) => {
         if (action === 'overwrite') {
           data.scenes[scName].slots = scNew.slots;
           if (scNew.resolution) data.scenes[scName].resolution = scNew.resolution;
+          // scene.uc는 input에 명시된 경우만 덮어씌움 (빈 string 입력 → 빈 string으로 덮어씌움 OK).
+          // input에 uc 키 자체가 없으면 기존 값 보존하고 싶지만 normalizeSceneImport가
+          // 항상 ''로 채워서 구분 불가. 정책: input에 명시된 값을 신뢰 (overwrite는 명시적
+          // 덮어쓰기 의도라 spec과 일치).
+          data.scenes[scName].uc = scNew.uc;
           plan.applied.push({ name: scName, action: 'overwrite' });
         } else {
           return res.status(400).json({ ok: false, error: `Invalid policy for "${scName}": ${action}` });
@@ -2181,6 +2194,7 @@ app.post('/api/projects/import-scenes', async (req, res) => {
           sceneCharacterPrompts: [],
           useSceneCharacterPrompts: false,
           sceneCharacterUC: '',
+          uc: scNew.uc,
         };
         plan.applied.push({ name: scName, action: 'new' });
       }
