@@ -515,12 +515,11 @@
       const done = (d.completed || 0) + (d.failed || 0);
       const pct = total > 0 ? ((done / total) * 100).toFixed(2) : '0.00';
 
-      // 처리 중인 job 자체(객체) → meta.sceneName + jobIndex/Total + 파일명 표시.
-      // 이전 코드는 outputFilePath 문자열만 넘기고 entry-기반 extractProject에 들어가
-      // entry.meta/entry.outputFilePath 둘 다 undefined로 '(unknown)' 출력 (2026-05-13 fix).
+      // 처리 중인 job: meta.sceneName + jobIndex/Total을 메인으로, 그 씬이 속한
+      // 프로젝트를 보조로 표시. 파일명(*.png)은 정보 가치 낮아 제거 (2026-05-13 본인 요청).
       const curJob = d.jobs && d.jobs[0] ? d.jobs[0] : null;
       const sceneLabel = curJob ? labelFromMeta(curJob.meta, curJob.jobId) : null;
-      const fn = curJob && curJob.outputFilePath ? extractFile(curJob.outputFilePath) : null;
+      const projectName = curJob ? extractProject(curJob) : null;
 
       const avg = d.avgProcessTimeMs || 0;
       const eta = d.etaMs;
@@ -582,7 +581,7 @@
           <div class="card full">
             <div class="label">처리 중</div>
             <div class="value">${sceneLabel || '<span class="muted">없음</span>'}</div>
-            ${fn ? `<div class="small">${fn}</div>` : ''}
+            ${projectName && projectName !== '(unknown)' ? `<div class="small">📁 ${projectName}</div>` : ''}
           </div>
           <div class="card">
             <div class="label">디스크 여유</div>

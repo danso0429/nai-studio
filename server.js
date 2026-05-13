@@ -1133,7 +1133,7 @@ app.get('/api/queue/status', async (req, res) => {
     completed: queueStats.completed,
     failed: queueStats.failed,
     diskFreeGB: parseFloat(freeGB.toFixed(1)),
-    jobs: genQueue.slice(0, 20).map(j => ({ jobId: j.jobId, outputFilePath: j.params.outputFilePath })),
+    jobs: genQueue.slice(0, 20).map(j => ({ jobId: j.jobId, outputFilePath: j.params.outputFilePath, meta: j.meta || {} })),
     totalJobs: genQueue.length,
     avgProcessTimeMs: Math.round(avgMs),
     recentAvgMs: Math.round(recentAvgMs),
