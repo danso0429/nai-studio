@@ -39,7 +39,7 @@ import {
   Scene,
   Session,
 } from './types';
-import { apiUrl, extractApiError, extractPromptDataFromBase64, getFirstFile, josaRo, josaEulReul } from './util';
+import { apiUrl, extractApiError, extractPromptDataFromBase64, getFirstFile, josaIGa, josaRo, josaEulReul } from './util';
 import { DriveRetryStatus } from '../backend';
 import { v4 } from 'uuid';
 import { Resolution, resolutionMap } from '../backends/imageGen';
@@ -237,6 +237,48 @@ export class AppState {
   @action
   decrementFloatView() {
     this.floatViewCount = Math.max(0, this.floatViewCount - 1);
+  }
+
+  // 프로젝트 영구 삭제 (백그라운드). 같은 프로젝트 중복 enqueue 차단.
+  // 호출 지점: SessionSelect의 휴지통 버튼, SessionTreePicker의 점 세개 메뉴.
+  deleteProjectBackground(name: string) {
+    if (sessionService.deletingProjects.has(name)) {
+      this.pushMessage(`프로젝트 "${name}"${josaIGa(name)} 이미 삭제 중이에요.`);
+      return;
+    }
+    this.pushDialog({
+      type: 'confirm',
+      text: `"${name}" 프로젝트를 영구 삭제합니다. 로컬과 Google Drive의 모든 데이터(outs/inpaints/vibes/inpaint_masks/inpaint_orgs/exports)가 함께 지워지며 되돌릴 수 없습니다. 진행할까요?`,
+      callback: async () => {
+        if (sessionService.deletingProjects.has(name)) {
+          this.pushMessage(`프로젝트 "${name}"${josaIGa(name)} 이미 삭제 중이에요.`);
+          return;
+        }
+        sessionService.deletingProjects.add(name);
+        const pid = this.pushProgressDialog(`프로젝트 "${name}" 삭제 중...`, 1);
+        (async () => {
+          try {
+            await sessionService.delete(name);
+            this.finishProgressDialog(
+              pid,
+              `✓ 프로젝트 "${name}" 삭제 완료`,
+              true,
+            );
+            if (this.curSession?.name === name) {
+              this.curSession = undefined;
+            }
+          } catch (e: any) {
+            this.finishProgressDialog(
+              pid,
+              `✗ 프로젝트 "${name}" 삭제 실패: ${e?.message || e}`,
+              false,
+            );
+          } finally {
+            sessionService.deletingProjects.delete(name);
+          }
+        })();
+      },
+    });
   }
 
   @action

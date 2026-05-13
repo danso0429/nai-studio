@@ -150,16 +150,18 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
     for (const f of sortedFolders) {
       if (f !== currentFolder) items.push({ text: '📁 ' + f + josaRo(f) + ' 이동', value: f });
     }
-    if (items.length === 0) {
-      appState.pushMessage('이동할 다른 폴더가 없습니다. 먼저 새 폴더를 만들어주세요.');
-      return;
-    }
+    items.push({ text: '🗑️ 프로젝트 영구 삭제', value: '__delete__' });
     const target = await appState.pushDialogAsync({
       type: 'select',
-      text: `"${name}" 이동 대상`,
+      text: `"${name}" 설정`,
       items,
     });
     if (!target) return;
+    if (target === '__delete__') {
+      setOpen(false);
+      appState.deleteProjectBackground(name);
+      return;
+    }
     try {
       await sessionService.moveToFolder(name, target === '__root__' ? null : target);
     } catch (e: any) {
