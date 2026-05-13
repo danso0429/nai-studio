@@ -235,11 +235,11 @@ const SessionSelect = observer(() => {
       </button>
       </Tooltip>
       <button
-        className="round-button back-green flex items-center gap-1 ml-1"
+        className="round-button back-green hidden md:flex items-center gap-1 ml-1"
         onClick={() => appState.openPieceEditor()}
       >
         <FaPuzzlePiece size={18} />
-        <span className="hidden md:inline">프롬프트조각</span>
+        <span>프롬프트조각</span>
       </button>
     </div>
   );

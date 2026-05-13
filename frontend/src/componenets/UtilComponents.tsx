@@ -15,11 +15,13 @@ import {
   FaDAndD,
   FaFileUpload,
   FaPenNib,
+  FaPuzzlePiece,
   FaTimes,
 } from 'react-icons/fa';
 import { Scrollbars } from 'react-custom-scrollbars-2';
 import { FaAnchor, FaOpencart, FaPerson } from 'react-icons/fa6';
 import { FloatView } from './FloatView';
+import { appState } from '../models/AppService';
 
 export interface Option<T> {
   value: T;
@@ -224,6 +226,15 @@ export const TabComponent: React.FC<TabComponentProps> = ({
               onClick={() => setToggleViewOpen(!toggleViewOpen)}
             >
               {toggleViewOpen ? '프롬프트 닫기' : '프롬프트 열기'}
+            </button>
+          )}
+          {appState.curSession && (
+            <button
+              className="active:brightness-90 hover:brightness-95 select-none h-10 md:hidden text-sm back-green px-3 flex justify-center items-center"
+              onClick={() => appState.openPieceEditor()}
+              aria-label="프롬프트조각"
+            >
+              <FaPuzzlePiece size={16} />
             </button>
           )}
           <div className="flex gap-1 ml-auto">
