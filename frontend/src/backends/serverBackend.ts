@@ -160,6 +160,13 @@ export class ServerBackend extends Backend {
     return { jobId: data.jobId, queued: !!data.queued };
   }
 
+  async cancelExportScenePack(jobId: string): Promise<void> {
+    await apiJSON('/export/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ jobId }),
+    });
+  }
+
   async augmentImage(arg: ImageAugmentInput): Promise<void> {
     await api('/augment', { method: 'POST', body: JSON.stringify(arg) });
   }

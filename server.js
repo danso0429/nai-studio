@@ -518,51 +518,71 @@ async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
 // 워커: (옵션) sharp resize → jszip 압축 → exports/<out>.tar 저장 → driveRetry enqueue.
 // WS 이벤트: export-progress / export-complete / export-failed.
 const exportQueue = [];
-let exportProcessing = false;
-// 현재 진행 중인 export job (GET /api/export/status에서 노출용). null이면 idle.
-let currentExportJob = null;
+// 동시 실행 가능한 export job 수. 본인 요청: 동시 10개까지 (2026-05-13).
+// 메모리/CPU 부담 회피: sharp가 multi-thread라 너무 높이면 race, 10 정도가 ARM Ampere A1에서
+// 안전한 상한. env로 오버라이드 가능.
+const EXPORT_CONCURRENCY = Math.max(1, parseInt(process.env.EXPORT_CONCURRENCY) || 10);
+let exportWorkers = 0;
+// 현재 진행 중인 export job들. key=jobId, value={ jobId, outFileName, phase, done, total, startedAt, canceled }.
+// /api/export/status, /api/export/cancel에서 사용.
+const activeExportJobs = new Map();
 
 function setExportProgress(jobId, phase, done, total) {
-  if (currentExportJob && currentExportJob.jobId === jobId) {
-    currentExportJob.phase = phase;
-    currentExportJob.done = done;
-    currentExportJob.total = total;
+  const info = activeExportJobs.get(jobId);
+  if (info) {
+    info.phase = phase;
+    info.done = done;
+    info.total = total;
   }
   broadcast('export-progress', { jobId, phase, done, total });
 }
 
+function isExportCanceled(jobId) {
+  const info = activeExportJobs.get(jobId);
+  return !!(info && info.canceled);
+}
+
 async function processExportQueue() {
-  if (exportProcessing) return;
-  if (exportQueue.length === 0) return;
-  exportProcessing = true;
-  try {
-    while (exportQueue.length > 0) {
-      const job = exportQueue.shift();
-      currentExportJob = {
-        jobId: job.jobId,
-        outFileName: (job.outFilePath || '').split('/').pop() || '',
-        phase: 'queued',
-        done: 0,
-        total: (job.paths || []).length,
-        startedAt: Date.now(),
-      };
+  // 워커풀 방식: 빈 슬롯이 있으면 새 워커 spawn. 각 워커는 큐가 빌 때까지 job 처리.
+  while (exportWorkers < EXPORT_CONCURRENCY && exportQueue.length > 0) {
+    exportWorkers++;
+    (async () => {
       try {
-        await runExportJob(job);
-      } catch (e) {
-        console.error('[Export] job ' + job.jobId + ' failed:', e.message);
-        broadcast('export-failed', { jobId: job.jobId, phase: job._phase || 'unknown', error: e.message });
-      } finally {
-        // Phase 1 resize 산출물 정리 (data/tmp 누적 방지). 어떤 경로로 끝나든 실행.
-        for (const item of (job.paths || [])) {
-          if (item.processedPath) {
-            try { await fs.unlink(item.processedPath); } catch {}
+        while (exportQueue.length > 0) {
+          const job = exportQueue.shift();
+          activeExportJobs.set(job.jobId, {
+            jobId: job.jobId,
+            outFileName: (job.outFilePath || '').split('/').pop() || '',
+            phase: 'queued',
+            done: 0,
+            total: (job.paths || []).length,
+            startedAt: Date.now(),
+            canceled: false,
+          });
+          try {
+            await runExportJob(job);
+          } catch (e) {
+            const canceled = isExportCanceled(job.jobId);
+            console.error('[Export] job ' + job.jobId + (canceled ? ' canceled' : ' failed') + ':', e.message);
+            broadcast('export-failed', {
+              jobId: job.jobId,
+              phase: job._phase || 'unknown',
+              error: canceled ? 'canceled' : e.message,
+            });
+          } finally {
+            // Phase 1 resize 산출물 정리 (data/tmp 누적 방지). 어떤 경로로 끝나든 실행.
+            for (const item of (job.paths || [])) {
+              if (item.processedPath) {
+                try { await fs.unlink(item.processedPath); } catch {}
+              }
+            }
+            activeExportJobs.delete(job.jobId);
           }
         }
-        currentExportJob = null;
+      } finally {
+        exportWorkers--;
       }
-    }
-  } finally {
-    exportProcessing = false;
+    })();
   }
 }
 
@@ -580,6 +600,7 @@ async function runExportJob(job) {
     setExportProgress(jobId, 'resize', 0, total);
     const CHUNK = 4;
     for (let i = 0; i < items.length; i += CHUNK) {
+      if (isExportCanceled(jobId)) throw new Error('canceled');
       const chunk = items.slice(i, i + CHUNK);
       await Promise.all(chunk.map(async (item) => {
         const inputPath = resolvePath(item.srcPath);
@@ -596,6 +617,8 @@ async function runExportJob(job) {
       setExportProgress(jobId, 'resize', done, total);
     }
   }
+
+  if (isExportCanceled(jobId)) throw new Error('canceled');
 
   // Phase 2: zip
   job._phase = 'zip';
@@ -2289,13 +2312,39 @@ app.post('/api/export/scene-pack', async (req, res) => {
 
 app.get('/api/export/status', (req, res) => {
   res.json({
-    current: currentExportJob, // null | { jobId, outFileName, phase, done, total, startedAt }
+    active: Array.from(activeExportJobs.values()),
     waiting: exportQueue.map((j) => ({
       jobId: j.jobId,
       outFileName: (j.outFilePath || '').split('/').pop() || '',
       total: (j.paths || []).length,
     })),
+    concurrency: EXPORT_CONCURRENCY,
   });
+});
+
+// 진행 중 또는 대기 중 export job 취소.
+// active면 canceled 플래그 set → 다음 chunk 경계에서 throw (Promise.all 진행 중 chunk는
+// 완료까지 진행, 다음 chunk는 안 시작). queue에 있으면 그냥 제거.
+app.post('/api/export/cancel', async (req, res) => {
+  const jobId = req.body && req.body.jobId;
+  if (!jobId || typeof jobId !== 'string') {
+    return res.status(400).json({ ok: false, error: 'jobId required' });
+  }
+  // 1. 대기 큐에서 제거
+  const qIdx = exportQueue.findIndex((j) => j.jobId === jobId);
+  if (qIdx >= 0) {
+    exportQueue.splice(qIdx, 1);
+    broadcast('export-failed', { jobId, phase: 'queued', error: 'canceled' });
+    return res.json({ ok: true, where: 'queue' });
+  }
+  // 2. 진행 중이면 플래그 set
+  const info = activeExportJobs.get(jobId);
+  if (info) {
+    info.canceled = true;
+    return res.json({ ok: true, where: 'active' });
+  }
+  // 3. 둘 다 없으면 이미 끝났거나 알 수 없음
+  res.json({ ok: false, error: 'not found (already finished?)' });
 });
 
 app.post('/api/fs/zip', async (req, res) => {

@@ -1,6 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { FaCloudUploadAlt, FaTimes, FaExclamationTriangle, FaFileArchive } from 'react-icons/fa';
 import { appState } from '../models/AppService';
+import { backend } from '../models';
 import { DriveRetryEntry } from '../backend';
 
 const formatRelative = (ts: number | null): string => {
@@ -127,6 +128,13 @@ interface ExportRowProps {
 const ExportPipelineRow = ({ job }: ExportRowProps) => {
   const label = PHASE_LABEL[job.phase] || job.phase;
   const pct = job.total > 0 ? Math.round((job.done / job.total) * 100) : 0;
+  const cancel = async () => {
+    try {
+      await backend.cancelExportScenePack(job.jobId);
+    } catch (e: any) {
+      appState.pushMessage('취소 요청 실패: ' + (e?.message || e));
+    }
+  };
   return (
     <div className="border-b border-gray-200 dark:border-slate-700 py-2 flex items-center gap-2">
       <div className="flex-shrink-0">
@@ -144,6 +152,12 @@ const ExportPipelineRow = ({ job }: ExportRowProps) => {
           ></div>
         </div>
       </div>
+      <button
+        onClick={cancel}
+        className="px-2 py-1 text-xs bg-red-500 hover:bg-red-600 text-white rounded flex-shrink-0"
+      >
+        취소
+      </button>
     </div>
   );
 };
