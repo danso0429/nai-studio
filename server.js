@@ -2041,6 +2041,84 @@ app.post('/api/project/delete-now', async (req, res) => {
   }
 });
 
+// cleanup-preview — 전체 정리 실행 전 미리보기. tmp/exports 파일 수+크기와
+// 로컬 Orphan(PROJECT_SUB_DIRS 중 살아있지 않은 프로젝트명 폴더) 재귀 크기 합산.
+// Drive는 rclone 호출 비용이 커서 제외 — "정리할 필요 있나" 빠른 판단용.
+async function sumDirRecursive(dirPath) {
+  let count = 0;
+  let size = 0;
+  async function walk(p) {
+    let entries;
+    try { entries = await fs.readdir(p, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      const full = path.join(p, e.name);
+      if (e.isDirectory()) {
+        await walk(full);
+      } else if (e.isFile()) {
+        try { const st = await fs.stat(full); count += 1; size += st.size; } catch {}
+      }
+    }
+  }
+  await walk(dirPath);
+  return { count, size };
+}
+
+app.get('/api/project/cleanup-preview', async (req, res) => {
+  try {
+    const result = {
+      tmp: { count: 0, size: 0 },
+      exports: { count: 0, size: 0 },
+      orphanLocal: { count: 0, size: 0, items: [] },
+    };
+    // tmp/ 직속 파일
+    const tmpDir = path.join(DATA_DIR, 'tmp');
+    try {
+      const entries = await fs.readdir(tmpDir, { withFileTypes: true });
+      for (const e of entries) {
+        if (e.name.startsWith('.') || !e.isFile()) continue;
+        try {
+          const st = await fs.stat(path.join(tmpDir, e.name));
+          result.tmp.count += 1;
+          result.tmp.size += st.size;
+        } catch {}
+      }
+    } catch {}
+    // exports/ 직속 파일
+    const exportsDir = path.join(DATA_DIR, 'exports');
+    try {
+      const entries = await fs.readdir(exportsDir, { withFileTypes: true });
+      for (const e of entries) {
+        if (e.name.startsWith('.') || !e.isFile()) continue;
+        try {
+          const st = await fs.stat(path.join(exportsDir, e.name));
+          result.exports.count += 1;
+          result.exports.size += st.size;
+        } catch {}
+      }
+    } catch {}
+    // Orphan: PROJECT_SUB_DIRS 중 활성 프로젝트명에 없는 폴더 재귀 합산.
+    // 로컬 exports orphan은 ② 단계가 exports/ 통째로 비우므로 별도 표시 불필요.
+    const activeSet = await listActiveProjectNames();
+    for (const d of PROJECT_SUB_DIRS) {
+      const dirPath = path.join(DATA_DIR, d);
+      let entries;
+      try { entries = await fs.readdir(dirPath, { withFileTypes: true }); } catch { continue; }
+      for (const e of entries) {
+        if (!e.isDirectory() || e.name.startsWith('.')) continue;
+        if (activeSet.has(e.name)) continue;
+        const sub = await sumDirRecursive(path.join(dirPath, e.name));
+        result.orphanLocal.count += sub.count;
+        result.orphanLocal.size += sub.size;
+        result.orphanLocal.items.push({ path: d + '/' + e.name, count: sub.count, size: sub.size });
+      }
+    }
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // cleanup-orphans는 Drive purge 다수로 long-running. iPhone Safari fetch
 // timeout과 충돌하지 않게 fire-and-forget + WS 진행도 broadcast 방식.
 let cleanupOrphansActiveJobId = null;
