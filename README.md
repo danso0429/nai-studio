@@ -79,7 +79,7 @@
 
 ## SDStudio PC 버전과의 차이점
 
-> 기준: SDStudio Remote **v1.5.0** (SDStudio v4.7.1 기반)
+> 기준: SDStudio v4.7.1. 현재 Remote 버전은 `version.json` 참조 (변경 로그는 `CHANGELOG.md`).
 
 | 항목 | SDStudio PC (v4.7.1) | SDStudio Remote |
 | --- | --- | --- |

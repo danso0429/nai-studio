@@ -2,5 +2,5 @@
   "version": "1.5.3-preview.2",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-13",
-  "notes": "Phase 13 부팅 시 imageMap reconcile + Phase 15 청크 패턴 일괄 적용: 이미지 변형/씬 통합/addAllToQueue/autoCleanup 4건 CHUNK=4 백그라운드화 + 진행도 토스트. 서버 큐 평균 기반 ETA (TaskProgressBar 정확도 개선). queue.html maintenance UI (tmp/exports/Orphan 통합 정리). update.sh dirty working tree 가드."
+  "notes": "Phase 11 (5/13) 누적: (1) 부팅 시 imageMap reconcile + 청크 패턴 일괄 적용 (CHUNK=4 백그라운드화 + 진행도 토스트), (2) 서버 큐 평균 기반 ETA, (3) queue.html maintenance UI (tmp/exports/Orphan 통합 정리), (4) update.sh dirty working tree 가드, (5) /api/fs/{image,list,list-stats} 캐시 헤더 (ETag + private max-age), (6) /api/fs/write + write-data + reconcile 모두 atomic write (tmp+rename), (7) 만성 지연 진단 (측정 marker first 패턴) — refreshBatch 0.5~1.6초로 정상 확인 (모바일 썸네일 200 다운사이즈가 이미 해결한 상태였음), (8) 잔수정 (WebSocket.OPEN 상수, PreSetEditor rename, seesion/removeDonwload typo)."
 }
