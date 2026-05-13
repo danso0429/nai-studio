@@ -306,7 +306,7 @@ export class ImageService extends EventTarget {
   // NOTE there is race condition here
   // when deleted resource is being loaded up by somebody
   // we can end up with invalid cache
-  // trikcy to handle without global lock
+  // tricky to handle without global lock
   // but only happens when "swap of scene names" is the case
   // let's just keep it simple; this is probably not common use case
   async onRenameScene(session: Session, oldName: string, newName: string) {

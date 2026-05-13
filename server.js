@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const fss = require('fs');
 const http = require('http');
-const { WebSocketServer } = require('ws');
+const { WebSocketServer, WebSocket } = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const { NaiClient } = require('./lib/nai-client');
 const tagSearch = require('./lib/tag-search');
@@ -46,7 +46,7 @@ function broadcast(type, data) {
   if (!wss) return;
   const msg = JSON.stringify({ type, data });
   wss.clients.forEach(client => {
-    if (client.readyState === 1) client.send(msg);
+    if (client.readyState === WebSocket.OPEN) client.send(msg);
   });
 }
 
@@ -366,10 +366,14 @@ function loadQueueState() {
 // 디스크에 없는 파일명 엔트리 제거. fs 에러(ENOENT 외)는 transient로 간주, 건들지 않음.
 // `app.listen` 콜백에서 setImmediate로 호출 → 부팅 블록 0ms.
 // 측정 (2026-05-13, 1176 scenes, populated 50 files/scene): wall-clock ~100ms, HTTP p99 영향 사실상 0.
+// 이미지맵 reconcile 시 디렉토리 동시 read 청크 크기. 브라우저 동시 connection
+// 한도와 동일한 값 (frontend ImageService.refreshBatch 와 의도 통일).
+const RECONCILE_CHUNK_SIZE = 8;
+
 async function reconcileImageMap() {
   const PROJECTS_DIR = path.join(DATA_DIR, 'projects');
   const OUTS_DIR = path.join(DATA_DIR, 'outs');
-  const CHUNK = 8;
+  const CHUNK = RECONCILE_CHUNK_SIZE;
   const t0 = Date.now();
 
   async function listProjectFilesRecursive(dir) {

@@ -23,7 +23,7 @@ import PromptTooltip from './PromptTooltip';
 import ConfirmWindow, { Dialog } from './ConfirmWindow';
 import QueueControl from './SceneQueueControl';
 import { FloatView, FloatViewProvider } from './FloatView';
-import { observer, useObserver } from 'mobx-react-lite';
+import { observer } from 'mobx-react-lite';
 import { FaImages, FaPenFancy, FaStar } from 'react-icons/fa';
 import { GlobalPresetTab, GlobalPresetPickerOverlay } from './GlobalPresetTab';
 import ModalOverlay from './ModalOverlay';
