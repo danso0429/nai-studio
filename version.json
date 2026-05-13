@@ -1,6 +1,6 @@
 {
-  "version": "1.5.1-preview.4",
+  "version": "1.5.2",
   "sdstudioBase": "4.7.1",
-  "released": "2026-05-12",
-  "notes": "씬 일괄 임포트 (스키마 기반 JSON + UI 모달) + export tmp 즉시 정리 + cleanup_old_files.sh 경로 복원."
+  "released": "2026-05-13",
+  "notes": "씬/조합 단위 네거티브 (scene.uc + PromptPiece.uc) + 프로젝트 영구 삭제 백그라운드화/병렬화 + 이미지 내보내기 동시 10개 + 모바일 프롬프트조각 위치 이동 + 다크모드 글자색 + queue 통계 1시간 단위 + queue.html 처리 중 씬/프로젝트 잔여 + 백그라운드 복귀 진행도 동기화."
 }
