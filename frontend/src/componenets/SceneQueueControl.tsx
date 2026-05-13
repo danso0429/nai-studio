@@ -659,13 +659,55 @@ const QueueControl = observer(
           }
         }
         const doQueue = async () => {
-          for (const scene of scenes) {
-            try {
-              await queueScene(curSession, scene, appState.samples);
-            } catch (e: any) {
-              appState.pushMessage(`프롬프트 에러 (${scene.name}): ` + extractApiError(e));
+          const total = scenes.length;
+          if (total === 0) return;
+          const pid = appState.pushProgressDialog(
+            `씬 큐 등록 중... 0/${total}`,
+            total,
+          );
+          // fire-and-forget: dialog 즉시 닫고 백그라운드에서 진행 → 다른 작업 가능
+          (async () => {
+            // CHUNK=4: 씬당 addMirroredTask 내부에서 prepGenInput N번 → server batch
+            // push 1회 RTT. 동시 4씬 = libuv/서버 부담 안전 마진.
+            const CHUNK = 4;
+            let failed = 0;
+            const errors: string[] = [];
+            for (let i = 0; i < scenes.length; i += CHUNK) {
+              const chunk = scenes.slice(i, i + CHUNK);
+              await Promise.all(
+                chunk.map(async (scene) => {
+                  try {
+                    await queueScene(curSession, scene, appState.samples);
+                  } catch (e: any) {
+                    failed++;
+                    errors.push(`${scene.name}: ${extractApiError(e)}`);
+                  }
+                }),
+              );
+              const done = Math.min(i + CHUNK, total);
+              appState.updateProgressDialog(pid, {
+                done,
+                text: `씬 큐 등록 중... ${done}/${total}`,
+              });
             }
-          }
+            const success = total - failed;
+            if (failed === 0) {
+              appState.finishProgressDialog(
+                pid,
+                `✓ ${success}개 씬 큐 등록 완료`,
+                true,
+              );
+            } else {
+              appState.finishProgressDialog(
+                pid,
+                `△ ${success}/${total} 성공 (${failed}건 실패)`,
+                false,
+              );
+              for (const msg of errors.slice(0, 5)) {
+                appState.pushMessage(`프롬프트 에러 (${msg})`);
+              }
+            }
+          })();
         };
         if (allMissing.length > 0) {
           const list = allMissing.map((m) => `<${m.library}.${m.piece}>`).join(', ');
