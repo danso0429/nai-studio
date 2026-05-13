@@ -410,21 +410,35 @@ export class TrashService extends EventTarget {
       console.warn('서버 자동 정리 실패, 로컬 폴백 생략:', e);
     }
 
-    // 2. Cleanup expired scenes (14 days) — needs frontend state
-    const sceneKeys = Object.keys(this.data.scenes);
-    for (const key of sceneKeys) {
+    // 2. Cleanup expired scenes (14 days) — needs frontend state.
+    // 만료 항목만 추출 → CHUNK=4 병렬 영구 삭제. 보통 0~몇 개라 효과 작지만
+    // 폴더 다수 만료 시 직렬 N× RTT 회피.
+    type ExpiredScene = { projectName: string; sceneName: string; sceneType: 'scene' | 'inpaint'; key: string };
+    const expired: ExpiredScene[] = [];
+    for (const key of Object.keys(this.data.scenes)) {
       const entry = this.data.scenes[key];
       if (!entry) continue;
-      const age = now - entry.deletedAt;
-      if (age >= SCENE_RETENTION_MS) {
-        const [projectName, sceneName] = [
-          key.substring(0, key.indexOf(':')),
-          key.substring(key.indexOf(':') + 1),
-        ];
-        const sceneType = entry.sceneData.type === 'inpaint' ? 'inpaint' : 'scene';
-        console.log('자동 정리: 씬 ' + key + ' 영구 삭제');
-        await this.permanentlyDeleteScene(projectName, sceneName, sceneType as 'scene' | 'inpaint');
-      }
+      if (now - entry.deletedAt < SCENE_RETENTION_MS) continue;
+      expired.push({
+        projectName: key.substring(0, key.indexOf(':')),
+        sceneName: key.substring(key.indexOf(':') + 1),
+        sceneType: entry.sceneData.type === 'inpaint' ? 'inpaint' : 'scene',
+        key,
+      });
+    }
+    const CHUNK = 4;
+    for (let i = 0; i < expired.length; i += CHUNK) {
+      const chunk = expired.slice(i, i + CHUNK);
+      await Promise.all(
+        chunk.map(async (e) => {
+          try {
+            console.log('자동 정리: 씬 ' + e.key + ' 영구 삭제');
+            await this.permanentlyDeleteScene(e.projectName, e.sceneName, e.sceneType);
+          } catch (err) {
+            console.warn('자동 정리 실패:', e.key, err);
+          }
+        }),
+      );
     }
   }
 }
