@@ -268,7 +268,9 @@ body {
   top: 0;
   left: 0;
   width: 100vw;
-  height: 100vh;
+  /* 100vh는 iOS Safari toolbar 미포함이라 하단 버튼 잘림.
+     dvh (dynamic viewport height)로 toolbar 변화 반영. */
+  height: 100dvh;
   background-color: rgba(0, 0, 0, 0.8);
   display: flex;
   justify-content: center;
