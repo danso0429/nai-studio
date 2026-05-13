@@ -518,24 +518,24 @@ export class SessionService extends ResourceSyncService<Session> {
   }
 
   async saveInpaintImages(
-    seesion: Session,
+    session: Session,
     inpaint: InpaintScene,
     image: string,
     mask: string,
   ) {
     await backend.writeDataFile(
-      this.getInpaintOrgPath(seesion, inpaint),
+      this.getInpaintOrgPath(session, inpaint),
       image,
     );
     await backend.writeDataFile(
-      this.getInpaintMaskPath(seesion, inpaint),
+      this.getInpaintMaskPath(session, inpaint),
       mask,
     );
     await imageService.invalidateCache(
-      this.getInpaintOrgPath(seesion, inpaint),
+      this.getInpaintOrgPath(session, inpaint),
     );
     await imageService.invalidateCache(
-      this.getInpaintMaskPath(seesion, inpaint),
+      this.getInpaintMaskPath(session, inpaint),
     );
   }
 

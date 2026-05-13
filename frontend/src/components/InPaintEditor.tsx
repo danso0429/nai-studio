@@ -31,7 +31,7 @@ import { InpaintScene, PromptPiece } from '../models/types';
 import { extractApiError, extractPromptDataFromBase64 } from '../models/util';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
-import { InnerPreSetEditor } from './PreSetEdtior';
+import { InnerPreSetEditor } from './PreSetEditor';
 import { reaction } from 'mobx';
 import { FloatView } from './FloatView';
 import { TaskProgressBar } from './TaskQueueControl';

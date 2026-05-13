@@ -34,7 +34,7 @@ import {
 import Denque from 'denque';
 import Scrollbars from 'react-custom-scrollbars-2';
 import PromptEditTextArea from './PromptEditTextArea';
-import PreSetEditor, { UnionPreSetEditor } from './PreSetEdtior';
+import PreSetEditor, { UnionPreSetEditor } from './PreSetEditor';
 import { TaskProgressBar } from './TaskQueueControl';
 import { Resolution, resolutionMap } from '../backends/imageGen';
 import { FloatView } from './FloatView';

@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { extractApiError } from '../models/util';
 import SessionSelect from './SessionSelect';
-import PreSetEditor from './PreSetEdtior';
+import PreSetEditor from './PreSetEditor';
 import SceneQueuControl, { SceneCell } from './SceneQueueControl';
 import TaskQueueControl, { TaskQueueProgress, TaskQueueControls } from './TaskQueueControl';
 import TobBar from './TobBar';
@@ -211,7 +211,7 @@ export const App = observer(() => {
     };
   }, []);
   useEffect(() => {
-    const removeDonwloadProgressListener = backend.onDownloadProgress(
+    const removeDownloadProgressListener = backend.onDownloadProgress(
       (progress: any) => {
         localAIService.notifyDownloadProgress(progress.percent);
       },
@@ -236,7 +236,7 @@ export const App = observer(() => {
     };
     taskQueueService.addEventListener('ip-check-fail', handleIPCheckFail);
     return () => {
-      removeDonwloadProgressListener();
+      removeDownloadProgressListener();
       removeImageChangedListener();
       removeZipProgressListener();
       taskQueueService.removeEventListener('ip-check-fail', handleIPCheckFail);

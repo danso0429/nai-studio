@@ -26,7 +26,7 @@ import { appState } from '../models/AppService';
 import { FileUploadBase64 } from './UtilComponents';
 import PromptEditTextArea from './PromptEditTextArea';
 import { FloatView } from './FloatView';
-import { getRefDefaults } from './PreSetEdtior';
+import { getRefDefaults } from './PreSetEditor';
 
 // 바이브 이미지 컴포넌트
 const VibeImage = ({
