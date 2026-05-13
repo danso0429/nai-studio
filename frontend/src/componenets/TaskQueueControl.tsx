@@ -62,7 +62,7 @@ const ProgressBar = ({ duration, isError, isPaused, text, key }: ProgressBarProp
 interface TaskProgressBarProps {
   fast?: boolean;
 }
-export const TaskProgressBar = ({ fast }: TaskProgressBarProps) => {
+export const TaskProgressBar = observer(({ fast }: TaskProgressBarProps) => {
   const key = useRef<number>(0);
   const [duration, setDuration] = useState(0);
   const [isError, setIsError] = useState(false);
@@ -81,12 +81,20 @@ export const TaskProgressBar = ({ fast }: TaskProgressBarProps) => {
       return `${Math.round(hours)}시간`;
     }
   };
+  // 서버 평균(영구 누적) 사용. 클라 timeEstimator는 ring 128 + 클래스별이라 큐 reset 시
+  // 또는 추세 변동에 정확도 떨어짐. server recentAvgMs(최근 100건)이 더 안정적.
+  const serverAvgMs = () => appState.serverQueueAvgMs;
   const getProgressText = () => {
     const stats = taskQueueService.statsAllTasks();
     const remain = stats.total - stats.done;
-    const ms = taskQueueService.estimateTime('mean');
-    const timeEstimate = formatTime(ms);
-    return `${remain}개 남음 (예상 ${timeEstimate})`;
+    const avg = serverAvgMs();
+    const totalMs = avg > 0 ? avg * remain : taskQueueService.estimateTime('mean');
+    return `${remain}개 남음 (예상 ${formatTime(totalMs)})`;
+  };
+  const topTaskDurationSec = () => {
+    const avg = serverAvgMs();
+    if (avg > 0) return avg / 1000;
+    return taskQueueService.estimateTopTaskTime('mean') / 1000;
   };
 
   useEffect(() => {
@@ -107,7 +115,7 @@ export const TaskProgressBar = ({ fast }: TaskProgressBarProps) => {
       nextKey();
       setIsError(false);
       setError('');
-      setDuration(taskQueueService.estimateTopTaskTime('mean') / 1000);
+      setDuration(topTaskDurationSec());
       if (!taskQueueService.isRunning()) {
         setDuration(0);
       }
@@ -116,7 +124,7 @@ export const TaskProgressBar = ({ fast }: TaskProgressBarProps) => {
       nextKey();
       setIsError(false);
       setError('');
-      setDuration(taskQueueService.estimateTopTaskTime('mean') / 1000);
+      setDuration(topTaskDurationSec());
       if (!taskQueueService.isRunning()) {
         setDuration(0);
       }
@@ -159,7 +167,7 @@ export const TaskProgressBar = ({ fast }: TaskProgressBarProps) => {
       />
     </div>
   );
-};
+});
 
 const TaskQueueList = ({ onClose }: { onClose?: () => void }) => {
   const [tasks, setTasks] = useState<any[]>([]);

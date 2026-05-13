@@ -167,6 +167,9 @@ export class AppState {
   @observable accessor pinnedProgressDialogs: ProgressDialog[] = [];
   @observable accessor driveRetryStatus: DriveRetryStatus | null = null;
   @observable accessor driveRetryModalOpen: boolean = false;
+  // 서버 큐 통계 — TaskProgressBar의 정확한 ETA용. /api/queue/status에서 폴링.
+  // recentAvgMs(최근 100건) → currentBucketAvgMs → allTimeAvgMs 순서로 fallback. 2026-05-13.
+  @observable accessor serverQueueAvgMs: number = 0;
   // 진행 중인 export pipeline (resize/zip). tar 생성 끝나면 null로 → driveRetry가 인계.
   @observable accessor exportPipelineJobs: {
     jobId: string;
@@ -497,6 +500,19 @@ export class AppState {
     } catch (e) {
       // 네트워크/서버 일시 오류는 무시 (다음 폴링에서 회복)
     }
+  }
+
+  // 서버 큐 평균 ETA 폴링. recentAvgMs > currentBucketAvgMs > allTimeAvgMs 순 fallback.
+  // 2026-05-13: 본인 보고 — 클라 timeEstimator(ring buffer 128, 클래스별)가 부정확.
+  // 서버 timingStats는 영구 누적이라 더 정확.
+  async refreshServerQueueAvg(): Promise<void> {
+    try {
+      const r = await fetch(apiUrl('/api/queue/status'), { cache: 'no-store' });
+      if (!r.ok) return;
+      const d = await r.json();
+      const avg = d.recentAvgMs || d.currentBucketAvgMs || d.allTimeAvgMs || 0;
+      if (avg > 0) this.serverQueueAvgMs = avg;
+    } catch (e) {}
   }
 
   // 백그라운드 → 포그라운드 복귀 또는 WS 재연결 시 호출. 그 사이 놓친 progress/
@@ -2543,6 +2559,10 @@ export const appState = new AppState();
 // Drive retry status 폴링: 부팅 시 1회 + 30s 주기
 appState.refreshDriveRetryStatus();
 setInterval(() => appState.refreshDriveRetryStatus(), 30000);
+
+// 서버 큐 평균 ETA 폴링: 부팅 시 1회 + 15s 주기 (큐 처리 도중 추세 반영)
+appState.refreshServerQueueAvg();
+setInterval(() => appState.refreshServerQueueAvg(), 15000);
 
 // 백그라운드 → 포그라운드 복귀 + WS 재연결 시 export/driveRetry 상태 동기화.
 // iPhone Safari가 백그라운드 가면 WS 끊겨서 progress/complete 이벤트 미스 →
