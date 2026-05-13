@@ -420,7 +420,13 @@ async function reconcileImageMap() {
         let mtimeAfter;
         try { mtimeAfter = (await fs.stat(file)).mtimeMs; } catch { continue; }
         if (mtimeAfter !== mtimeBefore) continue;
-        try { await fs.writeFile(file, JSON.stringify(data, null, 2)); projectsUpdated++; }
+        try {
+          // atomic write로 부분 쓰기 손상 회피.
+          const tmp = file + '.tmp';
+          await fs.writeFile(tmp, JSON.stringify(data, null, 2));
+          await fs.rename(tmp, file);
+          projectsUpdated++;
+        }
         catch (e) { console.warn(`[reconcile] write failed ${file}: ${e.message}`); }
       }
     }
@@ -1587,7 +1593,11 @@ app.post('/api/fs/write', async (req, res) => {
   try {
     const filePath = resolvePath(req.body.path);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, req.body.data, 'utf-8');
+    // atomic write: tmp 파일에 먼저 쓰고 rename. write 중 crash해도 원본 보존.
+    // 동일 파일시스템 내 rename은 POSIX상 atomic.
+    const tmp = filePath + '.tmp';
+    await fs.writeFile(tmp, req.body.data, 'utf-8');
+    await fs.rename(tmp, filePath);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
