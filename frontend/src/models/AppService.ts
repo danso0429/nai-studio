@@ -13,7 +13,7 @@ import {
 } from '.';
 import type { GlobalPresetType, IGlobalPresetEntry } from './GlobalPresetService';
 import { SUPPORTED_GLOBAL_PRESET_TYPES } from './GlobalPresetService';
-import { Dialog } from '../componenets/ConfirmWindow';
+import { Dialog } from '../components/ConfirmWindow';
 import { cropMirrorResultFromDataUri, dataUriToBase64, deleteImageFiles } from './ImageService';
 import {
   createImageWithText,
@@ -43,7 +43,7 @@ import { apiUrl, extractApiError, extractPromptDataFromBase64, getFirstFile, jos
 import { DriveRetryStatus } from '../backend';
 import { v4 } from 'uuid';
 import { Resolution, resolutionMap } from '../backends/imageGen';
-import { ProgressDialog } from '../componenets/ProgressWindow';
+import { ProgressDialog } from '../components/ProgressWindow';
 import { migratePieceLibrary } from './legacy';
 import {
   oneTimeFlowMap,

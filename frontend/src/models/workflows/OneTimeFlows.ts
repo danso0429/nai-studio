@@ -10,7 +10,7 @@ import {
   Resolution,
   upscaleReoslution,
 } from '../../backends/imageGen';
-import { getImageDimensions } from '../../componenets/BrushTool';
+import { getImageDimensions } from '../../components/BrushTool';
 import { appState } from '../AppService';
 import { dataUriToBase64 } from '../ImageService';
 import { queueI2IWorkflow, TaskParam } from '../TaskQueueService';

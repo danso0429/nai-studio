@@ -39,7 +39,7 @@ import { sleep } from './util';
 import { expandPieces, lowerPromptNode, toPARR } from './PromptService';
 import { dataUriToBase64 } from './ImageService';
 import { prepareMirrorCanvas } from './workflows/SDWorkFlow';
-import { getImageDimensions } from '../componenets/BrushTool';
+import { getImageDimensions } from '../components/BrushTool';
 import { QueueJobMeta } from '../backend';
 
 const FAST_TASK_TIME_ESTIMATOR_SAMPLE_COUNT = 16;
