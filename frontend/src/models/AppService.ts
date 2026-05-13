@@ -139,6 +139,12 @@ async function syncExportToDrive(opts: {
 
 const SPECIAL_CHAR_REGEX = /[^a-zA-Z0-9가-힣ぁ-んァ-ヶ一-龥\u3000-\u303F]/g;
 
+// toast/progress 자동 dismiss 시간 (ms). 일관성용 상수.
+// SHORT: 간단 알림 (메시지), 인라인 progress 완료. 화면을 오래 가리지 않음.
+// LONG : pinned progress 완료. 결과(success/error)를 좀 더 보여줄 가치.
+const TOAST_DISMISS_SHORT_MS = 3000;
+const TOAST_DISMISS_LONG_MS = 5000;
+
 function detectSpecialChars(scenes: { name: string }[]): Set<string> {
   const result = new Set<string>();
   for (const s of scenes) {
