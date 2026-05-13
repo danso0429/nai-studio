@@ -114,7 +114,8 @@ function recordQueueError(jobId, error, retried, meta) {
 }
 
 // ─── Timing history (raw, 2일 retention) + aggregate stats (영구) ──
-// raw: [{finishedAt: ts, durationMs: number}, ...]. 시각 패턴 분석/sparkline용.
+// raw: [[finishedAt, durationMs], ...] tuple 형식 (2026-05-13 본인 요청 — dict 보다 ~38% 작음).
+// 시각 패턴 분석/sparkline용. dict 형식의 옛 파일은 loadTimingHistory에서 자동 변환.
 // stats: 1시간 단위 24개 bucket + allTime aggregate. raw가 prune돼도 영구 보존.
 // (2026-05-13 본인 요청으로 2시간 → 1시간 단위 변경)
 let timingHistory = [];
@@ -141,7 +142,7 @@ const TIMING_STATS_FILE = path.join(DATA_DIR, '.queue_timing_stats.json');
 function pruneTimingHistory() {
   const cutoff = Date.now() - TIMING_RETENTION_MS;
   let removed = 0;
-  while (timingHistory.length > 0 && timingHistory[0].finishedAt < cutoff) {
+  while (timingHistory.length > 0 && timingHistory[0][0] < cutoff) {
     timingHistory.shift();
     removed++;
   }
@@ -154,7 +155,7 @@ function pruneTimingHistory() {
 }
 
 function recordTiming(finishedAt, durationMs) {
-  timingHistory.push({ finishedAt, durationMs });
+  timingHistory.push([finishedAt, durationMs]);
   const idx = bucketIndexFor(finishedAt);
   timingStats.buckets[idx].count++;
   timingStats.buckets[idx].totalMs += durationMs;
@@ -194,7 +195,16 @@ function loadTimingHistory() {
   // raw
   try {
     const raw = require('fs').readFileSync(TIMING_HISTORY_FILE, 'utf8');
-    timingHistory = JSON.parse(raw) || [];
+    const parsed = JSON.parse(raw) || [];
+    // 마이그레이션: dict 형식 {finishedAt, durationMs} → tuple [ts, dur] (2026-05-13)
+    if (parsed.length > 0 && parsed[0] && typeof parsed[0] === 'object' && !Array.isArray(parsed[0]) && 'finishedAt' in parsed[0]) {
+      timingHistory = parsed.map(e => [e.finishedAt, e.durationMs]);
+      console.log('[NAI Studio] Migrated timing raw: dict → tuple (' + parsed.length + ' entries)');
+      // 즉시 disk에 새 형식으로 저장
+      try { require('fs').writeFileSync(TIMING_HISTORY_FILE, JSON.stringify(timingHistory)); } catch {}
+    } else {
+      timingHistory = parsed;
+    }
   } catch {}
   // stats (영구). raw에서 재계산하지 않음 — raw는 prune되니까.
   // 단, tz 마커가 없거나 다르면 raw에서 재집계 (timezone 변경 마이그레이션).
@@ -247,11 +257,11 @@ function loadTimingHistory() {
       tz: TIMING_TZ,
     };
     for (const e of timingHistory) {
-      const idx = bucketIndexFor(e.finishedAt);
+      const idx = bucketIndexFor(e[0]);
       timingStats.buckets[idx].count++;
-      timingStats.buckets[idx].totalMs += e.durationMs;
+      timingStats.buckets[idx].totalMs += e[1];
       timingStats.allTime.count++;
-      timingStats.allTime.totalMs += e.durationMs;
+      timingStats.allTime.totalMs += e[1];
     }
     _writeTimingStatsSync();
     console.log('[NAI Studio] Bootstrapped timing stats from raw (' + timingHistory.length + ' entries, tz=' + TIMING_TZ + ')');
@@ -1101,6 +1111,12 @@ const staticHeaders = (res, filePath) => {
 app.use(express.static(path.join(__dirname, 'public'), { setHeaders: staticHeaders }));
 app.use(express.static(path.join(__dirname, 'public/build'), { setHeaders: staticHeaders }));
 
+// /queue → /queue.html alias (URL 짧게). /queue.html 직접 접속도 그대로 동작.
+app.get('/queue', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'public/queue.html'));
+});
+
 // ─── API: Config ────────────────────────────────────────────────────
 app.get('/api/config', async (req, res) => {
   try { res.json(await loadConfig()); }
@@ -1217,7 +1233,7 @@ app.get('/api/queue/status', async (req, res) => {
   const recentN = Math.min(100, timingHistory.length);
   const recentSlice = timingHistory.slice(-recentN);
   const recentAvgMs = recentN >= 5
-    ? recentSlice.reduce((s, e) => s + e.durationMs, 0) / recentN
+    ? recentSlice.reduce((s, e) => s + e[1], 0) / recentN
     : avgMs;
   // ETA는 최근 평균 기준 (더 정확)
   const baseAvg = recentAvgMs > 0 ? recentAvgMs : avgMs;
@@ -1497,19 +1513,8 @@ app.post('/api/augment', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 클라이언트 perf 로그를 서버 콘솔로 forward. pm2 logs에 통합 확인용.
-// 본인이 브라우저 콘솔 수동 캡쳐할 필요 없도록 함. sendBeacon으로 fire-and-forget.
-app.post('/api/perf-log', (req, res) => {
-  try {
-    const { tag, msg } = req.body || {};
-    if (tag && msg) console.log(`[client ${tag}] ${msg}`);
-  } catch {}
-  res.status(204).end();
-});
-
 // ─── API: File System ───────────────────────────────────────────────
 app.get('/api/fs/list', async (req, res) => {
-  const ts = Date.now();
   try {
     const dirPath = resolvePath(req.query.path);
     await fs.mkdir(dirPath, { recursive: true });
@@ -1521,14 +1526,11 @@ app.get('/api/fs/list', async (req, res) => {
     res.set('Cache-Control', 'private, max-age=60');
     res.set('ETag', etag);
     if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
-    const el = Date.now() - ts;
-    if (el > 100) console.log(`[perf fs-list] path=${req.query.path} files=${files.length} ${el}ms`);
     res.json(files);
   } catch (e) { res.json([]); }
 });
 
 app.get('/api/fs/list-stats', async (req, res) => {
-  const ts = Date.now();
   try {
     const dirPath = resolvePath(req.query.path);
     await fs.mkdir(dirPath, { recursive: true });
@@ -1546,8 +1548,6 @@ app.get('/api/fs/list-stats', async (req, res) => {
     res.set('Cache-Control', 'private, max-age=30');
     res.set('ETag', etag);
     if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
-    const el = Date.now() - ts;
-    if (el > 100) console.log(`[perf fs-list-stats] path=${req.query.path} files=${files.length} ${el}ms`);
     res.json(stats);
   } catch (e) { res.json([]); }
 });
