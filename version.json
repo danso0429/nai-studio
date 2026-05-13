@@ -1,6 +1,6 @@
 {
-  "version": "1.5.2",
+  "version": "1.5.3-preview.1",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-13",
-  "notes": "씬/조합 단위 네거티브 (scene.uc + PromptPiece.uc) + 프로젝트 영구 삭제 백그라운드화/병렬화 + 이미지 내보내기 동시 10개 + 모바일 프롬프트조각 위치 이동 + 다크모드 글자색 + queue 통계 1시간 단위 + queue.html 처리 중 씬/프로젝트 잔여 + 백그라운드 복귀 진행도 동기화."
+  "notes": "부팅 시 imageMap reconcile (background, setImmediate, 부팅 블록 0ms): project JSON의 scene.imageMap/mains를 디스크 실제 상태와 자동 동기화. rm -rf 후 pm2 restart만으로 stale 카운트 해소. 비상시 수동 실행용 reconcile_image_map.js CLI."
 }
