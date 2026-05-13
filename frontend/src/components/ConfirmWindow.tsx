@@ -72,6 +72,7 @@ const ConfirmWindow = observer(() => {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 className={`gray-input mt-4 mb-4`}
+                autoFocus
               />
             )}
             {curDialog.type === 'textarea-confirm' && (
@@ -81,6 +82,7 @@ const ConfirmWindow = observer(() => {
                 className={`gray-input mt-4 mb-4 resize-none`}
                 rows={6}
                 placeholder={curDialog.inputValue}
+                autoFocus
               />
             )}
             <div

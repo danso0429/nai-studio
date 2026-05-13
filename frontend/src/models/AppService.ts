@@ -350,7 +350,7 @@ export class AppState {
     setTimeout(() => {
       const idx = this.messages.findIndex((m) => m.id === id);
       if (idx >= 0) this.messages.splice(idx, 1);
-    }, 3000);
+    }, TOAST_DISMISS_SHORT_MS);
   }
 
   pushDialog(dialog: Dialog) {
@@ -433,7 +433,7 @@ export class AppState {
     id: string,
     finalText: string,
     success: boolean,
-    autoDismissMs: number = 3000,
+    autoDismissMs: number = TOAST_DISMISS_SHORT_MS,
   ) {
     this.progressDialogs = this.progressDialogs.map((p) =>
       p.id === id
@@ -471,7 +471,7 @@ export class AppState {
     id: string,
     finalText: string,
     success: boolean,
-    autoDismissMs: number = 5000,
+    autoDismissMs: number = TOAST_DISMISS_LONG_MS,
   ) {
     this.pinnedProgressDialogs = this.pinnedProgressDialogs.map((p) =>
       p.id === id
