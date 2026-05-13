@@ -1810,25 +1810,70 @@ export class AppState {
         const input = menuItem.getInput
           ? await menuItem.getInput(this.curSession!)
           : undefined;
+        // (scene, path) 쌍으로 flatten — chunk parallel 단위
+        type Pair = { scene: GenericScene; path: string };
+        const pairs: Pair[] = [];
         for (const scene of selected) {
-          for (let path of scene.mains) {
-            path =
-              imageService.getOutputDir(this.curSession!, scene) + '/' + path;
-            let image = await imageService.fetchImage(path);
-            image = dataUriToBase64(image!);
-            const job = await extractPromptDataFromBase64(image);
-            oneTimeFlowMap
-              .get(menu)!
-              .handler(
-                appState.curSession!,
-                scene,
-                image,
-                undefined,
-                job,
-                input,
-              );
+          for (const main of scene.mains) {
+            pairs.push({
+              scene,
+              path: imageService.getOutputDir(this.curSession!, scene) + '/' + main,
+            });
           }
         }
+        const total = pairs.length;
+        if (total === 0) return;
+        const pid = appState.pushProgressDialog(
+          `이미지 변형 큐 등록 중... 0/${total}`,
+          total,
+        );
+        // fire-and-forget: 다른 작업 가능
+        (async () => {
+          const CHUNK = 4;
+          let failed = 0;
+          for (let i = 0; i < pairs.length; i += CHUNK) {
+            const chunk = pairs.slice(i, i + CHUNK);
+            await Promise.all(
+              chunk.map(async ({ scene, path }) => {
+                try {
+                  let image = await imageService.fetchImage(path);
+                  image = dataUriToBase64(image!);
+                  const job = await extractPromptDataFromBase64(image);
+                  menuItem.handler(
+                    appState.curSession!,
+                    scene,
+                    image,
+                    undefined,
+                    job,
+                    input,
+                  );
+                } catch (e) {
+                  console.error('[transform] failed:', scene.name, path, e);
+                  failed++;
+                }
+              }),
+            );
+            const done = Math.min(i + CHUNK, total);
+            appState.updateProgressDialog(pid, {
+              done,
+              text: `이미지 변형 큐 등록 중... ${done}/${total}`,
+            });
+          }
+          const success = total - failed;
+          if (failed === 0) {
+            appState.finishProgressDialog(
+              pid,
+              `✓ ${success}개 이미지 변형 큐 등록 완료`,
+              true,
+            );
+          } else {
+            appState.finishProgressDialog(
+              pid,
+              `△ ${success}/${total} 성공 (${failed}건 실패)`,
+              false,
+            );
+          }
+        })();
       } else if (value === 'exportSceneNames') {
         // 씬 이름에서 특수문자 구분자 감지
         const detectedChars = detectSpecialChars(selected);
