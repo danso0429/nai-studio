@@ -1549,6 +1549,55 @@ export class AppState {
           try { await backend.resumeQueue(); } catch {}
         }
       };
+      const runBatchImageDelete = (
+        buildPaths: (scene: GenericScene) => string[],
+      ) => {
+        const session = this.curSession!;
+        const total = selected.length;
+        const pid = appState.pushProgressDialog(`이미지 삭제 중... 0/${total}`, total);
+        (async () => {
+          let failed = 0;
+          try {
+            await withQueuePaused(async () => {
+              const CHUNK = 4;
+              for (let i = 0; i < selected.length; i += CHUNK) {
+                const chunk = selected.slice(i, i + CHUNK);
+                await Promise.all(
+                  chunk.map(async (scene) => {
+                    try {
+                      const paths = buildPaths(scene);
+                      if (paths.length > 0) {
+                        await deleteImageFiles(session, paths, scene);
+                      }
+                    } catch (e) {
+                      console.error('이미지 삭제 실패:', scene.name, e);
+                      failed++;
+                    }
+                  }),
+                );
+                const done = Math.min(i + CHUNK, total);
+                appState.updateProgressDialog(pid, {
+                  done,
+                  text: `이미지 삭제 중... ${done}/${total}`,
+                });
+              }
+            });
+          } catch (e) {
+            console.error('이미지 일괄 삭제 배치 실패:', e);
+            failed++;
+          }
+          const success = total - failed;
+          if (failed === 0) {
+            appState.finishProgressDialog(pid, `✓ ${success}개 씬 이미지 삭제 완료`, true);
+          } else {
+            appState.finishProgressDialog(
+              pid,
+              `△ ${success}/${total} 성공 (${failed}건 실패)`,
+              false,
+            );
+          }
+        })();
+      };
       if (value === 'removeImage') {
         if (appState.blockIfBusy()) return;
         appState.pushDialog({
@@ -1574,24 +1623,16 @@ export class AppState {
                 type: 'confirm',
                 text: '정말로 모든 이미지를 삭제하시겠습니까?',
                 callback: async () => {
-                  await withQueuePaused(async () => {
-                    const CHUNK = 4;
-                    for (let i = 0; i < selected.length; i += CHUNK) {
-                      await Promise.all(
-                        selected.slice(i, i + CHUNK).map((scene) => {
-                          const paths = gameService
-                            .getOutputs(this.curSession!, scene)
-                            .map(
-                              (x) =>
-                                imageService.getOutputDir(this.curSession!, scene!) +
-                                '/' +
-                                x,
-                            );
-                          return deleteImageFiles(this.curSession!, paths, scene);
-                        }),
-                      );
-                    }
-                  });
+                  runBatchImageDelete((scene) =>
+                    gameService
+                      .getOutputs(this.curSession!, scene)
+                      .map(
+                        (x) =>
+                          imageService.getOutputDir(this.curSession!, scene!) +
+                          '/' +
+                          x,
+                      ),
+                  );
                 },
               });
             } else if (menu === 'n') {
@@ -1599,34 +1640,20 @@ export class AppState {
                 type: 'input-confirm',
                 text: '몇등 이하 이미지를 삭제할지 입력해주세요.',
                 callback: async (value) => {
-                  if (value) {
-                    const n = parseInt(value);
-                    await withQueuePaused(async () => {
-                      const CHUNK = 4;
-                      for (let i = 0; i < selected.length; i += CHUNK) {
-                        await Promise.all(
-                          selected.slice(i, i + CHUNK).map((scene) => {
-                            const paths = gameService
-                              .getOutputs(this.curSession!, scene)
-                              .map(
-                                (x) =>
-                                  imageService.getOutputDir(
-                                    this.curSession!,
-                                    scene!,
-                                  ) +
-                                  '/' +
-                                  x,
-                              );
-                            return deleteImageFiles(
-                              this.curSession!,
-                              paths.slice(n).filter((x) => !isMain(scene, x)),
-                              scene,
-                            );
-                          }),
-                        );
-                      }
-                    });
-                  }
+                  if (!value) return;
+                  const n = parseInt(value);
+                  runBatchImageDelete((scene) =>
+                    gameService
+                      .getOutputs(this.curSession!, scene)
+                      .map(
+                        (x) =>
+                          imageService.getOutputDir(this.curSession!, scene!) +
+                          '/' +
+                          x,
+                      )
+                      .slice(n)
+                      .filter((x) => !isMain(scene, x)),
+                  );
                 },
               });
             } else if (menu === 'fav') {
@@ -1634,28 +1661,17 @@ export class AppState {
                 type: 'confirm',
                 text: '정말로 즐겨찾기 외 모든 이미지를 삭제하시겠습니까?',
                 callback: async () => {
-                  await withQueuePaused(async () => {
-                    const CHUNK = 4;
-                    for (let i = 0; i < selected.length; i += CHUNK) {
-                      await Promise.all(
-                        selected.slice(i, i + CHUNK).map((scene) => {
-                          const paths = gameService
-                            .getOutputs(this.curSession!, scene)
-                            .map(
-                              (x) =>
-                                imageService.getOutputDir(this.curSession!, scene!) +
-                                '/' +
-                                x,
-                            );
-                          return deleteImageFiles(
-                            this.curSession!,
-                            paths.filter((x) => !isMain(scene, x)),
-                            scene,
-                          );
-                        }),
-                      );
-                    }
-                  });
+                  runBatchImageDelete((scene) =>
+                    gameService
+                      .getOutputs(this.curSession!, scene)
+                      .map(
+                        (x) =>
+                          imageService.getOutputDir(this.curSession!, scene!) +
+                          '/' +
+                          x,
+                      )
+                      .filter((x) => !isMain(scene, x)),
+                  );
                 },
               });
             }
