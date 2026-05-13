@@ -1,6 +1,6 @@
 {
-  "version": "1.5.3-preview.1",
+  "version": "1.5.3-preview.2",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-13",
-  "notes": "부팅 시 imageMap reconcile (background, setImmediate, 부팅 블록 0ms): project JSON의 scene.imageMap/mains를 디스크 실제 상태와 자동 동기화. rm -rf 후 pm2 restart만으로 stale 카운트 해소. 비상시 수동 실행용 reconcile_image_map.js CLI."
+  "notes": "Phase 13 부팅 시 imageMap reconcile + Phase 15 청크 패턴 일괄 적용: 이미지 변형/씬 통합/addAllToQueue/autoCleanup 4건 CHUNK=4 백그라운드화 + 진행도 토스트. 서버 큐 평균 기반 ETA (TaskProgressBar 정확도 개선). queue.html maintenance UI (tmp/exports/Orphan 통합 정리). update.sh dirty working tree 가드."
 }
