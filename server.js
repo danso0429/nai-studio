@@ -61,6 +61,19 @@ function resolvePath(p) {
   return resolved;
 }
 
+// atomic write: tmp 파일에 먼저 쓴 후 rename. POSIX 동일 fs 내 rename은 atomic.
+// tmp suffix에 pid + random hex로 unique 보장 (동시 클라가 같은 path에 동시 write
+// 시도해도 .tmp 충돌 회피). encoding undefined면 Buffer 그대로.
+function _tmpSuffix() {
+  return '.tmp.' + process.pid + '.' + Math.random().toString(36).slice(2, 8);
+}
+async function atomicWriteFile(filePath, data, encoding) {
+  const tmp = filePath + _tmpSuffix();
+  if (encoding) await fs.writeFile(tmp, data, encoding);
+  else await fs.writeFile(tmp, data);
+  await fs.rename(tmp, filePath);
+}
+
 // ─── Sharp (optional) ───────────────────────────────────────────────
 let sharp;
 try {
@@ -435,10 +448,7 @@ async function reconcileImageMap() {
         try { mtimeAfter = (await fs.stat(file)).mtimeMs; } catch { continue; }
         if (mtimeAfter !== mtimeBefore) continue;
         try {
-          // atomic write로 부분 쓰기 손상 회피.
-          const tmp = file + '.tmp';
-          await fs.writeFile(tmp, JSON.stringify(data, null, 2));
-          await fs.rename(tmp, file);
+          await atomicWriteFile(file, JSON.stringify(data, null, 2));
           projectsUpdated++;
         }
         catch (e) { console.warn(`[reconcile] write failed ${file}: ${e.message}`); }
@@ -1621,11 +1631,7 @@ app.post('/api/fs/write', async (req, res) => {
   try {
     const filePath = resolvePath(req.body.path);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    // atomic write: tmp 파일에 먼저 쓰고 rename. write 중 crash해도 원본 보존.
-    // 동일 파일시스템 내 rename은 POSIX상 atomic.
-    const tmp = filePath + '.tmp';
-    await fs.writeFile(tmp, req.body.data, 'utf-8');
-    await fs.rename(tmp, filePath);
+    await atomicWriteFile(filePath, req.body.data, 'utf-8');
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1650,10 +1656,7 @@ app.post('/api/fs/write-data', async (req, res) => {
     if (data.startsWith('data:')) {
       data = data.split(',')[1] || data;
     }
-    // atomic write: 부분 쓰기로 손상된 binary 파일 회피.
-    const tmp = filePath + '.tmp';
-    await fs.writeFile(tmp, Buffer.from(data, 'base64'));
-    await fs.rename(tmp, filePath);
+    await atomicWriteFile(filePath, Buffer.from(data, 'base64'));
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2351,9 +2354,7 @@ app.post('/api/projects/import-scenes', async (req, res) => {
       }
     }
 
-    const tmp = projectPath + '.tmp';
-    await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
-    await fs.rename(tmp, projectPath);
+    await atomicWriteFile(projectPath, JSON.stringify(data, null, 2), 'utf-8');
 
     console.log(`[Import] project="${name}" applied=${plan.applied.length} skipped=${plan.skipped.length} backup=${path.basename(backupPath)}`);
     res.json({ ok: true, backup: path.basename(backupPath), plan });
