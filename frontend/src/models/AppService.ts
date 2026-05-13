@@ -2547,15 +2547,19 @@ setInterval(() => appState.refreshDriveRetryStatus(), 30000);
 // 백그라운드 → 포그라운드 복귀 + WS 재연결 시 export/driveRetry 상태 동기화.
 // iPhone Safari가 백그라운드 가면 WS 끊겨서 progress/complete 이벤트 미스 →
 // widget이 '멈춘 듯' 보이고 완료 신호도 못 받는 문제 보정 (2026-05-13 본인 보고).
-const resyncBackgroundState = () => {
-  appState.refreshExportStatus();
-  appState.refreshDriveRetryStatus();
-};
-backend.onWsReconnect(resyncBackgroundState);
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    resyncBackgroundState();
-  }
+// queueMicrotask로 lazy 등록 — 모듈 톱 레벨에서 backend.method() 즉시 호출 시
+// ESM 순서 의존으로 backend가 미정의일 수 있어 부트 실패 (흰화면 회귀).
+queueMicrotask(() => {
+  const resyncBackgroundState = () => {
+    appState.refreshExportStatus();
+    appState.refreshDriveRetryStatus();
+  };
+  backend.onWsReconnect(resyncBackgroundState);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      resyncBackgroundState();
+    }
+  });
 });
 
 // Phase 7A: v4.5 자동 vibe 비활성화 알림 (페이지 로드당 1회)
