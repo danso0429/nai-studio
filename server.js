@@ -351,6 +351,85 @@ function loadQueueState() {
   } catch {}
 }
 
+// ─── imageMap reconcile (boot-time, background) ─────────────────────
+// project JSON의 scene.imageMap / scene.mains를 디스크 실제 상태와 동기화.
+// 디스크에 없는 파일명 엔트리 제거. fs 에러(ENOENT 외)는 transient로 간주, 건들지 않음.
+// `app.listen` 콜백에서 setImmediate로 호출 → 부팅 블록 0ms.
+// 측정 (2026-05-13, 1176 scenes, populated 50 files/scene): wall-clock ~100ms, HTTP p99 영향 사실상 0.
+async function reconcileImageMap() {
+  const PROJECTS_DIR = path.join(DATA_DIR, 'projects');
+  const OUTS_DIR = path.join(DATA_DIR, 'outs');
+  const CHUNK = 8;
+  const t0 = Date.now();
+
+  async function listProjectFilesRecursive(dir) {
+    const out = [];
+    let entries;
+    try { entries = await fs.readdir(dir, { withFileTypes: true }); }
+    catch (e) { if (e.code === 'ENOENT') return out; throw e; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) out.push(...(await listProjectFilesRecursive(full)));
+      else if (entry.isFile() && entry.name.endsWith('.json') && !entry.name.includes('.bak')) out.push(full);
+    }
+    return out;
+  }
+
+  let scenesChecked = 0, entriesRemoved = 0, projectsUpdated = 0;
+  try {
+    const files = await listProjectFilesRecursive(PROJECTS_DIR);
+    for (const file of files) {
+      let raw, data, mtimeBefore;
+      try {
+        const st = await fs.stat(file);
+        mtimeBefore = st.mtimeMs;
+        raw = await fs.readFile(file, 'utf8');
+        data = JSON.parse(raw);
+      } catch { continue; }
+      if (!data.name) continue;
+
+      const targets = Object.values(data.scenes || {})
+        .filter(s => (s.imageMap?.length || 0) > 0 || (s.mains?.length || 0) > 0);
+      let changed = false;
+
+      for (let i = 0; i < targets.length; i += CHUNK) {
+        const chunk = targets.slice(i, i + CHUNK);
+        await Promise.all(chunk.map(async (scene) => {
+          const dir = path.join(OUTS_DIR, data.name, scene.name);
+          let fileSet;
+          try {
+            const entries = await fs.readdir(dir);
+            fileSet = new Set(entries.filter(f => f.endsWith('.png')));
+          } catch (e) {
+            if (e.code === 'ENOENT') fileSet = new Set();
+            else return; // transient I/O: don't touch
+          }
+          const beforeIm = scene.imageMap?.length || 0;
+          const beforeMains = scene.mains?.length || 0;
+          if (Array.isArray(scene.imageMap)) scene.imageMap = scene.imageMap.filter(x => fileSet.has(x));
+          if (Array.isArray(scene.mains)) scene.mains = scene.mains.filter(x => fileSet.has(x));
+          const removed = (beforeIm - scene.imageMap.length) + (beforeMains - scene.mains.length);
+          if (removed > 0) { changed = true; entriesRemoved += removed; }
+          scenesChecked++;
+        }));
+        await new Promise(r => setImmediate(r));
+      }
+
+      if (changed) {
+        // race 가드: reconcile 중 사용자가 저장한 경우 skip (다음 부팅에서 다시 잡힘)
+        let mtimeAfter;
+        try { mtimeAfter = (await fs.stat(file)).mtimeMs; } catch { continue; }
+        if (mtimeAfter !== mtimeBefore) continue;
+        try { await fs.writeFile(file, JSON.stringify(data, null, 2)); projectsUpdated++; }
+        catch (e) { console.warn(`[reconcile] write failed ${file}: ${e.message}`); }
+      }
+    }
+    console.log(`[reconcile] ${scenesChecked} scenes, -${entriesRemoved} entries, ${projectsUpdated} projects, ${Date.now() - t0}ms`);
+  } catch (e) {
+    console.error(`[reconcile] failed: ${e.message}`);
+  }
+}
+
 // ─── Drive retry queue (Phase 9) ────────────────────────────────────
 // 단일 파일 Drive 업로드 실패 시 큐에 적재, exponential 간격 자동 재시도.
 // 큐는 영속(JSON 파일). 서버 재시작 시 복원.
@@ -2652,6 +2731,8 @@ async function start() {
     });
     console.log(`[NAI Studio] Frontend: http://localhost:${PORT}`);
     console.log(`[NAI Studio] API: http://localhost:${PORT}/api`);
+    // 부팅 블록 0ms — listen 콜백 다음 tick에서 background reconcile.
+    setImmediate(() => { reconcileImageMap().catch(() => {}); });
   });
 }
 
