@@ -1632,7 +1632,10 @@ app.post('/api/fs/write-data', async (req, res) => {
     if (data.startsWith('data:')) {
       data = data.split(',')[1] || data;
     }
-    await fs.writeFile(filePath, Buffer.from(data, 'base64'));
+    // atomic write: 부분 쓰기로 손상된 binary 파일 회피.
+    const tmp = filePath + '.tmp';
+    await fs.writeFile(tmp, Buffer.from(data, 'base64'));
+    await fs.rename(tmp, filePath);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
