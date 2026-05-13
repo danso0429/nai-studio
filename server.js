@@ -462,6 +462,9 @@ const DRIVE_RETRY_INTERVALS = [10000, 20000, 30000, 60000, 120000, 300000];
 const DRIVE_RETRY_MAX_ATTEMPTS = DRIVE_RETRY_INTERVALS.length;
 // 폴링 주기도 단축 — 빈 큐일 땐 early-return이라 부담 거의 없음.
 const DRIVE_RETRY_POLL_MS = 5000;
+// 큐 한도: 네트워크 차단/제한 시 무한 누적 회피. 초과 시 failed 우선, 없으면
+// oldest 제거. entry당 ~0.5KB라 5000 = ~2.5MB 메모리 + 디스크 영속.
+const DRIVE_RETRY_QUEUE_MAX = 5000;
 let driveRetryQueue = [];
 
 async function loadDriveRetryQueue() {
@@ -506,6 +509,17 @@ function enqueueDriveRetry(localPath, remotePath, initialError, requestedPath = 
   if (existingIdx >= 0) {
     driveRetryQueue[existingIdx] = entry;
   } else {
+    // 한도 초과 시 failed 우선 제거 (재시도 끝남), 없으면 oldest 제거.
+    if (driveRetryQueue.length >= DRIVE_RETRY_QUEUE_MAX) {
+      let removeIdx = driveRetryQueue.findIndex(e => e.status === 'failed');
+      if (removeIdx < 0) {
+        removeIdx = driveRetryQueue.reduce((min, e, i, arr) =>
+          e.addedAt < arr[min].addedAt ? i : min, 0);
+      }
+      const removed = driveRetryQueue.splice(removeIdx, 1)[0];
+      console.warn('[Drive retry] 한도(' + DRIVE_RETRY_QUEUE_MAX + ') 초과 → ' +
+        (removed.status === 'failed' ? 'failed' : 'oldest') + ' 제거: ' + removed.localPath);
+    }
     driveRetryQueue.push(entry);
   }
   saveDriveRetryQueue();
