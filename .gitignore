@@ -24,6 +24,9 @@ server.js.bak*
 *.bak.phase*
 ecosystem.config.js
 
+# atomic write 임시 파일 (writeFile→rename 패턴, crash 시 잔존 가능)
+*.tmp
+
 # Local environment overrides (never commit)
 .env.local
 .env.*.local
