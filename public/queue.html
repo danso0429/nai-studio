@@ -671,17 +671,18 @@
           if (!timingHistoryData || !timingHistoryData.entries || timingHistoryData.entries.length === 0) {
             parts.push('<div class="card full" style="margin-top:8px;"><div class="label">최근 처리 기록 (2일)</div><div class="value muted">기록 없음</div></div>');
           } else {
+            // entries = [[finishedAt, durationMs], ...] tuple 형식 (2026-05-13)
             const entries = timingHistoryData.entries.slice(-200).reverse();
-            const maxMs = Math.max(...entries.map(e => e.durationMs));
+            const maxMs = Math.max(...entries.map(e => e[1]));
             const sparkW = 600, sparkH = 40, n = entries.length;
             const bars = entries.slice().reverse().map((e, i) => {
               const x = (i / n) * sparkW;
-              const h = maxMs > 0 ? (e.durationMs / maxMs) * sparkH : 0;
+              const h = maxMs > 0 ? (e[1] / maxMs) * sparkH : 0;
               return '<rect x="' + x.toFixed(1) + '" y="' + (sparkH - h).toFixed(1) + '" width="' + (sparkW / n - 0.5).toFixed(1) + '" height="' + h.toFixed(1) + '" fill="#4a9eff" opacity="0.7"/>';
             }).join('');
             const listHtml = entries.map(e => {
-              const t = new Date(e.finishedAt).toLocaleTimeString();
-              return '<div style="display:flex; justify-content:space-between; padding:3px 8px; border-bottom:1px solid #2a2e36; font-size:11px;"><span style="color:#8a8f98;">' + t + '</span><span>' + fmtDur(e.durationMs) + '</span></div>';
+              const t = new Date(e[0]).toLocaleTimeString();
+              return '<div style="display:flex; justify-content:space-between; padding:3px 8px; border-bottom:1px solid #2a2e36; font-size:11px;"><span style="color:#8a8f98;">' + t + '</span><span>' + fmtDur(e[1]) + '</span></div>';
             }).join('');
             parts.push('<div class="card full" style="margin-top:8px;">'
               + '<div class="label">최근 처리 기록 (raw ' + timingHistoryData.count + '개, 최근 200개 표시)</div>'
