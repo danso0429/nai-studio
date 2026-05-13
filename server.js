@@ -115,14 +115,15 @@ function recordQueueError(jobId, error, retried, meta) {
 
 // ─── Timing history (raw, 2일 retention) + aggregate stats (영구) ──
 // raw: [{finishedAt: ts, durationMs: number}, ...]. 시각 패턴 분석/sparkline용.
-// stats: 2시간 단위 12개 bucket + allTime aggregate. raw가 prune돼도 영구 보존.
+// stats: 1시간 단위 24개 bucket + allTime aggregate. raw가 prune돼도 영구 보존.
+// (2026-05-13 본인 요청으로 2시간 → 1시간 단위 변경)
 let timingHistory = [];
 const TIMING_RETENTION_MS = 2 * 24 * 60 * 60 * 1000; // 2일
 const TIMING_HISTORY_HARD_CAP = 100000; // 안전망 (정상은 age 기반 prune)
 const TIMING_HISTORY_FILE = path.join(DATA_DIR, '.queue_timing.json');
 
-// 12 bucket = 2시간 단위 (0=[0,2), 1=[2,4), ..., 11=[22,24)). KST 기준 (본인 시간대).
-const TIMING_BUCKET_COUNT = 12;
+// 24 bucket = 1시간 단위 (0=[0,1), 1=[1,2), ..., 23=[23,24)). KST 기준 (본인 시간대).
+const TIMING_BUCKET_COUNT = 24;
 const TIMING_BUCKET_HOURS = 24 / TIMING_BUCKET_COUNT;
 const TIMING_TZ = 'Asia/Seoul';
 const TIMING_TZ_OFFSET_MS = 9 * 60 * 60 * 1000; // KST = UTC+9
@@ -201,12 +202,36 @@ function loadTimingHistory() {
   try {
     const raw = require('fs').readFileSync(TIMING_STATS_FILE, 'utf8');
     const parsed = JSON.parse(raw);
-    if (parsed && Array.isArray(parsed.buckets) && parsed.buckets.length === TIMING_BUCKET_COUNT && parsed.tz === TIMING_TZ) {
-      timingStats = {
-        buckets: parsed.buckets.map(b => ({ count: b.count || 0, totalMs: b.totalMs || 0 })),
-        allTime: { count: parsed.allTime?.count || 0, totalMs: parsed.allTime?.totalMs || 0 },
-        tz: TIMING_TZ,
-      };
+    if (parsed && Array.isArray(parsed.buckets) && parsed.tz === TIMING_TZ) {
+      if (parsed.buckets.length === TIMING_BUCKET_COUNT) {
+        // 정확히 일치 — 그대로 load
+        timingStats = {
+          buckets: parsed.buckets.map(b => ({ count: b.count || 0, totalMs: b.totalMs || 0 })),
+          allTime: { count: parsed.allTime?.count || 0, totalMs: parsed.allTime?.totalMs || 0 },
+          tz: TIMING_TZ,
+        };
+      } else if (parsed.buckets.length === 12 && TIMING_BUCKET_COUNT === 24) {
+        // Migration: 12-bucket(2h 단위) → 24-bucket(1h 단위). 각 2h bucket을 두 개의
+        // 1h bucket으로 절반씩 split — 평균은 보존, count만 분산. (2026-05-13)
+        const newBuckets = [];
+        for (let i = 0; i < 12; i++) {
+          const old = parsed.buckets[i];
+          const halfCount = Math.floor((old.count || 0) / 2);
+          const halfMs = Math.floor((old.totalMs || 0) / 2);
+          newBuckets.push({ count: halfCount, totalMs: halfMs });
+          newBuckets.push({ count: (old.count || 0) - halfCount, totalMs: (old.totalMs || 0) - halfMs });
+        }
+        timingStats = {
+          buckets: newBuckets,
+          allTime: { count: parsed.allTime?.count || 0, totalMs: parsed.allTime?.totalMs || 0 },
+          tz: TIMING_TZ,
+        };
+        _writeTimingStatsSync();
+        console.log('[NAI Studio] Migrated timing stats: 12-bucket (2h) → 24-bucket (1h)');
+      } else {
+        console.log('[NAI Studio] timing stats bucket count unexpected (' + parsed.buckets.length + ') — rebuilding from raw');
+        needsBootstrap = true;
+      }
     } else {
       console.log('[NAI Studio] timing stats tz mismatch (was ' + (parsed?.tz || 'none') + ', now ' + TIMING_TZ + ') — rebuilding from raw');
       needsBootstrap = true;

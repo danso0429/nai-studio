@@ -499,6 +499,30 @@ export class AppState {
     }
   }
 
+  // 백그라운드 → 포그라운드 복귀 또는 WS 재연결 시 호출. 그 사이 놓친 progress/
+  // complete/failed 이벤트가 안 와서 widget이 '멈춘 것처럼' 보이던 문제 보정.
+  // 서버 활성 job 목록과 클라 측 exportPipelineJobs를 동기화 — 서버에 없으면
+  // 끝났거나 실패한 거니까 클라에서도 제거, 있는 건 최신 phase/done/total로 갱신.
+  async refreshExportStatus(): Promise<void> {
+    try {
+      const status = await backend.getExportStatus();
+      const activeMap = new Map(status.active.map((a) => [a.jobId, a]));
+      this.exportPipelineJobs = this.exportPipelineJobs
+        .filter((j) => activeMap.has(j.jobId))
+        .map((j) => {
+          const fresh = activeMap.get(j.jobId)!;
+          return {
+            ...j,
+            phase: fresh.phase as 'queued' | 'resize' | 'zip',
+            done: fresh.done,
+            total: fresh.total,
+          };
+        });
+    } catch (e) {
+      // 일시 오류 무시
+    }
+  }
+
   async driveRetryNowAndRefresh(): Promise<void> {
     try {
       await backend.driveRetryNow();
@@ -2519,6 +2543,20 @@ export const appState = new AppState();
 // Drive retry status 폴링: 부팅 시 1회 + 30s 주기
 appState.refreshDriveRetryStatus();
 setInterval(() => appState.refreshDriveRetryStatus(), 30000);
+
+// 백그라운드 → 포그라운드 복귀 + WS 재연결 시 export/driveRetry 상태 동기화.
+// iPhone Safari가 백그라운드 가면 WS 끊겨서 progress/complete 이벤트 미스 →
+// widget이 '멈춘 듯' 보이고 완료 신호도 못 받는 문제 보정 (2026-05-13 본인 보고).
+const resyncBackgroundState = () => {
+  appState.refreshExportStatus();
+  appState.refreshDriveRetryStatus();
+};
+backend.onWsReconnect(resyncBackgroundState);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    resyncBackgroundState();
+  }
+});
 
 // Phase 7A: v4.5 자동 vibe 비활성화 알림 (페이지 로드당 1회)
 // queueMicrotask로 lazy 등록 — 모듈 톱 레벨에서 즉시 호출 시

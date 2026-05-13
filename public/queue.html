@@ -609,7 +609,7 @@
         </div>
         ${showTimingHistory ? (() => {
           const parts = [];
-          // 시간대별(2h bucket) 통계 — 영구 누적
+          // 시간대별(1h bucket) 통계 — 영구 누적
           if (timingHistoryData && timingHistoryData.stats && timingHistoryData.stats.buckets) {
             const s = timingHistoryData.stats;
             const buckets = s.buckets;
@@ -641,7 +641,7 @@
             const totalSvgH = topPad + chartH + bottomPad;
             parts.push(
               '<div class="card full" style="margin-top:8px;">'
-              + '<div class="label">시간대별 평균 (KST 2시간 단위, 영구 누적 ' + s.allTimeCount.toLocaleString() + '건)</div>'
+              + '<div class="label">시간대별 평균 (KST 1시간 단위, 영구 누적 ' + s.allTimeCount.toLocaleString() + '건)</div>'
               + '<svg viewBox="0 0 ' + chartW + ' ' + totalSvgH + '" preserveAspectRatio="none" style="width:100%; height:140px; margin:8px 0; background:#1a1d23; border-radius:4px;">'
               + bucketBars
               + '</svg>'

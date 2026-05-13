@@ -167,6 +167,14 @@ export class ServerBackend extends Backend {
     });
   }
 
+  async getExportStatus(): Promise<{
+    active: Array<{ jobId: string; outFileName: string; phase: string; done: number; total: number; startedAt: number; canceled?: boolean }>;
+    waiting: Array<{ jobId: string; outFileName: string; total: number }>;
+    concurrency: number;
+  }> {
+    return apiJSON('/export/status');
+  }
+
   async augmentImage(arg: ImageAugmentInput): Promise<void> {
     await api('/augment', { method: 'POST', body: JSON.stringify(arg) });
   }
