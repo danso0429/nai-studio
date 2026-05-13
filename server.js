@@ -1126,6 +1126,21 @@ app.get('/api/queue/status', async (req, res) => {
   // ETA는 최근 평균 기준 (더 정확)
   const baseAvg = recentAvgMs > 0 ? recentAvgMs : avgMs;
   const etaMs = baseAvg > 0 ? Math.round(baseAvg * genQueue.length) : null;
+  // 현재 처리 중 job(genQueue[0])과 같은 프로젝트의 큐 잔여 수 — queue.html 보조 표시용.
+  // outs/<project>/<scene>/<file>.png 경로의 두 번째 segment가 project name.
+  const currentProjectName = (() => {
+    const first = genQueue[0];
+    if (!first || !first.params || typeof first.params.outputFilePath !== 'string') return null;
+    const parts = first.params.outputFilePath.split('/');
+    return (parts[0] === 'outs' && parts.length >= 2) ? parts[1] : null;
+  })();
+  const currentProjectQueueCount = currentProjectName
+    ? genQueue.filter(j => {
+        if (!j.params || typeof j.params.outputFilePath !== 'string') return false;
+        const parts = j.params.outputFilePath.split('/');
+        return parts[0] === 'outs' && parts[1] === currentProjectName;
+      }).length
+    : 0;
   res.json({
     pending: genQueue.length,
     processing: queueProcessing,
@@ -1135,6 +1150,8 @@ app.get('/api/queue/status', async (req, res) => {
     diskFreeGB: parseFloat(freeGB.toFixed(1)),
     jobs: genQueue.slice(0, 20).map(j => ({ jobId: j.jobId, outputFilePath: j.params.outputFilePath, meta: j.meta || {} })),
     totalJobs: genQueue.length,
+    currentProjectName,
+    currentProjectQueueCount,
     avgProcessTimeMs: Math.round(avgMs),
     recentAvgMs: Math.round(recentAvgMs),
     timingHistoryCount: timingHistory.length,

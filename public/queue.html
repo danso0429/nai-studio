@@ -581,7 +581,7 @@
           <div class="card full">
             <div class="label">처리 중</div>
             <div class="value">${sceneLabel || '<span class="muted">없음</span>'}</div>
-            ${projectName && projectName !== '(unknown)' ? `<div class="small">📁 ${projectName}</div>` : ''}
+            ${projectName && projectName !== '(unknown)' ? `<div class="small">📁 ${projectName}${d.currentProjectQueueCount > 0 ? ` <span style="color:#6a6f78;">(이 프로젝트 큐 ${d.currentProjectQueueCount}건 남음)</span>` : ''}</div>` : ''}
           </div>
           <div class="card">
             <div class="label">디스크 여유</div>
