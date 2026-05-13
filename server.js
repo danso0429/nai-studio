@@ -1121,6 +1121,15 @@ app.use((req, res, next) => {
   next();
 });
 
+// 기본 보안 헤더. tailnet 폐쇄망이 현재 환경이지만, 외부 노출 위치/시점에 한
+// 줄이라도 깔린 게 안전. clickjacking + MIME sniffing + referrer leak 회피.
+app.use((req, res, next) => {
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+
 // Serve static frontend.
 // public/ 은 사람·update.sh가 관리하는 정적 파일 (queue.html, build-info.json).
 // public/build/ 는 vite 빌드 산출물 (index.html, assets/*). vite emptyOutDir이

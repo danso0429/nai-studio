@@ -14,6 +14,9 @@ export interface Dialog {
   green?: boolean;
   graySelect?: boolean;
   items?: { text: string; value: string }[];
+  // 확인 버튼 텍스트 override. destructive 액션은 "삭제" / "영구 삭제" 등으로
+  // 명시해서 실수 클릭 줄임. undefined면 "확인" default.
+  confirmText?: string;
 }
 
 const ConfirmWindow = observer(() => {
@@ -102,7 +105,7 @@ const ConfirmWindow = observer(() => {
                     }
                     onClick={handleConfirm}
                   >
-                    확인
+                    {curDialog.confirmText || '확인'}
                   </button>
                   <button
                     className="px-4 py-2 rounded back-gray clickable "
@@ -130,7 +133,7 @@ const ConfirmWindow = observer(() => {
                     className="mr-2 px-4 py-2 rounded back-sky clickable"
                     onClick={handleConfirm}
                   >
-                    확인
+                    {curDialog.confirmText || '확인'}
                   </button>
                   <button
                     className="px-4 py-2 rounded back-gray clickable"

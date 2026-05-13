@@ -162,6 +162,7 @@ const TrashImageView = ({ session, scene, imageSize }: TrashImageViewProps) => {
     appState.pushDialog({
       type: 'confirm',
       text: selected.size + '장의 이미지를 영구 삭제하시겠습니까?',
+      confirmText: '영구 삭제',
       callback: async () => {
         await trashService.permanentlyDeleteImages(session, scene, Array.from(selected));
         setSelected(new Set());
@@ -175,6 +176,7 @@ const TrashImageView = ({ session, scene, imageSize }: TrashImageViewProps) => {
     appState.pushDialog({
       type: 'confirm',
       text: '휴지통을 비우시겠습니까? 모든 이미지가 영구 삭제됩니다.',
+      confirmText: '비우기',
       callback: async () => {
         await trashService.emptyImageTrash(session, scene);
         setSelected(new Set());
