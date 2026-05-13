@@ -1497,7 +1497,14 @@ app.get('/api/fs/list', async (req, res) => {
   try {
     const dirPath = resolvePath(req.query.path);
     await fs.mkdir(dirPath, { recursive: true });
+    const dirStat = await fs.stat(dirPath);
     const files = await fs.readdir(dirPath);
+    // 디렉토리 mtime은 파일 추가/삭제 시 변경됨 (파일 내용 수정에는 영향 X).
+    // /api/fs/list는 파일 목록만 보므로 디렉토리 mtime ETag면 충분.
+    const etag = `W/"${dirStat.mtimeMs.toFixed(0)}-${files.length}"`;
+    res.set('Cache-Control', 'private, max-age=60');
+    res.set('ETag', etag);
+    if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
     const el = Date.now() - ts;
     if (el > 100) console.log(`[perf fs-list] path=${req.query.path} files=${files.length} ${el}ms`);
     res.json(files);
@@ -1516,6 +1523,13 @@ app.get('/api/fs/list-stats', async (req, res) => {
         return { name, size: st.size, mtime: st.mtimeMs };
       } catch { return { name, size: 0, mtime: 0 }; }
     }));
+    // list-stats는 파일 mtime/size까지 봄 → 디렉토리 mtime만으론 부족.
+    // 결과 자체에서 max mtime + 파일 수로 weak ETag 만듦.
+    const maxMtime = stats.reduce((m, s) => Math.max(m, s.mtime), 0);
+    const etag = `W/"${maxMtime.toFixed(0)}-${stats.length}"`;
+    res.set('Cache-Control', 'private, max-age=30');
+    res.set('ETag', etag);
+    if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
     const el = Date.now() - ts;
     if (el > 100) console.log(`[perf fs-list-stats] path=${req.query.path} files=${files.length} ${el}ms`);
     res.json(stats);
@@ -2335,7 +2349,15 @@ app.get('/api/fs/image', async (req, res) => {
     const ext = path.extname(filePath).toLowerCase();
     const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
     res.contentType(mimeMap[ext] || 'application/octet-stream');
-    res.sendFile(filePath);
+    // 생성된 이미지는 path가 timestamp+seed 기반으로 unique. 사실상 immutable.
+    // ETag/Last-Modified는 sendFile이 자동 처리 → 304 응답으로 본문 생략.
+    res.sendFile(filePath, {
+      maxAge: '1h',
+      lastModified: true,
+      etag: true,
+      cacheControl: true,
+      headers: { 'Cache-Control': 'private, max-age=3600' },
+    });
   } catch (e) { res.status(404).json({ error: e.message }); }
 });
 
