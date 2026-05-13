@@ -198,20 +198,12 @@
 </style>
 </head>
 <body>
-  <div class="tabs">
-    <button class="tab-btn active" id="tab-current" onclick="window.switchTab('current')">현재</button>
-    <button class="tab-btn" id="tab-completed" onclick="window.switchTab('completed')">완료</button>
-  </div>
-  <div id="view-current">
-    <h1>NAI 이미지 생성 큐</h1>
-    <div id="root">로딩 중...</div>
-    <h2 class="section-h">Drive 업로드</h2>
-    <div id="drive-root">로딩 중...</div>
-  </div>
-  <div id="view-completed" style="display:none;">
-    <h1>최근 4시간 완료</h1>
-    <div id="completed-root">로딩 중...</div>
-  </div>
+  <h1>NAI 이미지 생성 큐</h1>
+  <div id="root">로딩 중...</div>
+  <h2 class="section-h">Drive 업로드</h2>
+  <div id="drive-root">로딩 중...</div>
+  <h2 class="section-h">최근 4시간 완료</h2>
+  <div id="completed-root">로딩 중...</div>
   <div class="ts" id="ts"></div>
   <div style="text-align:center; margin-top:24px; padding:12px 0; border-top:1px solid #2a2e36; font-size:10px; color:#5a5f68;">
     <a href="https://github.com/danso0429/nai-studio" target="_blank" rel="noopener noreferrer" style="color:#5a5f68; text-decoration:none;">
@@ -270,16 +262,7 @@
   const completedRoot = document.getElementById('completed-root');
   const tsEl = document.getElementById('ts');
 
-  // 탭 전환
-  let activeTab = 'current';
-  window.switchTab = (tab) => {
-    activeTab = tab;
-    document.getElementById('tab-current').classList.toggle('active', tab === 'current');
-    document.getElementById('tab-completed').classList.toggle('active', tab === 'completed');
-    document.getElementById('view-current').style.display = tab === 'current' ? '' : 'none';
-    document.getElementById('view-completed').style.display = tab === 'completed' ? '' : 'none';
-    if (tab === 'completed') tickCompleted();
-  };
+  // (탭 시스템 제거 — 2026-05-13 본인 요청으로 현재/완료를 한 페이지에 표시)
 
   // 완료 batch 펼침 상태 (batchIdx → bool)
   const expandedBatches = {};
@@ -467,7 +450,8 @@
       const pending = d.pendingCount || 0;
       const failed = d.failedCount || 0;
       const driveTotal = d.count || 0;
-      const exportTotal = (exp.current ? 1 : 0) + ((exp.waiting || []).length);
+      const activeJobs = exp.active || [];
+      const exportTotal = activeJobs.length + ((exp.waiting || []).length);
       const grandTotal = driveTotal + exportTotal;
 
       let banner = '';
@@ -481,10 +465,9 @@
         banner = '<div class="card full" style="margin-bottom:8px;"><div class="label">상태</div><div class="value">' + grandTotal + '건' + pills.join('') + '</div></div>';
       }
 
-      // export 진행 (서버 측 resize/zip pipeline)
+      // export 진행 (서버 측 resize/zip pipeline) — 동시 10개까지라 active[] 배열로
       let exportHtml = '';
-      if (exp.current) {
-        const c = exp.current;
+      for (const c of activeJobs) {
         const pct = c.total > 0 ? ((c.done / c.total) * 100).toFixed(2) : '0.00';
         const label = PHASE_LABEL[c.phase] || c.phase;
         exportHtml += '<div class="entry pending">'
@@ -532,9 +515,12 @@
       const done = (d.completed || 0) + (d.failed || 0);
       const pct = total > 0 ? ((done / total) * 100).toFixed(2) : '0.00';
 
-      const cur = d.jobs && d.jobs[0] ? d.jobs[0].outputFilePath : null;
-      const proj = extractProject(cur);
-      const fn = extractFile(cur);
+      // 처리 중인 job 자체(객체) → meta.sceneName + jobIndex/Total + 파일명 표시.
+      // 이전 코드는 outputFilePath 문자열만 넘기고 entry-기반 extractProject에 들어가
+      // entry.meta/entry.outputFilePath 둘 다 undefined로 '(unknown)' 출력 (2026-05-13 fix).
+      const curJob = d.jobs && d.jobs[0] ? d.jobs[0] : null;
+      const sceneLabel = curJob ? labelFromMeta(curJob.meta, curJob.jobId) : null;
+      const fn = curJob && curJob.outputFilePath ? extractFile(curJob.outputFilePath) : null;
 
       const avg = d.avgProcessTimeMs || 0;
       const eta = d.etaMs;
@@ -595,7 +581,7 @@
           </div>
           <div class="card full">
             <div class="label">처리 중</div>
-            <div class="value">${proj || '<span class="muted">없음</span>'}</div>
+            <div class="value">${sceneLabel || '<span class="muted">없음</span>'}</div>
             ${fn ? `<div class="small">${fn}</div>` : ''}
           </div>
           <div class="card">
@@ -705,7 +691,8 @@
   tickDrive();
   setInterval(tickDrive, 3000);
   // 완료 탭은 활성 시에만 fetch (3초 주기)
-  setInterval(() => { if (activeTab === 'completed') tickCompleted(); }, 3000);
+  tickCompleted();
+  setInterval(tickCompleted, 3000);
 </script>
 </body>
 </html>
