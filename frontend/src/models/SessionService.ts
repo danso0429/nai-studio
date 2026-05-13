@@ -25,6 +25,8 @@ const SESSION_SERVICE_INTERVAL = 5000;
 
 export class SessionService extends ResourceSyncService<Session> {
   favorites: Set<string> = new Set();
+  // 진행 중인 프로젝트 영구 삭제 추적. 같은 프로젝트의 중복 enqueue 방지용.
+  deletingProjects: Set<string> = new Set();
 
   constructor() {
     super('projects', SESSION_SERVICE_INTERVAL);

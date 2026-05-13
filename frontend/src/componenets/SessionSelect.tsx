@@ -44,19 +44,49 @@ const SessionSelect = observer(() => {
   };
 
   const deleteSession = () => {
-    if (appState.blockIfBusy()) return;
-    const name = appState.curSession!.name;
+    if (!appState.curSession) return;
+    const name = appState.curSession.name;
+    // 같은 프로젝트가 이미 삭제 진행 중이면 중복 enqueue 차단.
+    if (sessionService.deletingProjects.has(name)) {
+      appState.pushMessage(`프로젝트 "${name}"${josaIGa(name)} 이미 삭제 중이에요.`);
+      return;
+    }
     appState.pushDialog({
       type: 'confirm',
       text: `"${name}" 프로젝트를 영구 삭제합니다. 로컬과 Google Drive의 모든 데이터(outs/inpaints/vibes/inpaint_masks/inpaint_orgs/exports)가 함께 지워지며 되돌릴 수 없습니다. 진행할까요?`,
       callback: async () => {
-        try {
-          await sessionService.delete(name);
-          appState.curSession = undefined;
-          appState.pushMessage(`프로젝트 "${name}"${josaIGa(name)} 영구 삭제되었습니다.`);
-        } catch (e: any) {
-          appState.pushMessage(e?.message || '프로젝트 삭제에 실패했습니다.');
+        // 다이얼로그 대기 사이 다른 경로로 진입했을 수 있으니 한 번 더 가드.
+        if (sessionService.deletingProjects.has(name)) {
+          appState.pushMessage(`프로젝트 "${name}"${josaIGa(name)} 이미 삭제 중이에요.`);
+          return;
         }
+        sessionService.deletingProjects.add(name);
+        const pid = appState.pushProgressDialog(`프로젝트 "${name}" 삭제 중...`, 1);
+        // fire-and-forget: 다이얼로그 콜백 즉시 끝내고 백그라운드 진행
+        // → 본인은 현재 프로젝트에서 다른 작업 계속 가능 (Drive purge 15s+ 안 막힘)
+        (async () => {
+          try {
+            await sessionService.delete(name);
+            appState.finishProgressDialog(
+              pid,
+              `✓ 프로젝트 "${name}" 삭제 완료`,
+              true,
+            );
+            // 삭제 완료 시점에 본인이 그 프로젝트를 보고 있었으면 프로젝트 선택으로,
+            // 다른 프로젝트로 이동한 상태면 그대로 둠.
+            if (appState.curSession?.name === name) {
+              appState.curSession = undefined;
+            }
+          } catch (e: any) {
+            appState.finishProgressDialog(
+              pid,
+              `✗ 프로젝트 "${name}" 삭제 실패: ${e?.message || e}`,
+              false,
+            );
+          } finally {
+            sessionService.deletingProjects.delete(name);
+          }
+        })();
       },
     });
   };
