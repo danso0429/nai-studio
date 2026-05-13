@@ -636,15 +636,20 @@
               const hourEnd = String(i * s.bucketHours + s.bucketHours).padStart(2, '0');
               const avgLabel = b.avgMs > 0 ? fmtDur(b.avgMs) : '-';
               const countLabel = b.count > 0 ? b.count.toLocaleString() + '건' : '없음';
-              const valueText = b.avgMs > 0
-                ? '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (topPad + chartH - h - 3).toFixed(1) + '" text-anchor="middle" font-size="9" fill="' + (isCurrent ? '#fbbf24' : '#c0c4cc') + '">' + avgLabel + '</text>'
+              // 짝수 bucket 또는 현재 시간대만 라벨 표시 (12개 다 표시하면 좁은 화면에서 다닥다닥)
+              const showLabel = (i % 2 === 0) || isCurrent;
+              const valueText = (b.avgMs > 0 && showLabel)
+                ? '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (topPad + chartH - h - 3).toFixed(1) + '" text-anchor="middle" font-size="10" fill="' + (isCurrent ? '#fbbf24' : '#c0c4cc') + '">' + avgLabel + '</text>'
+                : '';
+              const hourText = showLabel
+                ? '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (topPad + chartH + 12) + '" text-anchor="middle" font-size="10" fill="' + (isCurrent ? '#fbbf24' : '#6a6f78') + '">' + hourStart + '</text>'
                 : '';
               return '<g>'
                 + '<rect x="' + x.toFixed(1) + '" y="' + (topPad + chartH - h).toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" fill="' + fill + '" opacity="' + opacity + '">'
                 + '<title>' + hourStart + ':00~' + hourEnd + ':00 · ' + countLabel + ' · 평균 ' + avgLabel + '</title>'
                 + '</rect>'
                 + valueText
-                + '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (topPad + chartH + 11) + '" text-anchor="middle" font-size="9" fill="' + (isCurrent ? '#fbbf24' : '#6a6f78') + '">' + hourStart + '</text>'
+                + hourText
                 + '</g>';
             }).join('');
             const totalSvgH = topPad + chartH + bottomPad;
