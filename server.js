@@ -1493,15 +1493,19 @@ app.post('/api/augment', async (req, res) => {
 
 // ─── API: File System ───────────────────────────────────────────────
 app.get('/api/fs/list', async (req, res) => {
+  const ts = Date.now();
   try {
     const dirPath = resolvePath(req.query.path);
     await fs.mkdir(dirPath, { recursive: true });
     const files = await fs.readdir(dirPath);
+    const el = Date.now() - ts;
+    if (el > 100) console.log(`[perf fs-list] path=${req.query.path} files=${files.length} ${el}ms`);
     res.json(files);
   } catch (e) { res.json([]); }
 });
 
 app.get('/api/fs/list-stats', async (req, res) => {
+  const ts = Date.now();
   try {
     const dirPath = resolvePath(req.query.path);
     await fs.mkdir(dirPath, { recursive: true });
@@ -1512,6 +1516,8 @@ app.get('/api/fs/list-stats', async (req, res) => {
         return { name, size: st.size, mtime: st.mtimeMs };
       } catch { return { name, size: 0, mtime: 0 }; }
     }));
+    const el = Date.now() - ts;
+    if (el > 100) console.log(`[perf fs-list-stats] path=${req.query.path} files=${files.length} ${el}ms`);
     res.json(stats);
   } catch (e) { res.json([]); }
 });

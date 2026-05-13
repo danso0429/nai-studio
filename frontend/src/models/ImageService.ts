@@ -591,6 +591,7 @@ export class ImageService extends EventTarget {
     // 시작 패턴.
     const SCENE_REFRESH_TIMEOUT_MS = 15000;
     const refreshOne = async (scene: GenericScene) => {
+      const ts = performance.now();
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           await Promise.race([
@@ -599,6 +600,9 @@ export class ImageService extends EventTarget {
               setTimeout(() => reject(new Error('refresh timeout')), SCENE_REFRESH_TIMEOUT_MS),
             ),
           ]);
+          const el = performance.now() - ts;
+          if (el > 1000)
+            console.log(`[perf refresh-scene] ${scene.name} ${el.toFixed(0)}ms attempt=${attempt + 1}`);
           return; // 성공
         } catch (e) {
           // 첫 시도 timeout → 즉시 retry. 두 번째 실패면 skip (다음 chunk 진행).
@@ -617,8 +621,18 @@ export class ImageService extends EventTarget {
       }
     };
 
+    const t0 = performance.now();
+    const sceneCount = session.scenes.size;
+    const inpaintCount = session.inpaints.size;
+
     await refreshAll(session.scenes.values());
+    const tScenes = performance.now() - t0;
     await refreshAll(session.inpaints.values());
+    const tTotal = performance.now() - t0;
+
+    console.log(
+      `[perf refreshBatch] session=${session.name} scenes=${sceneCount}(${tScenes.toFixed(0)}ms) inpaints=${inpaintCount}(${(tTotal - tScenes).toFixed(0)}ms) total=${tTotal.toFixed(0)}ms`,
+    );
 
     this.dispatchEvent(
       new CustomEvent('updated', { detail: { batch: true, session } }),
