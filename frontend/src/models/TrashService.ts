@@ -247,7 +247,13 @@ export class TrashService extends EventTarget {
     return projectName + ':' + sceneName;
   }
 
-  async moveSceneToTrash(session: Session, scene: GenericScene): Promise<void> {
+  // defer=true면 saveTrash 호출 안 함. 대량 삭제 시 호출자가 마지막에 한 번 save —
+  // parallel write race 회피.
+  async moveSceneToTrash(
+    session: Session,
+    scene: GenericScene,
+    options?: { defer?: boolean },
+  ): Promise<void> {
     this.ensureLoaded();
     const key = this.sceneKey(session.name, scene.name);
     const now = Date.now();
@@ -291,7 +297,9 @@ export class TrashService extends EventTarget {
     // Remove scene from session
     session.removeScene(scene.type, scene.name);
 
-    await this.saveTrash();
+    if (!options?.defer) {
+      await this.saveTrash();
+    }
   }
 
   getDeletedScenes(projectName: string): {name: string, type: 'scene' | 'inpaint', deletedAt: number}[] {

@@ -1468,13 +1468,50 @@ export class AppState {
         text: `정말로 선택한 ${selected.length}개의 씬을 삭제하시겠습니까? (휴지통으로 이동)`,
         callback: async () => {
           const { trashService } = await import('.');
-          for (const scene of selected) {
-            await trashService.moveSceneToTrash(this.curSession!, scene);
-          }
-          appState.pushDialog({
-            type: 'yes-only',
-            text: `${selected.length}개의 씬이 휴지통으로 이동되었습니다.`,
-          });
+          const session = this.curSession!;
+          const total = selected.length;
+          const pid = appState.pushProgressDialog(`씬 삭제 중... 0/${total}`, total);
+          // fire-and-forget: dialog 콜백 즉시 끝내고 백그라운드에서 진행 → 사용자 다른 작업 가능
+          (async () => {
+            const CHUNK = 4;
+            let done = 0;
+            let failed = 0;
+            for (let i = 0; i < selected.length; i += CHUNK) {
+              const chunk = selected.slice(i, i + CHUNK);
+              await Promise.all(
+                chunk.map(async (scene) => {
+                  try {
+                    await trashService.moveSceneToTrash(session, scene, { defer: true });
+                  } catch (e) {
+                    console.error('씬 삭제 실패:', scene.name, e);
+                    failed++;
+                  }
+                }),
+              );
+              done = Math.min(i + CHUNK, total);
+              appState.updateProgressDialog(pid, {
+                done,
+                text: `씬 삭제 중... ${done}/${total}`,
+              });
+            }
+            // 모든 mutate 끝난 뒤 한 번만 trash.json save (parallel write race 회피)
+            try {
+              await trashService.saveTrash();
+            } catch (e) {
+              console.error('trash.json 저장 실패:', e);
+              failed++;
+            }
+            const success = total - failed;
+            if (failed === 0) {
+              appState.finishProgressDialog(pid, `✓ ${success}개 씬 휴지통 이동 완료`, true);
+            } else {
+              appState.finishProgressDialog(
+                pid,
+                `△ ${success}/${total} 성공 (${failed}건 실패)`,
+                false,
+              );
+            }
+          })();
         },
       });
     };
