@@ -1497,6 +1497,16 @@ app.post('/api/augment', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 클라이언트 perf 로그를 서버 콘솔로 forward. pm2 logs에 통합 확인용.
+// 본인이 브라우저 콘솔 수동 캡쳐할 필요 없도록 함. sendBeacon으로 fire-and-forget.
+app.post('/api/perf-log', (req, res) => {
+  try {
+    const { tag, msg } = req.body || {};
+    if (tag && msg) console.log(`[client ${tag}] ${msg}`);
+  } catch {}
+  res.status(204).end();
+});
+
 // ─── API: File System ───────────────────────────────────────────────
 app.get('/api/fs/list', async (req, res) => {
   const ts = Date.now();
