@@ -581,17 +581,16 @@
             <div class="label">평균 (최근 100건)</div>
             <div class="value">${d.recentAvgMs > 0 ? fmtDur(d.recentAvgMs) : '<span class="muted">측정 전</span>'}</div>
             ${(() => {
-              // 현재 시간대 평균 대비 빠름/느림
+              // 현재 시간대 평균 대비 빠름/느림 — 초 단위 차이 (소수점 2자리)
               const cur = d.recentAvgMs || 0;
               const bucket = d.currentBucketAvgMs || 0;
               if (cur <= 0 || bucket <= 0) return '';
-              const ratio = cur / bucket;
-              const pct = Math.round((ratio - 1) * 100);
-              if (Math.abs(pct) < 3) return '<div class="small muted">현 시간대 평균과 비슷</div>';
-              const fast = pct < 0;
+              const diffSec = (cur - bucket) / 1000;
+              if (Math.abs(diffSec) < 0.05) return '<div class="small muted">현 시간대 평균과 비슷</div>';
+              const fast = diffSec < 0;
               const color = fast ? '#86efac' : '#fbbf24';
               const sign = fast ? '' : '+';
-              return '<div class="small" style="color:' + color + ';">현 시간대 대비 ' + sign + pct + '% (' + (fast ? '빠름' : '느림') + ')</div>';
+              return '<div class="small" style="color:' + color + ';">현 시간대 대비 ' + sign + diffSec.toFixed(2) + '초 (' + (fast ? '빠름' : '느림') + ')</div>';
             })()}
           </div>
           <div class="card full">
