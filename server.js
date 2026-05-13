@@ -491,12 +491,31 @@ async function loadDriveRetryQueue() {
   }
 }
 
-async function saveDriveRetryQueue() {
+// Queue state와 동일 패턴: rapid enqueue/process 중 in-place save 폭주 +
+// 진행 중 enqueue 개입으로 인한 부분 저장 회피.
+let _driveRetrySaveTimeout = null;
+function _writeDriveRetryQueueSync() {
   try {
-    await fs.writeFile(DRIVE_RETRY_QUEUE_FILE, JSON.stringify(driveRetryQueue, null, 2));
+    require('fs').writeFileSync(DRIVE_RETRY_QUEUE_FILE, JSON.stringify(driveRetryQueue, null, 2));
   } catch (e) {
     console.error('[Drive retry] save failed:', e.message);
   }
+}
+function saveDriveRetryQueue() {
+  // 1초 debounce — rapid calls를 한 번 disk write로 묶음.
+  if (_driveRetrySaveTimeout) return;
+  _driveRetrySaveTimeout = setTimeout(() => {
+    _driveRetrySaveTimeout = null;
+    _writeDriveRetryQueueSync();
+  }, 1000);
+}
+function flushDriveRetryQueue() {
+  // 즉시 write (process tick 끝 / shutdown / 외부 reload 전에 부르기).
+  if (_driveRetrySaveTimeout) {
+    clearTimeout(_driveRetrySaveTimeout);
+    _driveRetrySaveTimeout = null;
+  }
+  _writeDriveRetryQueueSync();
 }
 
 // requestedPath: 클라가 보낸 path (jobId 역할). WS broadcast 시 클라 매칭용.
@@ -642,7 +661,8 @@ async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
     }
     // 원본 순서 보존 — entry 객체는 in-place 업데이트라 reference 그대로.
     driveRetryQueue = driveRetryQueue.filter((e) => !removedEntries.has(e));
-    await saveDriveRetryQueue();
+    // process tick 끝에서 즉시 flush — 다음 tick 전에 디스크 일관성 보장.
+    flushDriveRetryQueue();
   } finally {
     driveRetryProcessing = false;
   }
@@ -2830,12 +2850,14 @@ process.on('SIGINT', () => {
   console.log('[NAI Studio] SIGINT received, flushing queue state...');
   flushQueueState();
   flushTimingHistory();
+  flushDriveRetryQueue();
   process.exit(0);
 });
 process.on('SIGTERM', () => {
   console.log('[NAI Studio] SIGTERM received, flushing queue state...');
   flushQueueState();
   flushTimingHistory();
+  flushDriveRetryQueue();
   process.exit(0);
 });
 
