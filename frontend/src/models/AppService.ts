@@ -1610,7 +1610,7 @@ export class AppState {
         const stats = taskQueueService.statsTasksFromScene(this.curSession!, scene);
         const remaining = stats.total - stats.done;
         totalCancelled += remaining;
-        taskQueueService.removeTasksFromScene(scene);
+        taskQueueService.removeTasksFromScene(this.curSession!, scene);
       }
       appState.pushDialog({
         type: 'yes-only',

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, memo } from 'react';
 import { FaObjectGroup } from 'react-icons/fa';
 import { GenericScene } from '../models/types';
 import { imageService, gameService } from '../models';
@@ -14,7 +14,7 @@ interface SceneSelectorProps {
 const SceneImage: React.FC<{
   scene: GenericScene;
   getImage: (scene: GenericScene) => Promise<string | null>;
-}> = ({ scene, getImage }) => {
+}> = memo(({ scene, getImage }) => {
   const [image, setImage] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -33,7 +33,6 @@ const SceneImage: React.FC<{
   useEffect(() => {
     loadImage();
 
-    // 이미지 업데이트 이벤트 리스너 추가
     const handleImageUpdate = () => {
       loadImage();
     };
@@ -61,7 +60,39 @@ const SceneImage: React.FC<{
       ) : null}
     </div>
   );
-};
+});
+SceneImage.displayName = 'SceneImage';
+
+const SceneCard: React.FC<{
+  scene: GenericScene;
+  selected: boolean;
+  getImage: (scene: GenericScene) => Promise<string | null>;
+  onToggle: (scene: GenericScene) => void;
+}> = memo(({ scene, selected, getImage, onToggle }) => {
+  const handleClick = useCallback(() => onToggle(scene), [scene, onToggle]);
+  return (
+    <div
+      // touch-manipulation: iOS Safari가 zoom 가능한 페이지에서 클릭 시
+      // 적용하는 300-500ms tap delay 제거. 본인 보고 "씬 클릭 0.5~1초 뒤
+      // selected 표시"의 원인.
+      className={
+        'touch-manipulation hover:brightness-95 active:brightness-90 cursor-pointer p-2 border flex-none flex flex-col items-center ' +
+        (selected
+          ? 'border-sky-500 dark:border-sky-500 bg-sky-200 dark:bg-slate-700'
+          : 'bg-white dark:bg-slate-800  border-gray-400 dark:border-slate-400')
+      }
+      onClick={handleClick}
+    >
+      <div>
+        <SceneImage getImage={getImage} scene={scene} />
+      </div>
+      <div className="h-12 w-16 md:w-28 overflow-auto break-all select-none">
+        {scene.name}
+      </div>
+    </div>
+  );
+});
+SceneCard.displayName = 'SceneCard';
 
 const SceneSelector: React.FC<SceneSelectorProps> = ({
   scenes,
@@ -70,33 +101,36 @@ const SceneSelector: React.FC<SceneSelectorProps> = ({
   onConfirm,
 }) => {
   const { curSession } = appState;
-  const [selectedScenes, setSelectedScenes] = useState<GenericScene[]>([]);
+  // 선택 상태는 씬 이름의 Set으로 관리해 has/add/delete가 모두 O(1).
+  // 기존엔 GenericScene[]에 .some()을 매 카드 render마다 호출 → O(N²) per click.
+  const [selectedNames, setSelectedNames] = useState<Set<string>>(() => new Set());
 
-  // 컴포넌트 마운트 시 이미지 목록 새로고침
-  useEffect(() => {
-    if (curSession) {
-      imageService.refreshBatch(curSession);
-    }
-  }, [curSession]);
+  // mount 시 refreshBatch 호출 제거. 60개 동시 fetch + 'updated' broadcast가
+  // 60 SceneImage listener를 한꺼번에 깨워 main thread를 점유 → 클릭 응답 지연
+  // 원인 후보. 모달 열기 직전 SceneQueueControl 화면에서 이미 refresh됐을 가능성
+  // 높아 stale 위험 작음.
 
-  const toggleSceneSelection = (scene: GenericScene) => {
-    const isSelected = selectedScenes.some(
-      (selected) => selected.name === scene.name,
-    );
-    const newSelectedScenes = isSelected
-      ? selectedScenes.filter((selected) => selected.name !== scene.name)
-      : [...selectedScenes, scene];
+  const toggleSceneSelection = useCallback((scene: GenericScene) => {
+    setSelectedNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(scene.name)) next.delete(scene.name);
+      else next.add(scene.name);
+      return next;
+    });
+  }, []);
 
-    setSelectedScenes(newSelectedScenes);
-  };
+  const selectAllScenes = useCallback(() => {
+    setSelectedNames(new Set(scenes.map((s) => s.name)));
+  }, [scenes]);
 
-  const selectAllScenes = () => {
-    setSelectedScenes(scenes);
-  };
+  const clearAllSelections = useCallback(() => {
+    setSelectedNames(new Set());
+  }, []);
 
-  const clearAllSelections = () => {
-    setSelectedScenes([]);
-  };
+  const handleConfirm = useCallback(() => {
+    const selected = scenes.filter((s) => selectedNames.has(s.name));
+    onConfirm(selected);
+  }, [scenes, selectedNames, onConfirm]);
 
   return (
     <div className="p-2 md:p-4 flex flex-col h-full">
@@ -123,32 +157,20 @@ const SceneSelector: React.FC<SceneSelectorProps> = ({
         <div className="flex-1 overflow-hidden pt-4 pb-2">
           <div className="flex flex-wrap h-full overflow-auto gap-2 content-start text-sub">
             {scenes.map((scene) => (
-              <div
-                className={
-                  'hover:brightness-95 active:brightness-90 cursor-pointer p-2 border flex-none flex flex-col items-center ' +
-                  (selectedScenes.some(
-                    (selected) => selected.name === scene.name,
-                  )
-                    ? 'border-sky-500 dark:border-sky-500 bg-sky-200 dark:bg-slate-700'
-                    : 'bg-white dark:bg-slate-800  border-gray-400 dark:border-slate-400')
-                }
-                onClick={() => toggleSceneSelection(scene)}
+              <SceneCard
                 key={scene.name}
-              >
-                <div>
-                  <SceneImage getImage={getImage} scene={scene}></SceneImage>
-                </div>
-                <div className="h-12 w-16 md:w-28 overflow-auto break-all select-none">
-                  {scene.name}
-                </div>
-              </div>
+                scene={scene}
+                selected={selectedNames.has(scene.name)}
+                getImage={getImage}
+                onToggle={toggleSceneSelection}
+              />
             ))}
           </div>
         </div>
         <div className="flex-none flex">
           <button
             className={`round-button back-green ml-auto`}
-            onClick={() => onConfirm(selectedScenes)}
+            onClick={handleConfirm}
           >
             작업 적용
           </button>

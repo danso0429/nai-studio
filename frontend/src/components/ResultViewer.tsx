@@ -1545,7 +1545,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
                 <button
                   className={`round-button back-gray`}
                   onClick={() => {
-                    taskQueueService.removeTasksFromScene(scene);
+                    taskQueueService.removeTasksFromScene(curSession!, scene);
                   }}
                 >
                   {!isMobile ? '예약 제거' : <FaCalendarTimes />}

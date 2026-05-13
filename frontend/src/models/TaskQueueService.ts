@@ -830,8 +830,8 @@ export class TaskQueueService extends EventTarget {
     this.dispatchEvent(new CustomEvent('stop', {}));
   }
 
-  removeTasksFromScene(scene: GenericScene) {
-    // legacy queue: scene 매칭 task 제거
+  removeTasksFromScene(session: Session, scene: GenericScene) {
+    // legacy queue: scene 매칭 task 제거 (reference equality라 cross-project 안전)
     const oldQueue = this.queue;
     this.queue = new CircularQueue<Task>();
     while (!oldQueue.isEmpty()) {
@@ -842,14 +842,12 @@ export class TaskQueueService extends EventTarget {
         this.addTaskInternal(task);
       }
     }
-    // mirror: scene 매칭은 name + type으로 (placeholder restored task는 reference 매칭 안 됨)
+    // mirror: sceneKey(session.name + scene.type + scene.name) 매칭. name + type만 비교하면
+    // 다른 프로젝트의 같은 이름 씬도 같이 cancel되는 버그가 있어 sceneKey 사용.
+    const targetKey = getSceneKey(session, scene);
     const matchedTaskIds: string[] = [];
-    for (const [taskId, task] of this.mirroredTasks) {
-      if (
-        task.params.scene &&
-        task.params.scene.name === scene.name &&
-        task.params.scene.type === scene.type
-      ) {
+    for (const taskId of this.mirroredTasks.keys()) {
+      if (this.mirrorTaskSceneKeys.get(taskId) === targetKey) {
         matchedTaskIds.push(taskId);
       }
     }

@@ -254,7 +254,7 @@ export const SceneCell = observer(
     const [_, rerender] = useState<{}>({});
 
     const removeFromQueue = (scene: GenericScene) => {
-      taskQueueService.removeTasksFromScene(scene);
+      taskQueueService.removeTasksFromScene(curSession!, scene);
     };
 
     const getSceneQueueCount = (scene: GenericScene) => {
@@ -948,7 +948,9 @@ const QueueControl = observer(
       });
     };
 
-    const getImage = async (scene: GenericScene) => {
+    // useCallback으로 reference stable. SceneSelector → SceneCard memo가
+    // getImage prop reference 변경 시마다 무효화되어 모든 카드 re-render되던 문제 회피.
+    const getImage = useCallback(async (scene: GenericScene) => {
       if (scene.type === 'scene') {
         const image = await getMainImage(curSession!, scene as Scene, 500);
         if (!image) throw new Error('No image available');
@@ -961,7 +963,7 @@ const QueueControl = observer(
           imgPath,
         );
       }
-    };
+    }, [curSession]);
 
     const cellSizes = ['스몰뷰', '미디엄뷰', '라지뷰'];
 

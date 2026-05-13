@@ -1580,7 +1580,9 @@ app.get('/api/fs/list', async (req, res) => {
     // 디렉토리 mtime은 파일 추가/삭제 시 변경됨 (파일 내용 수정에는 영향 X).
     // /api/fs/list는 파일 목록만 보므로 디렉토리 mtime ETag면 충분.
     const etag = `W/"${dirStat.mtimeMs.toFixed(0)}-${files.length}"`;
-    res.set('Cache-Control', 'private, max-age=60');
+    // fresh-cache 금지. 매 호출 ETag로 revalidate. max-age=60이면 삭제 직후
+    // refresh 호출이 캐시에서 옛 list 받아 회귀 (이미지 삭제 안 된 것처럼 보임).
+    res.set('Cache-Control', 'private, max-age=0, must-revalidate');
     res.set('ETag', etag);
     if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
     res.json(files);
@@ -1602,7 +1604,7 @@ app.get('/api/fs/list-stats', async (req, res) => {
     // 결과 자체에서 max mtime + 파일 수로 weak ETag 만듦.
     const maxMtime = stats.reduce((m, s) => Math.max(m, s.mtime), 0);
     const etag = `W/"${maxMtime.toFixed(0)}-${stats.length}"`;
-    res.set('Cache-Control', 'private, max-age=30');
+    res.set('Cache-Control', 'private, max-age=0, must-revalidate');
     res.set('ETag', etag);
     if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
     res.json(stats);
