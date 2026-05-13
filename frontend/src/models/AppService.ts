@@ -1990,34 +1990,74 @@ export class AppState {
                 }
                 // 2. 이미지 합치기. 새 이름이 selected 안 이름이면 그 폴더 유지 (파일
                 // 이동 X). 그 외 selected의 png들을 새 폴더로 renameFile (server가
-                // mkdir 자동).
+                // mkdir 자동). listFiles는 source 씬 단위 병렬, renameFile은 파일 단위
+                // CHUNK=4 병렬. 큰 씬 통합 시 직렬 대비 수십 배 빠름.
                 const keepIdx = selected.findIndex((s) => s.name === newName);
                 const allMainsSet = new Set<string>();
                 if (keepIdx >= 0) {
                   for (const m of selected[keepIdx].mains) allMainsSet.add(m);
                 }
-                let movedCount = 0;
+                // Phase A: source 씬 목록 + listFiles 병렬
+                type SrcScene = { scene: GenericScene; oldDir: string };
+                const sources: SrcScene[] = [];
                 for (let i = 0; i < selected.length; i++) {
                   if (i === keepIdx) continue;
-                  const oldScene = selected[i];
-                  const oldDir =
-                    'outs/' + sessionName + '/' + oldScene.name;
-                  let files: string[] = [];
-                  try {
-                    files = await backend.listFiles(oldDir);
-                  } catch {
-                    files = [];
-                  }
-                  const pngs = files.filter((f) => f.endsWith('.png'));
-                  for (const file of pngs) {
+                  sources.push({
+                    scene: selected[i],
+                    oldDir: 'outs/' + sessionName + '/' + selected[i].name,
+                  });
+                }
+                const listResults = await Promise.all(
+                  sources.map(async ({ scene, oldDir }) => {
                     try {
-                      await backend.renameFile(oldDir + '/' + file, newDir + '/' + file);
-                      movedCount++;
-                      if (oldScene.mains.includes(file)) allMainsSet.add(file);
-                    } catch (e) {
-                      console.warn('[mergeScenes] rename failed:', oldDir + '/' + file, e);
+                      const files = await backend.listFiles(oldDir);
+                      return { scene, oldDir, pngs: files.filter((f) => f.endsWith('.png')) };
+                    } catch {
+                      return { scene, oldDir, pngs: [] as string[] };
                     }
+                  }),
+                );
+                // Phase B: 파일 단위 rename 작업 flatten
+                type RenameTask = { src: string; dst: string; file: string; sceneMains: string[] };
+                const tasks: RenameTask[] = [];
+                for (const { scene, oldDir, pngs } of listResults) {
+                  for (const file of pngs) {
+                    tasks.push({
+                      src: oldDir + '/' + file,
+                      dst: newDir + '/' + file,
+                      file,
+                      sceneMains: scene.mains,
+                    });
                   }
+                }
+                const totalFiles = tasks.length;
+                appState.updateProgressDialog(pid, {
+                  total: Math.max(1, totalFiles),
+                  text: totalFiles > 0
+                    ? `씬 통합 중... 이미지 0/${totalFiles}`
+                    : '씬 통합 중...',
+                });
+                // Phase C: renameFile CHUNK=4 병렬
+                let movedCount = 0;
+                const CHUNK = 4;
+                for (let i = 0; i < tasks.length; i += CHUNK) {
+                  const chunk = tasks.slice(i, i + CHUNK);
+                  await Promise.all(
+                    chunk.map(async (t) => {
+                      try {
+                        await backend.renameFile(t.src, t.dst);
+                        movedCount++;
+                        if (t.sceneMains.includes(t.file)) allMainsSet.add(t.file);
+                      } catch (e) {
+                        console.warn('[mergeScenes] rename failed:', t.src, e);
+                      }
+                    }),
+                  );
+                  const done = Math.min(i + CHUNK, totalFiles);
+                  appState.updateProgressDialog(pid, {
+                    done,
+                    text: `씬 통합 중... 이미지 ${done}/${totalFiles}`,
+                  });
                 }
                 // 3. 새 Scene 객체 만들기
                 const base = selected[0];
