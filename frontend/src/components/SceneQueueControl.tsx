@@ -396,6 +396,11 @@ export const SceneCell = observer(
                   )}
                 </div>
               )}
+              {!image && (
+                <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-slate-700">
+                  <FaFileImage className="text-2xl text-gray-400 dark:text-slate-500" />
+                </div>
+              )}
             </div>
           </div>
           <div className="w-full flex mt-auto justify-center items-center gap-1 md:gap-2 p-1 md:p-2">
@@ -440,6 +445,11 @@ export const SceneCell = observer(
                     <FaStar />
                   </div>
                 )}
+              </div>
+            )}
+            {!image && (
+              <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-slate-700 rounded-md">
+                <FaFileImage className="text-2xl text-gray-400 dark:text-slate-500" />
               </div>
             )}
             {/* 씬 이름 + 이미지 카운트 오버레이 */}
