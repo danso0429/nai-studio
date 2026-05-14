@@ -1236,31 +1236,38 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
       };
     }, [tournament]);
 
-    const paths = gameService
-      .getOutputs(curSession!, scene)
-      .map(
-        (path) => imageService.getOutputDir(curSession!, scene) + '/' + path,
-      );
-    const onSelected = useCallback(
-      (index: any) => {
-        if (selectMode) {
-          if (selectedImages.current.has(paths[index])) {
-            selectedImages.current.delete(paths[index]);
-          } else {
-            selectedImages.current.add(paths[index]);
-          }
-          if (gallaryRef.current) {
-            gallaryRef.current.refeshImage(paths[index]);
-          }
-          if (gallaryRef2.current) {
-            gallaryRef2.current.refeshImage(paths[index]);
-          }
-        } else {
-          setSelectedImageIndex(index);
-        }
-      },
-      [selectMode, paths],
+    // paths를 매 render마다 새 array로 만들면 createItemData(memoizeOne) 무효화 →
+    // 모든 Cell이 areEqual 실패로 re-render. setSelectMode 토글 시 50~100 cell × 1~2ms.
+    // outputList 기저 array reference + imageMap revision으로 stable 유지.
+    const baseList = gameService.getOutputs(curSession!, scene);
+    const dir = imageService.getOutputDir(curSession!, scene);
+    const paths = useMemo(
+      () => baseList.map((p) => dir + '/' + p),
+      [baseList, dir],
     );
+    // selectMode/paths를 ref로 잡아 onSelected 클로저를 안정 reference로 유지. 본인 페인
+    // (D1, P12 #7): "씬 들어가서 선택 — 0.5초 딜레이". 진단: setSelectMode 토글 시 기존
+    // useCallback이 새 closure → memoizeOne(createItemData)가 무효화 → 모든 Cell이
+    // shallow-prop-change로 re-render. virtualized 50~100 cell × 1~2ms = ~500ms 모바일.
+    // ref 패턴으로 onSelected 자체는 stable → Cell memo 그대로 유지 → 토글 즉시 반응.
+    const selectModeRef = useRef(selectMode);
+    selectModeRef.current = selectMode;
+    const pathsRef = useRef(paths);
+    pathsRef.current = paths;
+    const onSelected = useCallback((index: any) => {
+      const p = pathsRef.current[index];
+      if (selectModeRef.current) {
+        if (selectedImages.current.has(p)) {
+          selectedImages.current.delete(p);
+        } else {
+          selectedImages.current.add(p);
+        }
+        if (gallaryRef.current) gallaryRef.current.refeshImage(p);
+        if (gallaryRef2.current) gallaryRef2.current.refeshImage(p);
+      } else {
+        setSelectedImageIndex(index);
+      }
+    }, []);
     const onDeleteImages = async (scene: GenericScene) => {
       appState.pushDialog({
         type: 'select',

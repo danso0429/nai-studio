@@ -202,12 +202,14 @@ export function useTournament(scene: GenericScene, path: string): UseTournamentR
       const p1 = round.players[round.curPlayer + 1];
       matchPlayerPaths = [p0, p1];
       arenaURLs = [toURL(p0, ARENA_THUMB_SIZE), toURL(p1, ARENA_THUMB_SIZE)];
-      // 다음 매치 prefetch (있으면).
-      if (round.curPlayer + 3 < round.players.length) {
-        prefetchURLs = [
-          toURL(round.players[round.curPlayer + 2], ARENA_THUMB_SIZE),
-          toURL(round.players[round.curPlayer + 3], ARENA_THUMB_SIZE),
-        ];
+      // 다음 매치 + 다음-다음 매치 prefetch — 본인 페인 (A2, P12 #7): 빠른 연타 시
+      // 상/하단 업데이트 약간씩 늦어짐. 1 매치(2 image)만 lookahead면 다음-다음은
+      // 클릭 후 비로소 prefetch 시작 → cache miss. 2 매치(4 image)로 늘려 연타 흡수.
+      const offsets = [2, 3, 4, 5];
+      for (const off of offsets) {
+        if (round.curPlayer + off < round.players.length) {
+          prefetchURLs.push(toURL(round.players[round.curPlayer + off], ARENA_THUMB_SIZE));
+        }
       }
       const totalMatches = Math.floor(round.players.length / 2);
       const currentMatch = Math.floor(round.curPlayer / 2) + 1;

@@ -2593,6 +2593,10 @@ export class AppState {
   async emptyProjectImageTrashWithConfirm() {
     if (!this.curSession) return;
     const { trashService } = await import('.');
+    // 즉시 toast — 본인 페인 (E1): 60+ 씬 listFiles로 다이얼로그 뜨기까지 1~수초.
+    // TrashService.countProjectImageTrash가 청크 8 병렬화로 단축되긴 했지만 큰
+    // 프로젝트에선 여전히 체감 가능 → 사용자 입력 받았다는 신호 즉시 표시.
+    this.pushMessage('🧹 트래시 계산 중...');
     const { totalImages, scenesWithTrash } =
       await trashService.countProjectImageTrash(this.curSession);
     if (totalImages === 0) {

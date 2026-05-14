@@ -201,17 +201,26 @@ export class TrashService extends EventTarget {
   async countProjectImageTrash(
     session: Session,
   ): Promise<{ totalImages: number; scenesWithTrash: number }> {
-    let totalImages = 0;
-    let scenesWithTrash = 0;
+    // 본인 페인 (E1, P12 #7): 영구 삭제 다이얼로그 띄우기 전 trash count 동기 계산
+    // 으로 60+ 씬에 직렬 listFiles → 모바일 ~3-6초 hang. 청크 8 병렬로 throughput
+    // ~8배 (NAI API throttle과 무관, fs listFiles는 서버 측 cheap operation).
     const allScenes: GenericScene[] = [
       ...session.getScenes('scene'),
       ...session.getScenes('inpaint'),
     ];
-    for (const scene of allScenes) {
-      const items = await this.getTrashImages(session, scene);
-      if (items.length > 0) {
-        totalImages += items.length;
-        scenesWithTrash += 1;
+    const CHUNK = 8;
+    let totalImages = 0;
+    let scenesWithTrash = 0;
+    for (let i = 0; i < allScenes.length; i += CHUNK) {
+      const chunk = allScenes.slice(i, i + CHUNK);
+      const counts = await Promise.all(
+        chunk.map((scene) => this.getTrashImages(session, scene).then((items) => items.length)),
+      );
+      for (const n of counts) {
+        if (n > 0) {
+          totalImages += n;
+          scenesWithTrash += 1;
+        }
       }
     }
     return { totalImages, scenesWithTrash };

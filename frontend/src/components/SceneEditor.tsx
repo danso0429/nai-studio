@@ -467,7 +467,10 @@ export const SlotPiece = observer(
           </FloatView>
         )}
 
-        <div className={'mb-3 h-12 w-28 md:h-24 md:w-48'}>
+        {/* 본인 페인 (F1, F2, P12 #7): 모바일 h-12 w-28(48×112px)이 너무 작아서 prompt
+            텍스트 overflow → 네거태그 영역까지 침범 + 슬롯 크기 늘려달라 요청. 모바일
+            크기 확장 (h-32 w-60 = 128×240px). 데스크탑은 그대로 유지. */}
+        <div className={'mb-3 h-32 w-60 md:h-24 md:w-48'}>
           <PromptEditTextArea
             whiteBg
             disabled={!moveSlotPiece}
@@ -479,7 +482,7 @@ export const SlotPiece = observer(
           />
         </div>
         {/* 조합 단위 네거티브 — 같은 조합에 들어간 모든 piece의 uc를 합쳐 base negative에 추가 (2026-05-13) */}
-        <div className="mb-2 w-28 md:w-48">
+        <div className="mb-2 w-60 md:w-48">
           <label className="text-xs text-red-500 dark:text-red-400 select-none block">
             조합 네거티브
           </label>
@@ -806,6 +809,10 @@ export const SlotEditor = observer(({ scene, big }: SlotEditorProps) => {
     }
   };
 
+  // 본인 페인 (F3, P12 #7): 모바일 세로화면에서 slot=column 레이아웃은 좁은 가로
+  // 공간을 N개 column으로 더 쪼개서 piece 폭이 더 줄어듦. 모바일에선 slot을 row로
+  // 돌려서 column 폭 자유롭게 + 세로 스크롤로 slot 간 이동. 데스크탑은 기존 column
+  // 레이아웃 유지 (가로 공간 충분).
   return (
     <div className="flex flex-col w-full">
       <div className="px-2 pt-1 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
@@ -815,9 +822,12 @@ export const SlotEditor = observer(({ scene, big }: SlotEditorProps) => {
           <span className="text-gray-400 dark:text-gray-500">({formula})</span>
         )}
       </div>
-      <div className="flex w-full">
+      <div className="flex flex-col md:flex-row w-full">
         {scene.slots.map((slot, slotIndex) => (
-          <div key={slotIndex}>
+          <div
+            key={slotIndex}
+            className="flex flex-row md:flex-col overflow-x-auto md:overflow-x-visible border-b md:border-b-0 md:border-r border-gray-200 dark:border-slate-700 last:border-0"
+          >
             {slot.map((piece, pieceIndex) => (
               <SlotPiece
                 key={piece.id!}
@@ -830,7 +840,7 @@ export const SlotEditor = observer(({ scene, big }: SlotEditorProps) => {
               />
             ))}
             <button
-              className="p-2 m-2 w-14 back-lllgray clickable rounded-xl flex justify-center"
+              className="p-2 m-2 w-14 flex-none back-lllgray clickable rounded-xl flex justify-center self-center"
               onClick={() => {
                 slot.push(
                   PromptPiece.fromJSON({
@@ -847,7 +857,7 @@ export const SlotEditor = observer(({ scene, big }: SlotEditorProps) => {
           </div>
         ))}
         <button
-          className="p-2 m-2 h-14 flex items-center back-lllgray clickable rounded-xl"
+          className="p-2 m-2 h-14 flex items-center back-lllgray clickable rounded-xl self-center md:self-auto"
           onClick={() => {
             scene.slots.push([
               PromptPiece.fromJSON({
