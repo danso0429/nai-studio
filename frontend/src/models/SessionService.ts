@@ -523,20 +523,25 @@ export class SessionService extends ResourceSyncService<Session> {
     image: string,
     mask: string,
   ) {
-    await backend.writeDataFile(
-      this.getInpaintOrgPath(session, inpaint),
-      image,
-    );
-    await backend.writeDataFile(
-      this.getInpaintMaskPath(session, inpaint),
-      mask,
-    );
-    await imageService.invalidateCache(
-      this.getInpaintOrgPath(session, inpaint),
-    );
-    await imageService.invalidateCache(
-      this.getInpaintMaskPath(session, inpaint),
-    );
+    // 2-phase commit: 둘 다 .tmp로 먼저 쓰고, 둘 다 성공 시 rename. write 중
+    // crash/실패가 가장 흔하므로 그 케이스에서 옛 org/mask 페어 보존 (한쪽만
+    // 갱신되는 inconsistent state 회피).
+    const orgPath = this.getInpaintOrgPath(session, inpaint);
+    const maskPath = this.getInpaintMaskPath(session, inpaint);
+    const orgTmp = orgPath + '.tmp';
+    const maskTmp = maskPath + '.tmp';
+    try {
+      await backend.writeDataFile(orgTmp, image);
+      await backend.writeDataFile(maskTmp, mask);
+    } catch (e) {
+      try { await backend.deleteFile(orgTmp); } catch {}
+      try { await backend.deleteFile(maskTmp); } catch {}
+      throw e;
+    }
+    await backend.renameFile(orgTmp, orgPath);
+    await backend.renameFile(maskTmp, maskPath);
+    await imageService.invalidateCache(orgPath);
+    await imageService.invalidateCache(maskPath);
   }
 
   styleEdit(preset: any, container: any) {
