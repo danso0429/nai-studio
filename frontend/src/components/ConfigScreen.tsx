@@ -140,44 +140,72 @@ const ImageEditTab = ({
 const StorageTab = ({
   saveLocation, selectFolder, clearImageCache,
   refreshImage, setRefreshImage,
-}: any) => (
-  <div className="space-y-4">
-    <div>
-      <label className="block text-sm font-semibold gray-label mb-1">현재 저장경로</label>
-      <div className="text-sm text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-slate-700 rounded px-3 py-2 break-all">
-        {saveLocation || '기본 위치'}
+}: any) => {
+  const [backupBusy, setBackupBusy] = useState(false);
+  const startBackup = () => {
+    if (backupBusy) return;
+    setBackupBusy(true);
+    appState.pushMessage('백업 zip 생성 중... 다운로드가 곧 시작돼요');
+    const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+    const a = document.createElement('a');
+    a.href = `${base}/api/backup/full`;
+    a.click();
+    // 서버가 stream 시작하면 브라우저가 다운로드 매니저로 인계. 버튼 짧게 잠궈 더블클릭만 방지.
+    setTimeout(() => setBackupBusy(false), 3000);
+  };
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-semibold gray-label mb-1">현재 저장경로</label>
+        <div className="text-sm text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-slate-700 rounded px-3 py-2 break-all">
+          {saveLocation || '기본 위치'}
+        </div>
+      </div>
+      <button className="w-full back-green py-2 rounded hover:brightness-95 active:brightness-90"
+        onClick={selectFolder}>
+        이미지 및 데이터 저장 위치 변경
+      </button>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div>
+        <label className="block text-sm font-semibold gray-label mb-1">전체 데이터 백업</label>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+          프로젝트/바이브/프롬프트 등 사용자 작업 데이터를 zip 파일로 받아요. 생성된 이미지(outs/)와 이전 내보내기(exports/)는 제외. Drive 미사용자의 재설치 복원 / 외부 백업용.
+        </p>
+        <button
+          className="w-full back-sky py-2 rounded hover:brightness-95 active:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={startBackup}
+          disabled={backupBusy}
+        >
+          {backupBusy ? '백업 zip 생성 중...' : '전체 데이터 백업 받기'}
+        </button>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <button className="w-full back-red py-2 rounded hover:brightness-95 active:brightness-90"
+        onClick={clearImageCache}>
+        이미지 캐시 초기화
+      </button>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="cfgRefresh" checked={refreshImage}
+          onChange={(e) => setRefreshImage(e.target.checked)} />
+        <label htmlFor="cfgRefresh" className="text-sm gray-label">이미지 폴더 직접 편집 감지</label>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div>
+        <label className="block text-sm font-semibold gray-label mb-1">이미지 복구 (실험적 기능)</label>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+          이미지 파일은 존재하지만 프로그램에서 보이지 않는 경우, 파일시스템을 스캔하여 누락된 씬과 이미지를 재연결합니다.
+        </p>
+        <button
+          className="px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition-colors"
+          onClick={() => appState.recoverProjectImages()}
+        >
+          현재 프로젝트 이미지 복구
+        </button>
       </div>
     </div>
-    <button className="w-full back-green py-2 rounded hover:brightness-95 active:brightness-90"
-      onClick={selectFolder}>
-      이미지 및 데이터 저장 위치 변경
-    </button>
-    <hr className="border-gray-200 dark:border-slate-600" />
-    <button className="w-full back-red py-2 rounded hover:brightness-95 active:brightness-90"
-      onClick={clearImageCache}>
-      이미지 캐시 초기화
-    </button>
-    <hr className="border-gray-200 dark:border-slate-600" />
-    <div className="flex items-center gap-2">
-      <input type="checkbox" id="cfgRefresh" checked={refreshImage}
-        onChange={(e) => setRefreshImage(e.target.checked)} />
-      <label htmlFor="cfgRefresh" className="text-sm gray-label">이미지 폴더 직접 편집 감지</label>
-    </div>
-    <hr className="border-gray-200 dark:border-slate-600" />
-    <div>
-      <label className="block text-sm font-semibold gray-label mb-1">이미지 복구 (실험적 기능)</label>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-        이미지 파일은 존재하지만 프로그램에서 보이지 않는 경우, 파일시스템을 스캔하여 누락된 씬과 이미지를 재연결합니다.
-      </p>
-      <button
-        className="px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition-colors"
-        onClick={() => appState.recoverProjectImages()}
-      >
-        현재 프로젝트 이미지 복구
-      </button>
-    </div>
-  </div>
-);
+  );
+};
 
 /* ── 폴더 정리 공통 컴포넌트 ── */
 const FolderCleanupSection = ({ folder, label, description }: { folder: string; label: string; description?: string }) => {

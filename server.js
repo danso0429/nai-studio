@@ -2510,6 +2510,73 @@ app.get('/api/fs/download', async (req, res) => {
   } catch (e) { res.status(404).json({ error: e.message }); }
 });
 
+// 전체 데이터 백업 zip. Drive 미사용자가 sync_naistudio.sh 자동 백업 받지 않으니까
+// 명시적 버튼 누르면 사용자 작업 데이터를 zip으로 streaming 다운로드.
+// 포함: projects/, vibes/, inpaints*/, references/ + 최상위 config/즐겨찾기 JSON들.
+// 제외: outs/ (생성 이미지, GBs), exports/ (이미 사용자 손), tmp/fastcache/.trash (캐시),
+//        db.csv (Danbooru 태그 DB, 사용자 데이터 아님), .queue_state/.drive-retry-queue/
+//        .timing-history/completed-jobs (런타임 상태).
+app.get('/api/backup/full', async (req, res) => {
+  try {
+    const JSZip = require('jszip');
+    const zip = new JSZip();
+
+    const INCLUDE_DIRS = ['projects', 'vibes', 'inpaints', 'inpaint_orgs', 'inpaint_masks', 'references'];
+    const INCLUDE_FILES = ['config.json', 'TOKEN.txt', 'bookmarks.json', 'favorites.json', 'global_pieces.json', 'trash.json'];
+    const SKIP_NAMES = new Set(['fastcache', '.trash', 'tmp', '.cache']);
+
+    let fileCount = 0;
+    async function walkAndAdd(absPath, zipPath) {
+      const stat = await fs.stat(absPath).catch(() => null);
+      if (!stat) return;
+      if (stat.isDirectory()) {
+        const entries = await fs.readdir(absPath);
+        for (const e of entries) {
+          if (SKIP_NAMES.has(e)) continue;
+          await walkAndAdd(path.join(absPath, e), zipPath + '/' + e);
+        }
+      } else if (stat.isFile()) {
+        const content = await fs.readFile(absPath);
+        zip.file(zipPath, content);
+        fileCount++;
+      }
+    }
+
+    for (const dir of INCLUDE_DIRS) {
+      await walkAndAdd(path.join(DATA_DIR, dir), dir);
+    }
+    for (const file of INCLUDE_FILES) {
+      const abs = path.join(DATA_DIR, file);
+      try {
+        const content = await fs.readFile(abs);
+        zip.file(file, content);
+        fileCount++;
+      } catch (e) {
+        if (e.code !== 'ENOENT') console.warn('[Backup] skip', file, e.message);
+      }
+    }
+
+    const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const fileName = `sdstudio-backup-${dateStr}.zip`;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Cache-Control', 'no-store');
+
+    // STORE(level 0) — vibes/inpaint PNG 압축 안 되니까 속도 우선. JSON은 작아서 무시 가능.
+    const stream = zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true });
+    stream.on('error', (err) => {
+      console.error('[Backup] stream error:', err);
+      if (!res.headersSent) res.status(500).json({ error: err.message });
+    });
+    stream.pipe(res);
+    console.log('[Backup] streaming ' + fileCount + ' files → ' + fileName);
+  } catch (e) {
+    console.error('[Backup] error:', e);
+    if (!res.headersSent) res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/fs/image', async (req, res) => {
   try {
     const filePath = resolvePath(req.query.path);
