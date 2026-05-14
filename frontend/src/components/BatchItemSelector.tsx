@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 
 type SortMode = 'original' | 'asc' | 'desc';
 
@@ -7,17 +7,121 @@ interface BatchItemSelectorProps<T> {
   items: T[];
   getId: (item: T) => string;
   getLabel: (item: T) => string;
-  // 썸네일 / 외부 invalidation 신호. 이번 단계에서는 받기만 하고 미사용.
-  // C3에서 썸네일 카드 도입 시 활성화.
+  // 썸네일 비동기 로더. 없으면 텍스트 카드만 표시.
   getImage?: (item: T) => Promise<string | null>;
+  // 외부 invalidation 신호. 값이 바뀌면 모든 썸네일 재패치.
+  // models 레이어 'updated' 이벤트는 부모에서 카운터로 변환해 내려줌.
   imageRevision?: number;
   onConfirm: (selected: T[]) => void;
   onCancel?: () => void;
   confirmLabel?: string;
 }
 
+interface ThumbnailProps<T> {
+  item: T;
+  getImage: (item: T) => Promise<string | null>;
+  imageRevision?: number;
+  alt: string;
+}
+
+function ThumbnailInner<T>({ item, getImage, imageRevision, alt }: ThumbnailProps<T>): React.ReactElement {
+  const [src, setSrc] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    getImage(item)
+      .then((uri) => {
+        if (!cancelled) setSrc(uri);
+      })
+      .catch(() => {
+        if (!cancelled) setSrc(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [getImage, item, imageRevision]);
+
+  return (
+    <div className="w-20 h-20 flex items-center justify-center">
+      {src ? (
+        <img
+          className="w-auto h-auto max-w-20 max-h-20"
+          draggable={false}
+          src={src}
+          alt={alt}
+        />
+      ) : loading ? (
+        <div className="w-16 h-16 bg-gray-200 dark:bg-slate-600 animate-pulse rounded" />
+      ) : null}
+    </div>
+  );
+}
+const Thumbnail = memo(ThumbnailInner) as typeof ThumbnailInner;
+
+interface ItemCardProps<T> {
+  item: T;
+  id: string;
+  label: string;
+  selected: boolean;
+  onToggle: (id: string) => void;
+  getImage?: (item: T) => Promise<string | null>;
+  imageRevision?: number;
+}
+
+function ItemCardInner<T>({
+  item,
+  id,
+  label,
+  selected,
+  onToggle,
+  getImage,
+  imageRevision,
+}: ItemCardProps<T>): React.ReactElement {
+  const handleClick = useCallback(() => onToggle(id), [id, onToggle]);
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className={
+        'touch-manipulation cursor-pointer p-2 border flex flex-col items-center w-24 md:w-32 select-none ' +
+        (selected
+          ? 'border-sky-500 bg-sky-100 dark:bg-slate-700'
+          : 'border-gray-400 dark:border-slate-500 bg-white dark:bg-slate-800 hover:brightness-95')
+      }
+    >
+      {getImage && (
+        <Thumbnail
+          item={item}
+          getImage={getImage}
+          imageRevision={imageRevision}
+          alt={label}
+        />
+      )}
+      <div className="h-12 w-full overflow-auto break-all text-sm text-left pt-1">
+        {label}
+      </div>
+    </button>
+  );
+}
+const ItemCard = memo(ItemCardInner) as typeof ItemCardInner;
+
 function BatchItemSelector<T>(props: BatchItemSelectorProps<T>): React.ReactElement {
-  const { title, items, getId, getLabel, onConfirm, onCancel, confirmLabel } = props;
+  const {
+    title,
+    items,
+    getId,
+    getLabel,
+    getImage,
+    imageRevision,
+    onConfirm,
+    onCancel,
+    confirmLabel,
+  } = props;
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [sortMode, setSortMode] = useState<SortMode>('original');
@@ -96,23 +200,17 @@ function BatchItemSelector<T>(props: BatchItemSelectorProps<T>): React.ReactElem
         <div className="flex flex-wrap gap-2 content-start">
           {sortedItems.map((item) => {
             const id = getId(item);
-            const selected = selectedIds.has(id);
             return (
-              <button
+              <ItemCard
                 key={id}
-                type="button"
-                onClick={() => toggle(id)}
-                className={
-                  'touch-manipulation cursor-pointer p-2 border flex flex-col items-center w-20 md:w-32 select-none ' +
-                  (selected
-                    ? 'border-sky-500 bg-sky-100 dark:bg-slate-700'
-                    : 'border-gray-400 dark:border-slate-500 bg-white dark:bg-slate-800 hover:brightness-95')
-                }
-              >
-                <div className="h-12 w-full overflow-auto break-all text-sm text-left">
-                  {getLabel(item)}
-                </div>
-              </button>
+                item={item}
+                id={id}
+                label={getLabel(item)}
+                selected={selectedIds.has(id)}
+                onToggle={toggle}
+                getImage={getImage}
+                imageRevision={imageRevision}
+              />
             );
           })}
         </div>
