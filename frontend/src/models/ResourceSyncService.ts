@@ -32,6 +32,9 @@ export abstract class ResourceSyncService<
     this.folderMap = {};
     this.updateInterval = interval;
     this.running = true;
+    // 인터넷 느릴 때 첫 update() 응답 전에 마지막 리스트 즉시 표시.
+    // 백그라운드 update() 도착 시 saveCache로 갱신 + listupdated dispatch.
+    this.loadCache();
     (async () => {
       this.dummy = await this.createDefault('dummy');
     })();
@@ -148,6 +151,7 @@ export abstract class ResourceSyncService<
     }
     this.dirty = {};
     this.resourceList = await this.getList();
+    this.saveCache();
     this.dispatchEvent(new CustomEvent('listupdated', {}));
   }
 
@@ -213,6 +217,42 @@ export abstract class ResourceSyncService<
 
   listFolders(): string[] {
     return this.folderList.slice();
+  }
+
+  private cacheKey(): string {
+    return 'rss-cache:' + this.resourceDir;
+  }
+
+  private loadCache(): void {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      const raw = localStorage.getItem(this.cacheKey());
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.resourceList)) this.resourceList = data.resourceList;
+      if (Array.isArray(data.folderList)) this.folderList = data.folderList;
+      if (data.folderMap && typeof data.folderMap === 'object') {
+        this.folderMap = data.folderMap;
+      }
+    } catch (e) {
+      // 캐시 파싱 실패 — 무시 (다음 update에서 정상 갱신)
+    }
+  }
+
+  private saveCache(): void {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      localStorage.setItem(
+        this.cacheKey(),
+        JSON.stringify({
+          resourceList: this.resourceList,
+          folderList: this.folderList,
+          folderMap: this.folderMap,
+        }),
+      );
+    } catch (e) {
+      // localStorage quota / disabled — 무시
+    }
   }
 
   private async fillEmptyPresetVars(obj: any) {

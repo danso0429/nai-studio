@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import SessionTreePicker from './SessionTreePicker';
 import { FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaRegBookmark } from 'react-icons/fa';
 import Tooltip from './Tooltip';
@@ -12,6 +12,8 @@ import { runInAction } from 'mobx';
 
 const SessionSelect = observer(() => {
   const [showCharacterPresets, setShowCharacterPresets] = useState(false);
+  // 진행 중인 선택 가드. 인터넷 느릴 때 사용자 연타로 race 방지.
+  const pendingSelectionRef = useRef<string | null>(null);
   const addSession = () => {
     (async () => {
       appState.pushDialog({
@@ -33,13 +35,35 @@ const SessionSelect = observer(() => {
   };
 
   const selectSession = (name: string) => {
-    (async () => {
-      const session = await sessionService.get(name);
-      if (session) {
-        imageService.refreshBatch(session);
-        appState.curSession = session;
-      }
-    })();
+    // 같은 프로젝트 재선택은 무시.
+    if (appState.curSession?.name === name) return;
+    // 같은 이름 fetch 진행 중이면 무시 (사용자 연타 가드).
+    if (pendingSelectionRef.current === name) return;
+    pendingSelectionRef.current = name;
+    // 동기 await 제거. 클릭 핸들러를 막지 않고 즉시 토스트로 피드백 →
+    // 인터넷 느릴 때 "무반응" 인상 해소. fetch 응답 도착 시 curSession set.
+    appState.pushMessage(`프로젝트 "${name}" 로딩 중…`);
+    sessionService
+      .get(name)
+      .then((session) => {
+        // 도착 사이 다른 선택이 들어왔으면 이 결과는 버림.
+        if (pendingSelectionRef.current !== name) return;
+        pendingSelectionRef.current = null;
+        if (session) {
+          imageService.refreshBatch(session);
+          appState.curSession = session;
+        } else {
+          appState.pushMessage(`프로젝트 "${name}" 로드 실패`);
+        }
+      })
+      .catch((e) => {
+        if (pendingSelectionRef.current === name) {
+          pendingSelectionRef.current = null;
+        }
+        appState.pushMessage(
+          `프로젝트 "${name}" 로드 오류: ${e?.message ?? e}`,
+        );
+      });
   };
 
   const deleteSession = () => {

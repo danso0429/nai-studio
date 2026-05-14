@@ -21,19 +21,50 @@ export function getImageURL(filePath: string): string {
   return `${API_BASE}/api/fs/image?path=${encodeURIComponent(filePath)}`;
 }
 
-async function api(path: string, options?: RequestInit) {
-  const res = await fetch(`${API_BASE}/api${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`API error ${res.status}: ${text}`);
+// 모든 API 호출의 default timeout. 인터넷이 매우 느릴 때 무한 대기를 막기 위함.
+// 호출처가 timeout 옵션을 명시하면 그 값이 우선. signal을 직접 넘기면 호출처
+// 책임으로 위임 (timeout 미적용).
+const DEFAULT_API_TIMEOUT_MS = 60_000;
+
+async function api(
+  path: string,
+  options?: RequestInit & { timeout?: number },
+) {
+  const {
+    timeout = DEFAULT_API_TIMEOUT_MS,
+    signal: callerSignal,
+    headers,
+    ...rest
+  } = options ?? {};
+  let signal: AbortSignal | undefined = callerSignal ?? undefined;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  if (!signal) {
+    const controller = new AbortController();
+    signal = controller.signal;
+    timeoutId = setTimeout(() => controller.abort(), timeout);
   }
-  return res;
+  try {
+    const res = await fetch(`${API_BASE}/api${path}`, {
+      ...rest,
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...headers,
+      },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API error ${res.status}: ${text}`);
+    }
+    return res;
+  } catch (e: any) {
+    if (e?.name === 'AbortError' && timeoutId !== undefined) {
+      throw new Error(`API timeout (${timeout}ms): ${path}`);
+    }
+    throw e;
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
 }
 
 async function apiJSON(path: string, options?: RequestInit) {
