@@ -536,7 +536,26 @@ export class ImageService extends EventTarget {
       target[session.name] = {};
     }
     const fileSet: any = {};
-    let files = await backend.listFiles(this.getOutputDir(session, scene));
+    // 옵션 C 단계 B: listFiles wrap silent fallback 제거 후 5xx/timeout 등 일시 에러는
+    // 여기서 throw로 받음. 옛 imageMap 유지 (guardEmpty 패턴 호환). 단계 C에서 guardEmpty
+    // 자체 제거 시 이 catch가 stale 보호 단일 지점.
+    let files: string[];
+    try {
+      files = await backend.listFiles(this.getOutputDir(session, scene));
+    } catch (e) {
+      console.warn('[refresh] listFiles failed:', scene.name, e);
+      if (guardEmpty && scene.imageMap.length > 0) {
+        target[session.name][scene.name] = [...scene.imageMap];
+        if (emitEvent)
+          this.dispatchEvent(
+            new CustomEvent('updated', {
+              detail: { batch: false, session, scene },
+            }),
+          );
+        return;
+      }
+      files = []; // guardEmpty=false: 옛 마스킹 동작과 동일 (imageMap 비움)
+    }
     files = files.filter((x: string) => x.endsWith('.png'));
     files.sort(naturalSort);
 

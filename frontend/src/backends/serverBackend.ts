@@ -251,29 +251,18 @@ export class ServerBackend extends Backend {
 
   async searchPieces(word: string): Promise<any> { return apiJSON(`/pieces/search?q=${encodeURIComponent(word)}`); }
 
-  // 옵션 C 단계 A: 서버가 5xx로 정직 응답하도록 변경. 옛 호출처(`refresh` 8군데)는
-  // try/catch 없어서 throw 시 사용자 UI 전파 위험 → wrap에 silent fallback `return []`
-  // 박아 옛 동작 호환. 단계 B에서 호출처별 try/catch + toast로 명시화 예정.
-  async listFiles(arg: string): Promise<string[]> {
-    try {
-      return await apiJSON(`/fs/list?path=${encodeURIComponent(arg)}`);
-    } catch (e) {
-      console.warn('[listFiles]', arg, e);
-      return [];
-    }
-  }
+  // 옵션 C 단계 B: 단계 A의 silent fallback wrap 제거. 5xx면 그대로 throw.
+  // 호출처 정독 결과 ImageService.refresh + GameService.createGame 2군데만 try/catch
+  // 없었음 → 자체 try/catch 추가. SessionService(ignoreError)/refreshBatch(retry)/
+  // useTournament(상위 try)/TrashService/AppService recover & merge는 자기 try/catch.
+  async listFiles(arg: string): Promise<string[]> { return apiJSON(`/fs/list?path=${encodeURIComponent(arg)}`); }
   async listFilesRecursive(arg: string, depth?: number): Promise<RecursiveListResult> {
     const d = depth !== undefined ? `&depth=${depth}` : '';
     return apiJSON(`/fs/list-recursive?path=${encodeURIComponent(arg)}${d}`);
   }
 
   async listFilesWithStats(arg: string): Promise<FileStatEntry[]> {
-    try {
-      return await apiJSON(`/fs/list-stats?path=${encodeURIComponent(arg)}`);
-    } catch (e) {
-      console.warn('[listFilesWithStats]', arg, e);
-      return [];
-    }
+    return apiJSON(`/fs/list-stats?path=${encodeURIComponent(arg)}`);
   }
 
   async readFile(filename: string): Promise<string> { return (await apiJSON(`/fs/read?path=${encodeURIComponent(filename)}`)).content; }

@@ -120,7 +120,15 @@ export class GameService extends EventTarget {
   }
 
   async createGame(path: string) {
-    let files = await backend.listFiles(path);
+    // 옵션 C 단계 B: listFiles wrap 제거 후 5xx/timeout throw 가능. 빈 game 반환으로
+    // 옛 동작 호환 (옛 wrap silent fallback이 [] 반환했던 것과 같음).
+    let files: string[];
+    try {
+      files = await backend.listFiles(path);
+    } catch (e) {
+      console.warn('[createGame] listFiles failed:', path, e);
+      return [];
+    }
     files = files.filter((x: string) => x.endsWith('.png'));
     return files.map((x: string) => ({
       path: x,
