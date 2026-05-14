@@ -38,6 +38,7 @@ import {
 import { PromptHighlighter } from './SceneEditor';
 import QueueControl from './SceneQueueControl';
 import { FloatView } from './FloatView';
+import ImageBatchSelector, { ImageBatchAction } from './ImageBatchSelector';
 import memoizeOne from 'memoize-one';
 import { FaPlus, FaRegSquareCheck, FaCopy, FaPaste } from 'react-icons/fa6';
 import { useContextMenu } from 'react-contexify';
@@ -1184,6 +1185,11 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
     const [_, forceUpdate] = useState<{}>({});
     const [selectMode, setSelectMode] = useState<boolean>(false);
     const [tournament, setTournament] = useState<boolean>(false);
+    // 모바일 이미지 선택 overlay. 기존 in-place selectMode 토글은 0.5초 hang 회귀
+    // (D1, P12 #8 본인 보고) — 토글 시 ResultViewer + Tooltip × 다수 + ImageGallery
+    // + Cell 모두 재구성. 새 ImageBatchSelector overlay (BatchItemSelector swap
+    // 패턴, P12 #6)는 ResultViewer 재렌더 0회 + 자체 4축 흡수로 토글 즉시.
+    const [imageBatchOpen, setImageBatchOpen] = useState<boolean>(false);
     const selectedImages = useRef(new Set<string>());
     const [selectedImageIndex, setSelectedImageIndex] = useState<
       number | undefined
@@ -1475,6 +1481,70 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
       title = workFlowService.getDef(scene.workflowType)?.title ?? '';
     }
 
+    // 모바일 이미지 일괄 선택 액션 list — overlay에 prop으로 전달. 본인 페인 D1
+    // 회귀 방지: 새 컴포넌트는 자체 selection state라 ResultViewer 재렌더 0회.
+    const imageBatchActions: ImageBatchAction[] = [
+      {
+        label: '즐겨찾기 토글',
+        icon: <FaStar />,
+        back: 'back-orange',
+        onAction: (sel) => {
+          if (sel.length === 0) return;
+          const fns = sel.map((p) => p.split('/').pop()!);
+          const allFav = fns.every((fn) => scene.mains.includes(fn));
+          if (allFav) {
+            for (const fn of fns) {
+              const idx = scene.mains.indexOf(fn);
+              if (idx >= 0) scene.mains.splice(idx, 1);
+            }
+            appState.pushMessage(fns.length + '장의 즐겨찾기가 해제되었습니다.');
+          } else {
+            let added = 0;
+            for (const fn of fns) {
+              if (!scene.mains.includes(fn)) {
+                scene.mains.push(fn);
+                added++;
+              }
+            }
+            appState.pushMessage(added + '장이 즐겨찾기에 추가되었습니다.');
+          }
+          gallaryRef.current?.refresh();
+          gallaryRef2.current?.refresh();
+        },
+      },
+      {
+        label: '복사',
+        icon: <FaCopy />,
+        back: 'back-sky',
+        onAction: (sel) => appState.copyImagesToClipboard(sel),
+      },
+      {
+        label: '다운로드',
+        icon: <FaDownload />,
+        back: 'back-green',
+        onAction: () => {
+          setShowDownloadDialog(true);
+        },
+        closeAfter: true,
+      },
+      {
+        label: '삭제',
+        icon: <FaTrash />,
+        back: 'back-red',
+        onAction: (sel) => {
+          if (sel.length === 0) return;
+          appState.pushDialog({
+            type: 'confirm',
+            text: sel.length + '장의 이미지를 삭제하시겠습니까?',
+            callback: async () => {
+              await deleteImageFiles(curSession!, sel, scene);
+              setImageBatchOpen(false);
+            },
+          });
+        },
+      },
+    ];
+
     return (
       <div className="w-full h-full flex flex-col">
         {tournament && (
@@ -1487,6 +1557,21 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
             <Tournament
               scene={scene}
               path={getResultDirectory(curSession!, scene)}
+            />
+          </FloatView>
+        )}
+        {imageBatchOpen && (
+          <FloatView
+            priority={3}
+            onEscape={() => setImageBatchOpen(false)}
+          >
+            <ImageBatchSelector
+              title={`이미지 선택 — ${scene.name}`}
+              imagePaths={paths}
+              actions={imageBatchActions}
+              onClose={() => setImageBatchOpen(false)}
+              isMainImage={isMainImage}
+              bookmarkedImagePath={bookmarkedImagePath}
             />
           </FloatView>
         )}
@@ -1586,9 +1671,17 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
               <Tooltip content="이미지 선택 모드">
                 <button
                   className={
-                    `round-button ` + (selectMode ? 'back-sky' : 'back-gray')
+                    `round-button ` + (isMobile ? 'back-gray' : selectMode ? 'back-sky' : 'back-gray')
                   }
                   onClick={() => {
+                    // 모바일: 전용 ImageBatchSelector overlay (재렌더 chain 회피).
+                    // PC: 기존 in-place selectMode 유지 (PC는 hang 회귀 없음 + 단축키
+                    // 등 keyboard nav가 selectMode 기반이라 backwards compat).
+                    if (isMobile) {
+                      selectedImages.current.clear();
+                      setImageBatchOpen(true);
+                      return;
+                    }
                     if (selectMode) {
                       selectedImages.current.clear();
                     }
