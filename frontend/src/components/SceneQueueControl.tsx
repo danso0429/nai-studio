@@ -1,7 +1,7 @@
 import { memo, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { FloatView } from './FloatView';
 import SceneEditor from './SceneEditor';
-import { FaBookmark, FaBroom, FaEdit, FaExchangeAlt, FaFileImage, FaPlus, FaRegBookmark, FaRegCalendarTimes, FaSearch, FaStar, FaTimes, FaTrash, FaTrashRestore } from 'react-icons/fa';
+import { FaBookmark, FaBroom, FaEdit, FaExchangeAlt, FaFileImage, FaPlus, FaRegCalendarTimes, FaSearch, FaStar, FaTimes, FaTrash, FaTrashRestore } from 'react-icons/fa';
 import Tournament from './Tournament';
 import ResultViewer from './ResultViewer';
 import InPaintEditor from './InPaintEditor';
@@ -340,10 +340,10 @@ export const SceneCell = observer(
             <FaEdit />
           </button>
           </Tooltip>
-          <Tooltip content={isBookmarked ? '북마크 해제' : '씬 북마크'}>
+          <Tooltip content="씬 북마크">
           <button className={`${btnClass} ${isBookmarked ? orange : gray}`}
             onClick={(e) => { e.stopPropagation(); onToggleBookmark?.(); }}>
-            {isBookmarked ? <FaBookmark /> : <FaRegBookmark />}
+            <FaBookmark />
           </button>
           </Tooltip>
         </>
