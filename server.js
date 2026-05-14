@@ -841,11 +841,15 @@ async function runExportJob(job) {
   setExportProgress(jobId, 'zip', totalForZip, totalForZip);
 
   // Phase 3: Drive enqueue (fire-and-forget, drive-sync-* 이벤트로 별도 추적)
+  // rclone 미설치/RCLONE_REMOTE 미설정 시 Drive 사용 의도 없음으로 간주하고 enqueue skip.
+  // retry queue가 영원히 fail entry로 쌓이고 위젯이 빨갛게 표시되던 회귀 차단 (Phase 12 5/14).
   job._phase = 'drive-enqueue';
-  const cleaned = outFilePath.replace(/^exports[\/]/, '');
-  const remotePath = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/exports/${cleaned}`;
-  enqueueDriveRetry(outAbs, remotePath, null, outFilePath, true);
-  setImmediate(() => processDriveRetryQueue({ ignoreSchedule: true }));
+  if (checkRcloneAvailable()) {
+    const cleaned = outFilePath.replace(/^exports[\/]/, '');
+    const remotePath = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/exports/${cleaned}`;
+    enqueueDriveRetry(outAbs, remotePath, null, outFilePath, true);
+    setImmediate(() => processDriveRetryQueue({ ignoreSchedule: true }));
+  }
 
   console.log('[Export] complete jobId=' + jobId + ' included=' + included + ' skipped=' + skipped.length);
   broadcast('export-complete', { jobId, outFilePath, included, skipped });
@@ -1843,15 +1847,27 @@ function sanitizeProjectName(name) {
   return name;
 }
 
+// rclone 가용성 캐시. Drive 미사용자 경로(매 export 호출)에서 execSync 2회 반복 부담 회피.
+// 60초 TTL — rclone 설치/remote 추가 후 최대 1분 안엔 반영됨.
+let _rcloneAvailableCache = null;
+let _rcloneAvailableCheckedAt = 0;
+const RCLONE_AVAILABLE_CACHE_MS = 60000;
+
 function checkRcloneAvailable() {
+  const now = Date.now();
+  if (_rcloneAvailableCache !== null && (now - _rcloneAvailableCheckedAt) < RCLONE_AVAILABLE_CACHE_MS) {
+    return _rcloneAvailableCache;
+  }
   const { execSync } = require('child_process');
   try {
     execSync('which rclone', { stdio: 'pipe' });
     execSync(`rclone listremotes 2>/dev/null | grep ${RCLONE_REMOTE}`, { stdio: 'pipe' });
-    return true;
+    _rcloneAvailableCache = true;
   } catch {
-    return false;
+    _rcloneAvailableCache = false;
   }
+  _rcloneAvailableCheckedAt = now;
+  return _rcloneAvailableCache;
 }
 
 function rcloneRun(cmd, timeoutMs) {
@@ -2534,6 +2550,13 @@ app.post('/api/fs/sync-exports', async (req, res) => {
     } catch {
       return res.status(404).json({ ok: false, error: 'File not found' });
     }
+    // 명시적 사용자 액션(Drive 동기화 버튼)이라 rclone 미설치면 silent skip 대신 클라에 알려야 함.
+    if (!checkRcloneAvailable()) {
+      return res.status(400).json({
+        ok: false,
+        error: 'rclone이 설치되지 않았거나 RCLONE_REMOTE가 설정되지 않아서 Drive 동기화를 사용할 수 없어요.',
+      });
+    }
     const localPath = candidate;
     const remotePath = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/exports/${cleaned}`;
     // 큐에 enqueue + 즉시 처리 트리거 (setImmediate로 event loop 양보 후 처리).
@@ -2558,6 +2581,8 @@ app.post('/api/fs/sync-exports', async (req, res) => {
 
 app.get('/api/drive/retry-status', (req, res) => {
   res.json({
+    // driveAvailable: rclone 설치 + RCLONE_REMOTE 매칭 여부. false면 클라가 폴링 중단해 모바일 데이터/배터리 절약.
+    driveAvailable: checkRcloneAvailable(),
     count: driveRetryQueue.length,
     pendingCount: driveRetryQueue.filter((e) => e.status !== 'failed').length,
     failedCount: driveRetryQueue.filter((e) => e.status === 'failed').length,

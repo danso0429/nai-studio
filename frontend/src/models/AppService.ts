@@ -503,6 +503,9 @@ export class AppState {
   async refreshDriveRetryStatus(): Promise<void> {
     try {
       this.driveRetryStatus = await backend.getDriveRetryStatus();
+      // rclone 사용 가능 상태가 확인됐으면 30s 폴링 시작 (이미 돌고 있으면 no-op).
+      // 사용자가 rclone 설치 후 페이지 새로고침 없이도 자연스레 전환되도록.
+      if (this.driveRetryStatus?.driveAvailable) ensureDrivePolling();
     } catch (e) {
       // 네트워크/서버 일시 오류는 무시 (다음 폴링에서 회복)
     }
@@ -2825,9 +2828,17 @@ export class AppState {
 
 export const appState = new AppState();
 
-// Drive retry status 폴링: 부팅 시 1회 + 30s 주기
-appState.refreshDriveRetryStatus();
-setInterval(() => appState.refreshDriveRetryStatus(), 30000);
+// Drive retry status 폴링: 부팅 시 1회. Drive 사용 중일 때만 30s 주기 폴링 유지
+// (rclone 미설치 사용자의 모바일 데이터/배터리 낭비 차단). WS drive-sync-* 이벤트로
+// 큐 변경 시 강제 refresh 되니까 폴링이 영구 중단돼도 누락 없음.
+let _drivePollInterval: ReturnType<typeof setInterval> | null = null;
+function ensureDrivePolling() {
+  if (_drivePollInterval) return;
+  _drivePollInterval = setInterval(() => appState.refreshDriveRetryStatus(), 30000);
+}
+appState.refreshDriveRetryStatus().then(() => {
+  if (appState.driveRetryStatus?.driveAvailable) ensureDrivePolling();
+});
 
 // 서버 큐 평균 ETA 폴링: 부팅 시 1회 + 15s 주기 (큐 처리 도중 추세 반영)
 appState.refreshServerQueueAvg();

@@ -47,6 +47,8 @@ export interface DriveRetryEntry {
 }
 
 export interface DriveRetryStatus {
+  // rclone 설치 + RCLONE_REMOTE 매칭 여부. false면 클라 폴링 영구 중단.
+  driveAvailable: boolean;
   count: number;
   pendingCount: number;
   failedCount: number;
