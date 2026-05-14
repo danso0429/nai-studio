@@ -58,6 +58,16 @@ export interface SceneSelectorItem {
   scenes?: GenericScene[];
 }
 
+// 신규 BatchItemSelector 진입 항목. SceneSelectorItem과 구조 동일하지만
+// 기존 SceneSelector 호출처가 모두 swap되면 SceneSelectorItem과 함께
+// 정리될 예정이라 별도 type으로 분리해 둠.
+export interface BatchPickerItem {
+  type: 'scene' | 'inpaint';
+  text: string;
+  callback: (scenes: GenericScene[]) => void;
+  scenes?: GenericScene[];
+}
+
 // 이미지 내보내기 프리셋: exportPackage 다이얼로그 chain의 모든 옵션을 한 묶음으로 저장.
 // 적용 시 다이얼로그 안 띄우고 즉시 exportImpl 호출.
 export interface ExportPreset {
@@ -1512,6 +1522,7 @@ export class AppState {
   openBatchProcessMenu(
     type: 'scene' | 'inpaint',
     setSceneSelector: (item: SceneSelectorItem | undefined) => void,
+    setBatchPicker: (item: BatchPickerItem | undefined) => void,
   ) {
     const removeBg = async (selected: GenericScene[]) => {
       if (!localAIService.ready) {
@@ -2298,6 +2309,19 @@ export class AppState {
                     });
                   },
                 });
+              },
+            });
+            return;
+          }
+          if (value === 'deleteScenes') {
+            // 신규 BatchItemSelector 경로. 다른 batch 분기는 기존
+            // SceneSelector 그대로 — 회귀 격리.
+            setBatchPicker({
+              type: type,
+              text: text!,
+              callback: (selected) => {
+                setBatchPicker(undefined);
+                deleteScenes(selected);
               },
             });
             return;

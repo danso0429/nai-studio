@@ -10,6 +10,7 @@ import { useDrag, useDrop } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { useContextMenu } from 'react-contexify';
 import SceneSelector from './SceneSelector';
+import BatchItemSelector from './BatchItemSelector';
 import Tooltip from './Tooltip';
 import { v4 } from 'uuid';
 import { ImageOptimizeMethod } from '../backend';
@@ -42,7 +43,7 @@ import {
   Piece,
 } from '../models/types';
 import { extractApiError, extractPromptDataFromBase64, josaIGa, josaEulReul } from '../models/util';
-import { appState, SceneSelectorItem } from '../models/AppService';
+import { appState, SceneSelectorItem, BatchPickerItem } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { createInpaintPreset, prepareMirrorCanvas } from '../models/workflows/SDWorkFlow';
 import { reaction } from 'mobx';
@@ -1345,6 +1346,24 @@ const QueueControl = observer(
       SceneSelectorItem | undefined
     >(undefined);
 
+    // 신규 BatchItemSelector 진입점. 현재는 deleteScenes 한 곳만 사용.
+    // 나머지 batch 분기가 모두 swap되면 sceneSelector state 통째 제거 예정.
+    const [batchPicker, setBatchPicker] = useState<BatchPickerItem | undefined>(
+      undefined,
+    );
+    // models 'updated' 이벤트를 카운터로 변환해 BatchItemSelector에 prop으로
+    // 내림 → 신규 컴포넌트는 models 모름.
+    const [imageRev, setImageRev] = useState(0);
+    useEffect(() => {
+      const handler = () => setImageRev((r) => r + 1);
+      gameService.addEventListener('updated', handler);
+      imageService.addEventListener('updated', handler);
+      return () => {
+        gameService.removeEventListener('updated', handler);
+        imageService.removeEventListener('updated', handler);
+      };
+    }, []);
+
     const [showSceneTrash, setShowSceneTrash] = useState(false);
 
     const [bmRev, setBmRev] = useState(0);
@@ -1382,6 +1401,20 @@ const QueueControl = observer(
             />
           </FloatView>
         )}
+        {batchPicker && (
+          <FloatView priority={0} onEscape={() => setBatchPicker(undefined)}>
+            <BatchItemSelector<GenericScene>
+              title={batchPicker.text}
+              items={batchPicker.scenes ?? curSession!.getScenes(batchPicker.type)}
+              getId={(s) => s.name}
+              getLabel={(s) => s.name}
+              getImage={getImage}
+              imageRevision={imageRev}
+              onConfirm={batchPicker.callback}
+              onCancel={() => setBatchPicker(undefined)}
+            />
+          </FloatView>
+        )}
         {resultViewer}
         {showSceneTrash && (
           <FloatView priority={1} onEscape={() => setShowSceneTrash(false)}>
@@ -1413,7 +1446,7 @@ const QueueControl = observer(
               <button
                 className={`round-button back-gray`}
                 onClick={() => {
-                  appState.openBatchProcessMenu(type, setSceneSelector);
+                  appState.openBatchProcessMenu(type, setSceneSelector, setBatchPicker);
                 }}
               >
                 대량 작업
