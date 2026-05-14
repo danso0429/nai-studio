@@ -27,6 +27,7 @@ import {
   FaDice,
   FaDownload,
   FaEdit,
+  FaFileImage,
   FaFolder,
   FaPaintBrush,
   FaRegObjectGroup,
@@ -254,8 +255,8 @@ const TrashImageView = ({ session, scene, imageSize }: TrashImageViewProps) => {
                     draggable={false}
                   />
                 ) : (
-                  <div className="w-full h-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-400">
-                    ...
+                  <div className="w-full h-full bg-gray-200 dark:bg-slate-700 flex items-center justify-center">
+                    <FaFileImage className="text-2xl text-gray-400 dark:text-slate-500" />
                   </div>
                 )}
                 {isSelected && (
