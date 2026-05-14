@@ -1147,10 +1147,31 @@ app.use((req, res, next) => {
 
 // 기본 보안 헤더. tailnet 폐쇄망이 현재 환경이지만, 외부 노출 위치/시점에 한
 // 줄이라도 깔린 게 안전. clickjacking + MIME sniffing + referrer leak 회피.
+// CSP는 Report-Only로 시작 — 차단 X, 위반 발생 시 console.warn으로 가시화.
+// 본인 환경 깨짐 검증 후 enforce 모드로 격상 가능.
 app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
+  // 불필요한 권한 요청 차단 (이 앱은 camera/mic/geolocation 등 사용 X).
+  res.setHeader(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  );
+  // CSP Report-Only: vite hash-based asset + queue.html inline script + WS 허용.
+  // 'unsafe-inline'은 queue.html / index.html의 inline <script> 보호용. 추후 nonce 전환 가능.
+  // connect-src 'self' + ws/wss는 WebSocket 연결. data:는 fetchImage가 base64 dataURL 사용.
+  res.setHeader(
+    'Content-Security-Policy-Report-Only',
+    "default-src 'self'; " +
+      "script-src 'self' 'unsafe-inline'; " +
+      "style-src 'self' 'unsafe-inline'; " +
+      "img-src 'self' data: blob:; " +
+      "connect-src 'self' ws: wss:; " +
+      "font-src 'self' data:; " +
+      "object-src 'none'; " +
+      "frame-ancestors 'none'",
+  );
   next();
 });
 
@@ -2993,8 +3014,26 @@ async function start() {
 
   const server = http.createServer(app);
 
-  // WebSocket
-  wss = new WebSocketServer({ server, path: '/ws' });
+  // WebSocket — same-origin만 허용 (tailnet 폐쇄망 가정 외 cross-origin 차단).
+  // verifyClient에서 Origin 헤더 vs Host 매칭. Origin 없거나 (curl/native client) 통과.
+  wss = new WebSocketServer({
+    server,
+    path: '/ws',
+    verifyClient: (info, done) => {
+      const origin = info.req.headers.origin;
+      const host = info.req.headers.host;
+      if (!origin) return done(true); // native client (Origin 헤더 없음)
+      try {
+        const originHost = new URL(origin).host;
+        if (originHost === host) return done(true);
+        console.warn(`[ws] reject cross-origin: origin=${origin} host=${host}`);
+        return done(false, 403, 'Cross-origin WebSocket blocked');
+      } catch (e) {
+        console.warn('[ws] reject malformed origin:', origin);
+        return done(false, 403, 'Malformed origin');
+      }
+    },
+  });
   wss.on('connection', (ws) => {
     console.log('[NAI Studio] WebSocket client connected');
     ws.on('close', () => console.log('[NAI Studio] WebSocket client disconnected'));
