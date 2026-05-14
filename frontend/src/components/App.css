@@ -7,6 +7,12 @@
 
 body {
   font-size: 16px;
+  /* viewport-fit=cover와 함께 — iPhone notch/Dynamic Island가 콘텐츠 가리지
+     않게 body에 safe-area-inset만큼 padding. desktop에선 env() 0이라 무영향. */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 /* 전역 커스텀 스크롤바 (Electron/Chromium) */
