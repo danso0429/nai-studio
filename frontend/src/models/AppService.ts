@@ -1037,7 +1037,15 @@ export class AppState {
     const isFav = sessionService.isFavorite(appState.curSession.name);
     appState.pushMessage(isFav ? '즐겨찾기에 추가되었습니다' : '즐겨찾기가 해제되었습니다');
   }
-  async exportPackage(type: 'scene' | 'inpaint', selected?: GenericScene[], preset?: ExportPreset) {
+  async exportPackage(
+    type: 'scene' | 'inpaint',
+    selected?: GenericScene[],
+    preset?: ExportPreset,
+    session?: Session,
+  ) {
+    // 폴더 전체 내보내기 같이 curSession 외 다른 세션을 대상으로 호출하는
+    // 경로용. 기본은 기존 동작과 동일 (this.curSession).
+    const sess = session ?? this.curSession!;
     const exportImpl = async (
       prefix: string,
       fav: boolean,
@@ -1048,13 +1056,13 @@ export class AppState {
     ) => {
       // 1. 클라 측 path 수집 (mobx session + game service ranking + mirror crop)
       const items: Array<{ srcPath: string; finalName: string }> = [];
-      await imageService.refreshBatch(this.curSession!);
+      await imageService.refreshBatch(sess);
       const finalExt = opt === 'original' ? '.png' : (opt === 'avif' ? '.avif' : '.webp');
-      const scenes = selected ?? this.curSession!.getScenes(type);
+      const scenes = selected ?? sess.getScenes(type);
       const replacer = buildSpecialCharReplacer(charsToReplace);
       for (const scene of scenes) {
-        await gameService.refreshList(this.curSession!, scene);
-        const cands = gameService.getOutputs(this.curSession!, scene);
+        await gameService.refreshList(sess, scene);
+        const cands = gameService.getOutputs(sess, scene);
         const imageMap: any = {};
         cands.forEach((x) => { imageMap[x] = true; });
         const images: string[] = [];
@@ -1077,7 +1085,7 @@ export class AppState {
         }
         const isMirror = scene.type === 'inpaint' && (scene as InpaintScene).workflowType === 'SDMirror';
         for (let i = 0; i < images.length; i++) {
-          let srcPath = imageService.getOutputDir(this.curSession!, scene) + '/' + images[i];
+          let srcPath = imageService.getOutputDir(sess, scene) + '/' + images[i];
           if (isMirror) {
             // SDMirror 결과는 RHS만 잘라 사용. Canvas API 필요 → 클라 단에서 tmp 파일 생성.
             const imgData = await imageService.fetchImage(srcPath);
@@ -1102,7 +1110,7 @@ export class AppState {
 
       // 2. 서버에 export 요청 → 즉시 202 + jobId 반환. resize/zip/Drive는 백그라운드.
       const outFilePath =
-        'exports/' + this.curSession!.name + '_main_images_' + Date.now().toString() + '.tar';
+        'exports/' + sess.name + '_main_images_' + Date.now().toString() + '.tar';
       const optimize = opt === 'original' ? 'none' : (opt as 'lossy' | 'lossless' | 'avif');
       const pid = appState.pushProgressDialog('이미지 내보내기 큐 등록 중...', 1);
       let jobId: string | null = null;
@@ -1281,7 +1289,7 @@ export class AppState {
     const separator = separatorInput || '.';
 
     // 씬 이름에서 특수문자 감지
-    const scenes = selected || this.curSession!.getScenes(type);
+    const scenes = selected || sess.getScenes(type);
     const detectedChars = detectSpecialChars(scenes);
 
     let charsToReplace = new Set<string>();
@@ -1314,6 +1322,79 @@ export class AppState {
           await exportImpl(prefix + separator, menu === 'fav', opt, imageSize, separator, charsToReplace);
         },
       });
+    }
+  }
+
+  // 폴더 단위 일괄 내보내기. 폴더 안 모든 프로젝트(scene만)에 같은 프리셋 적용.
+  // 각 프로젝트는 exportPackage(... session)로 큐 등록만 하고 즉시 다음 프로젝트로
+  // 진행. 실제 resize/zip/Drive sync는 서버 백그라운드 (기존 export pipeline
+  // widget이 추적).
+  async exportFolder(folderName: string, projectNames: string[]) {
+    if (projectNames.length === 0) {
+      appState.pushMessage('빈 폴더예요');
+      return;
+    }
+    if (this.exportPresets.length === 0) {
+      appState.pushDialog({
+        type: 'confirm',
+        text: '내보내기 프리셋이 없어요. 먼저 프리셋을 만들어주세요.',
+        callback: () => {
+          this.openExportPresetsDialog('scene');
+        },
+      });
+      return;
+    }
+    const presetId = await appState.pushDialogAsync({
+      type: 'select',
+      text: `'${folderName}' 폴더의 ${projectNames.length}개 프로젝트에 적용할 프리셋`,
+      items: this.exportPresets.map((p) => ({
+        text: `★ ${p.name} 적용`,
+        value: p.id,
+      })),
+    });
+    if (!presetId) return;
+    const preset = this.exportPresets.find((p) => p.id === presetId);
+    if (!preset) return;
+    const total = projectNames.length;
+    const pid = appState.pushProgressDialog(
+      `'${folderName}' 폴더 내보내기 큐 등록 중... 0/${total}`,
+      total,
+    );
+    let queued = 0;
+    const failures: { name: string; reason: string }[] = [];
+    for (let i = 0; i < projectNames.length; i++) {
+      const name = projectNames[i];
+      try {
+        const session = await sessionService.get(name, { throwOnError: true });
+        if (!session) {
+          failures.push({ name, reason: '세션 객체 로드 실패' });
+        } else {
+          await this.exportPackage('scene', undefined, preset, session);
+          queued++;
+        }
+      } catch (e: any) {
+        failures.push({ name, reason: e?.message ?? String(e) });
+      }
+      appState.updateProgressDialog(pid, {
+        done: i + 1,
+        text: `'${folderName}' 폴더 내보내기 큐 등록 중... ${i + 1}/${total}`,
+      });
+    }
+    const ok = failures.length === 0;
+    appState.finishProgressDialog(
+      pid,
+      ok
+        ? `✓ '${folderName}' 폴더 ${queued}개 프로젝트 큐 등록 완료`
+        : `△ '${folderName}' 폴더: ${queued}/${total} 등록 (${failures.length}건 실패)`,
+      ok,
+    );
+    if (failures.length > 0) {
+      const preview = failures
+        .slice(0, 3)
+        .map((f) => `${f.name}: ${f.reason}`)
+        .join('\n');
+      const more = failures.length > 3 ? `\n외 ${failures.length - 3}건` : '';
+      appState.pushMessage(`실패 항목:\n${preview}${more}`);
     }
   }
 
