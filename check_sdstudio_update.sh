@@ -2,6 +2,8 @@
 # SDStudio (Dd154663 fork) 업데이트 감지 스크립트
 # 일주일에 한 번 cron으로 실행
 
+set -e
+
 REPO="Dd154663/SDStudio"
 STATE_FILE="$HOME/.sdstudio_last_commit"
 LOG_FILE="$HOME/sdstudio_update.log"
