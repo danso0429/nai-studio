@@ -964,18 +964,21 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     onSave();
   };
 
+  // 모바일: 로그인 + 백업·저장 + 기타. 이미지 편집/키 바인딩은 PC 전용.
+  // P12 세션 #7 본인 페인: 모바일에서 "백업이랑 복구가 어딨지?" — 저장경로 탭이 통째 숨겨져
+  // 있어서 전체 데이터 백업 진입 불가했음. 라벨에 '백업' 명시 + 모바일에도 노출.
   const tabs = [
     { label: '로그인', icon: <FaUser size={14} /> },
     ...(!mobileMode ? [{ label: '이미지 편집', icon: <FaImage size={14} /> }] : []),
-    ...(!mobileMode ? [{ label: '저장경로', icon: <FaFolder size={14} /> }] : []),
+    { label: '백업·저장', icon: <FaFolder size={14} /> },
     { label: '기타', icon: <FaCog size={14} /> },
     ...(!mobileMode ? [{ label: '키 바인딩', icon: <FaKeyboard size={14} /> }] : []),
   ];
 
   const getTabContent = (tabIdx: number) => {
-    // 모바일: 탭 0=로그인, 1=기타 (이미지편집·저장경로·키바인딩 숨김)
-    // PC: 탭 0=로그인, 1=이미지편집, 2=저장경로, 3=기타, 4=키바인딩
-    const idx = mobileMode && tabIdx >= 1 ? tabIdx + 2 : tabIdx;
+    // 모바일: 탭 0=로그인, 1=백업·저장, 2=기타 (이미지편집·키바인딩 숨김)
+    // PC: 탭 0=로그인, 1=이미지편집, 2=백업·저장, 3=기타, 4=키바인딩
+    const idx = mobileMode && tabIdx >= 1 ? tabIdx + 1 : tabIdx;
     switch (idx) {
       case 0:
         return <LoginTab {...{ email, setEmail, password, setPassword, accessToken, setAccessToken, loggedIn, login, loginWithToken, roundTag }} />;

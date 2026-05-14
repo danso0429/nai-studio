@@ -768,6 +768,14 @@ export const SlotEditor = observer(({ scene, big }: SlotEditorProps) => {
     }
   }, [scene]);
 
+  // 조각이 enabled일 때만 한 조합에 포함. piece.enabled가 undefined면 기본 enabled로 간주
+  // (UI checkbox 기본값과 일치 — line 502). 슬롯 한 개라도 enabled 0이면 총 조합 0.
+  const enabledPerSlot = scene.slots.map((slot) =>
+    slot.filter((p) => p.enabled == undefined || p.enabled).length,
+  );
+  const totalCombinations = enabledPerSlot.reduce((acc, n) => acc * n, 1);
+  const formula = enabledPerSlot.length > 0 ? enabledPerSlot.join(' × ') : '0';
+
   const removePiece = (slot: PromptPieceSlot, pieceIndex: number) => {
     slot.splice(pieceIndex, 1);
     if (slot.length === 0) {
@@ -799,52 +807,61 @@ export const SlotEditor = observer(({ scene, big }: SlotEditorProps) => {
   };
 
   return (
-    <div className="flex w-full">
-      {scene.slots.map((slot, slotIndex) => (
-        <div key={slotIndex}>
-          {slot.map((piece, pieceIndex) => (
-            <SlotPiece
-              key={piece.id!}
-              scene={scene}
-              piece={piece}
-              removePiece={(piece: PromptPiece) =>
-                removePiece(slot, slot.indexOf(piece)!)
-              }
-              moveSlotPiece={moveSlotPiece}
-            />
-          ))}
-          <button
-            className="p-2 m-2 w-14 back-lllgray clickable rounded-xl flex justify-center"
-            onClick={() => {
-              slot.push(
-                PromptPiece.fromJSON({
-                  prompt: '',
-                  characterPrompts: [],
-                  enabled: true,
-                  id: uuidv4(),
-                }),
-              );
-            }}
-          >
-            <FaPlus />
-          </button>
-        </div>
-      ))}
-      <button
-        className="p-2 m-2 h-14 flex items-center back-lllgray clickable rounded-xl"
-        onClick={() => {
-          scene.slots.push([
-            PromptPiece.fromJSON({
-              prompt: '',
-              characterPrompts: [],
-              enabled: true,
-              id: uuidv4(),
-            }),
-          ]);
-        }}
-      >
-        <FaPlus />
-      </button>
+    <div className="flex flex-col w-full">
+      <div className="px-2 pt-1 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
+        <span>총 조합:</span>
+        <span className="font-semibold text-default">{totalCombinations}</span>
+        {enabledPerSlot.length > 0 && (
+          <span className="text-gray-400 dark:text-gray-500">({formula})</span>
+        )}
+      </div>
+      <div className="flex w-full">
+        {scene.slots.map((slot, slotIndex) => (
+          <div key={slotIndex}>
+            {slot.map((piece, pieceIndex) => (
+              <SlotPiece
+                key={piece.id!}
+                scene={scene}
+                piece={piece}
+                removePiece={(piece: PromptPiece) =>
+                  removePiece(slot, slot.indexOf(piece)!)
+                }
+                moveSlotPiece={moveSlotPiece}
+              />
+            ))}
+            <button
+              className="p-2 m-2 w-14 back-lllgray clickable rounded-xl flex justify-center"
+              onClick={() => {
+                slot.push(
+                  PromptPiece.fromJSON({
+                    prompt: '',
+                    characterPrompts: [],
+                    enabled: true,
+                    id: uuidv4(),
+                  }),
+                );
+              }}
+            >
+              <FaPlus />
+            </button>
+          </div>
+        ))}
+        <button
+          className="p-2 m-2 h-14 flex items-center back-lllgray clickable rounded-xl"
+          onClick={() => {
+            scene.slots.push([
+              PromptPiece.fromJSON({
+                prompt: '',
+                characterPrompts: [],
+                enabled: true,
+                id: uuidv4(),
+              }),
+            ]);
+          }}
+        >
+          <FaPlus />
+        </button>
+      </div>
     </div>
   );
 });

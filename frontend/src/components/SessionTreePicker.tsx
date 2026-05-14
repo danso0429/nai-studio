@@ -183,7 +183,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
     <>
       <button
         type="button"
-        className="w-full px-3 py-2 rounded-md text-left bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 truncate"
+        className="w-full px-3 py-2 rounded-md text-left bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 truncate text-default"
         onClick={() => setOpen(true)}
       >
         {displayFav && <FaBookmark size={12} style={{ color: '#facc15', display: 'inline', marginRight: 4 }} />}
@@ -224,7 +224,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
                 onClick={() => { setOpen(false); appState.projectImport(); }}
                 title="프로젝트 불러오기 (.json만)"
               >
-                <FaUpload size={11} className="flex-shrink-0" />
+                <FaDownload size={11} className="flex-shrink-0" />
                 <span className="truncate">불러오기</span>
               </button>
               <button
@@ -233,7 +233,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
                 onClick={() => { setOpen(false); appState.projectExportShallow(); }}
                 title="프로젝트 파일 내보내기 (이미지 미포함)"
               >
-                <FaDownload size={11} className="flex-shrink-0" />
+                <FaUpload size={11} className="flex-shrink-0" />
                 <span className="truncate">파일</span>
               </button>
               <button

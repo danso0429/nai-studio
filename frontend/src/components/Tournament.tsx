@@ -1,10 +1,14 @@
+import { useCallback, useMemo, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Scene, InpaintScene } from '../models/types';
 import { useTournament } from './tournament/useTournament';
+import type { TournamentActions } from './tournament/useTournament';
 import TournamentHeader from './tournament/TournamentHeader';
 import TournamentToolbar from './tournament/TournamentToolbar';
 import TournamentArena from './tournament/TournamentArena';
 import TournamentPodium from './tournament/TournamentPodium';
+import { FloatView } from './FloatView';
+import { getImageURL } from '../backends/serverBackend';
 
 interface TournamentProps {
   scene: Scene | InpaintScene;
@@ -15,12 +19,21 @@ interface TournamentProps {
 // 게임 로직/네트워크/이미지 로딩은 useTournament hook으로 격리, UI는 tournament/* 4개
 // 서브컴포넌트로 분리해 추후 기능 추가/제거 시 영향 범위 격리.
 //
-// 기존 단일 353줄 파일에서 phase A+B+C로 재제작 (2026-05-14 본인 요청):
-// - Phase A 성능: imageService.fetchImage(base64) → getThumbURL(URL) + 다음 매치 prefetch
-// - Phase B 모듈화: useTournament hook + TournamentHeader/Toolbar/Arena/Podium 분리
-// - Phase C UI: 진행률 bar, 1~3위 podium, "1위 이미지 폴더 열기" 명확화 + 아이콘
+// "1위 이미지 보기" — 본인 페인(P12 세션 #7): 기존 window.open 새 탭은 모바일 Safari에서
+// 뒤로 가기 불가. 인라인 FloatView로 띄워서 FloatView 자체의 X 버튼 + Escape로 닫기 가능.
 const Tournament = observer(({ scene, path }: TournamentProps) => {
-  const { state, actions, matchPlayerPaths, outputDir } = useTournament(scene, path);
+  const { state, actions: gameActions, matchPlayerPaths, outputDir } = useTournament(scene, path);
+  const [winnerViewerOpen, setWinnerViewerOpen] = useState(false);
+
+  const openWinnerImage = useCallback(() => {
+    if (!state.winnerPath) return;
+    setWinnerViewerOpen(true);
+  }, [state.winnerPath]);
+
+  const actions: TournamentActions = useMemo(
+    () => ({ ...gameActions, openWinnerImage }),
+    [gameActions, openWinnerImage],
+  );
 
   return (
     <div className="flex flex-col w-full h-full">
@@ -44,6 +57,18 @@ const Tournament = observer(({ scene, path }: TournamentProps) => {
         />
       ) : (
         <TournamentPodium podium={state.podium} outputDir={outputDir} />
+      )}
+      {winnerViewerOpen && state.winnerPath && (
+        <FloatView priority={3} onEscape={() => setWinnerViewerOpen(false)}>
+          <div className="w-full h-full flex items-center justify-center bg-black/95">
+            <img
+              className="max-w-full max-h-full object-contain"
+              src={getImageURL(`${outputDir}/${state.winnerPath}`)}
+              draggable={false}
+              alt="1위 이미지"
+            />
+          </div>
+        </FloatView>
       )}
     </div>
   );
