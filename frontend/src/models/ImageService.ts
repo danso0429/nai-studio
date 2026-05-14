@@ -536,9 +536,10 @@ export class ImageService extends EventTarget {
       target[session.name] = {};
     }
     const fileSet: any = {};
-    // 옵션 C 단계 B: listFiles wrap silent fallback 제거 후 5xx/timeout 등 일시 에러는
-    // 여기서 throw로 받음. 옛 imageMap 유지 (guardEmpty 패턴 호환). 단계 C에서 guardEmpty
-    // 자체 제거 시 이 catch가 stale 보호 단일 지점.
+    // 옵션 C 단계 C: success 분기 가드 제거. 서버 단계 A로 200+[] = 진짜 빈 디렉토리
+    // 신뢰. 5/13 "outs 비웠는데 카운트 안 사라짐" 페인의 근본 원인 fix.
+    // 단계 B의 catch 분기 옛 imageMap 유지(guardEmpty=true)는 그대로 유지 — 5/12 cold
+    // start stuck 패턴의 일시 throw 안전망.
     let files: string[];
     try {
       files = await backend.listFiles(this.getOutputDir(session, scene));
@@ -558,20 +559,6 @@ export class ImageService extends EventTarget {
     }
     files = files.filter((x: string) => x.endsWith('.png'));
     files.sort(naturalSort);
-
-    // 방어 (refreshBatch 전용): 기존 imageMap에 항목이 있었는데 파일시스템에서
-    // 0개가 반환된 경우, 디렉토리 일시 접근 불가일 가능성이 높으므로 기존 상태 유지.
-    // 개별 refresh(삭제 후 등)에서는 guardEmpty=false로 호출하여 정상 반영.
-    if (guardEmpty && files.length === 0 && scene.imageMap.length > 0) {
-      target[session.name][scene.name] = [...scene.imageMap];
-      if (emitEvent)
-        this.dispatchEvent(
-          new CustomEvent('updated', {
-            detail: { batch: false, session, scene },
-          }),
-        );
-      return;
-    }
 
     for (const file of files) {
       fileSet[file] = true;
