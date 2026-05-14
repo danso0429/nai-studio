@@ -1,6 +1,7 @@
 import extractChunks from 'png-chunks-extract';
 import { Buffer } from 'buffer';
 import { v4 } from 'uuid';
+import { observable, makeObservable } from 'mobx';
 import { backend, imageService, workFlowService, zipService } from '.';
 import { FileEntry } from '../backend';
 import defaultassets from '../defaultassets';
@@ -30,6 +31,12 @@ export class SessionService extends ResourceSyncService<Session> {
 
   constructor() {
     super('projects', SESSION_SERVICE_INTERVAL);
+    // 북마크 자동 re-render — 회귀 이력 (5/13 이후 여러 차례 patch도 SceneCell 아이콘
+    // 안 바뀐다는 본인 보고): 기존엔 bookmarkData가 plain field + setBmRev event bump
+    // 우회로 의존했는데 setState batching/listener 등록 race 등 fragile path. MobX
+    // observable로 바꾸면 observer 컴포넌트가 read 자동 track → mutation 시 자동
+    // re-render. event listener 우회 필요 없어짐.
+    makeObservable(this);
   }
 
   async loadFavorites() {
@@ -69,8 +76,10 @@ export class SessionService extends ResourceSyncService<Session> {
     return this.favorites.has(name);
   }
 
-  // 북마크 기능
-  private bookmarkData: {
+  // 북마크 기능 — @observable로 read auto-track. mutation은 자동 broadcast.
+  // bookmark-updated event는 backwards compat 유지 (event-listener 등록 기존 호출처는
+  // observer 전환 안 해도 동작). 새 호출처는 observer + isSceneBookmarked read만으로 충분.
+  @observable accessor bookmarkData: {
     scenes: Record<string, { name: string; type: string }>;
     images: Record<string, string>;
   } = { scenes: {}, images: {} };
@@ -102,12 +111,16 @@ export class SessionService extends ResourceSyncService<Session> {
   }
 
   async toggleSceneBookmark(projectName: string, sceneName: string, sceneType: string) {
-    const current = this.bookmarkData.scenes[projectName];
+    // 매번 새 객체로 reassign — @observable accessor의 setter 트리거 보장. 부분 mutation
+    // (`delete obj.key`)도 deep observable로 track되지만 reassign이 가장 단순한 보장 path.
+    const nextScenes = { ...this.bookmarkData.scenes };
+    const current = nextScenes[projectName];
     if (current?.name === sceneName) {
-      delete this.bookmarkData.scenes[projectName];
+      delete nextScenes[projectName];
     } else {
-      this.bookmarkData.scenes[projectName] = { name: sceneName, type: sceneType };
+      nextScenes[projectName] = { name: sceneName, type: sceneType };
     }
+    this.bookmarkData = { ...this.bookmarkData, scenes: nextScenes };
     await this.saveBookmarks();
   }
 
@@ -121,11 +134,13 @@ export class SessionService extends ResourceSyncService<Session> {
 
   async toggleImageBookmark(projectName: string, sceneName: string, imageFilename: string) {
     const key = projectName + ':' + sceneName;
-    if (this.bookmarkData.images[key] === imageFilename) {
-      delete this.bookmarkData.images[key];
+    const nextImages = { ...this.bookmarkData.images };
+    if (nextImages[key] === imageFilename) {
+      delete nextImages[key];
     } else {
-      this.bookmarkData.images[key] = imageFilename;
+      nextImages[key] = imageFilename;
     }
+    this.bookmarkData = { ...this.bookmarkData, images: nextImages };
     await this.saveBookmarks();
   }
 
