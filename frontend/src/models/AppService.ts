@@ -1362,22 +1362,33 @@ export class AppState {
     );
     let queued = 0;
     const failures: { name: string; reason: string }[] = [];
-    for (let i = 0; i < projectNames.length; i++) {
-      const name = projectNames[i];
-      try {
-        const session = await sessionService.get(name, { throwOnError: true });
-        if (!session) {
-          failures.push({ name, reason: '세션 객체 로드 실패' });
-        } else {
-          await this.exportPackage('scene', undefined, preset, session);
-          queued++;
-        }
-      } catch (e: any) {
-        failures.push({ name, reason: e?.message ?? String(e) });
-      }
+    // CHUNK 4개씩 병렬. 서로 다른 session + 서버 큐 등록은 즉시 202라
+    // 동시 호출에 안전. 실제 resize/zip은 서버 백그라운드 큐가 직렬화.
+    // (deleteScenes 병렬 패턴과 동일)
+    const CHUNK = 4;
+    for (let i = 0; i < projectNames.length; i += CHUNK) {
+      const chunk = projectNames.slice(i, i + CHUNK);
+      await Promise.all(
+        chunk.map(async (name) => {
+          try {
+            const session = await sessionService.get(name, {
+              throwOnError: true,
+            });
+            if (!session) {
+              failures.push({ name, reason: '세션 객체 로드 실패' });
+            } else {
+              await this.exportPackage('scene', undefined, preset, session);
+              queued++;
+            }
+          } catch (e: any) {
+            failures.push({ name, reason: e?.message ?? String(e) });
+          }
+        }),
+      );
+      const done = Math.min(i + CHUNK, total);
       appState.updateProgressDialog(pid, {
-        done: i + 1,
-        text: `'${folderName}' 폴더 내보내기 큐 등록 중... ${i + 1}/${total}`,
+        done,
+        text: `'${folderName}' 폴더 내보내기 큐 등록 중... ${done}/${total}`,
       });
     }
     const ok = failures.length === 0;
