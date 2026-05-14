@@ -1579,6 +1579,21 @@ const QueueControl = observer(
             const minWidths = ['180px', '240px', '320px'];
             const useGrid = !isMobile;
             const renderedScenes = getFilteredScenes();
+            if (renderedScenes.length === 0) {
+              const totalScenes = curSession.getScenes(type).length;
+              return (
+                <div className="flex flex-col items-center justify-center w-full py-12 text-gray-500 dark:text-gray-400 text-center select-none">
+                  {totalScenes === 0 ? (
+                    <>
+                      <div className="text-sm mb-3">아직 씬이 없어요. 첫 씬을 추가해보세요.</div>
+                      <button className="round-button back-sky" onClick={addScene}>씬 추가</button>
+                    </>
+                  ) : (
+                    <div className="text-sm">검색 결과가 없어요</div>
+                  )}
+                </div>
+              );
+            }
             return (
               <div
                 ref={gridContainerRef}
