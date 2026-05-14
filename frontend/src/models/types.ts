@@ -18,6 +18,19 @@ import { WFWorkFlow, WorkFlowDef } from './workflows/WorkFlow';
 
 export type PARR = string[];
 
+// 워크플로우별 preset의 공통 명목 타입. preset 자체는 materializeWFObj()가
+// 동적으로 만든 객체라 워크플로우마다 추가 필드가 다름 — index signature로
+// 그 자유도를 유지하되, type/name/profile/fromJSON/toJSON 공통 멤버는 강제.
+// any 대비 명목적 개선. strict mode 활성화 점진 진행 시 추가 narrowing.
+export interface PresetLike {
+  type: string;
+  name: string;
+  profile: string;
+  fromJSON(json: any): void;
+  toJSON(): any;
+  [key: string]: any;
+}
+
 export interface IVibeItem {
   path: string;
   info: number;
@@ -327,7 +340,7 @@ export class Scene extends AbstractScene implements IScene {
 export interface IInpaintScene extends IAbstractScene {
   type: 'inpaint';
   workflowType: string;
-  preset?: any;
+  preset?: PresetLike;
   sceneRef?: string;
   slots?: IPromptPieceSlot[];
   mirrorCropX?: number;
@@ -336,7 +349,7 @@ export interface IInpaintScene extends IAbstractScene {
 export class InpaintScene extends AbstractScene implements IInpaintScene {
   @observable accessor type: 'inpaint' = 'inpaint';
   @observable accessor workflowType: string = '';
-  @observable accessor preset: any | undefined = undefined;
+  @observable accessor preset: PresetLike | undefined = undefined;
   @observable accessor sceneRef: string | undefined = undefined;
   @observable accessor slots: PromptPieceSlot[] = [];
   @observable accessor mirrorCropX: number | undefined = undefined;
@@ -475,12 +488,12 @@ export class Session implements Serealizable {
     );
   }
 
-  getPreset(type: string, name: string): any | undefined {
+  getPreset(type: string, name: string): PresetLike | undefined {
     return this.presets.get(type)?.find((preset) => preset.name === name);
   }
 
   @action
-  addPreset(preset: any): void {
+  addPreset(preset: PresetLike): void {
     const presets = this.presets.get(preset.type) || [];
     if (presets.find((p) => p.name === preset.name)) {
       let i = 1;
@@ -701,7 +714,7 @@ export interface SceneContextAlt {
 
 export interface StyleContextAlt {
   type: 'style';
-  preset: any;
+  preset: PresetLike;
   container: any;
   session: Session;
 }

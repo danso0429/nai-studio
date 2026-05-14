@@ -1,6 +1,6 @@
 {
-  "version": "1.5.3-experimental.1",
+  "version": "1.5.3-experimental.2",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-14",
-  "notes": "Phase 12 (5/14) 후속 묶음: (1) ResourceSyncService.get에 retry 옵션 추가 — backend.readFile만 500ms→1500ms backoff(총 3회), 4xx(파일 없음/권한)는 영속으로 즉시 throw, parse/migrate는 readFile 바깥이라 비재시도. SessionSelect.selectSession이 retry: true 켜서 인터넷 일시 끊김에 자동 복구. (2) BatchItemSelector 전체 swap — 미러 복제 inpaint 대상, 내용 붙여넣기, 일반 batch 분기, 해상도 변경, 샘플 뽑기까지 모두 신규 generic picker로 옮김. 구 SceneSelector / SceneSelectorItem / setSceneSelector 완전 제거. 0.5초 클릭 지연 fix 4축(touch-manipulation, mount refresh 제거, Set 검사, memo + useCallback)은 신규에도 처음부터 내장."
+  "notes": "Phase 12 (5/14) 본인 5/13 백로그 일괄 처리: (1) queue.html 모바일 paint/배터리/서버 부담 7축 — visibility gate, inflight guard, timing-history 폴링 15초, innerHTML 슬롯 갱신, completed hash skip, friendlyError memoize, setInterval 통합. (2) saveInpaintImages 2-phase commit(.tmp + rename) — partial state 회피. (3) ModalOverlay Tab/Shift+Tab focus trap. (4) SceneQueueControl 빈 그리드 empty state CTA. (5) extractApiError에 401/429/timeout/네트워크 한국어 친절 매핑. (6) ResultViewer trash placeholder FaFileImage 패턴 통일. (7) viewport-fit=cover + body env(safe-area-inset-*) 재시도. (8) Types.ts preset: any → PresetLike (index signature로 동적 워크플로우 필드 자유도 유지)."
 }

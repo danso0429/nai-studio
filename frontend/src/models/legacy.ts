@@ -429,6 +429,9 @@ async function migrateInpaintScene(
     name: inpaint.name,
     resolution: inpaint.resolution,
     workflowType: 'SDInpaint',
+    // legacy migration이 만드는 raw preset data. InpaintScene.fromJSON에서
+    // presetFromJSON으로 진짜 PresetLike 객체로 변환됨. 이 시점엔 fromJSON/
+    // toJSON method가 없는 plain object라 PresetLike 타입 단언 보류.
     preset: {
       type: 'SDInpaint',
       image: image,
@@ -446,7 +449,7 @@ async function migrateInpaintScene(
       noiseSchedule: 'karras',
       vibes: [],
       seed: undefined,
-    },
+    } as any,
     game: inpaint.game,
     round: inpaint.round,
     imageMap: inpaint.imageMap,
