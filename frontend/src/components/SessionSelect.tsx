@@ -44,7 +44,7 @@ const SessionSelect = observer(() => {
     // 인터넷 느릴 때 "무반응" 인상 해소. fetch 응답 도착 시 curSession set.
     appState.pushMessage(`프로젝트 "${name}" 로딩 중…`);
     sessionService
-      .get(name)
+      .get(name, { throwOnError: true })
       .then((session) => {
         // 도착 사이 다른 선택이 들어왔으면 이 결과는 버림.
         if (pendingSelectionRef.current !== name) return;
@@ -53,6 +53,8 @@ const SessionSelect = observer(() => {
           imageService.refreshBatch(session);
           appState.curSession = session;
         } else {
+          // throwOnError로 실패 시 catch에서 처리됨. 여기 도달은 이론상
+          // 캐시 hit 직후 resources[name]이 비어있는 race 정도.
           appState.pushMessage(`프로젝트 "${name}" 로드 실패`);
         }
       })
@@ -61,7 +63,7 @@ const SessionSelect = observer(() => {
           pendingSelectionRef.current = null;
         }
         appState.pushMessage(
-          `프로젝트 "${name}" 로드 오류: ${e?.message ?? e}`,
+          `프로젝트 "${name}" 로드 실패: ${e?.message ?? e}`,
         );
       });
   };

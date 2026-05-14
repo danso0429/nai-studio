@@ -121,7 +121,10 @@ export abstract class ResourceSyncService<
     return rc;
   }
 
-  async get(name: string): Promise<T | undefined> {
+  async get(
+    name: string,
+    opts?: { throwOnError?: boolean },
+  ): Promise<T | undefined> {
     if (!(name in this.resources)) {
       try {
         const str = await backend.readFile(this.getPath(name));
@@ -135,6 +138,7 @@ export abstract class ResourceSyncService<
         );
       } catch (e: any) {
         console.error('get library error:', e);
+        if (opts?.throwOnError) throw e;
         return undefined;
       }
     }
