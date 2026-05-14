@@ -161,9 +161,19 @@ cd nai-studio
 npm install
 cd frontend && npm install && cd ..
 
-# 화면(프론트엔드) 빌드
+# 설정 파일 만들기 (.env.example 복사)
+cp .env.example .env.local
+# 기본값: PORT=6247, VITE_BASE_PATH=/studio/, URL_PREFIX=/studio
+# 이대로 진행하면 추후 https://your-host/studio 경로로 노출됨.
+# 다른 경로/포트 원하면 nano .env.local 로 편집 (단 3 항목은 서로 일치 필수)
+
+# 화면(프론트엔드) 빌드 — .env.local의 VITE_BASE_PATH가 자동 로드돼요
 cd frontend && npx vite build --emptyOutDir && cd ..
 ```
+
+> **왜 `.env.local`을 빌드 전에 만들어야 하나요?**
+>
+> vite는 빌드 시 `VITE_BASE_PATH`를 산출물 HTML/JS에 박아넣어요. `URL_PREFIX`는 서버가 들어오는 요청 URL에서 같은 prefix를 strip해서 정적 파일을 찾을 때 사용해요. **둘이 일치하지 않으면 404**가 떠요. `.env.example` 기본값 그대로면 둘 다 `/studio`로 자동 일치.
 
 ### Step 3. NovelAI 토큰 받아서 저장
 
@@ -211,10 +221,12 @@ pm2 logs nai-studio --lines 20    # 실시간 로그
 같은 서버 안에서:
 ```bash
 curl http://localhost:6247/api/build-info
-# JSON 응답이 떠야 OK
+# JSON 응답이 떠야 OK (API는 path prefix 영향 안 받음)
 ```
 
-같은 네트워크의 다른 기기에서: 브라우저로 `http://<서버 IP>:6247` 열기.
+같은 네트워크의 다른 기기에서: 브라우저로 **`http://<서버 IP>:6247/studio/`** 열기 (`.env.local`의 `URL_PREFIX` 그대로 따라가야 해요. trailing `/` 필수).
+
+> 자산 404 뜨면 `.env.local`의 `URL_PREFIX` ↔ `VITE_BASE_PATH` 불일치예요. 두 값 맞춰서 frontend 재빌드 (`cd frontend && npx vite build && cd ..`) + 서버 재시작.
 
 ### Step 6. 외부 접속 설정 (Tailscale 권장)
 
@@ -230,6 +242,8 @@ sudo tailscale serve --bg --https=443 --set-path=/studio http://localhost:6247
 ```
 
 이제 `https://your-host.tailNNNNN.ts.net/studio`로 어디서든 접속 가능. Tailscale 계정에 로그인된 본인 기기에서만 접근됩니다.
+
+> **3 항목 일치 규칙**: `tailscale serve --set-path=<X>` ↔ `.env.local`의 `URL_PREFIX=<X>` ↔ `VITE_BASE_PATH=<X>/` 셋이 같아야 해요. 기본값 그대로면 모두 `/studio`라 자동 일치. 다른 경로로 바꿨으면 `.env.local` 두 항목 수정 후 frontend 재빌드 + 서버 재시작 필수.
 
 > ### ⚠️ 보안 주의사항 (꼭 읽어주세요)
 >
