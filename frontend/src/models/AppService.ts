@@ -279,7 +279,7 @@ export class AppState {
           } catch (e: any) {
             this.finishProgressDialog(
               pid,
-              `✗ 프로젝트 "${name}" 삭제 실패: ${e?.message || e}`,
+              `✗ 프로젝트 "${name}" 삭제 실패: ${extractApiError(e)}`,
               false,
             );
           } finally {

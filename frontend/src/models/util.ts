@@ -32,18 +32,34 @@ export function apiUrl(path: string): string {
 
 // Convert a thrown error into a user-friendly message. If it's a wrapped server
 // API error (serverBackend.ts throws "API error N: <body>" with JSON body containing
-// an `error` field), surface just the inner error string. Otherwise return the
-// original message unchanged. Safe to apply at any pushMessage callsite.
+// an `error` field), surface just the inner error string. 흔한 status/네트워크
+// 케이스는 한국어 친절 메시지로 매핑 (401/429/timeout/fetch fail). 그 외엔
+// 원본 또는 unwrap된 server 메시지를 그대로 반환. 매핑 후보가 더 늘어나면
+// 본인 페인 보고에 맞춰 케이스 추가.
 export function extractApiError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
+  let inner = msg;
   const m = /^API error \d+: (.+)$/s.exec(msg);
   if (m) {
+    inner = m[1];
     try {
       const body = JSON.parse(m[1]);
-      if (body && typeof body.error === 'string') return body.error;
+      if (body && typeof body.error === 'string') inner = body.error;
     } catch {}
   }
-  return msg;
+  if (/^API error 401\b/.test(msg) || /\bunauthor/i.test(inner)) {
+    return '인증 실패 (401) — 로그인을 다시 시도해주세요.';
+  }
+  if (/^API error 429\b/.test(msg) || /rate limit/i.test(inner)) {
+    return '요청 과다 (429) — 잠시 후 다시 시도해주세요.';
+  }
+  if (/^API timeout/.test(msg)) {
+    return '서버 응답 시간 초과 — 네트워크를 확인해주세요.';
+  }
+  if (/failed to fetch|networkerror|network request/i.test(msg)) {
+    return '네트워크 오류 — 인터넷 연결을 확인해주세요.';
+  }
+  return inner;
 }
 
 export async function getPlatform() {

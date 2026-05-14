@@ -869,7 +869,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     try {
       await loginService.login(email, password);
     } catch (err: any) {
-      appState.pushMessage('로그인 실패:' + err.message);
+      appState.pushMessage('로그인 실패: ' + extractApiError(err));
     }
   };
 
