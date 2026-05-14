@@ -1054,151 +1054,31 @@ export class AppState {
       separator: string,
       charsToReplace: Set<string>,
     ) => {
-      // 1. 클라 측 path 수집 (mobx session + game service ranking + mirror crop)
-      const items: Array<{ srcPath: string; finalName: string }> = [];
-      await imageService.refreshBatch(sess);
-      const finalExt = opt === 'original' ? '.png' : (opt === 'avif' ? '.avif' : '.webp');
-      const scenes = selected ?? sess.getScenes(type);
-      const replacer = buildSpecialCharReplacer(charsToReplace);
-      for (const scene of scenes) {
-        await gameService.refreshList(sess, scene);
-        const cands = gameService.getOutputs(sess, scene);
-        const imageMap: any = {};
-        cands.forEach((x) => { imageMap[x] = true; });
-        const images: string[] = [];
-        if (fav) {
-          if (scene.mains.length) {
-            for (const main of scene.mains) {
-              if (imageMap[main]) images.push(main);
-            }
-          } else if (cands.length) {
-            images.push(cands[0]);
-          }
-        } else {
-          for (const cand of cands) images.push(cand);
-        }
-        let sceneName = scene.name;
-        let finalPrefix = prefix;
-        if (replacer) {
-          sceneName = sceneName.replace(replacer, separator);
-          finalPrefix = finalPrefix.replace(replacer, separator);
-        }
-        const isMirror = scene.type === 'inpaint' && (scene as InpaintScene).workflowType === 'SDMirror';
-        for (let i = 0; i < images.length; i++) {
-          let srcPath = imageService.getOutputDir(sess, scene) + '/' + images[i];
-          if (isMirror) {
-            // SDMirror 결과는 RHS만 잘라 사용. Canvas API 필요 → 클라 단에서 tmp 파일 생성.
-            const imgData = await imageService.fetchImage(srcPath);
-            if (imgData) {
-              const cropped = await cropMirrorResultFromDataUri(imgData, (scene as InpaintScene).mirrorCropX);
-              const tmpPath = 'tmp/' + v4() + '.png';
-              await backend.writeDataFile(tmpPath, cropped);
-              srcPath = tmpPath;
-            }
-          }
-          const baseName = images.length === 1
-            ? finalPrefix + sceneName
-            : finalPrefix + sceneName + separator + (i + 1).toString();
-          items.push({ srcPath, finalName: baseName + finalExt });
-        }
-      }
-
+      const items = await this.gatherExportItems(
+        sess,
+        type,
+        selected,
+        fav,
+        opt,
+        prefix,
+        separator,
+        charsToReplace,
+      );
       if (items.length === 0) {
         appState.pushMessage('내보낼 이미지가 없어요');
         return;
       }
-
-      // 2. 서버에 export 요청 → 즉시 202 + jobId 반환. resize/zip/Drive는 백그라운드.
-      const outFilePath =
-        'exports/' + sess.name + '_main_images_' + Date.now().toString() + '.tar';
-      const optimize = opt === 'original' ? 'none' : (opt as 'lossy' | 'lossless' | 'avif');
-      const pid = appState.pushProgressDialog('이미지 내보내기 큐 등록 중...', 1);
-      let jobId: string | null = null;
-      try {
-        const result = await backend.startExportScenePack({
-          paths: items,
-          outFilePath,
-          optimize,
-          imageSize: opt === 'original' ? 0 : imageSize,
-        });
-        jobId = result.queued ? result.jobId : null;
-      } catch (e: any) {
-        console.warn('[exportPackage] startExportScenePack threw:', e);
-      }
-      appState.finishProgressDialog(
-        pid,
-        jobId
-          ? '✓ 이미지 내보내기 큐 등록 (서버 백그라운드)'
-          : '✗ 이미지 내보내기 큐 등록 실패',
-        !!jobId,
+      // outFilePath: 단순화 (잡다구리 제거). 같은 path 재호출 시 서버에서
+      // 덮어쓰기 — 의도적 재export 가정.
+      const outFilePath = 'exports/' + sess.name + '.tar';
+      const optimize: 'none' | 'lossy' | 'lossless' | 'avif' =
+        opt === 'original' ? 'none' : (opt as 'lossy' | 'lossless' | 'avif');
+      await this.enqueueExportJob(
+        items,
+        outFilePath,
+        optimize,
+        opt === 'original' ? 0 : imageSize,
       );
-      if (!jobId) return;
-
-      // 위젯에 진행 상태 표시 (DriveRetryWidget이 driveRetry + exportPipelineJobs 둘 다 표시).
-      const outFileName = outFilePath.split('/').pop()!;
-      appState.exportPipelineJobs = [
-        ...appState.exportPipelineJobs,
-        { jobId, phase: 'queued', done: 0, total: items.length, outFileName },
-      ];
-      const removeFromWidget = () => {
-        appState.exportPipelineJobs = appState.exportPipelineJobs.filter((j) => j.jobId !== jobId);
-      };
-
-      // 3. WS terminal 이벤트 구독. 30분 timeout 후 자동 정리.
-      const unsubs: Array<() => void> = [];
-      const cleanup = () => unsubs.forEach((u) => u());
-      let exportTerminal = false;
-      let driveTerminal = false;
-      const tryFullCleanup = () => {
-        if (exportTerminal && driveTerminal) cleanup();
-      };
-      unsubs.push(backend.onExportProgress((data) => {
-        if (exportTerminal || data.jobId !== jobId) return;
-        appState.exportPipelineJobs = appState.exportPipelineJobs.map((j) =>
-          j.jobId === jobId
-            ? { ...j, phase: data.phase, done: data.done, total: data.total }
-            : j,
-        );
-      }));
-      unsubs.push(backend.onExportComplete((data) => {
-        if (exportTerminal || data.jobId !== jobId) return;
-        exportTerminal = true;
-        removeFromWidget(); // tar 생성 완료 → 이후는 driveRetry가 인계
-        appState.refreshDriveRetryStatus(); // Drive 큐 entry 즉시 보이게
-        if (data.skipped && data.skipped.length > 0) {
-          const preview = data.skipped.slice(0, 3).map((p) => p.split('/').pop()).join(', ');
-          const more = data.skipped.length > 3 ? ` 외 ${data.skipped.length - 3}개` : '';
-          appState.pushMessage(`${data.skipped.length}개 파일 누락 — 자동 제외 (${preview}${more})`);
-        }
-        tryFullCleanup();
-      }));
-      unsubs.push(backend.onExportFailed((data) => {
-        if (exportTerminal || data.jobId !== jobId) return;
-        exportTerminal = true;
-        driveTerminal = true; // Drive sync 미진행이므로 함께 종료
-        removeFromWidget();
-        appState.pushMessage(`✗ 이미지 내보내기 실패 (${data.phase}): ${data.error}`);
-        cleanup();
-      }));
-      unsubs.push(backend.onDriveSyncComplete((data) => {
-        if (driveTerminal || data.requestedPath !== outFilePath) return;
-        driveTerminal = true;
-        appState.pushMessage(`✓ 이미지 Drive 업로드 완료 (${data.fileName})`);
-        appState.refreshDriveRetryStatus();
-        tryFullCleanup();
-      }));
-      unsubs.push(backend.onDriveSyncFailed((data) => {
-        if (driveTerminal || data.requestedPath !== outFilePath) return;
-        if (data.willRetry) {
-          appState.refreshDriveRetryStatus();
-          return;
-        }
-        driveTerminal = true;
-        appState.pushMessage(`✗ 이미지 Drive 최종 실패: ${data.fileName} (${data.error})`);
-        appState.refreshDriveRetryStatus();
-        tryFullCleanup();
-      }));
-      setTimeout(cleanup, 30 * 60 * 1000);
     };
     // 프리셋이 주어지면 다이얼로그 chain skip — 옵션 직접 사용해 즉시 실행.
     if (preset) {
@@ -1325,10 +1205,168 @@ export class AppState {
     }
   }
 
-  // 폴더 단위 일괄 내보내기. 폴더 안 모든 프로젝트(scene만)에 같은 프리셋 적용.
-  // 각 프로젝트는 exportPackage(... session)로 큐 등록만 하고 즉시 다음 프로젝트로
-  // 진행. 실제 resize/zip/Drive sync는 서버 백그라운드 (기존 export pipeline
-  // widget이 추적).
+  // 한 세션의 export item 수집. exportPackage / exportFolder 공통 helper.
+  // 결과: [{ srcPath, finalName }] — finalName은 caller가 prefix 추가 가능.
+  private async gatherExportItems(
+    session: Session,
+    type: 'scene' | 'inpaint',
+    selected: GenericScene[] | undefined,
+    fav: boolean,
+    opt: string,
+    prefix: string,
+    separator: string,
+    charsToReplace: Set<string>,
+  ): Promise<Array<{ srcPath: string; finalName: string }>> {
+    const items: Array<{ srcPath: string; finalName: string }> = [];
+    await imageService.refreshBatch(session);
+    const finalExt = opt === 'original' ? '.png' : (opt === 'avif' ? '.avif' : '.webp');
+    const scenes = selected ?? session.getScenes(type);
+    const replacer = buildSpecialCharReplacer(charsToReplace);
+    for (const scene of scenes) {
+      await gameService.refreshList(session, scene);
+      const cands = gameService.getOutputs(session, scene);
+      const imageMap: any = {};
+      cands.forEach((x) => { imageMap[x] = true; });
+      const images: string[] = [];
+      if (fav) {
+        if (scene.mains.length) {
+          for (const main of scene.mains) {
+            if (imageMap[main]) images.push(main);
+          }
+        } else if (cands.length) {
+          images.push(cands[0]);
+        }
+      } else {
+        for (const cand of cands) images.push(cand);
+      }
+      let sceneName = scene.name;
+      let finalPrefix = prefix;
+      if (replacer) {
+        sceneName = sceneName.replace(replacer, separator);
+        finalPrefix = finalPrefix.replace(replacer, separator);
+      }
+      const isMirror = scene.type === 'inpaint' && (scene as InpaintScene).workflowType === 'SDMirror';
+      for (let i = 0; i < images.length; i++) {
+        let srcPath = imageService.getOutputDir(session, scene) + '/' + images[i];
+        if (isMirror) {
+          // SDMirror 결과는 RHS만 잘라 사용. Canvas API 필요 → 클라 단에서 tmp 파일 생성.
+          const imgData = await imageService.fetchImage(srcPath);
+          if (imgData) {
+            const cropped = await cropMirrorResultFromDataUri(imgData, (scene as InpaintScene).mirrorCropX);
+            const tmpPath = 'tmp/' + v4() + '.png';
+            await backend.writeDataFile(tmpPath, cropped);
+            srcPath = tmpPath;
+          }
+        }
+        const baseName = images.length === 1
+          ? finalPrefix + sceneName
+          : finalPrefix + sceneName + separator + (i + 1).toString();
+        items.push({ srcPath, finalName: baseName + finalExt });
+      }
+    }
+    return items;
+  }
+
+  // 큐 등록 + WS 구독 + widget 추가. exportPackage / exportFolder 공통 helper.
+  // 즉시 202 후 백그라운드 진행. resize/zip/Drive sync는 server 측 export
+  // pipeline이 처리.
+  private async enqueueExportJob(
+    items: Array<{ srcPath: string; finalName: string }>,
+    outFilePath: string,
+    optimize: 'none' | 'lossy' | 'lossless' | 'avif',
+    imageSize: number,
+  ): Promise<string | null> {
+    const pid = appState.pushProgressDialog('이미지 내보내기 큐 등록 중...', 1);
+    let jobId: string | null = null;
+    try {
+      const result = await backend.startExportScenePack({
+        paths: items,
+        outFilePath,
+        optimize,
+        imageSize,
+      });
+      jobId = result.queued ? result.jobId : null;
+    } catch (e: any) {
+      console.warn('[enqueueExportJob] startExportScenePack threw:', e);
+    }
+    appState.finishProgressDialog(
+      pid,
+      jobId
+        ? '✓ 이미지 내보내기 큐 등록 (서버 백그라운드)'
+        : '✗ 이미지 내보내기 큐 등록 실패',
+      !!jobId,
+    );
+    if (!jobId) return null;
+
+    const outFileName = outFilePath.split('/').pop()!;
+    appState.exportPipelineJobs = [
+      ...appState.exportPipelineJobs,
+      { jobId, phase: 'queued', done: 0, total: items.length, outFileName },
+    ];
+    const removeFromWidget = () => {
+      appState.exportPipelineJobs = appState.exportPipelineJobs.filter((j) => j.jobId !== jobId);
+    };
+
+    const unsubs: Array<() => void> = [];
+    const cleanup = () => unsubs.forEach((u) => u());
+    let exportTerminal = false;
+    let driveTerminal = false;
+    const tryFullCleanup = () => {
+      if (exportTerminal && driveTerminal) cleanup();
+    };
+    unsubs.push(backend.onExportProgress((data) => {
+      if (exportTerminal || data.jobId !== jobId) return;
+      appState.exportPipelineJobs = appState.exportPipelineJobs.map((j) =>
+        j.jobId === jobId
+          ? { ...j, phase: data.phase, done: data.done, total: data.total }
+          : j,
+      );
+    }));
+    unsubs.push(backend.onExportComplete((data) => {
+      if (exportTerminal || data.jobId !== jobId) return;
+      exportTerminal = true;
+      removeFromWidget(); // tar 생성 완료 → 이후는 driveRetry가 인계
+      appState.refreshDriveRetryStatus();
+      if (data.skipped && data.skipped.length > 0) {
+        const preview = data.skipped.slice(0, 3).map((p) => p.split('/').pop()).join(', ');
+        const more = data.skipped.length > 3 ? ` 외 ${data.skipped.length - 3}개` : '';
+        appState.pushMessage(`${data.skipped.length}개 파일 누락 — 자동 제외 (${preview}${more})`);
+      }
+      tryFullCleanup();
+    }));
+    unsubs.push(backend.onExportFailed((data) => {
+      if (exportTerminal || data.jobId !== jobId) return;
+      exportTerminal = true;
+      driveTerminal = true; // Drive sync 미진행이므로 함께 종료
+      removeFromWidget();
+      appState.pushMessage(`✗ 이미지 내보내기 실패 (${data.phase}): ${data.error}`);
+      cleanup();
+    }));
+    unsubs.push(backend.onDriveSyncComplete((data) => {
+      if (driveTerminal || data.requestedPath !== outFilePath) return;
+      driveTerminal = true;
+      appState.pushMessage(`✓ 이미지 Drive 업로드 완료 (${data.fileName})`);
+      appState.refreshDriveRetryStatus();
+      tryFullCleanup();
+    }));
+    unsubs.push(backend.onDriveSyncFailed((data) => {
+      if (driveTerminal || data.requestedPath !== outFilePath) return;
+      if (data.willRetry) {
+        appState.refreshDriveRetryStatus();
+        return;
+      }
+      driveTerminal = true;
+      appState.pushMessage(`✗ 이미지 Drive 최종 실패: ${data.fileName} (${data.error})`);
+      appState.refreshDriveRetryStatus();
+      tryFullCleanup();
+    }));
+    setTimeout(cleanup, 30 * 60 * 1000);
+    return jobId;
+  }
+
+  // 폴더 단위 일괄 내보내기. 폴더 안 모든 프로젝트(scene)의 이미지를 1개 zip으로
+  // 묶음. zip 안 sub-directory로 프로젝트별 분리. outFilePath는 폴더명만.
+  // path 수집은 CHUNK=4 병렬, 큐 등록은 1번.
   async exportFolder(folderName: string, projectNames: string[]) {
     if (projectNames.length === 0) {
       appState.pushMessage('빈 폴더예요');
@@ -1355,57 +1393,94 @@ export class AppState {
     if (!presetId) return;
     const preset = this.exportPresets.find((p) => p.id === presetId);
     if (!preset) return;
+
+    // 프리셋 → exportImpl 옵션 변환
+    const fav = preset.imageSelection === 'fav';
+    const opt = preset.optimize;
+    const imageSize = preset.imageSize;
+    const separator = preset.separator || '.';
+    const charsToReplace = new Set(preset.charsToReplace || []);
+    const prefix = preset.fileNameFormat === 'prefix' && preset.prefixName
+      ? preset.prefixName + separator
+      : '';
+
     const total = projectNames.length;
     const pid = appState.pushProgressDialog(
-      `'${folderName}' 폴더 내보내기 큐 등록 중... 0/${total}`,
+      `'${folderName}' path 수집 중... 0/${total}`,
       total,
     );
-    let queued = 0;
+
+    // 1단계: N개 프로젝트 path 수집 (CHUNK=4 병렬). finalName 앞에 프로젝트명 sub-dir.
+    const allItems: Array<{ srcPath: string; finalName: string }> = [];
     const failures: { name: string; reason: string }[] = [];
-    // CHUNK 4개씩 병렬. 서로 다른 session + 서버 큐 등록은 즉시 202라
-    // 동시 호출에 안전. 실제 resize/zip은 서버 백그라운드 큐가 직렬화.
-    // (deleteScenes 병렬 패턴과 동일)
     const CHUNK = 4;
     for (let i = 0; i < projectNames.length; i += CHUNK) {
       const chunk = projectNames.slice(i, i + CHUNK);
-      await Promise.all(
+      const results = await Promise.all(
         chunk.map(async (name) => {
           try {
-            const session = await sessionService.get(name, {
-              throwOnError: true,
-            });
+            const session = await sessionService.get(name, { throwOnError: true });
             if (!session) {
-              failures.push({ name, reason: '세션 객체 로드 실패' });
-            } else {
-              await this.exportPackage('scene', undefined, preset, session);
-              queued++;
+              return { name, error: '세션 객체 로드 실패' as string };
             }
+            const items = await this.gatherExportItems(
+              session, 'scene', undefined, fav, opt, prefix, separator, charsToReplace,
+            );
+            return {
+              name,
+              items: items.map((it) => ({
+                srcPath: it.srcPath,
+                finalName: name + '/' + it.finalName,
+              })),
+            };
           } catch (e: any) {
-            failures.push({ name, reason: e?.message ?? String(e) });
+            return { name, error: (e?.message ?? String(e)) as string };
           }
         }),
       );
+      for (const r of results) {
+        if ('error' in r) failures.push({ name: r.name, reason: r.error });
+        else allItems.push(...r.items);
+      }
       const done = Math.min(i + CHUNK, total);
       appState.updateProgressDialog(pid, {
         done,
-        text: `'${folderName}' 폴더 내보내기 큐 등록 중... ${done}/${total}`,
+        text: `'${folderName}' path 수집 중... ${done}/${total}`,
       });
     }
-    const ok = failures.length === 0;
+
+    if (allItems.length === 0) {
+      appState.finishProgressDialog(pid, '내보낼 이미지가 없어요', false);
+      if (failures.length > 0) {
+        const preview = failures.slice(0, 3).map((f) => `${f.name}: ${f.reason}`).join('\n');
+        const more = failures.length > 3 ? `\n외 ${failures.length - 3}건` : '';
+        appState.pushMessage(`수집 실패 항목:\n${preview}${more}`);
+      }
+      return;
+    }
+
+    const successProjects = total - failures.length;
     appState.finishProgressDialog(
       pid,
-      ok
-        ? `✓ '${folderName}' 폴더 ${queued}개 프로젝트 큐 등록 완료`
-        : `△ '${folderName}' 폴더: ${queued}/${total} 등록 (${failures.length}건 실패)`,
-      ok,
+      `✓ '${folderName}' path 수집 완료 (${successProjects}/${total} 프로젝트, ${allItems.length}장)`,
+      true,
     );
+
+    // 2단계: 1번 큐 등록. outFilePath = exports/{folderName}.tar
+    const outFilePath = 'exports/' + folderName + '.tar';
+    const optimize: 'none' | 'lossy' | 'lossless' | 'avif' =
+      opt === 'original' ? 'none' : (opt as 'lossy' | 'lossless' | 'avif');
+    await this.enqueueExportJob(
+      allItems,
+      outFilePath,
+      optimize,
+      opt === 'original' ? 0 : imageSize,
+    );
+
     if (failures.length > 0) {
-      const preview = failures
-        .slice(0, 3)
-        .map((f) => `${f.name}: ${f.reason}`)
-        .join('\n');
+      const preview = failures.slice(0, 3).map((f) => `${f.name}: ${f.reason}`).join('\n');
       const more = failures.length > 3 ? `\n외 ${failures.length - 3}건` : '';
-      appState.pushMessage(`실패 항목:\n${preview}${more}`);
+      appState.pushMessage(`수집 실패 항목:\n${preview}${more}`);
     }
   }
 
