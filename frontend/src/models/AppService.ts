@@ -1325,6 +1325,15 @@ export class AppState {
         const more = data.skipped.length > 3 ? ` 외 ${data.skipped.length - 3}개` : '';
         appState.pushMessage(`${data.skipped.length}개 파일 누락 — 자동 제외 (${preview}${more})`);
       }
+      // Drive 미사용자: zip이 Drive에 안 올라가니까 브라우저 자동 다운로드로 사용자 손에 전달.
+      // Drive 사용자가 'Drive 앱에 파일 떨어짐' 받는 것과 거의 동등한 경험.
+      // export 시작한 탭만 이 handler 등록(jobId scope)이라 멀티 탭 중복 다운로드 없음.
+      if (appState.driveRetryStatus?.driveAvailable === false) {
+        backend.copyToDownloads(data.outFilePath).catch(() => {});
+        const fileName = data.outFilePath.split('/').pop() || 'export.tar';
+        appState.pushMessage(`✓ 내보내기 완료 — 다운로드 시작 (${fileName})`);
+        driveTerminal = true; // Drive sync 경로 없음. 함께 종료.
+      }
       tryFullCleanup();
     }));
     unsubs.push(backend.onExportFailed((data) => {
