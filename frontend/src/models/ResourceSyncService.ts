@@ -31,6 +31,10 @@ export abstract class ResourceSyncService<
   updateInterval: number;
   running: boolean;
   dummy: T | undefined;
+  // dummy 초기화는 async라서 cold start에서 첫 get() 호출이 dummy 초기화보다 빨리
+  // 실행될 수 있음 (race condition → "undefined is not an object: this.dummy.fromJSON").
+  // get()/createFrom()에서 await dummyReady로 sequencing 보장.
+  private dummyReady: Promise<void>;
   constructor(resourceDir: string, interval: number) {
     super();
     this.resources = {};
@@ -45,7 +49,7 @@ export abstract class ResourceSyncService<
     // 인터넷 느릴 때 첫 update() 응답 전에 마지막 리스트 즉시 표시.
     // 백그라운드 update() 도착 시 saveCache로 갱신 + listupdated dispatch.
     this.loadCache();
-    (async () => {
+    this.dummyReady = (async () => {
       this.dummy = await this.createDefault('dummy');
     })();
   }
@@ -137,6 +141,7 @@ export abstract class ResourceSyncService<
   ): Promise<T | undefined> {
     if (!(name in this.resources)) {
       try {
+        await this.dummyReady; // race fix
         const str = await this.readFileWithRetry(name, opts?.retry === true);
         let obj = JSON.parse(str);
         obj = await this.migrate(obj);
@@ -199,6 +204,7 @@ export abstract class ResourceSyncService<
     if (name in this.resources) {
       throw new Error('Resource already exists');
     }
+    await this.dummyReady; // race fix
     value = await this.migrate(value);
     this.resources[name] = this.dummy!.fromJSON(value);
     await this.onAdded(name);
