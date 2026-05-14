@@ -9,6 +9,9 @@ interface ModalOverlayProps {
   width?: string;
 }
 
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 const ModalOverlay = ({
   isOpen,
   onClose,
@@ -17,6 +20,7 @@ const ModalOverlay = ({
   width = 'max-w-xl',
 }: ModalOverlayProps) => {
   const mouseDownOnBackdrop = useRef(false);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const handleEscape = useCallback(
     (e: KeyboardEvent) => {
@@ -28,12 +32,39 @@ const ModalOverlay = ({
     [onClose],
   );
 
+  // Tab 순환: focusable 끝에서 다음 Tab은 첫 element로, 첫에서 Shift+Tab은
+  // 끝으로. modal 바깥 element로 focus 빠지는 것 방지.
+  const handleTab = useCallback((e: KeyboardEvent) => {
+    if (e.key !== 'Tab' || !contentRef.current) return;
+    const focusables = contentRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    const inside = !!(active && contentRef.current.contains(active));
+    if (e.shiftKey) {
+      if (!inside || active === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (!inside || active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (isOpen) {
       window.addEventListener('keydown', handleEscape, true);
-      return () => window.removeEventListener('keydown', handleEscape, true);
+      window.addEventListener('keydown', handleTab, true);
+      return () => {
+        window.removeEventListener('keydown', handleEscape, true);
+        window.removeEventListener('keydown', handleTab, true);
+      };
     }
-  }, [isOpen, handleEscape]);
+  }, [isOpen, handleEscape, handleTab]);
 
   if (!isOpen) return null;
 
@@ -60,6 +91,7 @@ const ModalOverlay = ({
       }}
     >
       <div
+        ref={contentRef}
         className={`${width} w-[90vw] max-h-[85vh] bg-white dark:bg-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-slate-600`}
       >
         {/* 타이틀 바 */}
