@@ -5,14 +5,34 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  /* viewport-fit=cover로 viewport가 안전 영역 포함하게 커지면 html/body도 같이
+     고정 높이로 박아야 자식이 percent 계산 가능. */
+  height: 100dvh;
+}
+
 body {
   font-size: 16px;
-  /* viewport-fit=cover와 함께 — iPhone notch/Dynamic Island가 콘텐츠 가리지
-     않게 body에 safe-area-inset만큼 padding. desktop에선 env() 0이라 무영향. */
+  /* iPhone notch/Dynamic Island/home indicator가 콘텐츠 가리지 않게 body에
+     safe-area-inset만큼 padding. desktop에선 env() 0이라 무영향. */
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
+  /* box-sizing border-box로 padding이 body 높이를 늘리지 않게 — content 영역만
+     줄어듦. height 100dvh와 함께 body == 정확히 viewport 높이 유지. 이전 fix는
+     이게 빠져서 100vh App container와 합쳐져 시야 밖으로 콘텐츠 밀려나는 회귀
+     발생. */
+  box-sizing: border-box;
+  height: 100dvh;
+  margin: 0;
+  overflow: hidden;
+}
+
+#root {
+  /* body의 content 영역(= viewport - safe-area-inset) 채움. App container의
+     h-full이 이 높이 기준. */
+  height: 100%;
 }
 
 /* 전역 커스텀 스크롤바 (Electron/Chromium) */

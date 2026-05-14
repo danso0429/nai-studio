@@ -367,7 +367,7 @@ export const App = observer(() => {
     >
       <div
         className={
-          'flex flex-col relative h-screen w-screen bg-white dark:bg-slate-900 ' +
+          'flex flex-col relative h-full w-full bg-white dark:bg-slate-900 ' +
           (darkMode ? 'dark' : '')
         }
       >
