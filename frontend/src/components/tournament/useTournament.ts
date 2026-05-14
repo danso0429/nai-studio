@@ -36,7 +36,7 @@ export interface TournamentActions {
   undoLastMatch(): void;
   reroll(): void;
   reset(): void;
-  openWinnerFolder(): void;
+  openWinnerImage(): void;
 }
 
 interface UseTournamentResult {
@@ -181,9 +181,19 @@ export function useTournament(scene: GenericScene, path: string): UseTournamentR
     });
   }, [scene, path, bump]);
 
-  const openWinnerFolder = useCallback(async () => {
-    await backend.showFile(path);
-  }, [path]);
+  // "1위 이미지 보기" — 본인 지적(2026-05-14): 기존 "결과 폴더 열기"가 디렉토리 path를
+  // /api/fs/show로 넘겨서 sendFile 실패 → SPA fallback에서 "Frontend not built" 표시
+  // 회귀. 원본 Tournament도 같은 버그였음 (드물게 트리거되어 발견 안 됨).
+  //
+  // /api/fs/show가 res.sendFile 기반이라 단일 파일만 지원. 1위가 결정됐을 때만 그
+  // 이미지 파일을 새 탭으로 여는 게 안전 + 사용자 표현 "1위 결과 파일보기"에 부합.
+  // 1위 미확정 시 toolbar 버튼은 disabled — 액션 자체는 no-op.
+  const openWinnerImage = useCallback(async () => {
+    if (!scene.game) return;
+    const winner = scene.game.find((p) => p.rank === 0);
+    if (!winner) return;
+    await backend.showFile(`${outputDir}/${winner.path}`);
+  }, [scene, outputDir]);
 
   // ── 파생 상태 계산 (tick으로 강제 재계산) ──
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -251,7 +261,7 @@ export function useTournament(scene: GenericScene, path: string): UseTournamentR
     undoLastMatch,
     reroll,
     reset,
-    openWinnerFolder,
+    openWinnerImage,
   };
 
   return { state, actions, matchPlayerPaths: derived.matchPlayerPaths, outputDir };
