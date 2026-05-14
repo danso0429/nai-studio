@@ -1590,7 +1590,12 @@ app.get('/api/fs/list', async (req, res) => {
     res.set('ETag', etag);
     if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
     res.json(files);
-  } catch (e) { res.json([]); }
+  } catch (e) {
+    // 정직 응답: ENOENT는 mkdir로 자동 해결되므로 여기 안 옴. 진짜 에러만 5xx.
+    // (옛: 모든 에러를 200+[]로 마스킹 → guardEmpty 가드 강제. 옵션 C 단계 A.)
+    console.error('[fs/list]', req.query.path, e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/fs/list-stats', async (req, res) => {
@@ -1612,7 +1617,10 @@ app.get('/api/fs/list-stats', async (req, res) => {
     res.set('ETag', etag);
     if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
     res.json(stats);
-  } catch (e) { res.json([]); }
+  } catch (e) {
+    console.error('[fs/list-stats]', req.query.path, e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Walk a directory up to `depth` levels deep, returning file paths (slash-joined,
