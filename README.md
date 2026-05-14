@@ -67,13 +67,19 @@
 - **🔄 자동 업데이트 알림** — 새 버전 출시 시 우측 상단 / 모바일 알약에 표시. 알림 클릭 → 모달에 정확한 업데이트 명령
 - **📊 상단 진행 알약** — 진행률 + 예상 남은 시간 표시. 클릭 시 task 리스트
 - **🎚️ 개수 컨트롤** — ◀▶ 버튼으로 ±1, 텍스트 입력도 가능
-- **📁 프로젝트 폴더 분류** — 폴더로 프로젝트 카테고리화
+- **📁 프로젝트 폴더 분류** — 폴더로 프로젝트 카테고리화 (depth=1)
 - **🗂️ 내보내기 프리셋** — 자주 쓰는 내보내기 설정 (전체/즐겨찾기, 형식, 크기, 구분자) 저장. 한 번 설정하고 다이얼로그 없이 즉시 내보내기. 최대 3개
-- **☁️ Google Drive 자동 동기화 (선택)** — rclone 설정하면 내보내기 결과를 즉시 업로드. 실패 시 6회 자동 재시도. 좌측 하단 위젯에서 진행 확인
-- **🚀 Drive 병렬 업로드** — 씬 이름 / 프로젝트 / 이미지 내보내기 동시 처리
+- **📂 폴더 전체 내보내기** — 폴더 안 모든 프로젝트에 동일 프리셋 적용해서 1개 zip으로 묶음
+- **☁️ Google Drive 자동 동기화 (선택)** — rclone 설정하면 내보내기 결과를 즉시 업로드. 실패 시 6회 자동 재시도(exponential backoff). 좌측 하단 위젯에서 진행 확인
+- **🚀 Drive 병렬 업로드** — 씬 이름 / 프로젝트 / 이미지 내보내기 동시 처리. 큐 한도 5000 + LRU eviction으로 안전
 - **🔍 태그 자동완성 split 레이아웃** — 모바일 세로 = 상하 분할, 가로/PC = 좌우 분할
 - **⏸️ 큐 일시정지/재개** — 진행 중 stop 누르면 in-flight 후 일시정지. run 누르면 재개. 상태는 disk에 영속화 (서버 재시작해도 큐 유지)
-- **📈 /queue.html 진행 페이지** — 별도 페이지에서 큐 상태, NAI 에러 history, Drive 업로드, 최근 처리 시간 sparkline 표시
+- **📈 /queue.html 진행 페이지** — 별도 페이지에서 큐 상태, NAI 에러 history, Drive 업로드, 최근 처리 시간 sparkline 표시. 완료 탭(프로젝트별 batch + 4시간 retention), 전체정리 미리보기, 큐 통계 2시간 12-bucket 누적
+- **🔁 씬 일괄 임포트** — JSON 스키마로 N개 씬을 한번에 추가. dryRun + overwrite/skip 모드
+- **🧩 씬 통합 (대량 작업)** — 여러 씬을 하나로 합치면서 조합 슬롯 dedup + 이미지 모음
+- **➖ 씬/조합 단위 네거티브** — 프리셋 전체뿐 아니라 씬(`scene.uc`)과 조합 슬롯(`PromptPiece.uc`)에 개별 네거티브
+- **🗑️ 프로젝트 영구 삭제** — 로컬 5폴더 + Drive 5폴더 병렬 purge. 백그라운드 처리 + WS 진행 토스트
+- **🛡️ 네트워크 회복성** — 일시 단절 시 자동 재시도(`ResourceSyncService`), 캐시 fallback, fetch timeout, 클릭 차단 가드
 
 ---
 
@@ -331,9 +337,12 @@ Windows SDStudio 데이터 위치: `%APPDATA%\SDStudio\SDStudio\`
 표시 내용:
 - **NAI 이미지 큐**: 대기/완료/실패, 평균 시간 (X.XX초), 남은 시간 예상, 진행률 (X.XX%)
 - **평균(누적) 클릭** → 최근 200개 처리 시간 sparkline + list
-- **Drive 업로드** 섹션: 진행 중 항목, 재시도 일정, 실패 사유
-- **이미지 내보내기 처리** (active 시): resize/zip phase, 진행 바
+- **완료 탭** — 프로젝트별 batch로 묶어서 표시. 4시간 retention + 30분 gap으로 같은 batch 식별. 처리 중 프로젝트 잔여 수도 같이 보여줌
+- **큐 통계 영구 누적** — 2시간 단위 12-bucket(24시간) KST 기준 처리량
+- **Drive 업로드** 섹션: 진행 중 항목, 재시도 일정, 실패 사유. 즉시 일제 재시도 / 포기 / failed → pending 리셋 버튼
+- **이미지 내보내기 처리** (active 시): resize/zip phase, 진행 바. 진행 중 job 취소 버튼
 - **최근 NAI 큐 에러** (발생 시): 429/5xx/기타 분류, 친절 메시지, 씬이름·번호
+- **전체정리 미리보기** — 정리 전에 삭제될 항목 모달로 확인 (iOS Safari `confirm()` 회피용 HTML 모달)
 
 모바일에서 별도 탭으로 켜놓고 진행 상황 모니터링 좋아요.
 
@@ -367,7 +376,8 @@ cd ~/nai-studio && ./update.sh
 | `URL_PREFIX` | (빈 값) | 리버스 프록시 경로 (예: `/studio`) |
 | `RCLONE_REMOTE` | `gdrivemain` | rclone remote 이름 (Google Drive 설정 시) |
 | `RCLONE_REMOTE_BASE` | `NAI-Studio` | Drive 안 베이스 폴더 |
-| `DRIVE_RETRY_CONCURRENCY` | `3` | Drive 동시 업로드 개수 |
+| `DRIVE_RETRY_CONCURRENCY` | `3` | Drive 재시도 큐 동시 처리 개수 |
+| `EXPORT_CONCURRENCY` | `10` | 이미지 내보내기(서버 측 resize/zip) 동시 job 수 |
 | `NAI_PM2_NAME` | (디렉터리명) | update.sh가 사용할 pm2 app 이름 |
 
 예시 `.env.local`:
@@ -456,12 +466,16 @@ Safari 보안 정책이라 직접 다운로드 막혀있어요. Drive 동기화 
 
 ## 변경 이력
 
-전체 변경 이력은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
+세부 변경 이력은 [CHANGELOG.md](CHANGELOG.md) (v1.5.0-preview.4까지 누적 기록) + 최근 변경은 `version.json` 의 `notes` 필드 / `git --no-pager log` 로 확인 가능해요.
 
 **최근 변경 (요약)**:
+- **v1.5.3-experimental.1~2** (2026-05-13~14): `BatchItemSelector` 신규 picker로 구 `SceneSelector` 전체 swap (의존성 격리 + 썸네일 + imageRevision 외부 신호), `Types.ts preset: any → PresetLike`, queue.html 모바일 paint/배터리/서버 부담 7축 개선, `saveInpaintImages` 2-phase commit, ModalOverlay focus trap, extractApiError 401/429/timeout 한국어 매핑
+- **v1.5.3-preview.1~3** (2026-05-13~14): 폴더 전체 내보내기(프리셋 일괄 적용 + 1zip + 큐 등록 4 병렬), `ResourceSyncService` get(retry: true), 네트워크 회복성 3축(클릭 차단 / 리스트 캐시 / fetch timeout), 5/14 회귀 묶음 fix(캐시 헤더, 예약 취소 cross-project, 씬 선택 렉), queue.html 전체정리 미리보기 + iOS confirm HTML 모달, 보안 헤더, atomicWriteFile + driveRetry 큐 한도 5000 + LRU
+- **v1.5.2** (2026-05-13): 씬/조합 단위 네거티브(`scene.uc` + `PromptPiece.uc`), queue.html 처리 중 프로젝트 표시 + 잔여 수, 백그라운드 복귀 시 export 동기화, 이미지 내보내기 동시 10개 + 취소 버튼, 흰화면 회귀 fix(lazy queueMicrotask)
+- **v1.5.1** (2026-05-12~13): 씬 일괄 임포트 UI(스키마 + dryRun + overwrite/skip), 프로젝트 영구 삭제(로컬 5 + Drive 5 폴더 병렬) + orphan 정리, 프로젝트 폴더 시스템 + 받침 헬퍼, 씬 통합(조합 슬롯 dedup + 이미지 합치기), 큐 통계 2시간 12-bucket 영구 누적, 모바일 씬 카드 200_ fastcache(다운로드 14배 ↓), NAI 5xx도 429 패턴으로 retry
 - **v1.5.0** (2026-05-12): 클라 → 서버 큐 통합 (mirror, 폰 닫아도 진행), 내보내기 프리셋, 개수 ◀▶ 컨트롤, 태그 자동완성 split layout, queue.html sparkline + 친절 에러, Drive 병렬 업로드, rclone remote 환경변수화, 큐 cancel disk 동기화
 - **v1.5.0-preview.1~6** (2026-05): Progress UI 알약 통합, Drive 재시도 backoff, zip ENOENT skip, 이미지 내보내기 server pipeline (HTTP 202 + WS), 알림 색 통일, mirror 인프라
-- **v1.4.x** (2026-05): PolyForm Noncommercial 1.0.0 라이센스, 환경변수 분리, 폴더 시스템, 대량 삭제 병렬화, update.sh 자동 감지
+- **v1.4.x** (2026-05): PolyForm Noncommercial 1.0.0 라이센스, 환경변수 분리, 대량 삭제 병렬화, update.sh 자동 감지
 - **v1.2.0~v1.3.x** (2026-05): README 풀 리뉴얼, Drive 자동 동기화, 자동 업데이트 알림
 - **v1.0.0** (2026-05): NAI v4.5 검증 후 첫 정식 출시
 - **v1.0.0 이전** (2026-04~05): 인프라 구축, UI 이식, 큐 시스템
