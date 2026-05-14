@@ -9,7 +9,6 @@ import { base64ToDataUri } from './BrushTool';
 import { useDrag, useDrop } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { useContextMenu } from 'react-contexify';
-import SceneSelector from './SceneSelector';
 import BatchItemSelector from './BatchItemSelector';
 import Tooltip from './Tooltip';
 import { v4 } from 'uuid';
@@ -43,7 +42,7 @@ import {
   Piece,
 } from '../models/types';
 import { extractApiError, extractPromptDataFromBase64, josaIGa, josaEulReul } from '../models/util';
-import { appState, SceneSelectorItem, BatchPickerItem } from '../models/AppService';
+import { appState, BatchPickerItem } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { createInpaintPreset, prepareMirrorCanvas } from '../models/workflows/SDWorkFlow';
 import { reaction } from 'mobx';
@@ -949,7 +948,7 @@ const QueueControl = observer(
       });
     };
 
-    // useCallback으로 reference stable. SceneSelector → SceneCard memo가
+    // useCallback으로 reference stable. BatchItemSelector → ItemCard memo가
     // getImage prop reference 변경 시마다 무효화되어 모든 카드 re-render되던 문제 회피.
     const getImage = useCallback(async (scene: GenericScene) => {
       if (scene.type === 'scene') {
@@ -1300,12 +1299,12 @@ const QueueControl = observer(
                   appState.pushMessage('대상 씬이 없습니다.');
                   return;
                 }
-                setSceneSelector({
+                setBatchPicker({
                   type: 'scene',
                   text: `🎲 샘플 뽑기 (${seeds.length}개 시드)`,
                   scenes: targetScenes,
                   callback: (selected) => {
-                    setSceneSelector(undefined);
+                    setBatchPicker(undefined);
                     if (selected.length === 0) return;
                     appState.pushDialog({
                       type: 'confirm',
@@ -1342,12 +1341,6 @@ const QueueControl = observer(
       return <></>;
     }, [displayScene]);
 
-    const [sceneSelector, setSceneSelector] = useState<
-      SceneSelectorItem | undefined
-    >(undefined);
-
-    // 신규 BatchItemSelector 진입점. 현재는 deleteScenes 한 곳만 사용.
-    // 나머지 batch 분기가 모두 swap되면 sceneSelector state 통째 제거 예정.
     const [batchPicker, setBatchPicker] = useState<BatchPickerItem | undefined>(
       undefined,
     );
@@ -1391,16 +1384,6 @@ const QueueControl = observer(
 
     return (
       <div className={'flex flex-col h-full ' + (className ?? '')}>
-        {sceneSelector && (
-          <FloatView priority={0} onEscape={() => setSceneSelector(undefined)}>
-            <SceneSelector
-              text={sceneSelector.text}
-              scenes={sceneSelector.scenes ?? curSession!.getScenes(type)}
-              onConfirm={sceneSelector.callback}
-              getImage={getImage}
-            />
-          </FloatView>
-        )}
         {batchPicker && (
           <FloatView priority={0} onEscape={() => setBatchPicker(undefined)}>
             <BatchItemSelector<GenericScene>
@@ -1446,7 +1429,7 @@ const QueueControl = observer(
               <button
                 className={`round-button back-gray`}
                 onClick={() => {
-                  appState.openBatchProcessMenu(type, setSceneSelector, setBatchPicker);
+                  appState.openBatchProcessMenu(type, setBatchPicker);
                 }}
               >
                 대량 작업
@@ -1454,7 +1437,7 @@ const QueueControl = observer(
               <button
                 className={`round-button back-gray`}
                 onClick={() => {
-                  appState.openChangeResolutionMenu(type, setSceneSelector);
+                  appState.openChangeResolutionMenu(type, setBatchPicker);
                 }}
               >
                 {isMobile ? '해상도' : '해상도 변경'}

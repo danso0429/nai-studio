@@ -51,16 +51,6 @@ import {
   queueRemoveBg,
 } from './workflows/OneTimeFlows';
 
-export interface SceneSelectorItem {
-  type: 'scene' | 'inpaint';
-  text: string;
-  callback: (scenes: GenericScene[]) => void;
-  scenes?: GenericScene[];
-}
-
-// 신규 BatchItemSelector 진입 항목. SceneSelectorItem과 구조 동일하지만
-// 기존 SceneSelector 호출처가 모두 swap되면 SceneSelectorItem과 함께
-// 정리될 예정이라 별도 type으로 분리해 둠.
 export interface BatchPickerItem {
   type: 'scene' | 'inpaint';
   text: string;
@@ -1688,7 +1678,6 @@ export class AppState {
   @action
   openBatchProcessMenu(
     type: 'scene' | 'inpaint',
-    setSceneSelector: (item: SceneSelectorItem | undefined) => void,
     setBatchPicker: (item: BatchPickerItem | undefined) => void,
   ) {
     const removeBg = async (selected: GenericScene[]) => {
@@ -2360,12 +2349,12 @@ export class AppState {
               appState.pushMessage('이미지생성 씬이 없습니다.');
               return;
             }
-            setSceneSelector({
+            setBatchPicker({
               type: 'inpaint',
               text: '🪞 미러로 복제할 이미지생성 씬 선택',
               scenes: imageGenScenes,
               callback: (selected) => {
-                setSceneSelector(undefined);
+                setBatchPicker(undefined);
                 if (selected.length === 0) return;
                 appState.pushDialog({
                   type: 'confirm',
@@ -2435,12 +2424,12 @@ export class AppState {
                 const sourceScene = allScenes.find((s) => s.name === sourceName);
                 if (!sourceScene) return;
                 const targetScenes = allScenes.filter((s) => s.name !== sourceName);
-                setSceneSelector({
+                setBatchPicker({
                   type: type,
                   text: `📋 내용 붙여넣기 (원본: ${sourceName})`,
                   scenes: targetScenes,
                   callback: (selected) => {
-                    setSceneSelector(undefined);
+                    setBatchPicker(undefined);
                     if (selected.length === 0) return;
                     appState.pushDialog({
                       type: 'confirm',
@@ -2481,8 +2470,6 @@ export class AppState {
             return;
           }
           if (value === 'deleteScenes') {
-            // 신규 BatchItemSelector 경로. 다른 batch 분기는 기존
-            // SceneSelector 그대로 — 회귀 격리.
             setBatchPicker({
               type: type,
               text: text!,
@@ -2493,11 +2480,11 @@ export class AppState {
             });
             return;
           }
-          setSceneSelector({
+          setBatchPicker({
             type: type,
             text: text!,
             callback: (selected) => {
-              setSceneSelector(undefined);
+              setBatchPicker(undefined);
               handleBatchProcess(value!, selected);
             },
           });
@@ -2510,13 +2497,13 @@ export class AppState {
   @action
   openChangeResolutionMenu(
     type: 'scene' | 'inpaint',
-    setSceneSelector: (item: SceneSelectorItem | undefined) => void,
+    setBatchPicker: (item: BatchPickerItem | undefined) => void,
   ) {
-    setSceneSelector({
+    setBatchPicker({
       type: type,
       text: '🖥️ 해상도 변경할 씬 선택',
       callback: async (selected) => {
-        setSceneSelector(undefined);
+        setBatchPicker(undefined);
         if (selected.length === 0) return;
         const options = Object.entries(resolutionMap)
           .filter((x) => !x[0].includes('small'))
