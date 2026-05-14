@@ -94,7 +94,8 @@ echo "  → version=$VERSION gitHash=$HASH"
 
 echo "🔄 서버 재시작..."
 if command -v pm2 &> /dev/null && pm2 describe "$PM2_NAME" &> /dev/null; then
-    pm2 restart "$PM2_NAME"
+    # --update-env: .env.local export 값을 daemon에 재주입 (ecosystem PORT/URL_PREFIX 갱신)
+    pm2 restart "$PM2_NAME" --update-env
     echo "✓ pm2로 재시작 완료 ($PM2_NAME)"
 else
     echo "ℹ️  pm2 미사용 환경 — 서버를 수동으로 재시작해주세요."
