@@ -11,6 +11,26 @@ fi
 PORT="${PORT:-6247}"
 PM2_NAME="${NAI_PM2_NAME:-$(basename "$PWD")}"
 
+# version.json 파싱 — VERSION/SDSBASE 갱신. git pull 후 재호출 가능.
+read_version_json() {
+    VERSION="?"
+    SDSBASE="?"
+    [ -f version.json ] || return 0
+    local out
+    if out=$(python3 -c "
+import json
+try:
+    d = json.load(open('version.json'))
+    print(d.get('version','?'), d.get('sdstudioBase','?'))
+except Exception:
+    print('?', '?')
+" 2>/dev/null); then
+        VERSION="${out%% *}"
+        SDSBASE="${out#* }"
+    fi
+}
+read_version_json
+
 echo "🔍 최신 버전 확인 중..."
 git fetch origin main --quiet
 
@@ -26,10 +46,7 @@ fi
 
 if [ "$LOCAL" = "$REMOTE" ] && [ "$BUILT_HASH" = "$LOCAL_SHORT" ]; then
     echo "✓ 이미 최신 버전이고 빌드도 동기화됨."
-    if [ -f version.json ]; then
-        VERSION=$(python3 -c "import json; print(json.load(open('version.json'))['version'])" 2>/dev/null || echo "?")
-        echo "  버전: v$VERSION (gitHash=$LOCAL_SHORT)"
-    fi
+    echo "  버전: v$VERSION (gitHash=$LOCAL_SHORT)"
     exit 0
 fi
 
@@ -68,12 +85,12 @@ cd ..
 
 echo "📋 build-info.json 갱신..."
 HASH=$(git rev-parse --short HEAD)
-VER=$(python3 -c "import json; print(json.load(open('version.json'))['version'])" 2>/dev/null || echo "?")
-SDSBASE=$(python3 -c "import json; print(json.load(open('version.json'))['sdstudioBase'])" 2>/dev/null || echo "?")
+# git pull 이후 version.json이 갱신됐을 수 있어 재파싱
+read_version_json
 cat > public/build-info.json <<EOF
-{"buildTime":"$(date -u '+%Y-%m-%dT%H:%M:%SZ')","gitHash":"$HASH","version":"$VER","sdstudioBase":"$SDSBASE"}
+{"buildTime":"$(date -u '+%Y-%m-%dT%H:%M:%SZ')","gitHash":"$HASH","version":"$VERSION","sdstudioBase":"$SDSBASE"}
 EOF
-echo "  → version=$VER gitHash=$HASH"
+echo "  → version=$VERSION gitHash=$HASH"
 
 echo "🔄 서버 재시작..."
 if command -v pm2 &> /dev/null && pm2 describe "$PM2_NAME" &> /dev/null; then
@@ -84,8 +101,5 @@ else
     echo "   (예: node server.js)"
 fi
 
-if [ -f version.json ]; then
-    NEW=$(python3 -c "import json; print(json.load(open('version.json'))['version'])" 2>/dev/null || echo "?")
-    echo ""
-    echo "✓ 업데이트 완료: v$NEW"
-fi
+echo ""
+echo "✓ 업데이트 완료: v$VERSION"
