@@ -44,7 +44,7 @@ const SessionSelect = observer(() => {
     // 인터넷 느릴 때 "무반응" 인상 해소. fetch 응답 도착 시 curSession set.
     appState.pushMessage(`프로젝트 "${name}" 로딩 중…`);
     sessionService
-      .get(name, { throwOnError: true })
+      .get(name, { throwOnError: true, retry: true })
       .then((session) => {
         // 도착 사이 다른 선택이 들어왔으면 이 결과는 버림.
         if (pendingSelectionRef.current !== name) return;

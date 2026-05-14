@@ -7,6 +7,16 @@ export interface Serealizable {
   toJSON(): any;
 }
 
+// readFile 재시도 간격. 첫 실패 후 500ms, 두 번째 실패 후 1500ms 대기 (총 시도 3회).
+const READ_RETRY_DELAYS_MS = [500, 1500];
+
+// 4xx는 파일 없음/권한 등 영속 에러라 재시도 무의미. 그 외(timeout, 5xx,
+// fetch reject)는 네트워크 일시 장애로 간주하고 재시도.
+function isTransientReadError(e: any): boolean {
+  const msg = String(e?.message ?? e);
+  return !/^API error 4\d\d/.test(msg);
+}
+
 export abstract class ResourceSyncService<
   T extends Serealizable,
 > extends EventTarget {
@@ -123,11 +133,11 @@ export abstract class ResourceSyncService<
 
   async get(
     name: string,
-    opts?: { throwOnError?: boolean },
+    opts?: { throwOnError?: boolean; retry?: boolean },
   ): Promise<T | undefined> {
     if (!(name in this.resources)) {
       try {
-        const str = await backend.readFile(this.getPath(name));
+        const str = await this.readFileWithRetry(name, opts?.retry === true);
         let obj = JSON.parse(str);
         obj = await this.migrate(obj);
         obj = await this.fillEmptyPresetVars(obj);
@@ -143,6 +153,25 @@ export abstract class ResourceSyncService<
       }
     }
     return this.resources[name];
+  }
+
+  private async readFileWithRetry(
+    name: string,
+    retry: boolean,
+  ): Promise<string> {
+    const path = this.getPath(name);
+    if (!retry) return backend.readFile(path);
+    let lastErr: any;
+    for (let attempt = 0; attempt <= READ_RETRY_DELAYS_MS.length; attempt++) {
+      if (attempt > 0) await sleep(READ_RETRY_DELAYS_MS[attempt - 1]);
+      try {
+        return await backend.readFile(path);
+      } catch (e: any) {
+        lastErr = e;
+        if (!isTransientReadError(e)) throw e;
+      }
+    }
+    throw lastErr;
   }
 
   async update() {
