@@ -5,7 +5,10 @@
 # 1. tmp/exports: 7일 이상 된 파일 삭제
 # 2. fastcache: 30일 이상 안 쓴 썸네일 삭제 (재생성 가능, 무한 누적 회피)
 
-DATA_DIR="$HOME/nai-studio-2/data"
+# 스크립트 자기 위치 기반 — cron 환경에서 $HOME unset 가능성 회피
+# (Phase 9 deploy dir rename 후 무성 실패 사례 참조).
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DATA_DIR="$SCRIPT_DIR/data"
 
 # tmp/exports 7일 이상 정리
 for DIR in "$DATA_DIR/tmp" "$DATA_DIR/exports"; do
