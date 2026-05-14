@@ -2,10 +2,13 @@ import { backend } from '.';
 
 export class LoginService extends EventTarget {
   loggedIn: boolean;
+  // constructor의 async refresh()가 끝나기 전에 consumer가 loggedIn 읽으면
+  // false (옛 값)로 잠시 UI flash. ResourceSyncService.dummyReady와 동일 패턴.
+  refreshReady: Promise<void>;
   constructor() {
     super();
     this.loggedIn = false;
-    this.refresh();
+    this.refreshReady = this.refresh();
   }
 
   async login(email: string, password: string) {

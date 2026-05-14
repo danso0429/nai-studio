@@ -888,7 +888,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const [loggedIn, setLoggedIn] = useState(false);
   useEffect(() => {
     const onChange = () => setLoggedIn(loginService.loggedIn);
-    onChange();
+    // race fix: constructor refresh가 끝난 후 첫 setLoggedIn → UI flash 회피.
+    loginService.refreshReady.then(onChange);
     loginService.addEventListener('change', onChange);
     return () => loginService.removeEventListener('change', onChange);
   }, []);

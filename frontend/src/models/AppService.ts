@@ -1239,23 +1239,33 @@ export class AppState {
         finalPrefix = finalPrefix.replace(replacer, separator);
       }
       const isMirror = scene.type === 'inpaint' && (scene as InpaintScene).workflowType === 'SDMirror';
-      for (let i = 0; i < images.length; i++) {
-        let srcPath = imageService.getOutputDir(session, scene) + '/' + images[i];
-        if (isMirror) {
-          // SDMirror 결과는 RHS만 잘라 사용. Canvas API 필요 → 클라 단에서 tmp 파일 생성.
-          const imgData = await imageService.fetchImage(srcPath);
-          if (imgData) {
-            const cropped = await cropMirrorResultFromDataUri(imgData, (scene as InpaintScene).mirrorCropX);
-            const tmpPath = 'tmp/' + v4() + '.png';
-            await backend.writeDataFile(tmpPath, cropped);
-            srcPath = tmpPath;
+      const mirrorCropX = isMirror ? (scene as InpaintScene).mirrorCropX : 0;
+      const baseDir = imageService.getOutputDir(session, scene);
+      // SDMirror: fetchImage + crop + writeDataFile per image — 직렬 시 N×지연. 청크 4 병렬화.
+      // 일반 (mirror 아님): IO 없이 path 빌드만이라 직렬 그대로.
+      const CHUNK = isMirror ? 4 : images.length;
+      const built: Array<{ srcPath: string; finalName: string } | null> = new Array(images.length);
+      for (let i = 0; i < images.length; i += CHUNK) {
+        const slice = images.slice(i, i + CHUNK);
+        await Promise.all(slice.map(async (image, k) => {
+          const idx = i + k;
+          let srcPath = baseDir + '/' + image;
+          if (isMirror) {
+            const imgData = await imageService.fetchImage(srcPath);
+            if (imgData) {
+              const cropped = await cropMirrorResultFromDataUri(imgData, mirrorCropX);
+              const tmpPath = 'tmp/' + v4() + '.png';
+              await backend.writeDataFile(tmpPath, cropped);
+              srcPath = tmpPath;
+            }
           }
-        }
-        const baseName = images.length === 1
-          ? finalPrefix + sceneName
-          : finalPrefix + sceneName + separator + (i + 1).toString();
-        items.push({ srcPath, finalName: baseName + finalExt });
+          const baseName = images.length === 1
+            ? finalPrefix + sceneName
+            : finalPrefix + sceneName + separator + (idx + 1).toString();
+          built[idx] = { srcPath, finalName: baseName + finalExt };
+        }));
       }
+      for (const it of built) if (it) items.push(it);
     }
     return items;
   }

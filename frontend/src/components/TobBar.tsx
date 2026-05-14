@@ -25,7 +25,8 @@ const TobBar = () => {
         } catch (e) {}
       })();
     };
-    onChange();
+    // race fix: constructor refresh가 끝난 후 첫 setLoggedIn → UI flash 회피.
+    loginService.refreshReady.then(onChange);
     loginService.addEventListener('change', onChange);
     taskQueueService.addEventListener('complete', onChange);
     imageService.addEventListener('encode-vibe', onChange);
