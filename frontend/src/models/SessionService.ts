@@ -281,6 +281,12 @@ export class SessionService extends ResourceSyncService<Session> {
     return rc;
   }
 
+  // dummy = prototype access만 필요한 빈 인스턴스. importDefaultPresets 호출 X
+  // (P12 #8 인터넷 느린 환경 cascade 회피). add()는 createDefault로 계속 갈래.
+  createDummy(): Session {
+    return new Session();
+  }
+
   async createDefault(name: string) {
     const newSession = Session.fromJSON({
       name: name,

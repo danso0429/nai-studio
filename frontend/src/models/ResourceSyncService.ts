@@ -30,11 +30,15 @@ export abstract class ResourceSyncService<
   resourceDir: string;
   updateInterval: number;
   running: boolean;
-  dummy: T | undefined;
-  // dummy 초기화는 async라서 cold start에서 첫 get() 호출이 dummy 초기화보다 빨리
-  // 실행될 수 있음 (race condition → "undefined is not an object: this.dummy.fromJSON").
-  // get()/createFrom()에서 await dummyReady로 sequencing 보장.
-  private dummyReady: Promise<void>;
+  // dummy는 sync 초기화 — 본인 페인 (P12 #8, 인터넷 느린 환경): 옛 흐름은
+  // createDefault('dummy')로 dummy 만들었는데 SessionService의 createDefault는
+  // importDefaultPresets (globalPresetService.load + 1~1.4MB defaultassets 3개
+  // fetch) 호출 → 인터넷 느린 환경에서 fetch 실패 시 dummyReady Promise 영구
+  // reject → 후속 모든 get()의 await this.dummyReady에서 throw → **모든 프로젝트
+  // load 실패 cascade.** 본질: dummy는 prototype access (this.dummy.fromJSON)용
+  // 빈 인스턴스만 필요. 무거운 default presets 임포트 불필요. 별도 createDummy()
+  // sync 메소드로 분리, race fix(dummyReady)도 자연 해소.
+  dummy: T;
   constructor(resourceDir: string, interval: number) {
     super();
     this.resources = {};
@@ -49,11 +53,12 @@ export abstract class ResourceSyncService<
     // 인터넷 느릴 때 첫 update() 응답 전에 마지막 리스트 즉시 표시.
     // 백그라운드 update() 도착 시 saveCache로 갱신 + listupdated dispatch.
     this.loadCache();
-    this.dummyReady = (async () => {
-      this.dummy = await this.createDefault('dummy');
-    })();
+    this.dummy = this.createDummy();
   }
 
+  // dummy 인스턴스 — prototype access만 필요. 빈 인스턴스 반환.
+  abstract createDummy(): T;
+  // 사용자 명시 새 리소스 생성 (add()) 용 — 기본값/프리셋 포함. 무거운 I/O 허용.
   abstract createDefault(name: string): T | Promise<T>;
   abstract getHook(rc: T, name: string): Promise<void>;
   abstract migrate(rc: any): any | Promise<any>;
@@ -141,12 +146,11 @@ export abstract class ResourceSyncService<
   ): Promise<T | undefined> {
     if (!(name in this.resources)) {
       try {
-        await this.dummyReady; // race fix
         const str = await this.readFileWithRetry(name, opts?.retry === true);
         let obj = JSON.parse(str);
         obj = await this.migrate(obj);
         obj = await this.fillEmptyPresetVars(obj);
-        this.resources[name] = this.dummy!.fromJSON(obj);
+        this.resources[name] = this.dummy.fromJSON(obj);
         await this.onAdded(name);
         this.dispatchEvent(
           new CustomEvent<{ name: string }>('fetched', { detail: { name } }),
@@ -204,9 +208,8 @@ export abstract class ResourceSyncService<
     if (name in this.resources) {
       throw new Error('Resource already exists');
     }
-    await this.dummyReady; // race fix
     value = await this.migrate(value);
-    this.resources[name] = this.dummy!.fromJSON(value);
+    this.resources[name] = this.dummy.fromJSON(value);
     await this.onAdded(name);
     this.#markUpdated(name);
     await this.update();
