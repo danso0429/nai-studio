@@ -1238,6 +1238,21 @@ app.get('/api/version', (req, res) => {
   res.json({ version: '2.0.0-web' });
 });
 
+// ─── API: Client perf ───────────────────────────────────────────────
+// 클라이언트 performance.mark/measure 결과 수신용 sink. sendBeacon으로 호출돼
+// pm2 logs에 console.log로 노출. Blob(application/json) 또는 plain text 둘 다 cover.
+app.post('/api/client-perf', express.text({ type: '*/*', limit: '64kb' }), (req, res) => {
+  try {
+    const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    const body = JSON.parse(raw);
+    console.log('[client-perf]', raw);
+    void body;
+  } catch (e) {
+    console.log('[client-perf:parse-err]', e.message, String(req.body).slice(0, 200));
+  }
+  res.status(204).end();
+});
+
 // ─── API: Auth ──────────────────────────────────────────────────────
 app.post('/api/auth/login', async (req, res) => {
   try {
