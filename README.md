@@ -159,7 +159,17 @@ node --version    # v20.x.x 떠야 함
 
 ### Step 2. SDStudio Remote 다운로드 + 빌드
 
-다음 5줄을 그대로 붙여넣으세요 (기본값으로 진행). 시간 1~3분.
+다음 2줄만 붙여넣으세요. `setup.sh`가 자동으로 .env.local 준비 + 의존성 설치 + 빌드를 다 해줘요 (총 3~5분).
+
+```bash
+cd ~ && git clone https://github.com/danso0429/nai-studio.git && cd nai-studio
+./setup.sh
+```
+
+다른 경로/포트 원하면 `setup.sh` 실행 전에 `nano .env.local` 편집(기본값 `PORT=6247`, `URL_PREFIX=/studio`), 또는 실행 후 편집하고 `./setup.sh` 다시 돌리면 돼요. 재실행 안전(기존 .env.local 보존).
+
+<details>
+<summary>setup.sh 안 쓰고 수동으로 단계별 보고 싶으면 여기 펼치기</summary>
 
 ```bash
 cd ~ && git clone https://github.com/danso0429/nai-studio.git && cd nai-studio
@@ -167,12 +177,11 @@ cp .env.example .env.local
 npm install
 (cd frontend && npm install && npx vite build --emptyOutDir)
 ```
-
-기본값: `PORT=6247`, `URL_PREFIX=/studio`, `VITE_BASE_PATH=/studio/` → 추후 `https://your-host/studio` 경로로 노출. 다른 경로/포트 원하면 `nano .env.local`로 편집 후 마지막 줄(vite build) 다시 실행.
+</details>
 
 > **왜 `.env.local`을 빌드 전에 만들어야 하나요?**
 >
-> vite는 빌드 시 `VITE_BASE_PATH`를 산출물 HTML/JS에 박아넣어요. `URL_PREFIX`는 서버가 들어오는 요청 URL에서 같은 prefix를 strip해서 정적 파일을 찾을 때 사용해요. **둘이 일치하지 않으면 404**가 떠요. `.env.example` 기본값 그대로면 둘 다 `/studio`로 자동 일치.
+> vite는 빌드 시 `VITE_BASE_PATH`를 산출물 HTML/JS에 박아넣어요. `URL_PREFIX`는 서버가 들어오는 요청 URL에서 같은 prefix를 strip해서 정적 파일을 찾을 때 사용해요. **둘이 일치하지 않으면 404**가 떠요. `.env.example` 기본값 그대로면 둘 다 `/studio`로 자동 일치. `setup.sh`가 이 순서 자동 처리.
 
 ### Step 3. NovelAI 토큰 받아서 저장
 
