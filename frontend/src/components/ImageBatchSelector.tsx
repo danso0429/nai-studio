@@ -1,5 +1,4 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FixedSizeGrid as Grid, GridChildComponentProps, areEqual } from 'react-window';
+import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
 import {
   FaCheck,
   FaCheckSquare,
@@ -12,16 +11,18 @@ import {
 } from 'react-icons/fa';
 import { isMobile } from '../models';
 import { getThumbURL } from '../backends/serverBackend';
-import { CustomScrollbars } from './UtilComponents';
 
-// 이미지 다중 선택 + 액션 일괄 적용 전용 overlay. 본인 페인 (D1, P12 #8): 기존
-// ResultViewer in-place select mode 토글이 모바일에서 0.5초 hang 유발 — 토글 시
-// 부모 ResultViewer + Tooltip 다수 + ImageGallery + 모든 Cell까지 재구성 chain.
+// 이미지 다중 선택 + 액션 일괄 적용 전용 overlay. 본인 페인 (D1, P12 #8 + P13):
+// 기존 ResultViewer in-place select mode 토글이 모바일에서 0.5초 hang 유발 → 1차
+// 재설계(3a37ab4)로 전용 컴포넌트 swap + react-window 가상화 박았지만 본인 환경
+// 0.5초 잔존.
 //
-// BatchItemSelector swap (P12 #6) 패턴 그대로 적용 — 전용 overlay 컴포넌트 + 4축
-// 흡수 (touch-manipulation / mount refresh 없음 / Set<string> 검사 / Cell memo +
-// stable callbacks). selection state는 overlay 안에서만 살아 ResultViewer는 mode
-// 전환 자체를 모름 → 토글 hang 원천 제거.
+// 본인 단서 (P13 L3): "씬 선택창(BatchItemSelector)에서 고쳐진 걸 참고". 진단 결과
+// BatchItemSelector는 가상화 없이 flex-wrap + Thumbnail skeleton 패턴이라 iOS
+// Safari에서 portal mount + Grid reconcile + cell 18~24 paint 단계 없음. 같은
+// 패턴으로 ImageBatchSelector 재작성 — react-window 제거 + CSS grid + img native
+// lazy/async decoding. 모든 cell mount이지만 brower native layout이 react-window
+// reconcile보다 빠른 게 본인 환경 측정 결과.
 
 export interface ImageBatchAction {
   // 버튼 라벨/툴팁
@@ -52,77 +53,69 @@ export interface ImageBatchSelectorProps {
   isMainImage?: (path: string) => boolean;
   // 북마크 표시용 (옵션).
   bookmarkedImagePath?: string;
-  // 썸네일 크기 px. 모바일 viewport에 맞춰 cell 폭/높이 계산.
+  // 썸네일 크기 px (서버 thumb 요청 size). P13 initialThumbSize 값 받음.
   thumbSize?: number;
 }
 
-interface CellData {
-  paths: string[];
-  selected: Set<string>;
-  toggleSelect: (path: string) => void;
-  columnCount: number;
+interface ImageCellProps {
+  path: string;
   thumbSize: number;
-  isMainImage?: (path: string) => boolean;
-  bookmarkedImagePath?: string;
+  selected: boolean;
+  onToggle: (path: string) => void;
+  isMain: boolean;
+  isBookmarked: boolean;
 }
 
-function CellInner({ rowIndex, columnIndex, style, data }: GridChildComponentProps) {
-  const d = data as CellData;
-  const index = rowIndex * d.columnCount + columnIndex;
-  const path = d.paths[index];
-  if (!path) return <div style={style} />;
-  const isSel = d.selected.has(path);
-  const isMain = !!(d.isMainImage && d.isMainImage(path));
-  const isBookmarked = d.bookmarkedImagePath === path;
-  const thumbSrc = getThumbURL(path, d.thumbSize);
+function ImageCellInner({
+  path,
+  thumbSize,
+  selected,
+  onToggle,
+  isMain,
+  isBookmarked,
+}: ImageCellProps): React.ReactElement {
+  const handleClick = useCallback(() => onToggle(path), [path, onToggle]);
+  const thumbSrc = getThumbURL(path, thumbSize);
   return (
-    <div style={style} className="p-1">
-      <button
-        type="button"
-        onClick={() => d.toggleSelect(path)}
-        className={
-          'relative w-full h-full touch-manipulation cursor-pointer rounded overflow-hidden ' +
-          (isSel
-            ? 'ring-2 ring-sky-500 bg-sky-50 dark:bg-sky-900/30'
-            : 'bg-gray-100 dark:bg-slate-800 border border-gray-300 dark:border-slate-600')
-        }
-      >
-        <img
-          src={thumbSrc}
-          draggable={false}
-          decoding="async"
-          loading="lazy"
-          className="w-full h-full object-contain bg-checkboard"
-          alt=""
-        />
-        {isMain && (
-          <div className="absolute left-1 top-1 text-yellow-400 drop-shadow text-sm">
-            <FaStar />
-          </div>
-        )}
-        {isBookmarked && (
-          <div className="absolute right-1 top-1 text-orange-500 drop-shadow text-sm">
-            <FaCheck />
-          </div>
-        )}
-        {/* 선택 indicator — 우하단 체크박스 + 선택 시 sky tint */}
-        <div className="absolute right-1 bottom-1 text-white drop-shadow-lg text-lg">
-          {isSel ? <FaCheckSquare /> : <FaRegSquare className="opacity-60" />}
+    <button
+      type="button"
+      onClick={handleClick}
+      className={
+        'relative aspect-square touch-manipulation cursor-pointer rounded overflow-hidden ' +
+        (selected
+          ? 'ring-2 ring-sky-500 bg-sky-50 dark:bg-sky-900/30'
+          : 'bg-gray-100 dark:bg-slate-800 border border-gray-300 dark:border-slate-600')
+      }
+    >
+      <img
+        src={thumbSrc}
+        draggable={false}
+        decoding="async"
+        loading="lazy"
+        className="w-full h-full object-contain bg-checkboard"
+        alt=""
+      />
+      {isMain && (
+        <div className="absolute left-1 top-1 text-yellow-400 drop-shadow text-sm">
+          <FaStar />
         </div>
-        {isSel && (
-          <div className="absolute inset-0 bg-sky-500/20 pointer-events-none" />
-        )}
-      </button>
-    </div>
+      )}
+      {isBookmarked && (
+        <div className="absolute right-1 top-1 text-orange-500 drop-shadow text-sm">
+          <FaCheck />
+        </div>
+      )}
+      {/* 선택 indicator — 우하단 체크박스 + 선택 시 sky tint */}
+      <div className="absolute right-1 bottom-1 text-white drop-shadow-lg text-lg">
+        {selected ? <FaCheckSquare /> : <FaRegSquare className="opacity-60" />}
+      </div>
+      {selected && (
+        <div className="absolute inset-0 bg-sky-500/20 pointer-events-none" />
+      )}
+    </button>
   );
 }
-const Cell = memo(CellInner, areEqual);
-
-const CustomScrollbarsVirtualGrid = memo(
-  React.forwardRef((props: any, ref) => (
-    <CustomScrollbars {...props} forwardedRef={ref} />
-  )),
-);
+const ImageCell = memo(ImageCellInner);
 
 function ImageBatchSelector({
   title,
@@ -139,39 +132,7 @@ function ImageBatchSelector({
     () => new Set(initialSelected ?? []),
   );
 
-  // 컨테이너 크기 측정 — ResizeObserver로 mount + 회전 대응. 첫 render는
-  // window.innerWidth/innerHeight - 헤더 영역 근사로 sync 초기화 → Grid 첫
-  // frame에 렌더. ResizeObserver fire 시 실제 컨테이너 폭으로 보정 (모바일
-  // 0.5초 hang 회피, P13 #4 후속).
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [containerSize, setContainerSize] = useState<{ w: number; h: number }>(
-    () => ({
-      w: typeof window !== 'undefined' ? window.innerWidth : 0,
-      h:
-        typeof window !== 'undefined'
-          ? Math.max(200, window.innerHeight - 220)
-          : 0,
-    }),
-  );
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const ro = new ResizeObserver((entries) => {
-      for (const e of entries) {
-        setContainerSize({ w: e.contentRect.width, h: e.contentRect.height });
-      }
-    });
-    ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, []);
-
-  // 썸네일 cell 폭/높이. 모바일은 화면 1/3, 데스크탑은 prop 또는 200.
-  const baseSize = thumbSize ?? (isMobile ? 200 : 240);
-  const cellSize = isMobile ? Math.min(baseSize, Math.floor(containerSize.w / 3) - 8) : baseSize;
-  const columnCount = Math.max(1, Math.floor(containerSize.w / cellSize));
-  const rowCount = Math.ceil(imagePaths.length / columnCount);
-
-  // 안정 stable toggle — useCallback([]) + ref로 selected 최신 접근. 매 render 새
-  // closure 만들면 memo(Cell)이 무효화 → 모든 cell 재렌더. P12 #6 4축 흡수.
+  // 안정 stable toggle — useCallback([])로 memo(ImageCell) 무효화 회피.
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const toggleSelect = useCallback((path: string) => {
@@ -188,20 +149,6 @@ function ImageBatchSelector({
   }, [imagePaths]);
   const clearAll = useCallback(() => setSelected(new Set()), []);
 
-  // memoizeOne 없이 useMemo로 itemData stable 유지. 모든 dep이 stable이면 동일 ref.
-  const itemData = useMemo<CellData>(
-    () => ({
-      paths: imagePaths,
-      selected,
-      toggleSelect,
-      columnCount,
-      thumbSize: cellSize,
-      isMainImage,
-      bookmarkedImagePath,
-    }),
-    [imagePaths, selected, toggleSelect, columnCount, cellSize, isMainImage, bookmarkedImagePath],
-  );
-
   // 액션 실행 wrapper — 선택 array snapshot으로 콜백 호출, closeAfter true면 닫음.
   const runAction = useCallback(
     async (action: ImageBatchAction) => {
@@ -214,6 +161,17 @@ function ImageBatchSelector({
     },
     [onClose],
   );
+
+  // isMainImage / bookmarkedImagePath는 prop으로 받지만 ImageCell엔 boolean으로
+  // 풀어서 전달 — function reference 변경 시 memo 무효화 회피.
+  const mainSet = useMemo(() => {
+    if (!isMainImage) return null;
+    const s = new Set<string>();
+    for (const p of imagePaths) if (isMainImage(p)) s.add(p);
+    return s;
+  }, [imagePaths, isMainImage]);
+
+  const effectiveThumbSize = thumbSize ?? (isMobile ? 200 : 240);
 
   return (
     <div className="touch-manipulation w-full h-full flex flex-col bg-white dark:bg-slate-900 text-default">
@@ -247,25 +205,31 @@ function ImageBatchSelector({
           {selected.size} / {imagePaths.length} 선택됨
         </span>
       </div>
-      <div ref={containerRef} className="flex-1 overflow-hidden">
-        {containerSize.w > 0 && containerSize.h > 0 && imagePaths.length > 0 && (
-          <Grid
-            columnCount={columnCount}
-            columnWidth={cellSize}
-            height={containerSize.h}
-            rowCount={rowCount}
-            rowHeight={cellSize}
-            width={containerSize.w}
-            itemData={itemData}
-            outerElementType={CustomScrollbarsVirtualGrid}
-            overscanRowCount={isMobile ? 2 : 4}
-          >
-            {Cell}
-          </Grid>
-        )}
-        {imagePaths.length === 0 && (
+      <div className="flex-1 overflow-y-auto p-1">
+        {imagePaths.length === 0 ? (
           <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
             이미지가 없습니다
+          </div>
+        ) : (
+          <div
+            className={
+              'grid gap-1 ' +
+              (isMobile
+                ? 'grid-cols-3'
+                : 'grid-cols-4 md:grid-cols-5 lg:grid-cols-6')
+            }
+          >
+            {imagePaths.map((path) => (
+              <ImageCell
+                key={path}
+                path={path}
+                thumbSize={effectiveThumbSize}
+                selected={selected.has(path)}
+                onToggle={toggleSelect}
+                isMain={!!(mainSet && mainSet.has(path))}
+                isBookmarked={bookmarkedImagePath === path}
+              />
+            ))}
           </div>
         )}
       </div>
