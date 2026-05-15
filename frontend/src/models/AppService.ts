@@ -193,6 +193,10 @@ export class AppState {
   // 씬 카드 디자인 설정
   @observable accessor classicSceneCard: boolean = false;
 
+  // 씬 그리드 초기 썸네일 크기. undefined면 화면 폭으로 자동 결정. ConfigScreen
+  // 에서 사용자가 명시 override 가능. App.tsx의 config-changed에서 sync.
+  @observable accessor initialThumbSize: number | undefined = undefined;
+
   // 자동완성 모드: false=커서 왼쪽만(기본), true=콤마 사이 전체 단어
   @observable accessor fullWordAutoComplete: boolean = (() => {
     return localStorage.getItem('sdstudio-full-word-autocomplete') === 'true';

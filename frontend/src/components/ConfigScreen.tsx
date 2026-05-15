@@ -483,6 +483,7 @@ const OtherTab = ({
   delayTime, setDelayTime,
   classicSceneCard, setClassicSceneCard,
   fullWordAc, setFullWordAc,
+  initialThumbSize, setInitialThumbSize,
 }: any) => {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
 
@@ -540,6 +541,27 @@ const OtherTab = ({
         <input type="checkbox" id="cfgFullWordAc" checked={fullWordAc}
           onChange={(e) => setFullWordAc(e.target.checked)} />
         <label htmlFor="cfgFullWordAc" className="text-sm gray-label">자동완성 시 콤마 사이 전체 단어 사용</label>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div>
+        <label className="block text-sm gray-label mb-1">
+          씬 그리드 초기 썸네일 크기
+        </label>
+        <select
+          className="rounded border border-gray-400 dark:border-slate-500 bg-white dark:bg-slate-800 px-2 py-1 text-sm"
+          value={initialThumbSize ?? 0}
+          onChange={(e) => setInitialThumbSize(parseInt(e.target.value))}
+        >
+          <option value={0}>자동 (화면 폭으로 결정)</option>
+          <option value={80}>80px (가장 작음 — 인터넷 매우 느릴 때)</option>
+          <option value={200}>200px (모바일 기본)</option>
+          <option value={400}>400px (태블릿 기본)</option>
+          <option value={500}>500px (데스크탑 기본)</option>
+        </select>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          자동: 화면 폭 480 미만 80 / 768 미만 200 / 1280 미만 400 / 이상 500.
+          인터넷 느린 환경에선 더 작게 설정하면 초기 로드 빨라요.
+        </p>
       </div>
       <hr className="border-gray-200 dark:border-slate-600" />
       <div>
@@ -821,6 +843,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const [whiteMode, setWhiteMode] = useState(false);
   const [delayTime, setDelayTime] = useState(0);
   const [classicSceneCard, setClassicSceneCard] = useState(false);
+  // 0 = 자동 (화면 폭 기반), 그 외 = 명시 크기.
+  const [initialThumbSize, setInitialThumbSize] = useState<number>(0);
   const [fullWordAc, setFullWordAc] = useState(appState.fullWordAutoComplete);
   const [useLocalBgRemoval, setUseLocalBgRemoval] = useState(false);
   const [refreshImage, setRefreshImage] = useState(false);
@@ -845,6 +869,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       setUseLocalBgRemoval(config.useLocalBgRemoval ?? false);
       setDelayTime(config.delayTime ?? 0);
       setClassicSceneCard(config.classicSceneCard ?? false);
+      setInitialThumbSize(config.initialThumbSize ?? 0);
       setSaveLocation(config.saveLocation ?? '');
     })();
     const checkReady = () => setReady(localAIService.ready);
@@ -954,10 +979,12 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       useLocalBgRemoval: useLocalBgRemoval,
       delayTime: delayTime,
       classicSceneCard: classicSceneCard,
+      initialThumbSize: initialThumbSize === 0 ? undefined : initialThumbSize,
     };
     await backend.setConfig(config);
     if (old.useCUDA !== useGPU) localAIService.modelChanged();
     appState.classicSceneCard = classicSceneCard;
+    appState.initialThumbSize = initialThumbSize === 0 ? undefined : initialThumbSize;
     appState.fullWordAutoComplete = fullWordAc;
     localStorage.setItem('sdstudio-full-word-autocomplete', fullWordAc ? 'true' : 'false');
     sessionService.configChanged();
@@ -987,7 +1014,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       case 2:
         return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage }} />;
       case 3:
-        return <OtherTab {...{ whiteMode, setWhiteMode, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, fullWordAc, setFullWordAc }} />;
+        return <OtherTab {...{ whiteMode, setWhiteMode, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize }} />;
       case 4:
         return <KeyBindingsTab />;
       default:

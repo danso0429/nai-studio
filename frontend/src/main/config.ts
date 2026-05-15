@@ -43,4 +43,10 @@ export interface Config {
   downloadSettings?: DownloadSettings;
   imageSaveSettings?: ImageSaveSettings;
   classicSceneCard?: boolean;
+  // 씬 카드(프로젝트 그리드) 초기 썸네일 크기. undefined면 화면 폭으로 자동 결정.
+  // 본인 페인 (P12 #8, 인터넷 느린 환경): 옛 흐름은 모바일 200 / 데스크탑 500
+  // 하드코딩이라 인터넷 느릴 때 초기 로드 무거움. 작은 폭 화면에서는 더 작은
+  // 크기로 출발 + 데스크탑 큰 화면 PC는 그대로 유지. 자동 override는 ConfigScreen.
+  // 후보 값: 80 / 200 / 400 / 500.
+  initialThumbSize?: number;
 }

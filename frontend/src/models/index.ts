@@ -31,6 +31,25 @@ export const backend = new ServerBackend();
 
 export const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
+// 화면 폭에 따른 자동 초기 썸네일 크기. 본인 페인 (P12 #8): 인터넷 느린 환경에서
+// 모바일 200 / 데스크탑 500 하드코딩이 무거움. 작은 화면 폰은 80, 폴드/태블릿
+// 200, 일반 데스크탑 400, 큰 데스크탑 500. 사용자가 Config에서 override 가능.
+// SSR/test env safety: window 없으면 200 default.
+export function autoDetectInitialThumbSize(): number {
+  if (typeof window === 'undefined') return 200;
+  const w = window.innerWidth;
+  if (w < 480) return 80;
+  if (w < 768) return 200;
+  if (w < 1280) return 400;
+  return 500;
+}
+
+// Config.initialThumbSize 우선, 없으면 autoDetect. 명시적 값이면 그대로 사용.
+export function getInitialThumbSize(configValue: number | undefined): number {
+  if (configValue && configValue > 0) return configValue;
+  return autoDetectInitialThumbSize();
+}
+
 export class ZipService extends EventTarget {
   isZipping: boolean;
   constructor() {

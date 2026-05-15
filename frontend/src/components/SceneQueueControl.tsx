@@ -25,6 +25,7 @@ import {
   workFlowService,
   trashService,
   promptService,
+  getInitialThumbSize,
 } from '../models';
 import {
   getMainImage,
@@ -950,9 +951,12 @@ const QueueControl = observer(
 
     // useCallback으로 reference stable. BatchItemSelector → ItemCard memo가
     // getImage prop reference 변경 시마다 무효화되어 모든 카드 re-render되던 문제 회피.
+    // 초기 썸네일 크기는 Config.initialThumbSize 우선, 없으면 화면 폭으로 자동 결정
+    // (본인 페인 P12 #8 — 인터넷 느린 환경에서 데스크탑 500 하드코딩이 무거움).
+    const thumbSize = getInitialThumbSize(appState.initialThumbSize);
     const getImage = useCallback(async (scene: GenericScene) => {
       if (scene.type === 'scene') {
-        const image = await getMainImage(curSession!, scene as Scene, 500);
+        const image = await getMainImage(curSession!, scene as Scene, thumbSize);
         if (!image) throw new Error('No image available');
         return image;
       } else {
@@ -963,7 +967,7 @@ const QueueControl = observer(
           imgPath,
         );
       }
-    }, [curSession]);
+    }, [curSession, thumbSize]);
 
     const cellSizes = ['스몰뷰', '미디엄뷰', '라지뷰'];
 

@@ -176,6 +176,7 @@ export const App = observer(() => {
       const conf = await backend.getConfig();
       setDarkMode(!conf.whiteMode);
       appState.classicSceneCard = conf.classicSceneCard ?? false;
+      appState.initialThumbSize = conf.initialThumbSize;
     };
     refreshDarkMode();
     sessionService.addEventListener('config-changed', refreshDarkMode);
