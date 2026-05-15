@@ -39,6 +39,7 @@ import { PromptHighlighter } from './SceneEditor';
 import QueueControl from './SceneQueueControl';
 import { FloatView } from './FloatView';
 import ImageBatchSelector, { ImageBatchAction } from './ImageBatchSelector';
+import { useLongPress } from './useLongPress';
 import memoizeOne from 'memoize-one';
 import { FaPlus, FaRegSquareCheck, FaCopy, FaPaste } from 'react-icons/fa6';
 import { useContextMenu } from 'react-contexify';
@@ -63,6 +64,7 @@ import {
   workFlowService,
   imageDownloadService,
   trashService,
+  getInitialThumbSize,
 } from '../models';
 import { dataUriToBase64, deleteImageFiles } from '../models/ImageService';
 import { getThumbURL } from '../backends/serverBackend';
@@ -397,6 +399,52 @@ const Cell = memo(
       id: ContextMenuType.GallaryImage,
     });
 
+    // iOS image longpress callout 충돌 회피 — 자체 longpress로 컨텍스트 메뉴 호출.
+    const imageLongPress = useLongPress({
+      onLongPress: (e, position) => {
+        if (!path) return;
+        show({
+          event: e,
+          position,
+          props: {
+            ctx: {
+              type: 'gallary_image',
+              path: [path],
+              scene: scene,
+              starable: true,
+            },
+          },
+        });
+      },
+    });
+    const overlayLongPress = useLongPress({
+      onLongPress: (e, position) => {
+        if (!path) return;
+        const cands: string[] = [];
+        const set = new Set<string>();
+        for (const image of filePaths) {
+          set.add(image);
+        }
+        for (const image of selectedImages) {
+          if (set.has(image)) {
+            cands.push(image);
+          }
+        }
+        show({
+          event: e,
+          position,
+          props: {
+            ctx: {
+              type: 'gallary_image',
+              path: cands,
+              scene: scene,
+              starable: true,
+            },
+          },
+        });
+      },
+    });
+
     const [{ isDragging }, drag, preview] = useDrag(
       () => ({
         type: 'image',
@@ -509,8 +557,10 @@ const Cell = memo(
                 style={{
                   maxWidth: cellSize,
                   maxHeight: cellSize,
+                  ...imageLongPress.callout,
                 }}
                 draggable={false}
+                {...imageLongPress.handlers}
                 onContextMenu={(e) => {
                   show({
                     event: e,
@@ -542,6 +592,8 @@ const Cell = memo(
               {selectedImages.has(path) && (
                 <div
                   className="absolute left-0 top-0 z-10 bg-sky-500 opacity-50 text-md w-full h-full"
+                  style={overlayLongPress.callout}
+                  {...overlayLongPress.handlers}
                   onContextMenu={(e) => {
                     const cands = [];
                     const set = new Set<string>();
@@ -942,6 +994,24 @@ const ResultDetailView = observer(
       id: ContextMenuType.Image,
     });
 
+    // iOS image longpress callout 회피 — 자체 longpress로 컨텍스트 메뉴.
+    const detailLongPress = useLongPress({
+      onLongPress: (e, position) => {
+        show({
+          event: e,
+          position,
+          props: {
+            ctx: {
+              type: 'image',
+              path: paths[selectedIndex],
+              scene: scene,
+              starable: true,
+            },
+          },
+        });
+      },
+    });
+
     const [bmRev2, setBmRev2] = useState(0);
     useEffect(() => {
       const onBmUpdate = () => setBmRev2(r => r + 1);
@@ -1111,6 +1181,8 @@ const ResultDetailView = observer(
             <img
               src={image}
               draggable={false}
+              style={detailLongPress.callout}
+              {...detailLongPress.handlers}
               onContextMenu={(e) => {
                 show({
                   event: e,
@@ -1572,6 +1644,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
               onClose={() => setImageBatchOpen(false)}
               isMainImage={isMainImage}
               bookmarkedImagePath={bookmarkedImagePath}
+              thumbSize={getInitialThumbSize(appState.initialThumbSize)}
             />
           </FloatView>
         )}
