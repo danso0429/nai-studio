@@ -138,8 +138,10 @@
   - 무료로 받으려면 **Oracle Cloud Always Free**의 ARM Ampere A1 추천 — 4 vCPU + 24GB RAM 무료 (이 프로젝트가 실제로 동작 중인 환경)
   - 한국어 가이드: [아카라이브 오라클 가이드](https://arca.live/b/characterai/137016430) + [할당량 부족 시 PAYG 업그레이드](https://arca.live/b/characterai/137100634)
   - **본 프로젝트와 다른 부분 (주의)**:
-    - 가이드의 **포트 6001**은 노드리스용. 본 프로젝트는 기본 **6247** → 보안 규칙(수신 규칙)에 6001 대신 **6247** 추가
+    - 가이드의 **포트 6001**은 노드리스용. 본 프로젝트는 기본 **6247** — 그런데 **인터넷에서 직접 접근할 게 아니라면 보안 규칙에 6247도 안 여는 게 안전** (Tailscale로만 접근하면 외부 노출 0)
     - 가이드의 4단계(RisuAI 설치) + 6단계(https 인증서)는 **SKIP**. 본 README의 [설치 단계](#설치-뉴비-친화-단계별)를 따라하세요
+    - **80/443 포트 인터넷 노출은 SDStudio Remote에 불필요해요.** 가이드가 80/443을 0.0.0.0/0으로 열라고 하는 건 RisuAI가 그 포트에서 자체 HTTPS 서버를 띄우기 때문. SDStudio Remote는 Tailscale serve가 *tailnet 내부 IP(100.x.x.x)에만* 443 바인딩 → Oracle 보안 그룹 외부 80/443은 빈 포트라 의미 없고, 닫는 게 공격 표면 최소화. (Tailscale 자체는 outbound UDP만 쓰므로 inbound 룰 필요 X)
+    - **결론**: SDStudio Remote만 운영하면 Oracle 수신 규칙에 **22(SSH)만 임시로**, Tailscale 동작 확인 후 22도 닫기. 80/443/6247 다 닫아도 됨.
     - 사양 추천: **2 CPU / 12 GB RAM** 또는 그 이상 (SDStudio Remote도 동일)
     - HTTPS는 본 프로젝트에서 **Tailscale serve로 자동 처리** (Let's Encrypt 불필요). 가이드의 self-signed 인증서는 안 만들어도 됨
 - **NovelAI 계정** + Persistent API Token (받는 방법은 아래 step 3에)
@@ -267,15 +269,18 @@ sudo tailscale serve --bg --https=443 --set-path=/studio http://localhost:6247
 
 > ### 🔒 더 안전하게 — 외부 포트 닫기 (선택)
 >
-> Tailscale이 잘 동작하면 **SSH(22번)도 Tailscale 통해 접근 가능**해서 외부 22번 포트는 닫아도 돼요. 보안 그룹에서 22번을 닫으면 인터넷의 brute-force SSH 공격 자체가 차단됩니다.
+> Tailscale이 잘 동작하면 **SSH(22번)도 Tailscale 통해 접근 가능**해서 외부 22번 포트는 닫아도 돼요. 보안 그룹에서 22번을 닫으면 인터넷의 brute-force SSH 공격 자체가 차단됩니다. **80/443/6247도 SDStudio Remote 운영엔 외부 노출 불필요해서 같이 닫는 게 안전.**
 >
 > **순서 (꼭 이 순서로!)**:
 > 1. 먼저 Tailscale 설치 완료 + SSH 접속 테스트: `ssh -i key ubuntu@<서버의 Tailscale 호스트명>.tailNNNNN.ts.net`
-> 2. Tailscale로 SSH 접속이 잘 되는지 확인 후
-> 3. Oracle Cloud 보안 그룹에서 **22번 포트 수신 규칙 삭제**
-> 4. 80, 443은 Tailscale serve 통한 HTTPS 노출에 필요하니 유지 (또는 Tailscale Funnel 사용 시 변경 가능)
+> 2. Tailscale로 SSH 접속 + 브라우저로 `https://<호스트명>.tailNNNNN.ts.net/studio` 둘 다 잘 되는지 확인 후
+> 3. Oracle Cloud 보안 그룹에서 **22 / 80 / 443 / 6247 수신 규칙 전부 삭제**
 >
-> 만약 Tailscale이 안 되는데 22번을 닫으면 서버 영영 못 들어가요. **반드시 Tailscale 동작 확인 후** 닫으세요.
+> **왜 80/443도 닫아도 되나?** Tailscale serve는 *Tailscale 인터페이스(`100.x.x.x:443`)에만* 바인딩되고 0.0.0.0:443에는 안 바인딩돼요 (`ss -tlnp`로 확인 가능). Tailscale 메쉬는 자체 outbound UDP(41641 등)로 NAT traversal — Oracle 보안 그룹 inbound 룰과 무관. 즉 외부 80/443/6247은 *빈 포트*라 닫아도 동작 영향 0 + 공격 표면 최소화.
+>
+> **Tailscale Funnel(인터넷 전체 노출)이나 다른 서비스(nginx 등)를 같은 인스턴스에서 운영하면** 그 서비스가 쓰는 포트만 보안 그룹에 추가하세요. SDStudio Remote만 쓸 거면 닫기.
+>
+> 만약 Tailscale이 안 되는데 22번을 닫으면 서버 영영 못 들어가요. **반드시 Tailscale SSH 동작 확인 후** 닫으세요.
 
 ### Step 7. 태그 자동완성 활성화 (선택)
 
