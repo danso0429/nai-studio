@@ -2,6 +2,18 @@ import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 
 type SortMode = 'original' | 'asc' | 'desc';
 
+export interface BatchAction<T> {
+  label: string;
+  icon?: React.ReactNode;
+  // tailwind background class. 미지정 시 emerald (confirm 색).
+  back?: string;
+  // 0건일 때 disable 할지 (기본 true).
+  requiresSelection?: boolean;
+  onAction: (selected: T[]) => void | Promise<void>;
+  // 호출 후 selector 닫을지 (기본 false — destructive 가드 등은 callback 안에서 명시 close).
+  closeAfter?: boolean;
+}
+
 interface BatchItemSelectorProps<T> {
   title: string;
   items: T[];
@@ -12,9 +24,16 @@ interface BatchItemSelectorProps<T> {
   // 외부 invalidation 신호. 값이 바뀌면 모든 썸네일 재패치.
   // models 레이어 'updated' 이벤트는 부모에서 카운터로 변환해 내려줌.
   imageRevision?: number;
-  onConfirm: (selected: T[]) => void;
+  // 단일 confirm 흐름 (씬 선택창 등). actions와 둘 중 하나.
+  onConfirm?: (selected: T[]) => void;
   onCancel?: () => void;
   confirmLabel?: string;
+  // 다중 액션 흐름 (이미지 선택 모드 등 — confirm 단일 대신 액션 array).
+  actions?: BatchAction<T>[];
+  // 처음 선택 상태 (옵션, 없으면 빈 Set).
+  initialSelected?: Set<string>;
+  // 라벨 표시 여부 (기본 true). 이미지 그리드 등 라벨 불필요 케이스에서 false.
+  showLabel?: boolean;
 }
 
 interface ThumbnailProps<T> {
@@ -71,6 +90,7 @@ interface ItemCardProps<T> {
   onToggle: (id: string) => void;
   getImage?: (item: T) => Promise<string | null>;
   imageRevision?: number;
+  showLabel: boolean;
 }
 
 function ItemCardInner<T>({
@@ -81,6 +101,7 @@ function ItemCardInner<T>({
   onToggle,
   getImage,
   imageRevision,
+  showLabel,
 }: ItemCardProps<T>): React.ReactElement {
   const handleClick = useCallback(() => onToggle(id), [id, onToggle]);
   return (
@@ -102,9 +123,11 @@ function ItemCardInner<T>({
           alt={label}
         />
       )}
-      <div className="h-12 w-full overflow-auto break-all text-sm text-left pt-1">
-        {label}
-      </div>
+      {showLabel && (
+        <div className="h-12 w-full overflow-auto break-all text-sm text-left pt-1">
+          {label}
+        </div>
+      )}
     </button>
   );
 }
@@ -121,9 +144,14 @@ function BatchItemSelector<T>(props: BatchItemSelectorProps<T>): React.ReactElem
     onConfirm,
     onCancel,
     confirmLabel,
+    actions,
+    initialSelected,
+    showLabel = true,
   } = props;
 
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(
+    () => new Set(initialSelected ?? []),
+  );
   const [sortMode, setSortMode] = useState<SortMode>('original');
 
   const sortedItems = useMemo(() => {
@@ -154,9 +182,20 @@ function BatchItemSelector<T>(props: BatchItemSelectorProps<T>): React.ReactElem
   }, []);
 
   const handleConfirm = useCallback(() => {
+    if (!onConfirm) return;
     const selected = items.filter((it) => selectedIds.has(getId(it)));
     onConfirm(selected);
   }, [items, selectedIds, getId, onConfirm]);
+
+  const runAction = useCallback(
+    async (a: BatchAction<T>) => {
+      const selected = items.filter((it) => selectedIds.has(getId(it)));
+      if (a.requiresSelection !== false && selected.length === 0) return;
+      await a.onAction(selected);
+      if (a.closeAfter && onCancel) onCancel();
+    },
+    [items, selectedIds, getId, onCancel],
+  );
 
   return (
     <div className="touch-manipulation p-2 md:p-4 flex flex-col h-full text-gray-800 dark:text-gray-100">
@@ -210,13 +249,14 @@ function BatchItemSelector<T>(props: BatchItemSelectorProps<T>): React.ReactElem
                 onToggle={toggle}
                 getImage={getImage}
                 imageRevision={imageRevision}
+                showLabel={showLabel}
               />
             );
           })}
         </div>
       </div>
 
-      <div className="flex-none flex gap-2 pt-2">
+      <div className="flex-none flex gap-2 pt-2 flex-wrap">
         {onCancel && (
           <button
             type="button"
@@ -226,13 +266,37 @@ function BatchItemSelector<T>(props: BatchItemSelectorProps<T>): React.ReactElem
             취소
           </button>
         )}
-        <button
-          type="button"
-          className="ml-auto rounded px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white"
-          onClick={handleConfirm}
-        >
-          {confirmLabel ?? '작업 적용'}
-        </button>
+        {actions && actions.length > 0 ? (
+          <div className="ml-auto flex gap-2 flex-wrap">
+            {actions.map((a, i) => (
+              <button
+                key={i}
+                type="button"
+                disabled={
+                  a.requiresSelection !== false && selectedIds.size === 0
+                }
+                className={
+                  'touch-manipulation round-button text-sm inline-flex items-center gap-1 ' +
+                  (a.back ?? 'back-emerald') +
+                  ' disabled:opacity-40 disabled:cursor-not-allowed'
+                }
+                onClick={() => runAction(a)}
+              >
+                {a.icon} {a.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          onConfirm && (
+            <button
+              type="button"
+              className="ml-auto rounded px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white"
+              onClick={handleConfirm}
+            >
+              {confirmLabel ?? '작업 적용'}
+            </button>
+          )
+        )}
       </div>
     </div>
   );

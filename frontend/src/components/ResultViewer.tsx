@@ -38,7 +38,7 @@ import {
 import { PromptHighlighter } from './SceneEditor';
 import QueueControl from './SceneQueueControl';
 import { FloatView } from './FloatView';
-import ImageBatchSelector, { ImageBatchAction } from './ImageBatchSelector';
+import BatchItemSelector, { BatchAction } from './BatchItemSelector';
 import { useLongPress } from './useLongPress';
 import memoizeOne from 'memoize-one';
 import { FaPlus, FaRegSquareCheck, FaCopy, FaPaste } from 'react-icons/fa6';
@@ -1555,7 +1555,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
 
     // 모바일 이미지 일괄 선택 액션 list — overlay에 prop으로 전달. 본인 페인 D1
     // 회귀 방지: 새 컴포넌트는 자체 selection state라 ResultViewer 재렌더 0회.
-    const imageBatchActions: ImageBatchAction[] = [
+    const imageBatchActions: BatchAction<string>[] = [
       {
         label: '즐겨찾기 토글',
         icon: <FaStar />,
@@ -1637,14 +1637,19 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
             priority={3}
             onEscape={() => setImageBatchOpen(false)}
           >
-            <ImageBatchSelector
+            <BatchItemSelector<string>
               title={`이미지 선택 — ${scene.name}`}
-              imagePaths={paths}
+              items={paths}
+              getId={(p) => p}
+              getLabel={(p) => p.split('/').pop() ?? p}
+              getImage={(p) =>
+                Promise.resolve(
+                  getThumbURL(p, getInitialThumbSize(appState.initialThumbSize)),
+                )
+              }
               actions={imageBatchActions}
-              onClose={() => setImageBatchOpen(false)}
-              isMainImage={isMainImage}
-              bookmarkedImagePath={bookmarkedImagePath}
-              thumbSize={getInitialThumbSize(appState.initialThumbSize)}
+              onCancel={() => setImageBatchOpen(false)}
+              showLabel={false}
             />
           </FloatView>
         )}
