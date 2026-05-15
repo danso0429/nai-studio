@@ -150,43 +150,53 @@ const SceneImporterDialog = observer(() => {
       setError('JSON 파싱 실패: ' + e.message);
       return;
     }
-    setLoading(true);
+    // 본인 페인 (P13 #6): "전송이 보고만 있어야 + 다른 조작 통제". apply는
+    // dialog 닫고 sticky 토스트 + 백그라운드 fetch + 결과 toast 패턴으로 전환
+    // (SessionSelect 로딩 토스트 패턴과 동일).
+    const body = {
+      ...parsed,
+      projectName: selectedProject,
+      policy,
+    };
+    const targetProject = selectedProject;
+    setPlan(null);
+    setJsonText('');
+    appState.closeSceneImporter();
+    const toastId = appState.pushMessage(
+      `씬 임포트 적용 중… (프로젝트 "${targetProject}")`,
+      { sticky: true },
+    );
     try {
-      const body = {
-        ...parsed,
-        projectName: selectedProject,
-        policy,
-      };
       const r = await fetch(apiUrl('/api/projects/import-scenes'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const d = await r.json();
+      appState.dismissMessage(toastId);
       if (!d.ok) {
-        setError(d.error || '적용 실패');
+        appState.pushMessage(
+          '✗ 씬 임포트 실패: ' + (d.error || '알 수 없는 오류'),
+        );
         return;
       }
       const appliedCount = d.plan?.applied?.length ?? 0;
       const skippedCount = d.plan?.skipped?.length ?? 0;
-      setResultMsg(
-        `✓ 적용됨 ${appliedCount}개 / 건너뜀 ${skippedCount}개 — 백업: ${d.backup}`,
+      appState.pushMessage(
+        `✓ 씬 임포트 완료 — 적용 ${appliedCount}개 / 건너뜀 ${skippedCount}개 (백업: ${d.backup})`,
       );
       // 현재 세션과 같은 프로젝트면 메모리 캐시 invalidate 후 재로딩
-      if (appState.curSession?.name === selectedProject) {
-        delete sessionService.resources[selectedProject];
-        const fresh = await sessionService.get(selectedProject);
+      if (appState.curSession?.name === targetProject) {
+        delete sessionService.resources[targetProject];
+        const fresh = await sessionService.get(targetProject);
         if (fresh) appState.curSession = fresh;
       } else {
         // 다른 프로젝트 캐시만 invalidate (다음 열 때 fresh)
-        delete sessionService.resources[selectedProject];
+        delete sessionService.resources[targetProject];
       }
-      setPlan(null);
-      setJsonText('');
     } catch (e: any) {
-      setError(extractApiError(e));
-    } finally {
-      setLoading(false);
+      appState.dismissMessage(toastId);
+      appState.pushMessage('✗ 씬 임포트 실패: ' + extractApiError(e));
     }
   };
 
