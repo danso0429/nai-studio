@@ -113,10 +113,18 @@ function ItemCardInner<T>({
   showLabel,
 }: ItemCardProps<T>): React.ReactElement {
   const handleClick = useCallback(() => onToggle(id), [id, onToggle]);
+  const handleTouchStart = useCallback(() => perf.mark('bis:touch:start'), []);
+  const handleTouchEnd = useCallback(() => perf.mark('bis:touch:end'), []);
+  const handlePointerDown = useCallback(() => perf.mark('bis:pointer:down'), []);
+  const handlePointerUp = useCallback(() => perf.mark('bis:pointer:up'), []);
   return (
     <button
       type="button"
       onClick={handleClick}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
       className={
         'touch-manipulation cursor-pointer p-2 border flex flex-col items-center w-24 md:w-32 select-none ' +
         (selected
@@ -195,6 +203,28 @@ function BatchItemSelector<T>(props: BatchItemSelectorProps<T>): React.ReactElem
     if (!measurePendingRef.current) return;
     measurePendingRef.current = false;
     perf.mark('bis:toggle:commit');
+    // touch/pointer → click 구간 (iOS click delay 격리)
+    perf.measureBetween(
+      'bis:touchStart→click',
+      'bis:touch:start',
+      'bis:toggle:click',
+    );
+    perf.measureBetween(
+      'bis:touchEnd→click',
+      'bis:touch:end',
+      'bis:toggle:click',
+    );
+    perf.measureBetween(
+      'bis:pointerDown→click',
+      'bis:pointer:down',
+      'bis:toggle:click',
+    );
+    perf.measureBetween(
+      'bis:pointerUp→click',
+      'bis:pointer:up',
+      'bis:toggle:click',
+    );
+    // click 이후 React + paint
     perf.measureBetween(
       'bis:click→setState',
       'bis:toggle:click',
@@ -222,7 +252,17 @@ function BatchItemSelector<T>(props: BatchItemSelectorProps<T>): React.ReactElem
         'bis:toggle:click',
         'bis:toggle:paint',
       );
+      perf.measureBetween(
+        'bis:touchStart→paint',
+        'bis:touch:start',
+        'bis:toggle:paint',
+      );
       perf.log('bis:itemCount', { n: items.length });
+      // 다음 cycle 격리 — touch/pointer marks 누적 방지.
+      perf.clearMarks('bis:touch:start');
+      perf.clearMarks('bis:touch:end');
+      perf.clearMarks('bis:pointer:down');
+      perf.clearMarks('bis:pointer:up');
       perf.flush();
     });
   }, [selectedIds, items.length]);
