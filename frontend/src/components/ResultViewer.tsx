@@ -69,7 +69,7 @@ import {
 import { dataUriToBase64, deleteImageFiles } from '../models/ImageService';
 import { getThumbURL } from '../backends/serverBackend';
 import { getResultDirectory } from '../models/SessionService';
-import { queueI2IWorkflow, queueWorkflow } from '../models/TaskQueueService';
+import { getSceneKey, queueI2IWorkflow, queueWorkflow } from '../models/TaskQueueService';
 import { extractPromptDataFromBase64 } from '../models/util';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
@@ -1312,6 +1312,27 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
         gameService.removeEventListener('updated', handleGameChanged);
       };
     }, [tournament]);
+
+    // 씬에 진행 중인 큐가 있는 동안 디스크 polling으로 새 이미지 catch.
+    // 본인 보고 (2회) "씬 들어간 동안 큐 완성 이미지 안 보임 — 나갔다 들어와야" — 이벤트 체인
+    // (WS queue-job-complete → handleMirroredComplete → onAddImage → imageService.updated →
+    // gameService.refreshList → gameService.updated → forceUpdate)이 어딘가에서 누락되는 케이스.
+    // 정확한 break 지점은 못 잡았지만 disk가 always-truth라 polling으로 안전망. sceneStats가
+    // 이 씬에 대해 pending task 있을 때만 refresh (불필요 disk hit 회피).
+    useEffect(() => {
+      if (tournament) return;
+      const sceneKey = getSceneKey(curSession!, scene);
+      const tick = async () => {
+        const stats = taskQueueService.sceneStats[sceneKey];
+        const hasPending = stats && stats.done < stats.total;
+        if (hasPending) {
+          // refresh가 imageService.updated → gameService.updated 체인 자동 트리거 → 재렌더.
+          await imageService.refresh(curSession!, scene);
+        }
+      };
+      const interval = setInterval(tick, 2500);
+      return () => clearInterval(interval);
+    }, [scene, tournament]);
 
     // paths를 매 render마다 새 array로 만들면 createItemData(memoizeOne) 무효화 →
     // 모든 Cell이 areEqual 실패로 re-render. setSelectMode 토글 시 50~100 cell × 1~2ms.
