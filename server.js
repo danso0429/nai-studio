@@ -1,4 +1,5 @@
 const express = require('express');
+const compression = require('compression');
 const path = require('path');
 const fs = require('fs').promises;
 const fss = require('fs');
@@ -1134,6 +1135,12 @@ async function processQueue() {
 
 // ─── Express App ────────────────────────────────────────────────────
 const app = express();
+// gzip/deflate 응답 압축 — 본인 페인 (P12 #8, 인터넷 느린 환경): JS 번들 1.2MB +
+// 프로젝트 JSON 100KB+ 비압축 전송으로 초기 로드 수십초. compression middleware는
+// Content-Type 기반으로 text/json/js/html은 압축, 이미지(png/webp/jpeg)는 자동 skip.
+// brotli는 stable Node 18+ 가능하지만 compression 패키지는 gzip만 — 충분히 효과적
+// (text 5~8배 감소). express.json보다 먼저 등록해서 모든 응답 cover.
+app.use(compression());
 app.use(express.json({ limit: '100mb' }));
 
 // Strip URL prefix when reverse-proxied under a subpath.
@@ -2882,9 +2889,14 @@ app.get('/api/fs/thumb', async (req, res) => {
     const imagePath = resolvePath(req.query.path);
     const size = parseInt(req.query.size) || 200;
 
-    // Build fastcache path: same directory structure as ImageService.getSmallImagePath
+    // 본인 페인 (P12 #8, 인터넷 느린 환경): 200px PNG 썸네일 ~93KB → WebP quality 80
+    // 으로 전환 시 ~10-15KB (6~8배 감소). 모바일 Safari 14+ WebP 지원이라 호환 OK.
+    // 캐시 파일명도 .webp 확장자로 → 옛 PNG 캐시는 orphan으로 남아 cleanup 크론에 정리.
+    // sharp 미설치 환경 fallback은 원본 그대로 sendFile (옛 동작 유지).
     const pathParts = req.query.path.split('/');
-    const fileName = size.toString() + '_' + pathParts.pop();
+    const origFileName = pathParts.pop();
+    const baseName = origFileName.replace(/\.[^.]+$/, '');
+    const fileName = size.toString() + '_' + baseName + '.webp';
     pathParts.push('fastcache');
     pathParts.push(fileName);
     const cachePath = resolvePath(pathParts.join('/'));
@@ -2897,7 +2909,6 @@ app.get('/api/fs/thumb', async (req, res) => {
     } catch {}
 
     if (!thumbExists) {
-      // Generate thumbnail with sharp
       if (!sharp) {
         // Fallback: serve original image
         const ext = path.extname(imagePath).toLowerCase();
@@ -2911,13 +2922,11 @@ app.get('/api/fs/thumb', async (req, res) => {
       const maxDim = Math.ceil(scale * size);
       await sharp(imagePath)
         .resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true })
-        .png()
+        .webp({ quality: 80 })
         .toFile(cachePath);
     }
 
-    const ext = path.extname(cachePath).toLowerCase();
-    const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
-    res.contentType(mimeMap[ext] || 'image/png');
+    res.contentType('image/webp');
     res.set('Cache-Control', 'private, max-age=3600');
     res.sendFile(cachePath);
   } catch (e) { res.status(404).json({ error: e.message }); }
