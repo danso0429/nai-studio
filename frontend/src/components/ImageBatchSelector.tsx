@@ -90,6 +90,8 @@ function CellInner({ rowIndex, columnIndex, style, data }: GridChildComponentPro
         <img
           src={thumbSrc}
           draggable={false}
+          decoding="async"
+          loading="lazy"
           className="w-full h-full object-contain bg-checkboard"
           alt=""
         />
@@ -137,9 +139,20 @@ function ImageBatchSelector({
     () => new Set(initialSelected ?? []),
   );
 
-  // 컨테이너 크기 측정 — ResizeObserver로 mount + 회전 대응.
+  // 컨테이너 크기 측정 — ResizeObserver로 mount + 회전 대응. 첫 render는
+  // window.innerWidth/innerHeight - 헤더 영역 근사로 sync 초기화 → Grid 첫
+  // frame에 렌더. ResizeObserver fire 시 실제 컨테이너 폭으로 보정 (모바일
+  // 0.5초 hang 회피, P13 #4 후속).
   const containerRef = useRef<HTMLDivElement>(null);
-  const [containerSize, setContainerSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  const [containerSize, setContainerSize] = useState<{ w: number; h: number }>(
+    () => ({
+      w: typeof window !== 'undefined' ? window.innerWidth : 0,
+      h:
+        typeof window !== 'undefined'
+          ? Math.max(200, window.innerHeight - 220)
+          : 0,
+    }),
+  );
   useEffect(() => {
     if (!containerRef.current) return;
     const ro = new ResizeObserver((entries) => {
