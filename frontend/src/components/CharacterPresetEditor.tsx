@@ -11,6 +11,7 @@ import {
   FaCheck,
   FaTimes,
   FaEdit,
+  FaCloudUploadAlt,
 } from 'react-icons/fa';
 import { v4 } from 'uuid';
 import {
@@ -21,6 +22,7 @@ import {
 } from '../models/types';
 import {
   imageService,
+  isMobile,
 } from '../models';
 import { appState } from '../models/AppService';
 import { FileUploadBase64 } from './UtilComponents';
@@ -313,6 +315,12 @@ const CharacterPresetInnerEditor = observer(({
           onDrop={handleVibeDrop}
         >
           <div className="gray-label mb-2">바이브 트랜스퍼:</div>
+          {vibes.length === 0 && (
+            <div className="flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 py-3 mb-2">
+              <FaCloudUploadAlt size={28} className="mb-1 opacity-60" />
+              <p className="text-xs">{isMobile ? '아래 업로드 버튼으로 추가' : '드래그하거나 아래 버튼으로 추가'}</p>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2 mb-2">
             {vibes.map((vibe, index) => (
               <div key={vibe.path + index} className="relative">
@@ -351,6 +359,12 @@ const CharacterPresetInnerEditor = observer(({
           onDrop={handleRefDrop}
         >
           <div className="gray-label mb-2">캐릭터 레퍼런스:</div>
+          {characterReferences.length === 0 && (
+            <div className="flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 py-3 mb-2">
+              <FaCloudUploadAlt size={28} className="mb-1 opacity-60" />
+              <p className="text-xs">{isMobile ? '아래 업로드 버튼으로 추가' : '드래그하거나 아래 버튼으로 추가'}</p>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2 mb-2">
             {characterReferences.map((ref, index) => (
               <div key={ref.path + index} className="relative">

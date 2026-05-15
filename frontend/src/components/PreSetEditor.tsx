@@ -298,11 +298,17 @@ export const VibeEditor = observer(({ disabled }: VibeEditorProps) => {
       >
         <div className="flex-1 overflow-hidden">
           <div className="h-full overflow-auto">
-            {getField().length === 0 && !isMobile && (
+            {getField().length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 p-8">
                 <FaCloudUploadAlt size={48} className="mb-4 opacity-60" />
-                <p className="text-base font-medium mb-1">이미지를 드래그하거나</p>
-                <p className="text-base font-medium">Ctrl+V로 붙여넣기 할 수 있습니다</p>
+                {!isMobile ? (
+                  <>
+                    <p className="text-base font-medium mb-1">이미지를 드래그하거나</p>
+                    <p className="text-base font-medium">Ctrl+V로 붙여넣기 할 수 있습니다</p>
+                  </>
+                ) : (
+                  <p className="text-base font-medium text-center">아래 업로드 버튼으로<br/>이미지를 추가하세요</p>
+                )}
               </div>
             )}
             {getField().map((vibe: VibeItem) => (
@@ -759,11 +765,17 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
                 </div>
               )}
             </div>
-            {getField().length === 0 && !isMobile && (
+            {getField().length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 p-8">
                 <FaCloudUploadAlt size={48} className="mb-4 opacity-60" />
-                <p className="text-base font-medium mb-1">이미지를 드래그하거나</p>
-                <p className="text-base font-medium">Ctrl+V로 붙여넣기 할 수 있습니다</p>
+                {!isMobile ? (
+                  <>
+                    <p className="text-base font-medium mb-1">이미지를 드래그하거나</p>
+                    <p className="text-base font-medium">Ctrl+V로 붙여넣기 할 수 있습니다</p>
+                  </>
+                ) : (
+                  <p className="text-base font-medium text-center">아래 업로드 버튼으로<br/>이미지를 추가하세요</p>
+                )}
               </div>
             )}
             {getField().map((reference: ReferenceItem) => (
