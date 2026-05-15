@@ -1153,8 +1153,8 @@ export class AppState {
       text: '내보낼 이미지를 선택해주세요',
       items: [
         ...presetItems,
-        { text: '즐겨찾기 이미지만 (새 옵션)', value: 'fav' },
-        { text: '모든 이미지 (새 옵션)', value: 'all' },
+        { text: '즐겨찾기 이미지만', value: 'fav' },
+        { text: '모든 이미지', value: 'all' },
         { text: '⚙️ 내보내기 프리셋 설정', value: 'settings' },
       ],
     });
