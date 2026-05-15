@@ -1,6 +1,6 @@
 {
-  "version": "1.5.3-experimental.2",
+  "version": "1.5.3-experimental.3",
   "sdstudioBase": "4.7.1",
-  "released": "2026-05-14",
-  "notes": "Phase 12 (5/14) 본인 5/13 백로그 일괄 처리: (1) queue.html 모바일 paint/배터리/서버 부담 7축 — visibility gate, inflight guard, timing-history 폴링 15초, innerHTML 슬롯 갱신, completed hash skip, friendlyError memoize, setInterval 통합. (2) saveInpaintImages 2-phase commit(.tmp + rename) — partial state 회피. (3) ModalOverlay Tab/Shift+Tab focus trap. (4) SceneQueueControl 빈 그리드 empty state CTA. (5) extractApiError에 401/429/timeout/네트워크 한국어 친절 매핑. (6) ResultViewer trash placeholder FaFileImage 패턴 통일. (7) viewport-fit=cover + body env(safe-area-inset-*) 재시도. (8) Types.ts preset: any → PresetLike (index signature로 동적 워크플로우 필드 자유도 유지)."
+  "released": "2026-05-15",
+  "notes": "Phase 13 (5/15) 인터넷 느린 환경 페인 묶음 + ResultViewer 이미지 토글 0.5초 hang 처방. 자정 묶음: sticky 토스트 + gzip/WebP + dummy cascade 회피 + 초기 썸네일 크기 자동/override + 80~500 dropdown. 후속 세션 #2: 4시도(ResizeObserver/가상화 제거/useEffect deferred/BatchItemSelector 통합) 모두 mount-time 가정 헛스윙 → 측정 인프라(`/api/client-perf` + performance.mark + sendBeacon) → iOS Safari 18.7/26.4 click delay 360ms 확정 → SceneCell `.clickable` 패턴 발견 → A2 처방(`onTouchEnd` 직접 toggle + `onClick` lock + 10px motion guard) 박음. 408ms → 50ms (-87%, 손가락 reaction time 하한 도달). 깨달음/통찰 9번 신설."
 }

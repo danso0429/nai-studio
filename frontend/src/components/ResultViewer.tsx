@@ -39,7 +39,6 @@ import { PromptHighlighter } from './SceneEditor';
 import QueueControl from './SceneQueueControl';
 import { FloatView } from './FloatView';
 import BatchItemSelector, { BatchAction } from './BatchItemSelector';
-import * as perf from '../utils/clientPerf';
 import { useLongPress } from './useLongPress';
 import memoizeOne from 'memoize-one';
 import { FaPlus, FaRegSquareCheck, FaCopy, FaPaste } from 'react-icons/fa6';
@@ -1258,18 +1257,11 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
     const [_, forceUpdate] = useState<{}>({});
     const [selectMode, setSelectMode] = useState<boolean>(false);
     const [tournament, setTournament] = useState<boolean>(false);
-    const rvRenderCountRef = useRef<number>(0);
-    rvRenderCountRef.current++;
     // 모바일 이미지 선택 overlay. 기존 in-place selectMode 토글은 0.5초 hang 회귀
     // (D1, P12 #8 본인 보고) — 토글 시 ResultViewer + Tooltip × 다수 + ImageGallery
     // + Cell 모두 재구성. 새 ImageBatchSelector overlay (BatchItemSelector swap
     // 패턴, P12 #6)는 ResultViewer 재렌더 0회 + 자체 4축 흡수로 토글 즉시.
     const [imageBatchOpen, setImageBatchOpen] = useState<boolean>(false);
-    useEffect(() => {
-      if (imageBatchOpen) {
-        perf.log('ResultViewer:render', { count: rvRenderCountRef.current });
-      }
-    });
     const selectedImages = useRef(new Set<string>());
     const [selectedImageIndex, setSelectedImageIndex] = useState<
       number | undefined

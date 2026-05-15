@@ -2,12 +2,10 @@ import React, {
   memo,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
-import * as perf from '../utils/clientPerf';
 
 type SortMode = 'original' | 'asc' | 'desc';
 
@@ -125,14 +123,12 @@ function ItemCardInner<T>({
   }, [id, onToggle]);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    perf.mark('bis:touch:start');
     const t = e.touches[0];
     if (t) startPosRef.current = { x: t.clientX, y: t.clientY };
   }, []);
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
-      perf.mark('bis:touch:end');
       const start = startPosRef.current;
       startPosRef.current = null;
       if (!start) return;
@@ -147,16 +143,12 @@ function ItemCardInner<T>({
     [id, onToggle],
   );
 
-  const handlePointerDown = useCallback(() => perf.mark('bis:pointer:down'), []);
-  const handlePointerUp = useCallback(() => perf.mark('bis:pointer:up'), []);
   return (
     <button
       type="button"
       onClick={handleClick}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      onPointerDown={handlePointerDown}
-      onPointerUp={handlePointerUp}
       className={
         'touch-manipulation active:brightness-75 cursor-pointer p-2 border flex flex-col items-center w-24 md:w-32 select-none ' +
         (selected
@@ -213,91 +205,14 @@ function BatchItemSelector<T>(props: BatchItemSelectorProps<T>): React.ReactElem
     return arr;
   }, [items, sortMode, getLabel]);
 
-  const measurePendingRef = useRef<boolean>(false);
-
   const toggle = useCallback((id: string) => {
-    perf.clearMarks('bis:toggle:click');
-    perf.clearMarks('bis:toggle:setState');
-    perf.clearMarks('bis:toggle:commit');
-    perf.clearMarks('bis:toggle:paint');
-    perf.mark('bis:toggle:click');
-    measurePendingRef.current = true;
     setSelectedIds((prev) => {
-      perf.mark('bis:toggle:setState');
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
   }, []);
-
-  useLayoutEffect(() => {
-    if (!measurePendingRef.current) return;
-    measurePendingRef.current = false;
-    perf.mark('bis:toggle:commit');
-    // touch/pointer → click 구간 (iOS click delay 격리)
-    perf.measureBetween(
-      'bis:touchStart→click',
-      'bis:touch:start',
-      'bis:toggle:click',
-    );
-    perf.measureBetween(
-      'bis:touchEnd→click',
-      'bis:touch:end',
-      'bis:toggle:click',
-    );
-    perf.measureBetween(
-      'bis:pointerDown→click',
-      'bis:pointer:down',
-      'bis:toggle:click',
-    );
-    perf.measureBetween(
-      'bis:pointerUp→click',
-      'bis:pointer:up',
-      'bis:toggle:click',
-    );
-    // click 이후 React + paint
-    perf.measureBetween(
-      'bis:click→setState',
-      'bis:toggle:click',
-      'bis:toggle:setState',
-    );
-    perf.measureBetween(
-      'bis:setState→commit',
-      'bis:toggle:setState',
-      'bis:toggle:commit',
-    );
-    perf.measureBetween(
-      'bis:click→commit',
-      'bis:toggle:click',
-      'bis:toggle:commit',
-    );
-    requestAnimationFrame(() => {
-      perf.mark('bis:toggle:paint');
-      perf.measureBetween(
-        'bis:commit→paint',
-        'bis:toggle:commit',
-        'bis:toggle:paint',
-      );
-      perf.measureBetween(
-        'bis:click→paint',
-        'bis:toggle:click',
-        'bis:toggle:paint',
-      );
-      perf.measureBetween(
-        'bis:touchStart→paint',
-        'bis:touch:start',
-        'bis:toggle:paint',
-      );
-      perf.log('bis:itemCount', { n: items.length });
-      // 다음 cycle 격리 — touch/pointer marks 누적 방지.
-      perf.clearMarks('bis:touch:start');
-      perf.clearMarks('bis:touch:end');
-      perf.clearMarks('bis:pointer:down');
-      perf.clearMarks('bis:pointer:up');
-      perf.flush();
-    });
-  }, [selectedIds, items.length]);
 
   const selectAll = useCallback(() => {
     setSelectedIds(new Set(items.map(getId)));
