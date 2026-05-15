@@ -2,7 +2,7 @@ import { observable, action, makeObservable } from 'mobx';
 import { backend, imageService } from '.';
 import { GenericScene, InpaintScene, Session, CharacterPreset } from './types';
 
-import { extractApiError } from './util';
+import { apiUrl, extractApiError } from './util';
 function getMirrorCropX(scene: GenericScene): number | undefined {
   if (isMirrorScene(scene)) {
     return (scene as InpaintScene).mirrorCropX;
@@ -234,6 +234,10 @@ export class ImageDownloadService {
   /**
    * 단일 이미지 다운로드
    */
+  // Drive-first 다운로드. Drive 가용시 exports/{filename}.png으로 쓰고 sync 큐 등록 →
+  // Drive 폴더로 자동 업로드. 미가용시 브라우저 직접 다운로드(a.download).
+  // 옛 selectDir/writeDataFileAbsolute 데스크탑 electron 경로는 SDStudio Remote(웹)에선
+  // selectDir undefined라 무의미 — 단순화.
   async downloadSingleImage(
     _session: Session,
     scene: GenericScene,
@@ -242,58 +246,55 @@ export class ImageDownloadService {
     customFilename?: string,
   ): Promise<boolean> {
     try {
-      // 저장 경로 선택
-      let savePath = this.settings.lastSavePath;
-      if (!savePath) {
-        savePath = await backend.selectDir();
-        if (!savePath) {
-          return false;
-        }
-        await this.updateLastSavePath(savePath);
-      }
-
-      // 파일명 생성
       const prefix =
         characterPreset?.filenamePrefix || this.settings.defaultPrefix || '';
       const suffix =
         characterPreset?.filenameSuffix || this.settings.defaultSuffix || '';
+      const baseFilename = customFilename
+        ? sanitizeFilename(customFilename)
+        : generateFilename({
+            sceneName: scene.name,
+            prefix,
+            suffix,
+            // Drive 업로드는 중복 회피용 timestamp 항상 권장. settings 덮어쓰기 X.
+            includeTimestamp: this.settings.includeTimestamp,
+          });
+      const downloadName = `${baseFilename}.png`;
 
-      let baseFilename: string;
-      if (customFilename) {
-        baseFilename = sanitizeFilename(customFilename);
-      } else {
-        baseFilename = generateFilename({
-          sceneName: scene.name,
-          prefix,
-          suffix,
-          includeTimestamp: this.settings.includeTimestamp,
-        });
+      await appState.refreshDriveRetryStatus();
+      const driveAvailable = appState.driveRetryStatus?.driveAvailable !== false;
+
+      if (driveAvailable) {
+        // exports/{filename}.png에 쓰고 sync-exports 큐 등록 (Drive backup 폴더로 업로드).
+        const exportPath = 'exports/' + downloadName;
+        const imageData = await imageService.fetchImage(imagePath);
+        if (!imageData) throw new Error('이미지를 읽을 수 없습니다');
+        const base64 = isMirrorScene(scene)
+          ? await cropMirrorResultFromDataUri(imageData, getMirrorCropX(scene))
+          : dataUriToBase64(imageData);
+        await backend.writeDataFile(exportPath, base64);
+
+        try {
+          const r = await fetch(apiUrl('/api/fs/sync-exports'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: exportPath }),
+          });
+          const data = await r.json();
+          if (data.ok && data.queued) {
+            appState.pushMessage(`✓ Drive 업로드 큐 등록: ${downloadName}`);
+            return true;
+          }
+          // 큐 등록 실패 — fallback에 위임
+          console.warn('[download] Drive 큐 등록 실패, 브라우저 다운로드로 fallback:', data);
+        } catch (e) {
+          console.warn('[download] Drive sync-exports 요청 실패:', e);
+        }
       }
 
-      // 중복 처리
-      let finalFilename: string;
-      if (this.settings.autoNumbering && !this.settings.overwriteExisting) {
-        finalFilename = await getUniqueFilename(savePath, baseFilename, 'png', true);
-      } else {
-        finalFilename = `${baseFilename}.png`;
-      }
-
-      // 이미지 데이터 읽기
-      const imageData = await imageService.fetchImage(imagePath);
-      if (!imageData) {
-        throw new Error('이미지를 읽을 수 없습니다');
-      }
-
-      // SDMirror 씬이면 우측 절반만 크롭
-      const base64 = isMirrorScene(scene)
-        ? await cropMirrorResultFromDataUri(imageData, getMirrorCropX(scene))
-        : dataUriToBase64(imageData);
-
-      // 파일 저장 (절대 경로 사용)
-      const fullPath = `${savePath}/${finalFilename}`;
-      await backend.writeDataFileAbsolute(fullPath, base64);
-
-      appState.pushMessage(`이미지가 저장되었습니다: ${finalFilename}`);
+      // Drive 미가용 또는 큐 등록 실패 → 브라우저 직접 다운로드. customFilename 살리려 a.download 활용.
+      await backend.copyToDownloads(imagePath, downloadName);
+      appState.pushMessage(`다운로드 시작: ${downloadName}`);
       return true;
     } catch (e: any) {
       console.error('Failed to download image:', e);
@@ -318,14 +319,12 @@ export class ImageDownloadService {
     }
 
     try {
-      // 저장 경로 선택
+      // 저장 경로 선택 — selectDir 가능시만 절대 경로(desktop). 웹은 selectDir undefined →
+      // 브라우저 다운로드로 N번 fallback.
       let savePath = this.settings.lastSavePath;
       if (!savePath) {
         savePath = await backend.selectDir();
-        if (!savePath) {
-          return result;
-        }
-        await this.updateLastSavePath(savePath);
+        if (savePath) await this.updateLastSavePath(savePath);
       }
 
       this.isDownloading = true;
@@ -335,6 +334,34 @@ export class ImageDownloadService {
         characterPreset?.filenamePrefix || this.settings.defaultPrefix || '';
       const suffix =
         characterPreset?.filenameSuffix || this.settings.defaultSuffix || '';
+
+      // 웹 fallback: 브라우저 N번 다운로드. autoNumbering/덮어쓰기 무관 (브라우저 다운로드는
+      // 클라 측 파일명만 결정, 충돌은 OS가 처리).
+      if (!savePath) {
+        for (let i = 0; i < imagePaths.length; i++) {
+          const baseFilename = generateFilename({
+            sceneName: scene.name,
+            prefix,
+            suffix,
+            includeTimestamp: this.settings.includeTimestamp,
+            includeIndex: true,
+            index: i + 1,
+          });
+          try {
+            await backend.copyToDownloads(imagePaths[i], `${baseFilename}.png`);
+            result.success += 1;
+          } catch (e) {
+            console.error(`Failed to download image ${imagePaths[i]}:`, e);
+            result.failed += 1;
+          }
+          this.downloadProgress = ((i + 1) / imagePaths.length) * 100;
+        }
+        if (result.success > 0) appState.pushMessage(`${result.success}개 다운로드 시작`);
+        if (result.failed > 0) appState.pushMessage(`${result.failed}개 다운로드 실패`);
+        this.isDownloading = false;
+        this.downloadProgress = 0;
+        return result;
+      }
 
       // 순차적으로 다운로드 처리
       const downloadImage = async (index: number): Promise<void> => {

@@ -230,10 +230,10 @@ export class ServerBackend extends Backend {
     window.open(`${API_BASE}/api/fs/show?path=${encodeURIComponent(arg)}`, '_blank');
   }
 
-  async copyToDownloads(path: string): Promise<void> {
+  async copyToDownloads(path: string, downloadName?: string): Promise<void> {
     const a = document.createElement('a');
     a.href = `${API_BASE}/api/fs/download?path=${encodeURIComponent(path)}`;
-    a.download = path.split('/').pop() || 'download';
+    a.download = downloadName || path.split('/').pop() || 'download';
     a.click();
   }
 

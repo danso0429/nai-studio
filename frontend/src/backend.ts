@@ -142,7 +142,9 @@ export abstract class Backend {
   abstract authStatus(): Promise<boolean>;
   abstract encodeVibeImage(arg: EncodeVibeImageInput): Promise<string>;
   abstract showFile(arg: string): Promise<void>;
-  abstract copyToDownloads(path: string): Promise<void>;
+  // downloadName: 브라우저 다운로드 시 저장될 파일명. 미지정 시 server 파일명 사용.
+  // 웹/모바일에서 selectDir 불가능한 경우 customFilename 살리는 용도.
+  abstract copyToDownloads(path: string, downloadName?: string): Promise<void>;
   abstract zipFiles(files: FileEntry[], outPath: string): Promise<{ skipped: string[] }>;
   abstract unzipFiles(tarPath: string, outPath: string): Promise<void>;
   abstract searchTags(word: string): Promise<any>;

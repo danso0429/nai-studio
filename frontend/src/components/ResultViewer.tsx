@@ -1028,7 +1028,8 @@ const ResultDetailView = observer(
             <button
               className={`round-button back-green`}
               onClick={async () => {
-                // 다운로드 다이얼로그 열기
+                // Drive 가용시 exports/{name}.png에 쓰고 Drive sync 큐 등록 → 자동 업로드.
+                // 미가용시 브라우저 직접 다운로드 fallback. 다이얼로그 없음 — 즉시 처리.
                 await imageDownloadService.downloadSingleImage(
                   curSession!,
                   scene,
@@ -1040,18 +1041,16 @@ const ResultDetailView = observer(
               <FaDownload className="mr-1" />
               다운로드
             </button>
-            <button
-              className={`round-button back-sky`}
-              onClick={async () => {
-                if (isMobile) {
-                  await backend.copyToDownloads(paths[selectedIndex]);
-                } else {
+            {!isMobile && (
+              <button
+                className={`round-button back-sky`}
+                onClick={async () => {
                   await backend.showFile(paths[selectedIndex]);
-                }
-              }}
-            >
-              {!isMobile ? '파일 위치 열기' : '파일 다운로드'}
-            </button>
+                }}
+              >
+                파일 위치 열기
+              </button>
+            )}
             {!isMobile && (
               <button
                 className={`round-button back-sky`}
