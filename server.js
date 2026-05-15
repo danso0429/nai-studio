@@ -11,6 +11,10 @@ const { NaiClient } = require('./lib/nai-client');
 const tagSearch = require('./lib/tag-search');
 const versionCheck = require('./lib/version-check');
 
+// .env.local 자동 로드 (Node 20.6+ 네이티브). 첫 install에서 `node server.js`만으로
+// PORT/URL_PREFIX가 동작하게. pm2 ecosystem이 이미 주입한 값은 덮어쓰지 않음 (Node 동작).
+try { process.loadEnvFile?.(path.join(__dirname, '.env.local')); } catch {}
+
 const DATA_DIR = path.join(__dirname, 'data');
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const PORT = process.env.PORT || 6247;
@@ -1237,10 +1241,18 @@ app.get('/api/version-check', async (req, res) => {
 });
 
 app.get('/api/build-info', (req, res) => {
+  // 1순위: public/build-info.json (update.sh가 생성 — gitHash + buildTime + version + sdstudioBase)
+  // 2순위: version.json (첫 install 케이스 — update.sh를 안 돌렸으니 build-info.json 부재.
+  //                     repo에 커밋된 version.json에서 version + sdstudioBase만 fallback)
   try {
     const info = require('fs').readFileSync(path.join(__dirname, 'public/build-info.json'), 'utf8');
-    res.json(JSON.parse(info));
-  } catch { res.json({ buildTime: 'unknown', gitHash: 'unknown' }); }
+    return res.json(JSON.parse(info));
+  } catch {}
+  try {
+    const v = JSON.parse(require('fs').readFileSync(path.join(__dirname, 'version.json'), 'utf8'));
+    return res.json({ buildTime: 'unknown', gitHash: 'unknown', version: v.version, sdstudioBase: v.sdstudioBase });
+  } catch {}
+  res.json({ buildTime: 'unknown', gitHash: 'unknown' });
 });
 app.get('/api/version', (req, res) => {
   res.json({ version: '2.0.0-web' });
@@ -2681,10 +2693,15 @@ app.post('/api/fs/sync-exports', async (req, res) => {
   const requestedPath = (req.body && typeof req.body.path === 'string') ? req.body.path : '';
 
   if (requestedPath) {
-    // 보안: exports/ 하위 단일 파일로 제한. 'exports/foo.tar' 또는 'foo.tar' 둘 다 허용.
+    // 보안: exports/ 하위로 제한. 'exports/foo.tar' / 'foo.tar' / 'backups/foo.tar' / 'exports/backups/foo.tar' 허용.
+    // backups/ 단일 sub-directory만 화이트리스트 (폴더 백업 보관용). 그 외 sub-path 금지.
     const cleaned = requestedPath.replace(/^exports[\/]/, '');
-    if (cleaned.includes('..') || cleaned.includes('/') || cleaned.includes('\\')) {
+    if (cleaned.includes('..') || cleaned.includes('\\')) {
       return res.status(400).json({ ok: false, error: 'Invalid path' });
+    }
+    const slashCount = (cleaned.match(/\//g) || []).length;
+    if (slashCount > 1 || (slashCount === 1 && !cleaned.startsWith('backups/'))) {
+      return res.status(400).json({ ok: false, error: 'Subdirectory not allowed' });
     }
     const candidate = path.join(exportsDir, cleaned);
     if (!candidate.startsWith(exportsDir + path.sep)) {

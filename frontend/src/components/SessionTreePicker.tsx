@@ -101,7 +101,8 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
       type: 'select',
       text: `폴더 "${folder}" 작업`,
       items: [
-        { text: '📦 폴더 전체 내보내기', value: 'export' },
+        { text: '📦 폴더 전체 내보내기 (이미지)', value: 'export' },
+        { text: '💾 폴더 전체 백업 (이미지 포함, 복원 가능)', value: 'backup' },
         { text: '이름 변경', value: 'rename' },
         { text: '삭제 (안의 프로젝트는 휴지통으로)', value: 'delete' },
       ],
@@ -109,6 +110,11 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
     if (action === 'export') {
       const projects = folderToProjects.get(folder) ?? [];
       appState.exportFolder(folder, projects);
+      return;
+    }
+    if (action === 'backup') {
+      const projects = folderToProjects.get(folder) ?? [];
+      appState.folderExportDeep(folder, projects);
       return;
     }
     if (action === 'rename') {

@@ -953,6 +953,153 @@ export class AppState {
     });
   }
 
+  // 폴더 전체 백업 (이미지 포함). projectExportDeep의 폴더 버전 — N개 프로젝트의
+  // project.json + outs/inpaints/inpaint_*/vibes 전부를 1개 tar로 묶음.
+  // Drive 가용시 exports/backups/{folder}.tar로 정리(서버 화이트리스트) → Drive backups/ 폴더로 자동.
+  // Drive 미가용시 exports/{folder}.tar로 두고 브라우저 자동 다운로드 (이미지 내보내기와 같은 패턴).
+  @action
+  async folderExportDeep(folderName: string, projectNames: string[]) {
+    if (projectNames.length === 0) {
+      appState.pushMessage('빈 폴더예요');
+      return;
+    }
+    if (zipService.isZipping) {
+      appState.pushMessage('이미 내보내기 작업이 진행중입니다.');
+      return;
+    }
+    // refresh 1번도 안 돈 상태에서 빠른 클릭하면 잘못된 Drive 분기 → 클릭 직전 강제 갱신.
+    // refresh 실패해도 cached 값 그대로 둠 (네트워크 일시 오류 회복 대기).
+    await appState.refreshDriveRetryStatus();
+    // 명시적 false만 다운로드 fallback. null/undefined는 Drive 가용으로 가정 (낙관적, refresh 실패 케이스).
+    const driveAvailable = appState.driveRetryStatus?.driveAvailable !== false;
+    const path = driveAvailable
+      ? 'exports/backups/' + folderName + '.tar'
+      : 'exports/' + folderName + '.tar';
+    const pid = appState.pushProgressDialog(
+      `'${folderName}' 백업 압축 중...`,
+      projectNames.length + 1,
+    );
+    try {
+      await sessionService.exportFolderDeep(
+        folderName,
+        projectNames,
+        path,
+        (text, done, total) => {
+          appState.updateProgressDialog(pid, { text, done, total });
+        },
+      );
+    } catch (e: any) {
+      appState.finishProgressDialog(
+        pid,
+        '✗ 폴더 백업 압축 실패: ' + (e?.message ?? e),
+        false,
+      );
+      return;
+    }
+    if (!driveAvailable) {
+      const fileName = path.split('/').pop() || folderName + '.tar';
+      appState.finishProgressDialog(
+        pid,
+        `✓ 폴더 백업 완성 — 다운로드 시작 (${fileName})`,
+        true,
+      );
+      backend.copyToDownloads(path).catch(() => {});
+      return;
+    }
+    appState.updateProgressDialog(pid, {
+      text: 'Drive 업로드 중 (폴더 백업)...',
+      done: 0,
+      total: 1,
+    });
+    await syncExportToDrive({
+      path,
+      pid,
+      successLabel: '✓ 폴더 백업 Drive 업로드 완료',
+      logTag: 'saveFolderDeep',
+    });
+  }
+
+  // 폴더 백업 import. mediaImport의 '🗂️ 폴더 백업' 옵션에서 호출.
+  // 업로드 → 폴더 이름 입력 → importFolderDeep. 충돌 시 auto-suffix, 폴더 없으면 자동 생성.
+  @action
+  async folderBackupImport() {
+    let file: File;
+    try {
+      file = (await getFirstFile('.tar,.tar.gz,.tgz')) as File;
+    } catch {
+      return;
+    }
+    const isTar = /\.(tar|tar\.gz|tgz)$/i.test(file.name);
+    if (!isTar) {
+      appState.pushMessage('.tar 파일만 받을 수 있습니다.');
+      return;
+    }
+    const upid = appState.pushProgressDialog('폴더 백업 업로드 중...', 1);
+    let tarPath: string;
+    try {
+      const base64: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e: any) => {
+          const result = e.target?.result as string;
+          resolve(result.split(',')[1] || result);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      tarPath = 'tmp/import_folder_' + Date.now() + '_' + file.name;
+      await backend.writeDataFile(tarPath, base64);
+      appState.finishProgressDialog(upid, '✓ 업로드 완료', true);
+    } catch (e: any) {
+      appState.finishProgressDialog(upid, '✗ 업로드 실패: ' + e.message, false);
+      return;
+    }
+    const folderName = await appState.pushDialogAsync({
+      type: 'input-confirm',
+      text: '복원할 폴더 이름을 입력해주세요 (없으면 새로 생성)',
+    });
+    if (!folderName) return;
+    const ipid = appState.pushProgressDialog('폴더 백업 복원 중...', 4);
+    let result;
+    try {
+      result = await sessionService.importFolderDeep(
+        tarPath,
+        folderName as string,
+        (text, done, total) => {
+          appState.updateProgressDialog(ipid, { text, done, total });
+        },
+      );
+    } catch (e: any) {
+      appState.finishProgressDialog(
+        ipid,
+        '✗ 폴더 백업 임포트 실패: ' + (e?.message ?? e),
+        false,
+      );
+      return;
+    }
+    let summary = `✓ 폴더 "${result.folder}" 복원 (${result.imported.length}개)`;
+    if (result.renamed.length > 0) summary += ` · 이름변경 ${result.renamed.length}`;
+    if (result.skipped.length > 0) summary += ` · 실패 ${result.skipped.length}`;
+    appState.finishProgressDialog(ipid, summary, true);
+    if (result.renamed.length > 0) {
+      const preview = result.renamed
+        .slice(0, 5)
+        .map((r) => `${r.from} → ${r.to}`)
+        .join('\n');
+      const more =
+        result.renamed.length > 5 ? `\n외 ${result.renamed.length - 5}건` : '';
+      appState.pushMessage(`이름 충돌로 자동 변경:\n${preview}${more}`);
+    }
+    if (result.skipped.length > 0) {
+      const preview = result.skipped
+        .slice(0, 5)
+        .map((r) => `${r.name}: ${r.reason}`)
+        .join('\n');
+      const more =
+        result.skipped.length > 5 ? `\n외 ${result.skipped.length - 5}건` : '';
+      appState.pushMessage(`복원 실패:\n${preview}${more}`);
+    }
+  }
+
   @action
   async projectImport() {
     // 프로젝트(.json)만 허용. .tar/.png 등 다른 파일은 거부.
@@ -979,10 +1126,15 @@ export class AppState {
       text: '불러올 파일 형식을 선택하세요',
       items: [
         { text: '📦 프로젝트 백업 (.tar)', value: 'tar' },
+        { text: '🗂️ 폴더 백업 (.tar)', value: 'folder-tar' },
         { text: '🖼️ 이미지 (.png) — 현재 프로젝트에 추가', value: 'png' },
       ],
     });
     if (!choice) return;
+    if (choice === 'folder-tar') {
+      await this.folderBackupImport();
+      return;
+    }
     let file: File;
     try {
       file = (await getFirstFile(

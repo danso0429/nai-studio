@@ -427,6 +427,206 @@ export class SessionService extends ResourceSyncService<Session> {
     await zipService.zipFiles(entries, outPath);
   }
 
+  // 폴더 전체 백업. 안의 N개 프로젝트를 1개 tar로 묶음. tar 내부 layout은
+  // {projectName}/project.json + {projectName}/outs|inpaints|inpaint_orgs|
+  // inpaint_masks|vibes/... 로 namespace. root에 folder-backup.json 마커.
+  //
+  // 성능: 프로젝트 1개 내부 5개 디렉토리는 listFilesRecursive로 한 번씩(병렬) 조회 →
+  // 씬/inpaint별 N round-trip 제거. 프로젝트들은 CHUNK=4 동시 처리 (exportFolder와 동일 패턴).
+  // session 객체 로드 불필요 — 디스크 파일만 있으면 충분 (in-memory에서 삭제된 orphan도 포함되니
+  // 백업이 더 robust).
+  async exportFolderDeep(
+    folderName: string,
+    projectNames: string[],
+    outPath: string,
+    onProgress?: (text: string, done: number, total: number) => void,
+  ) {
+    const emptyResult = { files: [] as string[], dirs: [] as string[] };
+    const ignoreError = async (
+      f: Promise<{ files: string[]; dirs: string[] }>,
+    ): Promise<{ files: string[]; dirs: string[] }> => {
+      try {
+        return await f;
+      } catch (e) {
+        return emptyResult;
+      }
+    };
+
+    // 한 프로젝트의 모든 미디어 파일을 5번 병렬 listFilesRecursive로 수집.
+    // outs/inpaints는 nested (depth=1), inpaint_orgs/inpaint_masks/vibes는 flat (depth=0).
+    const collectProjectEntries = async (name: string): Promise<FileEntry[]> => {
+      const [outs, inpaints, inpaintOrgs, inpaintMasks, vibes] = await Promise.all([
+        ignoreError(backend.listFilesRecursive('outs/' + name, 1)),
+        ignoreError(backend.listFilesRecursive('inpaints/' + name, 1)),
+        ignoreError(backend.listFilesRecursive('inpaint_orgs/' + name, 0)),
+        ignoreError(backend.listFilesRecursive('inpaint_masks/' + name, 0)),
+        ignoreError(backend.listFilesRecursive('vibes/' + name, 0)),
+      ]);
+      const items: FileEntry[] = [];
+      const pushSrc = (
+        srcRoot: string,
+        tarRoot: string,
+        relList: string[],
+      ) => {
+        for (const rel of relList) {
+          if (!rel.endsWith('.png')) continue;
+          items.push({
+            path: srcRoot + '/' + rel,
+            name: tarRoot + '/' + rel,
+          });
+        }
+      };
+      pushSrc('outs/' + name, name + '/outs', outs.files);
+      pushSrc('inpaints/' + name, name + '/inpaints', inpaints.files);
+      pushSrc('inpaint_orgs/' + name, name + '/inpaint_orgs', inpaintOrgs.files);
+      pushSrc('inpaint_masks/' + name, name + '/inpaint_masks', inpaintMasks.files);
+      pushSrc('vibes/' + name, name + '/vibes', vibes.files);
+      // 프로젝트 .json은 폴더 안에 있으면 projects/{folder}/{name}.json. getPath()로 해결.
+      items.push({ path: this.getPath(name), name: name + '/project.json' });
+      return items;
+    };
+
+    const entries: FileEntry[] = [];
+    const total = projectNames.length;
+    const CHUNK = 4;
+    let done = 0;
+    for (let i = 0; i < projectNames.length; i += CHUNK) {
+      const chunk = projectNames.slice(i, i + CHUNK);
+      const results = await Promise.all(chunk.map(collectProjectEntries));
+      for (const items of results) entries.push(...items);
+      done += chunk.length;
+      onProgress?.(`경로 수집 ${done}/${total}`, done, total + 1);
+    }
+
+    // 마커: import 시 folder-backup 식별 + 프로젝트 목록 + 원본 폴더명 복원.
+    const markerPath = 'tmp/folder-backup-marker-' + v4() + '.json';
+    const marker = {
+      type: 'folder-backup',
+      folder: folderName,
+      projects: projectNames,
+      version: 1,
+      exportedAt: Date.now(),
+    };
+    await backend.writeFile(markerPath, JSON.stringify(marker));
+    entries.push({ path: markerPath, name: 'folder-backup.json' });
+
+    if (zipService.isZipping) {
+      throw new Error('Already zipping');
+    }
+    onProgress?.('아카이브 압축 중...', total, total + 1);
+    try {
+      await zipService.zipFiles(entries, outPath);
+    } finally {
+      try {
+        await backend.deleteFile(markerPath);
+      } catch {}
+    }
+    onProgress?.('완료', total + 1, total + 1);
+  }
+
+  // 폴더 전체 백업 import. tar 안 folder-backup.json 마커로 검증 + 프로젝트 목록 추출.
+  // 이름 충돌 시 auto-suffix (_2, _3, ...). 대상 폴더 없으면 자동 생성, 있으면 머지.
+  async importFolderDeep(
+    tarpath: string,
+    requestedFolder: string,
+    onProgress?: (text: string, done: number, total: number) => void,
+  ): Promise<{
+    imported: string[];
+    renamed: { from: string; to: string }[];
+    skipped: { name: string; reason: string }[];
+    folder: string;
+  }> {
+    const tmpDir = 'tmp/' + v4();
+    const PHASE_TOTAL = 4;
+    onProgress?.('아카이브 풀기...', 0, PHASE_TOTAL);
+    await backend.unzipFiles(tarpath, tmpDir);
+
+    onProgress?.('백업 검증 중...', 1, PHASE_TOTAL);
+    let marker: any;
+    try {
+      const raw = await backend.readFile(tmpDir + '/folder-backup.json');
+      marker = JSON.parse(raw);
+    } catch (e) {
+      throw new Error(
+        '폴더 백업 파일이 아닙니다 (folder-backup.json 누락). 단일 프로젝트 백업은 "프로젝트 백업 (.tar)" 메뉴로 불러주세요.',
+      );
+    }
+    if (marker?.type !== 'folder-backup' || !Array.isArray(marker.projects)) {
+      throw new Error('폴더 백업 형식이 올바르지 않습니다.');
+    }
+    const projectsInBackup: string[] = marker.projects.filter(
+      (x: any) => typeof x === 'string',
+    );
+
+    if (!this.folderList.includes(requestedFolder)) {
+      await this.createFolder(requestedFolder);
+    }
+
+    // 충돌 회피 — 같은 이름이 활성 목록에 있으면 _2, _3 ... suffix.
+    const existing = new Set(this.resourceList);
+    const allocateName = (base: string): string => {
+      if (!existing.has(base)) return base;
+      let i = 2;
+      while (existing.has(base + '_' + i)) i++;
+      return base + '_' + i;
+    };
+
+    const imported: string[] = [];
+    const renamed: { from: string; to: string }[] = [];
+    const skipped: { name: string; reason: string }[] = [];
+
+    const total = projectsInBackup.length;
+    for (let i = 0; i < projectsInBackup.length; i++) {
+      const origName = projectsInBackup[i];
+      const finalName = allocateName(origName);
+      onProgress?.(
+        `프로젝트 등록 ${i + 1}/${total} (${finalName})`,
+        2,
+        PHASE_TOTAL,
+      );
+      const projDir = tmpDir + '/' + origName;
+
+      let sessionData: ISession;
+      try {
+        sessionData = JSON.parse(
+          await backend.readFile(projDir + '/project.json'),
+        );
+      } catch (e: any) {
+        skipped.push({ name: origName, reason: 'project.json 누락 또는 파싱 실패' });
+        continue;
+      }
+      sessionData.name = finalName;
+      existing.add(finalName);
+      if (finalName !== origName) renamed.push({ from: origName, to: finalName });
+
+      const renameSafe = async (src: string, dst: string) => {
+        try {
+          await backend.renameDir(src, dst);
+        } catch (e) {
+          // 빈/없는 디렉토리 — 정상 케이스
+        }
+      };
+      await Promise.all([
+        renameSafe(projDir + '/outs', 'outs/' + finalName),
+        renameSafe(projDir + '/inpaints', 'inpaints/' + finalName),
+        renameSafe(projDir + '/inpaint_orgs', 'inpaint_orgs/' + finalName),
+        renameSafe(projDir + '/inpaint_masks', 'inpaint_masks/' + finalName),
+        renameSafe(projDir + '/vibes', 'vibes/' + finalName),
+      ]);
+
+      try {
+        await this.createFrom(finalName, sessionData);
+        await this.moveToFolder(finalName, requestedFolder);
+        imported.push(finalName);
+      } catch (e: any) {
+        skipped.push({ name: origName, reason: e?.message ?? String(e) });
+      }
+    }
+
+    onProgress?.('완료', PHASE_TOTAL, PHASE_TOTAL);
+    return { imported, renamed, skipped, folder: requestedFolder };
+  }
+
   async importSessionShallow(session: ISession, name: string) {
     if (name in this.resources) {
       throw new Error('Resource already exists');
