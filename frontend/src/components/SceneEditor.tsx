@@ -1053,29 +1053,14 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
                       },
                     });
                   } else if (opt.value === 'custom') {
-                    const width = await appState.pushDialogAsync({
-                      type: 'input-confirm',
-                      text: '해상도 너비를 입력해주세요',
+                    const r = await appState.openCustomResolutionAsync({
+                      width: scene.resolutionWidth,
+                      height: scene.resolutionHeight,
                     });
-                    if (width == null) return;
-                    const height = await appState.pushDialogAsync({
-                      type: 'input-confirm',
-                      text: '해상도 높이를 입력해주세요',
-                    });
-                    if (height == null) return;
-                    try {
-                      const customResolution = {
-                        width: parseInt(width),
-                        height: parseInt(height),
-                      };
-                      scene.resolution = opt.value as Resolution;
-                      scene.resolutionWidth =
-                        (customResolution.width + 63) & ~63;
-                      scene.resolutionHeight =
-                        (customResolution.height + 63) & ~63;
-                    } catch (e: any) {
-                      appState.pushMessage(extractApiError(e));
-                    }
+                    if (!r) return;
+                    scene.resolution = opt.value as Resolution;
+                    scene.resolutionWidth = r.width;
+                    scene.resolutionHeight = r.height;
                   } else {
                     scene.resolution = opt.value as Resolution;
                   }

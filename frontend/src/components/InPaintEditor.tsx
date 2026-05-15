@@ -28,7 +28,7 @@ import {
 } from '../models';
 import { dataUriToBase64 } from '../models/ImageService';
 import { InpaintScene, PromptPiece } from '../models/types';
-import { extractApiError, extractPromptDataFromBase64 } from '../models/util';
+import { extractPromptDataFromBase64 } from '../models/util';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { InnerPreSetEditor } from './PreSetEditor';
@@ -383,29 +383,14 @@ const InPaintEditor = observer(
                         },
                       });
                     } else if (opt.value === 'custom') {
-                      const width = await appState.pushDialogAsync({
-                        type: 'input-confirm',
-                        text: '해상도 너비를 입력해주세요',
+                      const r = await appState.openCustomResolutionAsync({
+                        width: editingScene.resolutionWidth,
+                        height: editingScene.resolutionHeight,
                       });
-                      if (width == null) return;
-                      const height = await appState.pushDialogAsync({
-                        type: 'input-confirm',
-                        text: '해상도 높이를 입력해주세요',
-                      });
-                      if (height == null) return;
-                      try {
-                        const customResolution = {
-                          width: parseInt(width),
-                          height: parseInt(height),
-                        };
-                        editingScene.resolution = opt.value as Resolution;
-                        editingScene.resolutionWidth =
-                          (customResolution.width + 63) & ~63;
-                        editingScene.resolutionHeight =
-                          (customResolution.height + 63) & ~63;
-                      } catch (e: any) {
-                        appState.pushMessage(extractApiError(e));
-                      }
+                      if (!r) return;
+                      editingScene.resolution = opt.value as Resolution;
+                      editingScene.resolutionWidth = r.width;
+                      editingScene.resolutionHeight = r.height;
                     } else {
                       editingScene.resolution = opt.value as Resolution;
                     }

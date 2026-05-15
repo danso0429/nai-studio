@@ -251,6 +251,40 @@ export class AppState {
     this.exportOptionsFormDefaults = null;
   }
 
+  // 커스텀 해상도 입력 (width/height 1폼). SceneEditor/InPaintEditor/
+  // onSceneQueueMenuSelectAsync 3곳에서 동일 패턴 (input 2번 + 64 round-up) 중복하던 걸
+  // 일체화. 결과는 이미 64 배수로 round-up된 값.
+  @observable accessor customResolutionDialogOpen: boolean = false;
+  customResolutionDialogDefaults: { width?: number; height?: number } | null = null;
+  customResolutionDialogResolve:
+    | ((r: { width: number; height: number } | undefined) => void)
+    | null = null;
+
+  openCustomResolutionAsync(defaults?: {
+    width?: number;
+    height?: number;
+  }): Promise<{ width: number; height: number } | undefined> {
+    return new Promise((resolve) => {
+      if (this.customResolutionDialogResolve) {
+        this.customResolutionDialogResolve(undefined);
+      }
+      this.customResolutionDialogDefaults = defaults ?? null;
+      this.customResolutionDialogResolve = resolve;
+      this.customResolutionDialogOpen = true;
+    });
+  }
+
+  closeCustomResolutionDialog(
+    result: { width: number; height: number } | undefined,
+  ) {
+    if (this.customResolutionDialogResolve) {
+      this.customResolutionDialogResolve(result);
+      this.customResolutionDialogResolve = null;
+    }
+    this.customResolutionDialogOpen = false;
+    this.customResolutionDialogDefaults = null;
+  }
+
   saveExportPresets() {
     try {
       localStorage.setItem(
@@ -2694,26 +2728,17 @@ export class AppState {
           callback: async (value?: string) => {
             if (!value) return;
             if (value === 'custom') {
-              const width = await appState.pushDialogAsync({
-                type: 'input-confirm',
-                text: '해상도 너비를 입력해주세요',
+              // 일괄 적용이라 첫 씬 값을 default로 (사용자가 그대로 OK하면 일관성).
+              const first = selected[0];
+              const r = await appState.openCustomResolutionAsync({
+                width: first?.resolutionWidth,
+                height: first?.resolutionHeight,
               });
-              if (width == null) return;
-              const height = await appState.pushDialogAsync({
-                type: 'input-confirm',
-                text: '해상도 높이를 입력해주세요',
-              });
-              if (height == null) return;
-              try {
-                const w = (parseInt(width) + 63) & ~63;
-                const h = (parseInt(height) + 63) & ~63;
-                for (const scene of selected) {
-                  scene.resolution = 'custom' as Resolution;
-                  scene.resolutionWidth = w;
-                  scene.resolutionHeight = h;
-                }
-              } catch (e: any) {
-                appState.pushMessage(e.message);
+              if (!r) return;
+              for (const scene of selected) {
+                scene.resolution = 'custom' as Resolution;
+                scene.resolutionWidth = r.width;
+                scene.resolutionHeight = r.height;
               }
               return;
             }

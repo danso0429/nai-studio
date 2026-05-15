@@ -18,6 +18,7 @@ import AlertWindow from './AlertWindow';
 import DriveRetryWidget from './DriveRetryWidget';
 import ExportPresetsDialog from './ExportPresetsDialog';
 import ExportOptionsForm from './ExportOptionsForm';
+import CustomResolutionDialog from './CustomResolutionDialog';
 import { DropdownSelect, TabComponent } from './UtilComponents';
 import PieceEditor, { PieceCell } from './PieceEditor';
 import PromptTooltip from './PromptTooltip';
@@ -487,6 +488,7 @@ export const App = observer(() => {
         <DriveRetryWidget />
         <ExportPresetsDialog />
         <ExportOptionsForm />
+        <CustomResolutionDialog />
         <PromptTooltip />
         <ModalOverlay
           isOpen={appState.pieceEditorOpen}
