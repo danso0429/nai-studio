@@ -218,6 +218,10 @@ export class ServerBackend extends Backend {
     await api('/auth/login-token', { method: 'POST', body: JSON.stringify({ token }) });
   }
 
+  async authStatus(): Promise<boolean> {
+    return (await apiJSON('/auth/status')).loggedIn;
+  }
+
   async encodeVibeImage(arg: EncodeVibeImageInput): Promise<string> {
     return (await apiJSON('/image/encode-vibe', { method: 'POST', body: JSON.stringify(arg) })).result;
   }

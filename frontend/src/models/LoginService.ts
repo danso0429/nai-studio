@@ -22,9 +22,10 @@ export class LoginService extends EventTarget {
   }
 
   async refresh() {
+    // 보안 권고 H2(2026-05-15) 이후 /api/fs/read?path=TOKEN.txt 차단됨 — 별도
+    // /api/auth/status로 메모리 + disk 체크. NAI 호출 0이라 cheap.
     try {
-      await backend.readFile('TOKEN.txt');
-      this.loggedIn = true;
+      this.loggedIn = await backend.authStatus();
     } catch (e: any) {
       this.loggedIn = false;
     }

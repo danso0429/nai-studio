@@ -1282,6 +1282,18 @@ app.post('/api/auth/login-token', authLimiter, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 로그인 상태 확인 (NAI 호출 X, 메모리 + disk만). LoginService.refresh가 매 mount/
+// 로그인 시도마다 호출 — credits처럼 NAI에 매번 가면 부담 + rate limit 위험.
+// 토큰의 *validity*는 첫 credits/generate 호출 때 자연스럽게 검증됨 (실패 시 401).
+app.get('/api/auth/status', async (req, res) => {
+  try {
+    if (!nai.token) {
+      try { nai.token = await fs.readFile(resolvePath('TOKEN.txt', { allowSensitive: true }), 'utf-8'); } catch {}
+    }
+    res.json({ loggedIn: !!nai.token });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/auth/credits', async (req, res) => {
   try {
     // Try to load token from file if not in memory

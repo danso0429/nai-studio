@@ -139,6 +139,7 @@ export abstract class Backend {
   abstract augmentImage(arg: ImageAugmentInput): Promise<void>;
   abstract login(email: string, password: string): Promise<void>;
   abstract loginWithToken(token: string): Promise<void>;
+  abstract authStatus(): Promise<boolean>;
   abstract encodeVibeImage(arg: EncodeVibeImageInput): Promise<string>;
   abstract showFile(arg: string): Promise<void>;
   abstract copyToDownloads(path: string): Promise<void>;
