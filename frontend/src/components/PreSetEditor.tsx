@@ -325,9 +325,22 @@ export const VibeEditor = observer(({ disabled }: VibeEditorProps) => {
                         }}
                         disabled={disabled}
                       />
-                      <div className="w-11 flex-none text-lg text-center back-lllgray">
-                        {vibe.info}
-                      </div>
+                      <input
+                        className="w-14 flex-none text-lg text-center back-lllgray rounded outline-none"
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        min="0"
+                        max="1"
+                        value={vibe.info}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!isNaN(v)) {
+                            vibe.info = Math.max(0, Math.min(1, v));
+                          }
+                        }}
+                        disabled={disabled}
+                      />
                     </div>
                   </div>
                   <div className="flex w-full md:flex-row flex-col items-center">
@@ -345,9 +358,22 @@ export const VibeEditor = observer(({ disabled }: VibeEditorProps) => {
                         }}
                         disabled={disabled}
                       />
-                      <div className="w-11 flex-none text-lg text-center back-lllgray">
-                        {vibe.strength}
-                      </div>
+                      <input
+                        className="w-14 flex-none text-lg text-center back-lllgray rounded outline-none"
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        min="0"
+                        max="1"
+                        value={vibe.strength}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!isNaN(v)) {
+                            vibe.strength = Math.max(0, Math.min(1, v));
+                          }
+                        }}
+                        disabled={disabled}
+                      />
                     </div>
                   </div>
                   <div className="flex-none flex ml-auto mt-auto">
@@ -658,7 +684,21 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
                       value={refDefaults.strength}
                       onChange={(e) => updateDefault(REF_DEFAULT_STRENGTH_KEY, e.target.value)}
                     />
-                    <span className="w-10 text-center text-default">{refDefaults.strength.toFixed(2)}</span>
+                    <input
+                      className="w-14 flex-none text-center text-default back-lllgray rounded outline-none"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="0"
+                      max="2"
+                      value={refDefaults.strength}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        if (!isNaN(v)) {
+                          updateDefault(REF_DEFAULT_STRENGTH_KEY, String(Math.max(0, Math.min(2, v))));
+                        }
+                      }}
+                    />
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="gray-label w-20 flex-none">Fidelity:</span>
@@ -669,7 +709,21 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
                       value={refDefaults.fidelity}
                       onChange={(e) => updateDefault(REF_DEFAULT_FIDELITY_KEY, e.target.value)}
                     />
-                    <span className="w-10 text-center text-default">{refDefaults.fidelity.toFixed(2)}</span>
+                    <input
+                      className="w-14 flex-none text-center text-default back-lllgray rounded outline-none"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="0"
+                      max="2"
+                      value={refDefaults.fidelity}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        if (!isNaN(v)) {
+                          updateDefault(REF_DEFAULT_FIDELITY_KEY, String(Math.max(0, Math.min(2, v))));
+                        }
+                      }}
+                    />
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="gray-label w-20 flex-none">유형:</span>
@@ -753,9 +807,22 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
                         }}
                         disabled={disabled}
                       />
-                      <div className="w-11 flex-none text-lg text-center back-lllgray">
-                        {reference.strength}
-                      </div>
+                      <input
+                        className="w-14 flex-none text-lg text-center back-lllgray rounded outline-none"
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        min="0"
+                        max="2"
+                        value={reference.strength}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!isNaN(v)) {
+                            reference.strength = Math.max(0, Math.min(2, v));
+                          }
+                        }}
+                        disabled={disabled}
+                      />
                     </div>
                   </div>
                   <div className="flex w-full md:flex-row flex-col items-center">
@@ -773,9 +840,22 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
                         }}
                         disabled={disabled}
                       />
-                      <div className="w-11 flex-none text-lg text-center back-lllgray">
-                        {reference.fidelity}
-                      </div>
+                      <input
+                        className="w-14 flex-none text-lg text-center back-lllgray rounded outline-none"
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        min="0"
+                        max="2"
+                        value={reference.fidelity}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!isNaN(v)) {
+                            reference.fidelity = Math.max(0, Math.min(2, v));
+                          }
+                        }}
+                        disabled={disabled}
+                      />
                     </div>
                   </div>
                   <div className="flex w-full md:flex-row flex-col items-center mt-2">
