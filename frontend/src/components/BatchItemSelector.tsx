@@ -126,7 +126,7 @@ function ItemCardInner<T>({
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       className={
-        'touch-manipulation cursor-pointer p-2 border flex flex-col items-center w-24 md:w-32 select-none ' +
+        'touch-manipulation active:brightness-75 cursor-pointer p-2 border flex flex-col items-center w-24 md:w-32 select-none ' +
         (selected
           ? 'border-sky-500 bg-sky-100 dark:bg-slate-700'
           : 'border-gray-400 dark:border-slate-500 bg-white dark:bg-slate-800 hover:brightness-95')
