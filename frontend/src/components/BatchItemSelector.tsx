@@ -112,9 +112,41 @@ function ItemCardInner<T>({
   imageRevision,
   showLabel,
 }: ItemCardProps<T>): React.ReactElement {
-  const handleClick = useCallback(() => onToggle(id), [id, onToggle]);
-  const handleTouchStart = useCallback(() => perf.mark('bis:touch:start'), []);
-  const handleTouchEnd = useCallback(() => perf.mark('bis:touch:end'), []);
+  // iOS Safari 400ms click delay 우회 — onTouchEnd에서 직접 toggle.
+  // - startPosRef: 스크롤 보호 (10px 이상 이동 시 toggle X).
+  // - toggleLockRef: touch 경로에서 이미 toggle 했으면 1초 내 도착한 click skip
+  //   (더블 toggle 방지). 데스크탑(mouse only): click 그대로 통과.
+  const startPosRef = useRef<{ x: number; y: number } | null>(null);
+  const toggleLockRef = useRef<number>(0);
+
+  const handleClick = useCallback(() => {
+    if (Date.now() - toggleLockRef.current < 1000) return;
+    onToggle(id);
+  }, [id, onToggle]);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    perf.mark('bis:touch:start');
+    const t = e.touches[0];
+    if (t) startPosRef.current = { x: t.clientX, y: t.clientY };
+  }, []);
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      perf.mark('bis:touch:end');
+      const start = startPosRef.current;
+      startPosRef.current = null;
+      if (!start) return;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - start.x;
+      const dy = t.clientY - start.y;
+      if (Math.hypot(dx, dy) > 10) return;
+      toggleLockRef.current = Date.now();
+      onToggle(id);
+    },
+    [id, onToggle],
+  );
+
   const handlePointerDown = useCallback(() => perf.mark('bis:pointer:down'), []);
   const handlePointerUp = useCallback(() => perf.mark('bis:pointer:up'), []);
   return (
