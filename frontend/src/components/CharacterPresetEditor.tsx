@@ -112,24 +112,40 @@ const CharacterPresetInnerEditor = observer(({
   // 바이브 이미지 추가
   const handleVibeChange = async (vibe: string) => {
     if (!vibe) return;
-    const path = await imageService.storeVibeImage(curSession!, vibe);
-    const newVibe = VibeItem.fromJSON({ path: path, info: 1.0, strength: 0.6 });
-    setVibes([...vibes, newVibe]);
+    const toastId = appState.pushMessage('바이브 이미지 전송 중…', { sticky: true });
+    try {
+      const path = await imageService.storeVibeImage(curSession!, vibe);
+      const newVibe = VibeItem.fromJSON({ path: path, info: 1.0, strength: 0.6 });
+      setVibes((prev) => [...prev, newVibe]);
+      appState.dismissMessage(toastId);
+      appState.pushMessage('바이브 이미지 추가 완료');
+    } catch (e) {
+      appState.dismissMessage(toastId);
+      appState.pushMessage('바이브 이미지 추가 실패: ' + (e as Error).message);
+    }
   };
 
   // 캐릭터 레퍼런스 이미지 추가
   const handleReferenceChange = async (reference: string) => {
     if (!reference) return;
-    const path = await imageService.storeReferenceImage(curSession!, reference);
-    const defaults = getRefDefaults();
-    const newRef = ReferenceItem.fromJSON({
-      path: path,
-      info: 1.0,
-      strength: defaults.strength,
-      fidelity: defaults.fidelity,
-      referenceType: defaults.referenceType,
-    }) as ReferenceItem;
-    setCharacterReferences([...characterReferences, newRef]);
+    const toastId = appState.pushMessage('레퍼런스 이미지 전송 중…', { sticky: true });
+    try {
+      const path = await imageService.storeReferenceImage(curSession!, reference);
+      const defaults = getRefDefaults();
+      const newRef = ReferenceItem.fromJSON({
+        path: path,
+        info: 1.0,
+        strength: defaults.strength,
+        fidelity: defaults.fidelity,
+        referenceType: defaults.referenceType,
+      }) as ReferenceItem;
+      setCharacterReferences((prev) => [...prev, newRef]);
+      appState.dismissMessage(toastId);
+      appState.pushMessage('레퍼런스 이미지 추가 완료');
+    } catch (e) {
+      appState.dismissMessage(toastId);
+      appState.pushMessage('레퍼런스 이미지 추가 실패: ' + (e as Error).message);
+    }
   };
 
   // 드래그 앤 드롭 핸들러 (바이브)
