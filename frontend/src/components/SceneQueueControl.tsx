@@ -302,7 +302,11 @@ export const SceneCell = observer(
         dispose();
         dispose2();
       };
-    }, [scene]);
+      // getImage를 dep에 포함 — 본인 페인 (P12 #8): config의 initialThumbSize 변경
+      // 시 자연스러운 refetch. QueueControl의 getImage는 useCallback([curSession,
+      // thumbSize])이라 thumbSize 값이 같으면 동일 ref → useEffect skip → 불필요한
+      // refetch X. 다른 값이면 새 ref → refetch + 새 썸네일로 갈아끼움.
+    }, [scene, getImage]);
 
     const cardRef = (node: any) => drag(drop(node));
     const onContext = (e: any) => {
