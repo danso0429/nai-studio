@@ -413,19 +413,15 @@ export const GlobalPresetTab = observer(() => {
     }
     appState.setProgressDialog(undefined);
     if (fail === 0) {
-      appState.pushDialog({
-        type: 'yes-only',
-        text: `${ok}개의 글로벌 프리셋을 가져왔습니다.`,
-      });
+      appState.pushMessage(`${ok}개의 글로벌 프리셋을 가져왔습니다.`);
     } else {
-      appState.pushDialog({
-        type: 'yes-only',
-        text: `성공 ${ok}개 / 실패 ${fail}개${
+      appState.pushMessage(
+        `성공 ${ok}개 / 실패 ${fail}개${
           failNames.length > 0
-            ? '\n실패 파일: ' + failNames.slice(0, 5).join(', ')
+            ? ' · 실패 파일: ' + failNames.slice(0, 5).join(', ')
             : ''
-        }${failNames.length > 5 ? '\n...' : ''}`,
-      });
+        }${failNames.length > 5 ? '...' : ''}`,
+      );
     }
   };
 

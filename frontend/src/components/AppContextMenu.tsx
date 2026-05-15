@@ -62,10 +62,7 @@ export const AppContextMenu = observer(() => {
       await backend.copyFile(path, tmp + '/' + Date.now().toString() + '.png');
     }
     imageService.refresh(appState.curSession!, ctx.scene);
-    appState.pushDialog({
-      type: 'yes-only',
-      text: '이미지를 복제했습니다',
-    });
+    appState.pushMessage('이미지를 복제했습니다');
   };
   const copyImage = (ctx: GallaryImageContextAlt) => {
     appState.pushDialog({
@@ -93,10 +90,7 @@ export const AppContextMenu = observer(() => {
           );
         }
         imageService.refresh(appState.curSession!, scene);
-        appState.pushDialog({
-          type: 'yes-only',
-          text: '이미지를 복사했습니다',
-        });
+        appState.pushMessage('이미지를 복사했습니다');
       },
     });
   };

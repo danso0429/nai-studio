@@ -145,13 +145,21 @@ const StorageTab = ({
   const startBackup = () => {
     if (backupBusy) return;
     setBackupBusy(true);
-    appState.pushMessage('백업 zip 생성 중... 다운로드가 곧 시작돼요');
+    // 본인 페인 (P13 #6): 인터넷 느린 환경에서 zip 생성 큰 데이터 시 short 토스트
+    // 사라진 후 사용자 인지 X. sticky로 박고 30초 후 자동 dismiss (다운로드 매니저
+    // 인계 시점엔 토스트 의미 줄어듦). 브라우저 다운로드 매니저가 진행도 표시 인계.
+    const toastId = appState.pushMessage(
+      '백업 zip 생성 중… (수십 초~수 분 걸릴 수 있어요. 브라우저 다운로드 매니저에서 진행도 확인 가능)',
+      { sticky: true },
+    );
     const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     const a = document.createElement('a');
     a.href = `${base}/api/backup/full`;
     a.click();
-    // 서버가 stream 시작하면 브라우저가 다운로드 매니저로 인계. 버튼 짧게 잠궈 더블클릭만 방지.
-    setTimeout(() => setBackupBusy(false), 3000);
+    setTimeout(() => {
+      appState.dismissMessage(toastId);
+      setBackupBusy(false);
+    }, 30000);
   };
   return (
     <div className="space-y-4">
@@ -297,12 +305,14 @@ const FolderCleanupSection = ({ folder, label, description }: { folder: string; 
                     className="text-sm back-orange px-3 py-1.5 rounded hover:brightness-95 active:brightness-90"
                     onClick={() => {
                       if (oldFiles.length === 0) {
-                        alert(`${days}일 이전 파일이 없습니다.`);
+                        appState.pushMessage(`${days}일 이전 파일이 없습니다.`);
                         return;
                       }
-                      if (confirm(`${days}일 이전 파일 ${oldFiles.length}개(${formatSize(oldSize)})를 삭제합니다.`)) {
-                        deleteFiles(oldFiles);
-                      }
+                      appState.pushDialog({
+                        type: 'confirm',
+                        text: `${days}일 이전 파일 ${oldFiles.length}개(${formatSize(oldSize)})를 삭제합니다.`,
+                        callback: () => deleteFiles(oldFiles),
+                      });
                     }}
                     disabled={cleaning || oldFiles.length === 0}
                   >
@@ -410,23 +420,22 @@ const OrphanCleanupSection = () => {
     };
   }, []);
 
-  const run = async () => {
-    if (
-      !window.confirm(
-        '현재 살아있는 프로젝트 이름과 비교해서, 매칭되지 않는 로컬/Drive의 데이터(outs/inpaints/vibes/inpaint_masks/inpaint_orgs/exports)를 모두 영구 삭제합니다. 휴지통 거치지 않으며 되돌릴 수 없습니다. 진행할까요?',
-      )
-    ) {
-      return;
-    }
-    try {
-      const r = await backend.cleanupOrphans();
-      if (r.alreadyRunning) {
-        alert('이미 정리가 진행 중이에요. 상단 진행도를 확인해주세요.');
-        // 진행 중이면 listener가 이미 토스트 갱신 중이므로 별도 처리 없음
-      }
-    } catch (e: any) {
-      alert('Orphan 정리 시작 실패: ' + (e?.message || e));
-    }
+  const run = () => {
+    appState.pushDialog({
+      type: 'confirm',
+      text: '현재 살아있는 프로젝트 이름과 비교해서, 매칭되지 않는 로컬/Drive의 데이터(outs/inpaints/vibes/inpaint_masks/inpaint_orgs/exports)를 모두 영구 삭제합니다. 휴지통 거치지 않으며 되돌릴 수 없습니다. 진행할까요?',
+      callback: async () => {
+        try {
+          const r = await backend.cleanupOrphans();
+          if (r.alreadyRunning) {
+            appState.pushMessage('이미 정리가 진행 중이에요. 상단 진행도를 확인해주세요.');
+            // 진행 중이면 listener가 이미 토스트 갱신 중이므로 별도 처리 없음
+          }
+        } catch (e: any) {
+          appState.pushMessage('Orphan 정리 시작 실패: ' + (e?.message || e));
+        }
+      },
+    });
   };
 
   const running = activeJobId !== null;
@@ -957,7 +966,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     }
     imageService.cache.cache.clear();
     await imageService.refreshBatch(curSession);
-    appState.pushDialog({ type: 'yes-only', text: '이미지 캐시 초기화 완료' });
+    appState.pushMessage('이미지 캐시 초기화 완료');
   };
 
   const selectFolder = async () => {
@@ -967,7 +976,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     config.saveLocation = folder;
     await backend.setConfig(config);
     setSaveLocation(folder);
-    appState.pushDialog({ type: 'yes-only', text: '저장 위치 지정 완료. 프로그램을 껐다 켜주세요' });
+    appState.pushMessage('저장 위치 지정 완료. 프로그램을 껐다 켜주세요');
   };
 
   const stageTexts = ['모델 다운로드 중...', '모델 가중치 다운로드 중...', '모델 압축 푸는 중...'];

@@ -53,9 +53,14 @@ const ExportPresetsDialog = observer(() => {
   };
 
   const onDelete = (id: string) => {
-    if (!confirm('이 프리셋을 삭제할까요?')) return;
-    appState.exportPresets = appState.exportPresets.filter((p) => p.id !== id);
-    appState.saveExportPresets();
+    appState.pushDialog({
+      type: 'confirm',
+      text: '이 프리셋을 삭제할까요?',
+      callback: () => {
+        appState.exportPresets = appState.exportPresets.filter((p) => p.id !== id);
+        appState.saveExportPresets();
+      },
+    });
   };
 
   const onApply = (preset: ExportPreset) => {
