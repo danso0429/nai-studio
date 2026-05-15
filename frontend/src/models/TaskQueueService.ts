@@ -1175,7 +1175,13 @@ export class TaskQueueService extends EventTarget {
   }
 
   isRunning() {
-    return this.currentRun != undefined || this.mirroredTasks.size > 0;
+    // mirrorPaused는 stop()으로 server 큐 pause + mirroredTasks 보존 상태. paused면 isRunning=false로
+    // 처리해서 버튼이 ▶ (resume)으로 전환되게. 본인 페인 (2026-05-15): "일시정지 다시 눌러도
+    // 시작으로 안 바뀌고 큐가 안 들어감" — 옛 isRunning은 mirroredTasks.size만 봐서 paused 상태에서도
+    // true 반환 → 버튼이 ⏸로 고정 → 재클릭 시 또 stop() 호출로 무동작 chain.
+    if (this.currentRun != undefined) return true;
+    if (this.mirroredTasks.size > 0 && !this.mirrorPaused) return true;
+    return false;
   }
 
   stop() {
