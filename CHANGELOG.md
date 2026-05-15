@@ -9,6 +9,29 @@
 
 ---
 
+## v1.5.3 (2026-05-15)
+
+stable. v1.5.2 → v1.5.3 누적 (180 commit).
+
+- **feat(folder)**: 폴더 시스템 + 폴더 전체 백업/복원 — `folder-backup.json` 마커로 N 프로젝트를 1 tar로 묶음 + `listFilesRecursive` 5병렬 + CHUNK=4 프로젝트 동시 처리. Drive 가용시 `exports/backups/{folder}.tar` → Drive `backups/` 자동 분류 (서버 sync-exports 화이트리스트). 미가용시 브라우저 다운로드 fallback. 폴더 단위 import도 (이름 충돌 auto-suffix, 폴더 없으면 자동 생성).
+- **fix(download)**: 단일 이미지 다운로드 → Drive 직행 — 옛 다이얼로그/혼란 버튼 폐기, 단일 "다운로드" 버튼. Drive 가용시 `exports/{name}_{ts}.png` 쓰고 sync 큐 등록, 미가용시 `copyToDownloads(path, customName)`. 데스크탑은 "파일 위치 열기" 보조 유지.
+- **fix(viewer)**: 씬 안 큐 자동 갱신 disk polling 안전망 — 이벤트 체인(WS queue-job-complete → onAddImage → ...) 모바일 Safari에서 누락되는 케이스 우회. `taskQueueService.sceneStats[key]` pending시만 2.5초 폴링 `imageService.refresh`.
+- **refactor(ui)**: 순차 다이얼로그 일체화 3건 — (a) `CustomResolutionDialog.tsx` (`SceneEditor`/`InPaintEditor`/`onSceneQueueMenu` 3곳 중복 제거, width/height 한 폼 + 64배수 round-up 흡수), (b) `SceneNameExportForm.tsx` (대체문자 + 특수문자 checkbox 한 폼), (c) 이미지 변형 select 평탄화 (2단계 → 1단계 flat, `create:`/`once:` prefix 분기).
+- **security**: 감사 권고 7건 일괄 적용 — H1 README 위협 모델 + H2 `/api/fs/*` TOKEN.txt 차단 (sensitive blacklist) + M1 CSP enforce 격상 + M2 rclone `execFile` array args (command injection 면역) + M3 `/api/auth/login(+token)` rate limit 5회/분 + L1 generate request 로깅 opt-in (`DEBUG_GENERATE_LOG=true`).
+- **fix(login)**: 시도/성공/실패 sticky 토스트 통일 + H2 회귀 fix (LoginService.refresh가 차단된 `/api/fs/read?TOKEN.txt` 호출 → 새 `/api/auth/status` endpoint로 교체).
+- **feat(mobile)**: vibe/reference 빈상태 안내 모바일 fit + sticky 업로드 토스트 + closure stale state 사이드 fix(functional updater) + PreSetEditor 슬라이더 옆 숫자 input 6 자리 (모바일 숫자 키보드).
+- **fix(mobile)**: BatchItemSelector iOS click delay 우회 (A1 active:brightness 마스킹 + A2 onTouchEnd direct toggle + onClick lock, 408ms → 50ms) + ImageBatchSelector swap (in-place selectMode 0.5초 hang 해결).
+- **perf(network)**: 인터넷 느린 환경 fit — `compression` 미들웨어(JS 1.21MB → 343KB, 3.5x) + sharp PNG → WebP quality 80(썸네일 95KB → 8.8KB, 10.5x) + 초기 썸네일 크기 자동 (480/768/1280 분기) + sticky 로딩 토스트.
+- **fix(install)**: 첫 install 하이진 — `.env.local` 자동 로드(`process.loadEnvFile?.()` Node 20.6+) + `version.json` fallback(`/api/build-info`에서 `public/build-info.json` 부재 시).
+- **feat(queue)**: 큐 통계 — sceneStats + groupStats + 시간 estimator (`TaskTimeEstimator`).
+- **docs**: README "보안 / 프라이버시" 섹션 추가 (위협 모델 + 외부 통신 destinations + 로컬 데이터 표 + 보안 환경변수).
+
+## v1.5.3-experimental.4 (2026-05-15)
+- **security**: 감사 권고 7건 일괄 적용 — (H1) README 보안 섹션 (H2) `/api/fs/*` TOKEN.txt 차단 (M1) CSP enforce 격상 (M2) rclone execFile (M3) 로그인 rate limit (L1) generate log opt-in.
+
+## v1.5.3-experimental.3 (2026-05-15)
+- **chore**: marker 측정 인프라 제거 — iOS click delay 진단 끝나서 `performance.mark` + `sendBeacon` + `/api/client-perf` 회수.
+
 ## v1.5.3-experimental.2 (2026-05-14)
 - **feat**: viewport-fit=cover 재시도 — body box-sizing:border-box + height:100dvh + safe-area-inset padding 4축 동시 적용. iPhone 다이나믹 아일랜드 안전 영역 보호.
 - **feat**: `extractApiError`에 401/429/timeout/네트워크 한국어 친절 메시지 매핑.

@@ -73,6 +73,8 @@
 - **📁 프로젝트 폴더 분류** — 폴더로 프로젝트 카테고리화 (depth=1)
 - **🗂️ 내보내기 프리셋** — 자주 쓰는 내보내기 설정 (전체/즐겨찾기, 형식, 크기, 구분자) 저장. 한 번 설정하고 다이얼로그 없이 즉시 내보내기. 최대 3개
 - **📂 폴더 전체 내보내기** — 폴더 안 모든 프로젝트에 동일 프리셋 적용해서 1개 zip으로 묶음
+- **💾 폴더 전체 백업/복원** — 폴더 N 프로젝트의 project.json + outs + inpaints + vibes 전부를 1개 tar로 묶음 + `folder-backup.json` 마커. Drive 가용시 `backups/` 폴더로 자동 분류. 폴더 단위 import도 지원 (이름 충돌 auto-suffix, 폴더 없으면 자동 생성)
+- **⬇️ 단일 이미지 다운로드 → Drive 직행** — 옵션/다이얼로그 없이 한 번 클릭. Drive 가용시 `exports/`에 쓰고 sync 큐 등록 → 자동 업로드. 미가용시 브라우저 즉시 다운로드
 - **☁️ Google Drive 자동 동기화 (선택)** — rclone 설정하면 내보내기 결과를 즉시 업로드. 실패 시 6회 자동 재시도(exponential backoff). 좌측 하단 위젯에서 진행 확인
 - **🚀 Drive 병렬 업로드** — 씬 이름 / 프로젝트 / 이미지 내보내기 동시 처리. 큐 한도 5000 + LRU eviction으로 안전
 - **🔍 태그 자동완성 split 레이아웃** — 모바일 세로 = 상하 분할, 가로/PC = 좌우 분할
@@ -107,9 +109,14 @@
 | **이미지 썸네일 캐시** | 매번 재생성 | 서버에서 prewarm (200/400/500px) |
 | **프로젝트 폴더 분류** | 평면 (폴더 없음) | depth=1 폴더 지원 |
 | **Drive 업로드 실패 처리** | 해당 없음 | exponential backoff 자동 재시도 + 좌측 하단 위젯 |
-| **내보내기 다이얼로그 chain** | 매번 옵션 6개 선택 | 프리셋 저장 후 한 번 클릭으로 즉시 |
+| **내보내기 다이얼로그 chain** | 매번 옵션 6개 선택 | 프리셋 저장 후 한 번 클릭으로 즉시 (다이얼로그 일체화) |
 | **진행 상황 표시** | 모달 다이얼로그 | 상단 진행 알약 + 다중 progress |
 | **큐 영속화** | 미지원 | 서버 재시작에도 보존 (`data/.queue_state.json`) |
+| **폴더 전체 백업/복원** | 미지원 (수동 폴더 복사) | 1 tar로 묶음 + Drive `backups/` 자동 분류 + 폴더 단위 복원 (이름 충돌 auto-suffix) |
+| **이미지 다운로드** | OS 다이얼로그 → 폴더 선택 | "다운로드" 한 번 클릭 → Drive 자동 (미사용시 브라우저 즉시) |
+| **씬 자동 갱신** | 앱 자체 처리 | 큐 진행 중 disk polling으로 자동 갱신 (이벤트 누락 안전망) |
+| **커스텀 해상도 입력** | 모달 1개 | 한 폼에 width/height 동시 입력 + 64배수 자동 round-up |
+| **로그인 피드백** | 모달 | sticky 토스트 (시도/성공/실패 자동 dismiss) |
 
 ### 미이식 / 미지원 기능
 
@@ -152,27 +159,16 @@ node --version    # v20.x.x 떠야 함
 
 ### Step 2. SDStudio Remote 다운로드 + 빌드
 
+다음 5줄을 그대로 붙여넣으세요 (기본값으로 진행). 시간 1~3분.
+
 ```bash
-# 본인 home 디렉터리로 (cd ~ 도 OK)
-cd ~
-
-# GitHub에서 코드 받기
-git clone https://github.com/danso0429/nai-studio.git
-cd nai-studio
-
-# 의존성 설치 (시간 좀 걸려요, 1~3분)
-npm install
-cd frontend && npm install && cd ..
-
-# 설정 파일 만들기 (.env.example 복사)
+cd ~ && git clone https://github.com/danso0429/nai-studio.git && cd nai-studio
 cp .env.example .env.local
-# 기본값: PORT=6247, VITE_BASE_PATH=/studio/, URL_PREFIX=/studio
-# 이대로 진행하면 추후 https://your-host/studio 경로로 노출됨.
-# 다른 경로/포트 원하면 nano .env.local 로 편집 (단 3 항목은 서로 일치 필수)
-
-# 화면(프론트엔드) 빌드 — .env.local의 VITE_BASE_PATH가 자동 로드돼요
-cd frontend && npx vite build --emptyOutDir && cd ..
+npm install
+(cd frontend && npm install && npx vite build --emptyOutDir)
 ```
+
+기본값: `PORT=6247`, `URL_PREFIX=/studio`, `VITE_BASE_PATH=/studio/` → 추후 `https://your-host/studio` 경로로 노출. 다른 경로/포트 원하면 `nano .env.local`로 편집 후 마지막 줄(vite build) 다시 실행.
 
 > **왜 `.env.local`을 빌드 전에 만들어야 하나요?**
 >
@@ -534,7 +530,7 @@ WebSocket 끊긴 상태일 수 있어요. 새로고침 한 번 하면 즉시 동
 `update.sh` 실행 후에도 알림 그대로면 브라우저 캐시 새로고침 (모바일은 새로고침 + 캐시 비우기). 또는 `curl localhost:6247/api/build-info`로 현재 버전 확인.
 
 ### Q. iOS Safari에서 이미지 내려받기가 새 탭으로 열려요
-Safari 보안 정책이라 직접 다운로드 막혀있어요. Drive 동기화 켜두고 Drive 앱에서 받는 게 우회법. 또는 PC 브라우저로 받으세요.
+v1.5.3부터 단일 이미지 "다운로드" 버튼은 Drive 가용 시 자동으로 Drive에 올려요(다이얼로그 없음). Drive에서 받으세요. Drive 미사용 환경에선 브라우저 직접 다운로드(`<a download>`)로 fallback — iOS 13+는 정상 다운로드, 새 탭 열리는 옛 케이스는 거의 없어요.
 
 ---
 
@@ -543,6 +539,7 @@ Safari 보안 정책이라 직접 다운로드 막혀있어요. Drive 동기화 
 세부 변경 이력은 [CHANGELOG.md](CHANGELOG.md) (v1.5.0-preview.4까지 누적 기록) + 최근 변경은 `version.json` 의 `notes` 필드 / `git --no-pager log` 로 확인 가능해요.
 
 **최근 변경 (요약)**:
+- **v1.5.3** stable (2026-05-15): 폴더 시스템 + 폴더 전체 백업/복원(1 tar + Drive `backups/` 자동 분류, `listFilesRecursive` 5병렬), 단일 이미지 다운로드 → Drive 직행(다이얼로그 폐기), 씬 자동 갱신 disk polling 안전망, UI 일체화 3건(커스텀 해상도/씬 이름 내보내기/이미지 변형 평탄화), 보안 감사 7건 일괄(TOKEN 차단/CSP enforce/execFile/rate limit/log opt-out), 모바일 페인 묶음(vibe/reference fit, BatchItemSelector longpress 통합, iOS click delay 우회), 인터넷 느린 환경 fit(gzip + WebP + 초기 크기 자동 + sticky 토스트), 첫 install 하이진(.env.local + version.json fallback), 로그인 sticky 토스트 + H2 회귀 fix
 - **v1.5.3-experimental.1~2** (2026-05-13~14): `BatchItemSelector` 신규 picker로 구 `SceneSelector` 전체 swap (의존성 격리 + 썸네일 + imageRevision 외부 신호), `Types.ts preset: any → PresetLike`, queue.html 모바일 paint/배터리/서버 부담 7축 개선, `saveInpaintImages` 2-phase commit, ModalOverlay focus trap, extractApiError 401/429/timeout 한국어 매핑
 - **v1.5.3-preview.1~3** (2026-05-13~14): 폴더 전체 내보내기(프리셋 일괄 적용 + 1zip + 큐 등록 4 병렬), `ResourceSyncService` get(retry: true), 네트워크 회복성 3축(클릭 차단 / 리스트 캐시 / fetch timeout), 5/14 회귀 묶음 fix(캐시 헤더, 예약 취소 cross-project, 씬 선택 렉), queue.html 전체정리 미리보기 + iOS confirm HTML 모달, 보안 헤더, atomicWriteFile + driveRetry 큐 한도 5000 + LRU
 - **v1.5.2** (2026-05-13): 씬/조합 단위 네거티브(`scene.uc` + `PromptPiece.uc`), queue.html 처리 중 프로젝트 표시 + 잔여 수, 백그라운드 복귀 시 export 동기화, 이미지 내보내기 동시 10개 + 취소 버튼, 흰화면 회귀 fix(lazy queueMicrotask)
