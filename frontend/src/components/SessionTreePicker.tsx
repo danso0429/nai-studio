@@ -101,7 +101,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
       type: 'select',
       text: `폴더 "${folder}" 작업`,
       items: [
-        { text: '📦 폴더 전체 내보내기 (프리셋 적용)', value: 'export' },
+        { text: '📦 폴더 전체 내보내기', value: 'export' },
         { text: '이름 변경', value: 'rename' },
         { text: '삭제 (안의 프로젝트는 휴지통으로)', value: 'delete' },
       ],

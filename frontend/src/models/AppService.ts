@@ -213,6 +213,44 @@ export class AppState {
   @observable accessor exportPresetsDialogOpen: boolean = false;
   @observable accessor exportPresetsDialogType: 'scene' | 'inpaint' = 'scene';
 
+  // 일회용 내보내기 옵션 폼. 프리셋 저장 안 하고 옵션 직접 입력 → exportImpl 즉시.
+  // resolve로 ExportPreset 객체 반환 (또는 cancel 시 undefined).
+  @observable accessor exportOptionsFormOpen: boolean = false;
+  exportOptionsFormDefaults: ExportPreset | null = null;
+  exportOptionsFormResolve: ((p: ExportPreset | undefined) => void) | null = null;
+
+  openExportOptionsForm(defaults?: Partial<ExportPreset>): Promise<ExportPreset | undefined> {
+    return new Promise((resolve) => {
+      // 이전 promise 살아있으면 cancel로 정리
+      if (this.exportOptionsFormResolve) {
+        this.exportOptionsFormResolve(undefined);
+      }
+      this.exportOptionsFormDefaults = {
+        id: 'one-off',
+        name: '',
+        imageSelection: 'all',
+        fileNameFormat: 'normal',
+        prefixName: '',
+        optimize: 'lossy',
+        imageSize: 1024,
+        separator: '.',
+        charsToReplace: [],
+        ...defaults,
+      };
+      this.exportOptionsFormResolve = resolve;
+      this.exportOptionsFormOpen = true;
+    });
+  }
+
+  closeExportOptionsForm(result: ExportPreset | undefined) {
+    if (this.exportOptionsFormResolve) {
+      this.exportOptionsFormResolve(result);
+      this.exportOptionsFormResolve = null;
+    }
+    this.exportOptionsFormOpen = false;
+    this.exportOptionsFormDefaults = null;
+  }
+
   saveExportPresets() {
     try {
       localStorage.setItem(
@@ -1105,7 +1143,7 @@ export class AppState {
       );
       return;
     }
-    // 프리셋 항목들 + 기본 옵션 + 설정 항목. 프리셋은 최대 3개.
+    // 프리셋 항목들 + fav/all (form 진입) + 설정 항목. 프리셋은 최대 3개.
     const presetItems = appState.exportPresets.slice(0, 3).map((p) => ({
       text: `★ ${p.name}${josaRo(p.name)} 내보내기`,
       value: `preset:${p.id}`,
@@ -1115,8 +1153,8 @@ export class AppState {
       text: '내보낼 이미지를 선택해주세요',
       items: [
         ...presetItems,
-        { text: '즐겨찾기 이미지만 내보내기', value: 'fav' },
-        { text: '모든 이미지 전부 내보내기', value: 'all' },
+        { text: '즐겨찾기 이미지만 (새 옵션)', value: 'fav' },
+        { text: '모든 이미지 (새 옵션)', value: 'all' },
         { text: '⚙️ 내보내기 프리셋 설정', value: 'settings' },
       ],
     });
@@ -1134,85 +1172,23 @@ export class AppState {
       }
       return;
     }
-    const format = await appState.pushDialogAsync({
-      type: 'select',
-      text: '파일 이름 형식을 선택해주세요',
-      items: [
-        { text: '(씬이름).(이미지 번호).png', value: 'normal' },
-        { text: '(캐릭터 이름).(씬이름).(이미지 번호)', value: 'prefix' },
-      ],
+
+    // fav/all → 일회용 옵션 폼 (chain 폐기). imageSelection 미리 채움.
+    const opts = await appState.openExportOptionsForm({
+      imageSelection: menu === 'fav' ? 'fav' : 'all',
     });
-    if (!format) return;
-
-    const optItems = [
-      { text: '원본', value: 'original' },
-      { text: '저손실 webp 최적화 (에셋용 권장)', value: 'lossy' },
-    ];
-    if (!isMobile) {
-      optItems.push({ text: '무손실 webp 최적화', value: 'lossless' });
-    }
-    optItems.push({ text: isMobile ? 'AVIF 최적화 (PC 권장)' : 'AVIF 최적화', value: 'avif' });
-    const opt = await appState.pushDialogAsync({
-      type: 'select',
-      text: '이미지 크기 최적화 방법을 선택해주세요',
-      items: optItems,
-    });
-    if (!opt) return;
-    let imageSize = 0;
-    if (opt !== 'original') {
-      const inputImageSize = await appState.pushDialogAsync({
-        type: 'input-confirm',
-        text: '이미지 픽셀 크기를 결정해주세요 (추천값 1024)',
-      });
-      if (!inputImageSize) return;
-      try {
-        imageSize = parseInt(inputImageSize);
-      } catch (error) {
-        return;
-      }
-    }
-    const separatorInput = await appState.pushDialogAsync({
-      type: 'input-confirm',
-      text: '파일명 구분자를 입력해주세요 (기본값: .)',
-    });
-    if (separatorInput === undefined) return;
-    const separator = separatorInput || '.';
-
-    // 씬 이름에서 특수문자 감지
-    const scenes = selected || sess.getScenes(type);
-    const detectedChars = detectSpecialChars(scenes);
-
-    let charsToReplace = new Set<string>();
-    if (detectedChars.size > 0) {
-      const items = Array.from(detectedChars).map((c) => ({
-        text: c === ' ' ? '띄어쓰기' : `"${c}"`,
-        value: c,
-      }));
-      const result = await appState.pushDialogAsync({
-        type: 'checkbox',
-        text: `씬 이름에서 감지된 특수문자입니다.\n"${separator}" 로 변환할 문자를 선택해주세요:`,
-        items: items,
-      });
-      if (result === undefined) return;
-      try {
-        charsToReplace = new Set(JSON.parse(result));
-      } catch (e) {
-        // 파싱 실패 시 변환 없음
-      }
-    }
-
-    if (format === 'normal') {
-      await exportImpl('', menu === 'fav', opt, imageSize, separator, charsToReplace);
-    } else {
-      appState.pushDialog({
-        type: 'input-confirm',
-        text: '캐릭터 이름을 입력해주세요',
-        callback: async (prefix) => {
-          if (!prefix) return;
-          await exportImpl(prefix + separator, menu === 'fav', opt, imageSize, separator, charsToReplace);
-        },
-      });
-    }
+    if (!opts) return;
+    const prefix = opts.fileNameFormat === 'prefix' && opts.prefixName
+      ? opts.prefixName + opts.separator
+      : '';
+    await exportImpl(
+      prefix,
+      opts.imageSelection === 'fav',
+      opts.optimize,
+      opts.imageSize,
+      opts.separator || '.',
+      new Set(opts.charsToReplace || []),
+    );
   }
 
   // 한 세션의 export item 수집. exportPackage / exportFolder 공통 helper.
@@ -1401,26 +1377,31 @@ export class AppState {
       appState.pushMessage('빈 폴더예요');
       return;
     }
-    if (this.exportPresets.length === 0) {
-      appState.pushDialog({
-        type: 'confirm',
-        text: '내보내기 프리셋이 없어요. 먼저 프리셋을 만들어주세요.',
-        callback: () => {
-          this.openExportPresetsDialog('scene');
-        },
-      });
-      return;
-    }
-    const presetId = await appState.pushDialogAsync({
-      type: 'select',
-      text: `'${folderName}' 폴더의 ${projectNames.length}개 프로젝트에 적용할 프리셋`,
-      items: this.exportPresets.map((p) => ({
+
+    // 프리셋 list + "새 옵션" 항목. 프리셋 0개여도 form 진입 가능.
+    const items = [
+      ...this.exportPresets.map((p) => ({
         text: `★ ${p.name} 적용`,
-        value: p.id,
+        value: `preset:${p.id}`,
       })),
+      { text: '⚙️ 새 옵션으로 내보내기', value: 'form' },
+    ];
+    const choice = await appState.pushDialogAsync({
+      type: 'select',
+      text: `'${folderName}' 폴더의 ${projectNames.length}개 프로젝트에 적용할 옵션`,
+      items,
     });
-    if (!presetId) return;
-    const preset = this.exportPresets.find((p) => p.id === presetId);
+    if (!choice) return;
+
+    let preset: ExportPreset | undefined;
+    if (choice === 'form') {
+      const opts = await appState.openExportOptionsForm();
+      if (!opts) return;
+      preset = opts;
+    } else if (choice.startsWith('preset:')) {
+      const presetId = choice.slice('preset:'.length);
+      preset = this.exportPresets.find((p) => p.id === presetId);
+    }
     if (!preset) return;
 
     // 프리셋 → exportImpl 옵션 변환

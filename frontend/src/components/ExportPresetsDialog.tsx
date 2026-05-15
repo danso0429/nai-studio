@@ -183,21 +183,25 @@ interface PresetFormProps {
   onChange: (p: ExportPreset) => void;
   onSave: () => void;
   onCancel: () => void;
+  hideName?: boolean;
+  saveLabel?: string;
 }
 
-const PresetForm = ({ preset, onChange, onSave, onCancel }: PresetFormProps) => {
+export const PresetForm = ({ preset, onChange, onSave, onCancel, hideName, saveLabel }: PresetFormProps) => {
   const charsText = preset.charsToReplace.join(',');
   return (
     <div className="space-y-3">
-      <div>
-        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">프리셋 이름</label>
-        <input
-          type="text"
-          className="w-full p-1.5 border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-sm"
-          value={preset.name}
-          onChange={(e) => onChange({ ...preset, name: e.target.value })}
-        />
-      </div>
+      {!hideName && (
+        <div>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">프리셋 이름</label>
+          <input
+            type="text"
+            className="w-full p-1.5 border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-sm"
+            value={preset.name}
+            onChange={(e) => onChange({ ...preset, name: e.target.value })}
+          />
+        </div>
+      )}
 
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">이미지 선택</label>
@@ -310,7 +314,7 @@ const PresetForm = ({ preset, onChange, onSave, onCancel }: PresetFormProps) => 
           onClick={onSave}
           className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded text-sm"
         >
-          저장
+          {saveLabel ?? '저장'}
         </button>
       </div>
     </div>

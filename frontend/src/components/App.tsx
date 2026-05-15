@@ -17,6 +17,7 @@ import TobBar from './TobBar';
 import AlertWindow from './AlertWindow';
 import DriveRetryWidget from './DriveRetryWidget';
 import ExportPresetsDialog from './ExportPresetsDialog';
+import ExportOptionsForm from './ExportOptionsForm';
 import { DropdownSelect, TabComponent } from './UtilComponents';
 import PieceEditor, { PieceCell } from './PieceEditor';
 import PromptTooltip from './PromptTooltip';
@@ -485,6 +486,7 @@ export const App = observer(() => {
         />
         <DriveRetryWidget />
         <ExportPresetsDialog />
+        <ExportOptionsForm />
         <PromptTooltip />
         <ModalOverlay
           isOpen={appState.pieceEditorOpen}
