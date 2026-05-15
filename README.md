@@ -39,6 +39,7 @@
 - [업데이트 방법](#업데이트-방법)
 - [환경변수](#환경변수)
 - [고급 설정 (선택)](#고급-설정-선택)
+- [보안 / 프라이버시](#보안--프라이버시)
 - [자주 묻는 질문](#자주-묻는-질문)
 - [변경 이력](#변경-이력)
 - [라이센스 / 크레딧](#라이센스--크레딧)
@@ -452,6 +453,63 @@ crontab -e
 - **Stage 4** (Drive 백업 활성 시): Drive에 이미 있는 파일 로컬 삭제
 
 설정은 `server.js` 상단의 `DISK_*` 상수에서 조정.
+
+---
+
+## 보안 / 프라이버시
+
+본인 서버에 설치하는 거라 "데이터가 어디로 가고 어디에 저장되나"가 다른 클라우드 서비스보다 명확합니다. 위협 모델 + 데이터 흐름 그대로 적어요.
+
+### 위협 모델 — tailnet/VPN/localhost 전용
+
+이 앱엔 **인증 미들웨어가 없어요.** 서버에 도달할 수 있으면 누구나 NAI 토큰 탈취 / 본인 크레딧 소진 / 데이터 삭제 가능. 그래서 **반드시 Tailscale, WireGuard, 또는 사설망/localhost 전용으로만 운영하세요.** Step 6의 `tailscale serve`가 정답.
+
+> 인터넷에 직접 노출이 필요하면 nginx/caddy basic auth 또는 Authelia 같은 인증 게이트웨이를 **반드시** 앞단에 두세요.
+
+기본 방어선:
+- ✅ Path traversal 차단 (`resolvePath()` `DATA_DIR` 검증)
+- ✅ `TOKEN.txt` `/api/fs/*` 차단 (sensitive blacklist) — `chmod 600` + API 노출 X
+- ✅ rclone `execFile` array args — command injection 면역
+- ✅ `/api/auth/login` rate limit (5회/분, IP 기반)
+- ✅ CSP enforce + 보안 헤더 5축 (X-Frame-Options DENY, X-Content-Type-Options, Referrer-Policy no-referrer, Permissions-Policy, CSP)
+- ✅ WebSocket same-origin 검사 (cross-origin 차단)
+
+### 외부 통신 — 어떤 데이터가 어디로 가나
+
+이 서버가 외부로 보내는 통신은 **세 곳뿐**이에요. 다른 telemetry/analytics/CDN/error-reporting 0건.
+
+| 호스트 | 무엇 | 데이터 |
+|---|---|---|
+| `api.novelai.net` | NAI 로그인 + 크레딧 조회 | 이메일+비밀번호(argon2 hash) → 액세스 토큰 |
+| `image.novelai.net` | 이미지 생성 / augment / encode-vibe | 프롬프트 + 파라미터 + 입력 이미지 (base64) |
+| `raw.githubusercontent.com` | 업데이트 알림 — `version.json` GET only | **0 (데이터 전송 안 함, 다운로드만)** |
+| Google Drive (rclone) | **선택** — 사용자가 `RCLONE_REMOTE` 설정 시 | 내보내기 결과 이미지 zip |
+
+비활성화:
+- 업데이트 알림 끄려면 `NAI_STUDIO_VERSION_URL=` (빈값)으로 환경변수 설정. 5분 캐시 GET 한 번도 안 나감.
+- Drive 안 쓰면 `RCLONE_REMOTE` 미설정. rclone 호출 0건.
+
+### 로컬에 저장되는 데이터
+
+전부 `data/` 디렉토리 안 + pm2 logs. **외부 전송 X.** 같은 서버에 shell 접근 가능한 다른 OS 사용자가 있으면 볼 수 있어요.
+
+| 경로 | 내용 | 권한 |
+|---|---|---|
+| `data/TOKEN.txt` | NAI 액세스 토큰 (평문) | `chmod 600` (owner only) |
+| `data/config.json` | 사용자 설정 (model version, thumb size 등) | 644 |
+| `data/projects/*.json` | 씬 + 프롬프트 + 캐릭터 + vibe | 644 |
+| `data/outs/<project>/<scene>/*.png` | 생성 이미지 | 644 |
+| `data/bookmarks.json` / `favorites.json` / `global_pieces.json` / `trash.json` | 큐레이션 | 644 |
+| `~/.pm2/logs/<app>-out.log` | 에러, 큐 진행, 디스크 cleanup | 644 |
+
+**Generate request 로깅은 기본 off.** 프롬프트가 pm2 logs에 박힐 수 있어서 default false로 변경됨. 디버깅 필요 시 `DEBUG_GENERATE_LOG=true` 환경변수로 활성화.
+
+### 보안 환경변수 (참고)
+
+| 변수 | 기본값 | 설명 |
+|---|---|---|
+| `DEBUG_GENERATE_LOG` | `false` | `true`로 설정 시 매 generate request의 파라미터(프롬프트 포함, binary truncate)를 pm2 logs에 기록 |
+| `NAI_STUDIO_VERSION_URL` | (git remote에서 derive) | 빈값으로 설정 시 업데이트 알림 자체 비활성화 |
 
 ---
 

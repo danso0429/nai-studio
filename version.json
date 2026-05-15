@@ -1,6 +1,6 @@
 {
-  "version": "1.5.3-experimental.3",
+  "version": "1.5.3-experimental.4",
   "sdstudioBase": "4.7.1",
   "released": "2026-05-15",
-  "notes": "Phase 13 (5/15) 인터넷 느린 환경 페인 묶음 + ResultViewer 이미지 토글 0.5초 hang 처방. 자정 묶음: sticky 토스트 + gzip/WebP + dummy cascade 회피 + 초기 썸네일 크기 자동/override + 80~500 dropdown. 후속 세션 #2: 4시도(ResizeObserver/가상화 제거/useEffect deferred/BatchItemSelector 통합) 모두 mount-time 가정 헛스윙 → 측정 인프라(`/api/client-perf` + performance.mark + sendBeacon) → iOS Safari 18.7/26.4 click delay 360ms 확정 → SceneCell `.clickable` 패턴 발견 → A2 처방(`onTouchEnd` 직접 toggle + `onClick` lock + 10px motion guard) 박음. 408ms → 50ms (-87%, 손가락 reaction time 하한 도달). 깨달음/통찰 9번 신설."
+  "notes": "Phase 13 (5/15) 후속 — 보안 감사 권고 7건 일괄 적용. (H1) README '보안 / 프라이버시' 섹션 추가 — 위협 모델 + 외부 통신 destinations (NAI/GitHub raw/Drive 외 0건) + 로컬 데이터 표 + 보안 환경변수. (H2) /api/fs/* TOKEN.txt 차단 — resolvePath sensitive blacklist, 서버 내부 호출은 allowSensitive bypass. (M1) CSP enforce 격상 (Report-Only → enforce). (M2) rclone exec → execFile array args — command injection 면역. (M3) /api/auth/login + /login-token rate limit 5회/분 (express-rate-limit). (L1) Generate request 로깅 기본 off, DEBUG_GENERATE_LOG=true로 opt-in. tailnet 모델 전제 명시적 + fork 사용자 실수 노출 시 1단 안전망."
 }

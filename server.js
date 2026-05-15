@@ -6,6 +6,7 @@ const fss = require('fs');
 const http = require('http');
 const { WebSocketServer, WebSocket } = require('ws');
 const { v4: uuidv4 } = require('uuid');
+const rateLimit = require('express-rate-limit');
 const { NaiClient } = require('./lib/nai-client');
 const tagSearch = require('./lib/tag-search');
 const versionCheck = require('./lib/version-check');
@@ -52,12 +53,23 @@ function broadcast(type, data) {
 }
 
 // ─── File helpers ───────────────────────────────────────────────────
-function resolvePath(p) {
+// 클라이언트 fs API에서 절대 노출하면 안 되는 파일들. NAI access token이 평문
+// 평문이라 /api/fs/read?path=TOKEN.txt로 누구나 탈취 가능했음 → defense in depth로
+// resolvePath 단에서 차단. 서버 내부에서 token 읽는 경로는 allowSensitive: true로
+// bypass. tailnet 모델이 깨졌을 때 가장 큰 표면이 이거라서 H1 README 권고와 짝.
+const SENSITIVE_FILES = new Set([
+  path.resolve(DATA_DIR, 'TOKEN.txt'),
+]);
+
+function resolvePath(p, opts = {}) {
   // All paths are relative to DATA_DIR
   const resolved = path.resolve(DATA_DIR, p);
   // Phase 7C: + path.sep 검증으로 'data2' 같은 sibling 경로 통과 방지
   if (resolved !== DATA_DIR && !resolved.startsWith(DATA_DIR + path.sep)) {
     throw new Error('Path traversal detected');
+  }
+  if (!opts.allowSensitive && SENSITIVE_FILES.has(resolved)) {
+    throw new Error('Access to sensitive file denied');
   }
   return resolved;
 }
@@ -567,14 +579,12 @@ function dequeueDriveRetry(localPath) {
 
 function rcloneCopytoOnce(localPath, remotePath, timeoutMs) {
   return new Promise((resolve) => {
-    const { exec } = require('child_process');
-    const cmd =
-      'rclone copyto ' +
-      JSON.stringify(localPath) +
-      ' ' +
-      JSON.stringify(remotePath) +
-      ' --log-level INFO';
-    exec(cmd, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err) => {
+    // execFile + array args — shell parsing 0이라 path에 $(...) backtick 들어가도
+    // command injection 면역. (이전 exec + JSON.stringify는 bash double-quote 안의
+    // $ 확장을 막지 못함 — P13 5/15 보안 감사 발견.)
+    const { execFile } = require('child_process');
+    const args = ['copyto', localPath, remotePath, '--log-level', 'INFO'];
+    execFile('rclone', args, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err) => {
       if (err) resolve({ ok: false, error: err.message });
       else resolve({ ok: true });
     });
@@ -1053,7 +1063,7 @@ async function processQueue() {
       broadcastQueueStatus();
 
       if (!nai.token) {
-        try { nai.token = await fs.readFile(resolvePath('TOKEN.txt'), 'utf-8'); } catch {}
+        try { nai.token = await fs.readFile(resolvePath('TOKEN.txt', { allowSensitive: true }), 'utf-8'); } catch {}
       }
       if (!nai.token) throw new Error('Not logged in');
 
@@ -1152,24 +1162,22 @@ app.use((req, res, next) => {
   next();
 });
 
-// 기본 보안 헤더. tailnet 폐쇄망이 현재 환경이지만, 외부 노출 위치/시점에 한
-// 줄이라도 깔린 게 안전. clickjacking + MIME sniffing + referrer leak 회피.
-// CSP는 Report-Only로 시작 — 차단 X, 위반 발생 시 console.warn으로 가시화.
-// 본인 환경 깨짐 검증 후 enforce 모드로 격상 가능.
+// 기본 보안 헤더. tailnet 폐쇄망이 가정이지만, 외부 노출 위치/시점에 한 줄이라도
+// 깔린 게 안전. clickjacking + MIME sniffing + referrer leak 회피 + 권한 요청 차단.
+// CSP는 P13(5/15) 보안 감사에서 enforce 모드로 격상됨 (이전 Report-Only). 'self'
+// + 'unsafe-inline'은 queue.html/index.html의 inline <script>/<style> 보호용
+// — 본인 환경에서 외부 CDN 0건이라 'self' 충분, nonce 전환은 추후 필요 시.
+// connect-src ws/wss는 same-origin WebSocket. img/font data:는 base64 dataURL 허용.
 app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  // 불필요한 권한 요청 차단 (이 앱은 camera/mic/geolocation 등 사용 X).
   res.setHeader(
     'Permissions-Policy',
     'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
   );
-  // CSP Report-Only: vite hash-based asset + queue.html inline script + WS 허용.
-  // 'unsafe-inline'은 queue.html / index.html의 inline <script> 보호용. 추후 nonce 전환 가능.
-  // connect-src 'self' + ws/wss는 WebSocket 연결. data:는 fetchImage가 base64 dataURL 사용.
   res.setHeader(
-    'Content-Security-Policy-Report-Only',
+    'Content-Security-Policy',
     "default-src 'self'; " +
       "script-src 'self' 'unsafe-inline'; " +
       "style-src 'self' 'unsafe-inline'; " +
@@ -1239,23 +1247,37 @@ app.get('/api/version', (req, res) => {
 });
 
 // ─── API: Auth ──────────────────────────────────────────────────────
-app.post('/api/auth/login', async (req, res) => {
+// /api/auth/login + /api/auth/login-token rate limit. NAI 측 자체 throttle이 있지만
+// 공개 노출 시 brute-force 시도가 NAI에 그대로 forward 되는 부담 회피 + 본인 IP가
+// NAI에 의해 막힐 위험 회피. 5회/분 = 정상 사용엔 충분, 자동 시도엔 빠른 차단.
+// tailnet 폐쇄망에선 사실상 의미 0이지만 fork 사용자가 실수 노출했을 때 1단 안전망.
+// trust proxy 미설정 — 직접 listen이라 req.ip가 connection 주소. reverse proxy 뒤
+// 배포 시 trust proxy 1 + X-Forwarded-For 활용 가능 (env로 추가하면 됨).
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Try again in 1 minute.' },
+});
+
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     await nai.login(email, password);
     // Also save token to file for persistence
-    await fs.writeFile(resolvePath('TOKEN.txt'), nai.token, 'utf-8');
-    await fs.chmod(resolvePath('TOKEN.txt'), 0o600);
+    await fs.writeFile(resolvePath('TOKEN.txt', { allowSensitive: true }), nai.token, 'utf-8');
+    await fs.chmod(resolvePath('TOKEN.txt', { allowSensitive: true }), 0o600);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/auth/login-token', async (req, res) => {
+app.post('/api/auth/login-token', authLimiter, async (req, res) => {
   try {
     const { token } = req.body;
     nai.token = token;
-    await fs.writeFile(resolvePath('TOKEN.txt'), token, 'utf-8');
-    await fs.chmod(resolvePath('TOKEN.txt'), 0o600);
+    await fs.writeFile(resolvePath('TOKEN.txt', { allowSensitive: true }), token, 'utf-8');
+    await fs.chmod(resolvePath('TOKEN.txt', { allowSensitive: true }), 0o600);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1265,7 +1287,7 @@ app.get('/api/auth/credits', async (req, res) => {
     // Try to load token from file if not in memory
     if (!nai.token) {
       try {
-        nai.token = await fs.readFile(resolvePath('TOKEN.txt'), 'utf-8');
+        nai.token = await fs.readFile(resolvePath('TOKEN.txt', { allowSensitive: true }), 'utf-8');
       } catch {}
     }
     if (!nai.token) return res.json({ credits: 0 });
@@ -1532,34 +1554,36 @@ app.post('/api/queue/resume', (req, res) => {
 app.post('/api/generate', async (req, res) => {
   try {
     if (!nai.token) {
-      try { nai.token = await fs.readFile(resolvePath('TOKEN.txt'), 'utf-8'); } catch {}
+      try { nai.token = await fs.readFile(resolvePath('TOKEN.txt', { allowSensitive: true }), 'utf-8'); } catch {}
     }
     if (!nai.token) return res.status(401).json({ error: 'Not logged in' });
 
     const params = req.body;
 
-    // Log generation request details (excluding large binary data)
-    const logParams = { ...params };
-    // Truncate base64 fields for logging
-    for (const key of Object.keys(logParams)) {
-      if (typeof logParams[key] === 'string' && logParams[key].length > 200) {
-        logParams[key] = logParams[key].substring(0, 100) + `...[${logParams[key].length} chars]`;
-      }
-      // Also truncate nested arrays with base64 (vibes, characterReferences)
-      if (Array.isArray(logParams[key])) {
-        logParams[key] = logParams[key].map(item => {
-          if (item && typeof item === 'object') {
-            const copy = { ...item };
-            if (typeof copy.image === 'string' && copy.image.length > 200) {
-              copy.image = `[${copy.image.length} chars]`;
+    // Generate request 로깅 — 기본 false. prompt + 캐릭터 prompt 같은 사용자 콘텐츠가
+    // pm2 logs(local stdout)에 누적되는 거 회피. 디버깅 필요 시 `DEBUG_GENERATE_LOG=true`
+    // 환경변수로 활성화. base64 binary는 항상 truncate. (P13 5/15 보안 감사 권고.)
+    if (process.env.DEBUG_GENERATE_LOG === 'true') {
+      const logParams = { ...params };
+      for (const key of Object.keys(logParams)) {
+        if (typeof logParams[key] === 'string' && logParams[key].length > 200) {
+          logParams[key] = logParams[key].substring(0, 100) + `...[${logParams[key].length} chars]`;
+        }
+        if (Array.isArray(logParams[key])) {
+          logParams[key] = logParams[key].map(item => {
+            if (item && typeof item === 'object') {
+              const copy = { ...item };
+              if (typeof copy.image === 'string' && copy.image.length > 200) {
+                copy.image = `[${copy.image.length} chars]`;
+              }
+              return copy;
             }
-            return copy;
-          }
-          return item;
-        });
+            return item;
+          });
+        }
       }
+      console.log(`[NAI Studio] Generate request:`, JSON.stringify(logParams, null, 2));
     }
-    console.log(`[NAI Studio] Generate request:`, JSON.stringify(logParams, null, 2));
 
     // Load config for model version
     const config = await loadConfig();
@@ -1585,7 +1609,7 @@ app.post('/api/generate', async (req, res) => {
 app.post('/api/augment', async (req, res) => {
   try {
     if (!nai.token) {
-      try { nai.token = await fs.readFile(resolvePath('TOKEN.txt'), 'utf-8'); } catch {}
+      try { nai.token = await fs.readFile(resolvePath('TOKEN.txt', { allowSensitive: true }), 'utf-8'); } catch {}
     }
     if (!nai.token) return res.status(401).json({ error: 'Not logged in' });
 
@@ -1906,10 +1930,16 @@ function checkRcloneAvailable() {
   return _rcloneAvailableCache;
 }
 
-function rcloneRun(cmd, timeoutMs) {
+// rclone 호출. args는 배열 — execFile로 호출해서 shell parsing 0, command injection
+// 면역. 이전엔 exec + 문자열 cmd라서 path에 $(...) 같은 게 들어가면 bash가 확장
+// 했음. project name이 sanitizeProjectName로 일부 정제되지만 완벽하지 않아 (예:
+// `$` 자체는 통과) defense in depth로 execFile 강제. (P13 5/15 보안 감사 발견.)
+// 호출처는 ['purge', remotePath, RCLONE_TRASH_BYPASS] 식으로 첫 element 빼고
+// 'rclone ' 토큰. stderr/stdout 모두 캡처라 옛 `2>&1` 리다이렉트 불필요.
+function rcloneRun(args, timeoutMs) {
   return new Promise((resolve) => {
-    const { exec } = require('child_process');
-    exec(cmd, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const { execFile } = require('child_process');
+    execFile('rclone', args, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
       resolve({
         ok: !err,
         stdout: stdout ? stdout.toString() : '',
@@ -2019,7 +2049,7 @@ async function permanentlyDeleteProjectFiles(name) {
   await Promise.all(PROJECT_SUB_DIRS.map(async (d) => {
     const remotePath = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/${d}/${name}`;
     const r = await rcloneRun(
-      `rclone purge ${JSON.stringify(remotePath)} ${RCLONE_TRASH_BYPASS} 2>&1`,
+      ['purge', remotePath, RCLONE_TRASH_BYPASS],
       60000,
     );
     if (r.ok) {
@@ -2032,7 +2062,7 @@ async function permanentlyDeleteProjectFiles(name) {
   // 4b. Drive projects/ 안 <name>.json / <name>.deleted (폴더형 포함, lsf --recursive)
   const projRemoteDir = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/projects`;
   const lsfProj = await rcloneRun(
-    `rclone lsf ${JSON.stringify(projRemoteDir)} --recursive --files-only`,
+    ['lsf', projRemoteDir, '--recursive', '--files-only'],
     30000,
   );
   if (lsfProj.ok) {
@@ -2044,7 +2074,7 @@ async function permanentlyDeleteProjectFiles(name) {
       if (baseName !== name) continue;
       const remoteFile = `${projRemoteDir}/${line}`;
       const dr = await rcloneRun(
-        `rclone deletefile ${JSON.stringify(remoteFile)} ${RCLONE_TRASH_BYPASS}`,
+        ['deletefile', remoteFile, RCLONE_TRASH_BYPASS],
         30000,
       );
       if (dr.ok) {
@@ -2058,7 +2088,7 @@ async function permanentlyDeleteProjectFiles(name) {
   // 4c. Drive exports prefix 매칭
   const exportRemoteDir = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/exports`;
   const lsfExp = await rcloneRun(
-    `rclone lsf ${JSON.stringify(exportRemoteDir)} --files-only`,
+    ['lsf', exportRemoteDir, '--files-only'],
     30000,
   );
   if (lsfExp.ok) {
@@ -2068,7 +2098,7 @@ async function permanentlyDeleteProjectFiles(name) {
       if (prefix !== name) continue;
       const remoteFile = `${exportRemoteDir}/${f}`;
       const dr = await rcloneRun(
-        `rclone deletefile ${JSON.stringify(remoteFile)} ${RCLONE_TRASH_BYPASS}`,
+        ['deletefile', remoteFile, RCLONE_TRASH_BYPASS],
         30000,
       );
       if (dr.ok) {
@@ -2246,7 +2276,7 @@ async function runCleanupOrphans(jobId) {
     for (const d of PROJECT_SUB_DIRS) {
       const remoteDir = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/${d}`;
       const r = await rcloneRun(
-        `rclone lsf ${JSON.stringify(remoteDir)} --dirs-only`,
+        ['lsf', remoteDir, '--dirs-only'],
         30000,
       );
       if (!r.ok) continue;
@@ -2259,7 +2289,7 @@ async function runCleanupOrphans(jobId) {
         emitOrphansProgress(jobId, 'drive-folders', item, deleted, errors);
         const remotePath = `${remoteDir}/${dirName}`;
         const pr = await rcloneRun(
-          `rclone purge ${JSON.stringify(remotePath)} ${RCLONE_TRASH_BYPASS} 2>&1`,
+          ['purge', remotePath, RCLONE_TRASH_BYPASS],
           60000,
         );
         if (pr.ok) {
@@ -2274,7 +2304,7 @@ async function runCleanupOrphans(jobId) {
     emitOrphansProgress(jobId, 'drive-exports', '', deleted, errors);
     const exportRemoteDir = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/exports`;
     const lsfExp = await rcloneRun(
-      `rclone lsf ${JSON.stringify(exportRemoteDir)} --files-only`,
+      ['lsf', exportRemoteDir, '--files-only'],
       30000,
     );
     if (lsfExp.ok) {
@@ -2287,7 +2317,7 @@ async function runCleanupOrphans(jobId) {
         emitOrphansProgress(jobId, 'drive-exports', item, deleted, errors);
         const remoteFile = `${exportRemoteDir}/${f}`;
         const dr = await rcloneRun(
-          `rclone deletefile ${JSON.stringify(remoteFile)} ${RCLONE_TRASH_BYPASS}`,
+          ['deletefile', remoteFile, RCLONE_TRASH_BYPASS],
           30000,
         );
         if (dr.ok) {
@@ -2669,10 +2699,16 @@ app.post('/api/fs/sync-exports', async (req, res) => {
   }
 
   // 레거시 dir 모드: 전체 exports/ 디렉토리 동기 업로드. 현재 클라에서 호출하는 경로 없음.
-  // backwards compat 유지차 동기 흐름 그대로 둠.
-  const { exec } = require('child_process');
-  const rcloneCmd = `rclone copy ${JSON.stringify(exportsDir + '/')} ${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/exports/ --log-level INFO`;
-  exec(rcloneCmd, { timeout: 180000, maxBuffer: 4 * 1024 * 1024 }, (err) => {
+  // backwards compat 유지차 동기 흐름 그대로 둠. execFile + array args로 shell-safe.
+  const { execFile } = require('child_process');
+  const rcloneArgs = [
+    'copy',
+    exportsDir + '/',
+    `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/exports/`,
+    '--log-level',
+    'INFO',
+  ];
+  execFile('rclone', rcloneArgs, { timeout: 180000, maxBuffer: 4 * 1024 * 1024 }, (err) => {
     if (err) {
       console.error('[Sync exports] error (mode=dir):', err.message);
       return res.status(500).json({ ok: false, error: err.message, mode: 'dir' });
@@ -2963,7 +2999,7 @@ app.post('/api/image/remove-bg', async (req, res) => {
 app.post('/api/image/encode-vibe', async (req, res) => {
   try {
     if (!nai.token) {
-      try { nai.token = await fs.readFile(resolvePath('TOKEN.txt'), 'utf-8'); } catch {}
+      try { nai.token = await fs.readFile(resolvePath('TOKEN.txt', { allowSensitive: true }), 'utf-8'); } catch {}
     }
     if (!nai.token) return res.status(401).json({ error: 'Not logged in' });
     const config = await loadConfig();
@@ -3017,7 +3053,7 @@ async function start() {
 
   // Try to load saved token
   try {
-    nai.token = await fs.readFile(resolvePath('TOKEN.txt'), 'utf-8');
+    nai.token = await fs.readFile(resolvePath('TOKEN.txt', { allowSensitive: true }), 'utf-8');
     console.log('[NAI Studio] Token loaded from file');
   } catch {}
 
