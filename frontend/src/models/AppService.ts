@@ -285,6 +285,37 @@ export class AppState {
     this.customResolutionDialogDefaults = null;
   }
 
+  // 씬 이름 내보내기 — 대체문자 + 변환할 특수문자 1폼 일체화 (예전: input → checkbox 2단계).
+  @observable accessor sceneNameExportFormOpen: boolean = false;
+  sceneNameExportFormChars: Set<string> | null = null;
+  sceneNameExportFormResolve:
+    | ((r: { replacement: string; charsToReplace: Set<string> } | undefined) => void)
+    | null = null;
+
+  openSceneNameExportFormAsync(
+    chars: Set<string>,
+  ): Promise<{ replacement: string; charsToReplace: Set<string> } | undefined> {
+    return new Promise((resolve) => {
+      if (this.sceneNameExportFormResolve) {
+        this.sceneNameExportFormResolve(undefined);
+      }
+      this.sceneNameExportFormChars = chars;
+      this.sceneNameExportFormResolve = resolve;
+      this.sceneNameExportFormOpen = true;
+    });
+  }
+
+  closeSceneNameExportForm(
+    result: { replacement: string; charsToReplace: Set<string> } | undefined,
+  ) {
+    if (this.sceneNameExportFormResolve) {
+      this.sceneNameExportFormResolve(result);
+      this.sceneNameExportFormResolve = null;
+    }
+    this.sceneNameExportFormOpen = false;
+    this.sceneNameExportFormChars = null;
+  }
+
   saveExportPresets() {
     try {
       localStorage.setItem(
@@ -2260,28 +2291,10 @@ export class AppState {
         let charsToReplace = new Set<string>();
         let replacement = '_';
         if (detectedChars.size > 0) {
-          const replacementInput = await appState.pushDialogAsync({
-            type: 'input-confirm',
-            text: '씬 이름의 특수문자를 변환할 대체 문자를 입력해주세요 (기본값: _)',
-          });
-          if (replacementInput === undefined) return;
-          replacement = replacementInput || '_';
-
-          const items = Array.from(detectedChars).map((c) => ({
-            text: c === ' ' ? '띄어쓰기' : `"${c}"`,
-            value: c,
-          }));
-          const result = await appState.pushDialogAsync({
-            type: 'checkbox',
-            text: `씬 이름에서 감지된 특수문자입니다.\n"${replacement}" 로 변환할 문자를 선택해주세요:`,
-            items: items,
-          });
-          if (result === undefined) return;
-          try {
-            charsToReplace = new Set(JSON.parse(result));
-          } catch (e) {
-            // 파싱 실패 시 변환 없음
-          }
+          const r = await appState.openSceneNameExportFormAsync(detectedChars);
+          if (!r) return;
+          replacement = r.replacement || '_';
+          charsToReplace = r.charsToReplace;
         }
 
         const replacer = buildSpecialCharReplacer(charsToReplace);

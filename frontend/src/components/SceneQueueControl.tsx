@@ -1131,40 +1131,33 @@ const QueueControl = observer(
       className: 'back-gray',
       // @ts-ignore
       onClick: async (scene: Scene, path: string, close: () => void) => {
-        const menu = await appState.pushDialogAsync({
+        // 예전 2단계 select(변형 방법 → 씬 생성용 i2i 방법) 평탄화.
+        // 씬 생성 옵션은 i2i flow별로 펼쳐서 prefix 'create:', 일회용은 'once:' prefix로 구분.
+        const items: { text: string; value: string }[] = [];
+        for (const flow of workFlowService.i2iFlows) {
+          items.push({
+            text: '🪟 씬 생성: ' + (flow.def.emoji ?? '') + flow.def.title,
+            value: 'create:' + flow.getType(),
+          });
+        }
+        for (const x of oneTimeFlows) {
+          items.push({ text: x.text, value: 'once:' + x.text });
+        }
+        const choice = await appState.pushDialogAsync({
           type: 'select',
           text: '이미지 변형 방법을 선택해주세요',
-          items: [
-            {
-              text: '이미지 변형 씬 생성',
-              value: 'create',
-            },
-          ].concat(
-            oneTimeFlows.map((x) => ({
-              text: x.text,
-              value: x.text,
-            })),
-          ),
+          items,
         });
-        if (!menu) return;
-        if (menu === 'create') {
-          const flows = workFlowService.i2iFlows;
-          const items = flows.map((x) => ({
-            text: (x.def.emoji ?? '') + x.def.title,
-            value: x.getType(),
-          }));
-          const method = await appState.pushDialogAsync({
-            type: 'select',
-            text: '변형 씬에서 사용할 방법을 선택해주세요',
-            items: items,
-          });
-          if (!method) return;
+        if (!choice) return;
+        if (choice.startsWith('create:')) {
+          const method = choice.slice('create:'.length);
           await createInpaintScene(scene, method, path, close);
-        } else {
+        } else if (choice.startsWith('once:')) {
+          const flowText = choice.slice('once:'.length);
           let image = await imageService.fetchImage(path);
           image = dataUriToBase64(image!);
           const job = await extractPromptDataFromBase64(image);
-          const menuItem = oneTimeFlowMap.get(menu)!;
+          const menuItem = oneTimeFlowMap.get(flowText)!;
           const input = menuItem.getInput
             ? await menuItem.getInput(curSession!)
             : undefined;
