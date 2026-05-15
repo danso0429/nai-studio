@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FaCheck,
   FaCheckSquare,
@@ -75,7 +75,13 @@ function ImageCellInner({
   isBookmarked,
 }: ImageCellProps): React.ReactElement {
   const handleClick = useCallback(() => onToggle(path), [path, onToggle]);
-  const thumbSrc = getThumbURL(path, thumbSize);
+  // src를 useEffect로 deferred — 첫 commit엔 skeleton만, paint 후 useEffect
+  // fire → setSrc로 img mount. BatchItemSelector Thumbnail 패턴 그대로 채용
+  // (P13 L3 본인 단서). 60+ cell 첫 paint는 빈 skeleton만이라 빠름.
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    setSrc(getThumbURL(path, thumbSize));
+  }, [path, thumbSize]);
   return (
     <button
       type="button"
@@ -87,14 +93,18 @@ function ImageCellInner({
           : 'bg-gray-100 dark:bg-slate-800 border border-gray-300 dark:border-slate-600')
       }
     >
-      <img
-        src={thumbSrc}
-        draggable={false}
-        decoding="async"
-        loading="lazy"
-        className="w-full h-full object-contain bg-checkboard"
-        alt=""
-      />
+      {src ? (
+        <img
+          src={src}
+          draggable={false}
+          decoding="async"
+          loading="lazy"
+          className="w-full h-full object-contain bg-checkboard"
+          alt=""
+        />
+      ) : (
+        <div className="w-full h-full bg-gray-200 dark:bg-slate-600 animate-pulse" />
+      )}
       {isMain && (
         <div className="absolute left-1 top-1 text-yellow-400 drop-shadow text-sm">
           <FaStar />
