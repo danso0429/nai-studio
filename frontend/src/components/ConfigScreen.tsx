@@ -553,14 +553,20 @@ const OtherTab = ({
           onChange={(e) => setInitialThumbSize(parseInt(e.target.value))}
         >
           <option value={0}>자동 (화면 폭으로 결정)</option>
-          <option value={80}>80px (가장 작음 — 인터넷 매우 느릴 때)</option>
+          <option value={80}>80px (가장 작음 — 픽셀 보임)</option>
+          <option value={100}>100px</option>
+          <option value={120}>120px</option>
+          <option value={160}>160px (인터넷 느릴 때 권장)</option>
           <option value={200}>200px (모바일 기본)</option>
+          <option value={250}>250px</option>
+          <option value={300}>300px</option>
           <option value={400}>400px (태블릿 기본)</option>
           <option value={500}>500px (데스크탑 기본)</option>
         </select>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
           자동: 화면 폭 480 미만 80 / 768 미만 200 / 1280 미만 400 / 이상 500.
-          인터넷 느린 환경에선 더 작게 설정하면 초기 로드 빨라요.
+          인터넷 느린 환경: 120~160 권장 (80은 픽셀 보임).
+          ResultViewer 안 이미지 그리드는 별도 S/M/L 버튼(200/400/500)으로 변경.
         </p>
       </div>
       <hr className="border-gray-200 dark:border-slate-600" />
