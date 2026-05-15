@@ -935,24 +935,33 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   }, []);
 
   const login = async () => {
+    // sticky 토스트로 시도 중 표시 → 성공/실패 결과 토스트로 교체. 인터넷 느린 환경
+    // 에서 NAI 응답까지 수 초 걸릴 때 사용자가 "되고 있나" 인지 못 함 회피.
+    const toastId = appState.pushMessage('로그인 시도 중…', { sticky: true });
     try {
       await loginService.login(email, password);
+      appState.dismissMessage(toastId);
+      appState.pushMessage('로그인 성공!');
     } catch (err: any) {
+      appState.dismissMessage(toastId);
       appState.pushMessage('로그인 실패: ' + extractApiError(err));
     }
   };
 
   const loginWithToken = async () => {
+    if (!accessToken.trim()) {
+      appState.pushMessage('액세스 토큰을 입력해주세요.');
+      return;
+    }
+    const toastId = appState.pushMessage('토큰 로그인 시도 중…', { sticky: true });
     try {
-      if (!accessToken.trim()) {
-        appState.pushMessage('액세스 토큰을 입력해주세요.');
-        return;
-      }
       await loginService.loginWithToken(accessToken.trim());
+      appState.dismissMessage(toastId);
       appState.pushMessage('토큰으로 로그인 성공!');
       setAccessToken('');
     } catch (err: any) {
-      appState.pushMessage('토큰 로그인 실패:' + extractApiError(err));
+      appState.dismissMessage(toastId);
+      appState.pushMessage('토큰 로그인 실패: ' + extractApiError(err));
     }
   };
 
