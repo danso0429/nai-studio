@@ -42,10 +42,13 @@ const SessionSelect = observer(() => {
     pendingSelectionRef.current = name;
     // 동기 await 제거. 클릭 핸들러를 막지 않고 즉시 토스트로 피드백 →
     // 인터넷 느릴 때 "무반응" 인상 해소. fetch 응답 도착 시 curSession set.
-    appState.pushMessage(`프로젝트 "${name}" 로딩 중…`);
+    // sticky 토스트 — 본인 페인 (P12 #8): 인터넷 느린 환경에서 자동 dismiss 후에도
+    // 로드 진행 중이면 사용자가 "이미 끝났는데 안 들어간 줄" 오해. 완료/실패 시 명시 제거.
+    const toastId = appState.pushMessage(`프로젝트 "${name}" 로딩 중…`, { sticky: true });
     sessionService
       .get(name, { throwOnError: true, retry: true })
       .then((session) => {
+        appState.dismissMessage(toastId);
         // 도착 사이 다른 선택이 들어왔으면 이 결과는 버림.
         if (pendingSelectionRef.current !== name) return;
         pendingSelectionRef.current = null;
@@ -59,6 +62,7 @@ const SessionSelect = observer(() => {
         }
       })
       .catch((e) => {
+        appState.dismissMessage(toastId);
         if (pendingSelectionRef.current === name) {
           pendingSelectionRef.current = null;
         }
