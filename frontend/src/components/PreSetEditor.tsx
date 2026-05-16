@@ -438,7 +438,7 @@ export const VibeEditor = observer(({ disabled }: VibeEditorProps) => {
   );
 });
 
-export const VibeButton = ({ input }: { input: WFIInlineInput }) => {
+export const VibeButton = observer(({ input }: { input: WFIInlineInput }) => {
   const { editVibe, setEditVibe, preset, shared, meta, modelVersion } =
     useContext(WFElementContext)!;
   const [activeIndex, setActiveIndex] = useState(0);
@@ -535,7 +535,7 @@ export const VibeButton = ({ input }: { input: WFIInlineInput }) => {
       )}
     </>
   );
-};
+});
 
 interface CharacterReferenceEditorProps {
   disabled: boolean;
@@ -958,7 +958,7 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
   );
 });
 
-export const CharacterReferenceButton = ({ input }: { input: WFIInlineInput }) => {
+export const CharacterReferenceButton = observer(({ input }: { input: WFIInlineInput }) => {
   const { editCharacterReference, setEditCharacterReference, preset, shared, meta, modelVersion } =
     useContext(WFElementContext)!;
   const [activeIndex, setActiveIndex] = useState(0);
@@ -1060,7 +1060,7 @@ export const CharacterReferenceButton = ({ input }: { input: WFIInlineInput }) =
       )}
     </>
   );
-};
+});
 
 const EditorField = ({
   label,

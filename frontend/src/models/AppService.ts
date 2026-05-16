@@ -174,6 +174,17 @@ export class AppState {
   @observable accessor pinnedProgressDialogs: ProgressDialog[] = [];
   @observable accessor driveRetryStatus: DriveRetryStatus | null = null;
   @observable accessor driveRetryModalOpen: boolean = false;
+
+  // 모달 오버레이 카운터 — ModalOverlay open/close 시 useEffect에서 증감. 메타데이터 D&D 차단용.
+  @observable accessor modalOverlayCount: number = 0;
+  @action
+  incrementModalOverlay() {
+    this.modalOverlayCount++;
+  }
+  @action
+  decrementModalOverlay() {
+    this.modalOverlayCount = Math.max(0, this.modalOverlayCount - 1);
+  }
   // 큐가 현재 처리 중인 씬의 getSceneKey 값 (session.name/type/name). null이면 처리 중 아님.
   // WS queue-job-start로 set, queue-status 응답 jobs[0].meta로 초기화/회복.
   @observable accessor currentProcessingSceneKey: string | null = null;

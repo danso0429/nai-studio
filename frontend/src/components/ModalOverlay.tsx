@@ -1,5 +1,6 @@
 import React, { ReactNode, useEffect, useCallback, useRef } from 'react';
 import { FaTimes } from 'react-icons/fa';
+import { appState } from '../models/AppService';
 
 interface ModalOverlayProps {
   isOpen: boolean;
@@ -65,6 +66,14 @@ const ModalOverlay = ({
       };
     }
   }, [isOpen, handleEscape, handleTab]);
+
+  // 모달 열림/닫힘 시 카운터 관리 (메타 D&D 차단용)
+  useEffect(() => {
+    if (isOpen) {
+      appState.incrementModalOverlay();
+      return () => appState.decrementModalOverlay();
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
