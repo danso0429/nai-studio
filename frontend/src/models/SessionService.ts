@@ -420,6 +420,14 @@ export class SessionService extends ResourceSyncService<Session> {
         name: 'vibes/' + vibe,
       });
     }
+    const references = await ignoreError(backend.listFiles('references/' + session.name));
+    for (const ref of references) {
+      if (!ref.endsWith('.png')) continue;
+      entries.push({
+        path: 'references/' + session.name + '/' + ref,
+        name: 'references/' + ref,
+      });
+    }
     entries.push({ path: projFile, name: 'project.json' });
     if (zipService.isZipping) {
       throw new Error('Already zipping');
@@ -452,15 +460,16 @@ export class SessionService extends ResourceSyncService<Session> {
       }
     };
 
-    // 한 프로젝트의 모든 미디어 파일을 5번 병렬 listFilesRecursive로 수집.
-    // outs/inpaints는 nested (depth=1), inpaint_orgs/inpaint_masks/vibes는 flat (depth=0).
+    // 한 프로젝트의 모든 미디어 파일을 6번 병렬 listFilesRecursive로 수집.
+    // outs/inpaints는 nested (depth=1), inpaint_orgs/inpaint_masks/vibes/references는 flat (depth=0).
     const collectProjectEntries = async (name: string): Promise<FileEntry[]> => {
-      const [outs, inpaints, inpaintOrgs, inpaintMasks, vibes] = await Promise.all([
+      const [outs, inpaints, inpaintOrgs, inpaintMasks, vibes, references] = await Promise.all([
         ignoreError(backend.listFilesRecursive('outs/' + name, 1)),
         ignoreError(backend.listFilesRecursive('inpaints/' + name, 1)),
         ignoreError(backend.listFilesRecursive('inpaint_orgs/' + name, 0)),
         ignoreError(backend.listFilesRecursive('inpaint_masks/' + name, 0)),
         ignoreError(backend.listFilesRecursive('vibes/' + name, 0)),
+        ignoreError(backend.listFilesRecursive('references/' + name, 0)),
       ]);
       const items: FileEntry[] = [];
       const pushSrc = (
@@ -481,6 +490,7 @@ export class SessionService extends ResourceSyncService<Session> {
       pushSrc('inpaint_orgs/' + name, name + '/inpaint_orgs', inpaintOrgs.files);
       pushSrc('inpaint_masks/' + name, name + '/inpaint_masks', inpaintMasks.files);
       pushSrc('vibes/' + name, name + '/vibes', vibes.files);
+      pushSrc('references/' + name, name + '/references', references.files);
       // 프로젝트 .json은 폴더 안에 있으면 projects/{folder}/{name}.json. getPath()로 해결.
       items.push({ path: this.getPath(name), name: name + '/project.json' });
       return items;
@@ -612,6 +622,7 @@ export class SessionService extends ResourceSyncService<Session> {
         renameSafe(projDir + '/inpaint_orgs', 'inpaint_orgs/' + finalName),
         renameSafe(projDir + '/inpaint_masks', 'inpaint_masks/' + finalName),
         renameSafe(projDir + '/vibes', 'vibes/' + finalName),
+        renameSafe(projDir + '/references', 'references/' + finalName),
       ]);
 
       try {
@@ -690,7 +701,7 @@ export class SessionService extends ResourceSyncService<Session> {
     );
     session.name = name;
 
-    // 5개 renameDir를 직렬에서 병렬로 (디렉토리들이 서로 독립적이라 안전).
+    // 6개 renameDir를 직렬에서 병렬로 (디렉토리들이 서로 독립적이라 안전).
     // 폴더가 비어있거나 없을 수도 있어서 각자 catch.
     const renameSafe = async (src: string, dst: string) => {
       try {
@@ -705,6 +716,7 @@ export class SessionService extends ResourceSyncService<Session> {
       renameSafe(path + '/inpaint_orgs', 'inpaint_orgs/' + session.name),
       renameSafe(path + '/inpaint_masks', 'inpaint_masks/' + session.name),
       renameSafe(path + '/vibes', 'vibes/' + session.name),
+      renameSafe(path + '/references', 'references/' + session.name),
     ]);
 
     onProgress?.('프로젝트 등록...', 2, 3);
