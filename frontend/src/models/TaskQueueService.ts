@@ -1020,6 +1020,14 @@ export class TaskQueueService extends EventTarget {
           console.error('[TaskQueue] afterGenComplete threw:', e);
         }
       }
+    } else if (sceneKey) {
+      // restored mirror task — task.params 빈 placeholder라 afterGenComplete 스킵됨.
+      // 본인 2회 보고 "씬 들어간 동안 큐 완성 이미지 안 보임"의 break 지점 — ResultViewer가
+      // sceneKey 받아 imageService.refresh 직접 트리거할 수 있게 통보. (이전엔 2.5초 disk
+      // polling으로 안전망 잡았는데 모바일 발열 원인이라 reactive 이벤트로 대체.)
+      this.dispatchEvent(
+        new CustomEvent('scene-job-complete', { detail: { sceneKey } }),
+      );
     }
     this.mirroredJobs.delete(data.jobId);
     this.dispatchEvent(new CustomEvent('complete', {}));

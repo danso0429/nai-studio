@@ -72,7 +72,6 @@ import { getResultDirectory } from '../models/SessionService';
 import { getSceneKey, queueI2IWorkflow, queueWorkflow } from '../models/TaskQueueService';
 import { extractPromptDataFromBase64 } from '../models/util';
 import { appState } from '../models/AppService';
-import { startVisibleInterval } from '../visibleInterval';
 import { observer } from 'mobx-react-lite';
 import { DownloadDialog } from './DownloadDialog';
 import { Session, GenericScene as GenericSceneType } from '../models/types';
@@ -1314,25 +1313,35 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
       };
     }, [tournament]);
 
-    // 씬에 진행 중인 큐가 있는 동안 디스크 polling으로 새 이미지 catch.
-    // 본인 보고 (2회) "씬 들어간 동안 큐 완성 이미지 안 보임 — 나갔다 들어와야" — 이벤트 체인
-    // (WS queue-job-complete → handleMirroredComplete → onAddImage → imageService.updated →
-    // gameService.refreshList → gameService.updated → forceUpdate)이 어딘가에서 누락되는 케이스.
-    // 정확한 break 지점은 못 잡았지만 disk가 always-truth라 polling으로 안전망. sceneStats가
-    // 이 씬에 대해 pending task 있을 때만 refresh (불필요 disk hit 회피).
-    // visibility 게이트 — 백그라운드 시 timer 정지 (모바일 발열·배터리 누수 차단).
+    // 씬에 진행 중인 큐가 있는 동안 새 이미지 reactive 갱신.
+    // 본인 2회 보고 "씬 들어간 동안 큐 완성 이미지 안 보임" 의 break 지점: restored mirror
+    // task (WS reconnect 후 복원 placeholder)는 task.params 비어서 afterGenComplete →
+    // imageService.updated 체인이 안 돌아요. TaskQueueService가 그 분기에서 sceneKey 포함
+    // 'scene-job-complete' 이벤트 dispatch → 여기서 받아 imageService.refresh 직접 호출.
+    // (이전 2.5초 disk polling 안전망은 모바일 발열 원인이라 제거.)
     useEffect(() => {
       if (tournament) return;
       const sceneKey = getSceneKey(curSession!, scene);
-      const tick = () => {
-        const stats = taskQueueService.sceneStats[sceneKey];
-        const hasPending = stats && stats.done < stats.total;
-        if (hasPending) {
-          // refresh가 imageService.updated → gameService.updated 체인 자동 트리거 → 재렌더.
-          imageService.refresh(curSession!, scene);
-        }
+      const refreshThis = () => imageService.refresh(curSession!, scene);
+
+      const onSceneJobComplete = (e: Event) => {
+        const detail = (e as CustomEvent).detail;
+        if (detail?.sceneKey === sceneKey) refreshThis();
       };
-      return startVisibleInterval(tick, 2500);
+      taskQueueService.addEventListener('scene-job-complete', onSceneJobComplete);
+
+      // 백그라운드 사이 놓친 WS 이벤트 회복 — 포그라운드 복귀 시 pending 있으면 1회.
+      const onVisible = () => {
+        if (document.visibilityState !== 'visible') return;
+        const stats = taskQueueService.sceneStats[sceneKey];
+        if (stats && stats.done < stats.total) refreshThis();
+      };
+      document.addEventListener('visibilitychange', onVisible);
+
+      return () => {
+        taskQueueService.removeEventListener('scene-job-complete', onSceneJobComplete);
+        document.removeEventListener('visibilitychange', onVisible);
+      };
     }, [scene, tournament]);
 
     // paths를 매 render마다 새 array로 만들면 createItemData(memoizeOne) 무효화 →
