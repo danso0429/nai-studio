@@ -72,6 +72,7 @@ import { getResultDirectory } from '../models/SessionService';
 import { getSceneKey, queueI2IWorkflow, queueWorkflow } from '../models/TaskQueueService';
 import { extractPromptDataFromBase64 } from '../models/util';
 import { appState } from '../models/AppService';
+import { startVisibleInterval } from '../visibleInterval';
 import { observer } from 'mobx-react-lite';
 import { DownloadDialog } from './DownloadDialog';
 import { Session, GenericScene as GenericSceneType } from '../models/types';
@@ -1319,19 +1320,19 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
     // gameService.refreshList → gameService.updated → forceUpdate)이 어딘가에서 누락되는 케이스.
     // 정확한 break 지점은 못 잡았지만 disk가 always-truth라 polling으로 안전망. sceneStats가
     // 이 씬에 대해 pending task 있을 때만 refresh (불필요 disk hit 회피).
+    // visibility 게이트 — 백그라운드 시 timer 정지 (모바일 발열·배터리 누수 차단).
     useEffect(() => {
       if (tournament) return;
       const sceneKey = getSceneKey(curSession!, scene);
-      const tick = async () => {
+      const tick = () => {
         const stats = taskQueueService.sceneStats[sceneKey];
         const hasPending = stats && stats.done < stats.total;
         if (hasPending) {
           // refresh가 imageService.updated → gameService.updated 체인 자동 트리거 → 재렌더.
-          await imageService.refresh(curSession!, scene);
+          imageService.refresh(curSession!, scene);
         }
       };
-      const interval = setInterval(tick, 2500);
-      return () => clearInterval(interval);
+      return startVisibleInterval(tick, 2500);
     }, [scene, tournament]);
 
     // paths를 매 render마다 새 array로 만들면 createItemData(memoizeOne) 무효화 →

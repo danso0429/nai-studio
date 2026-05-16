@@ -21,6 +21,7 @@ import {
   taskQueueService,
   workFlowService,
 } from '.';
+import { startVisibleInterval } from '../visibleInterval';
 import {
   AbstractJob,
   AugmentJob,
@@ -772,12 +773,14 @@ export class TaskQueueService extends EventTarget {
 
     // 자동 재동기화: WS reconnect 즉시 + 30초 주기 polling.
     // WS 끊긴 사이 놓친 queue-job-complete 회복.
+    // visibility 게이트 — 백그라운드 시 timer 정지 (모바일 발열·배터리 누수 차단).
+    // 포그라운드 복귀 시 ws-reconnect 또는 자연 tick으로 회복.
     backend.onWsReconnect(() => {
       this.restoreMirroredState().catch((e) => {
         console.warn('[TaskQueue] restoreMirroredState (ws-reconnect) failed:', e);
       });
     });
-    setInterval(() => {
+    startVisibleInterval(() => {
       this.restoreMirroredState().catch((e) => {
         console.warn('[TaskQueue] restoreMirroredState (polling) failed:', e);
       });

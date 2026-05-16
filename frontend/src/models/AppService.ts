@@ -11,6 +11,7 @@ import {
   workFlowService,
   zipService,
 } from '.';
+import { startVisibleInterval } from '../visibleInterval';
 import type { GlobalPresetType, IGlobalPresetEntry } from './GlobalPresetService';
 import { SUPPORTED_GLOBAL_PRESET_TYPES } from './GlobalPresetService';
 import { Dialog } from '../components/ConfirmWindow';
@@ -3137,18 +3138,21 @@ export const appState = new AppState();
 // Drive retry status 폴링: 부팅 시 1회. Drive 사용 중일 때만 30s 주기 폴링 유지
 // (rclone 미설치 사용자의 모바일 데이터/배터리 낭비 차단). WS drive-sync-* 이벤트로
 // 큐 변경 시 강제 refresh 되니까 폴링이 영구 중단돼도 누락 없음.
-let _drivePollInterval: ReturnType<typeof setInterval> | null = null;
+// visibility 게이트 적용 — 백그라운드 시 timer 정지 (모바일 발열·배터리 누수 차단).
+let _driveStop: (() => void) | null = null;
 function ensureDrivePolling() {
-  if (_drivePollInterval) return;
-  _drivePollInterval = setInterval(() => appState.refreshDriveRetryStatus(), 30000);
+  if (_driveStop) return;
+  _driveStop = startVisibleInterval(() => appState.refreshDriveRetryStatus(), 30000);
 }
 appState.refreshDriveRetryStatus().then(() => {
   if (appState.driveRetryStatus?.driveAvailable) ensureDrivePolling();
 });
 
-// 서버 큐 평균 ETA 폴링: 부팅 시 1회 + 15s 주기 (큐 처리 도중 추세 반영)
+// 서버 큐 평균 ETA 폴링: 부팅 시 1회 + 15s 주기 (큐 처리 도중 추세 반영).
+// visibility 게이트 — 백그라운드 시 timer 정지. 포그라운드 복귀 시 즉시 갱신은
+// 아래 resyncBackgroundState 가 담당.
 appState.refreshServerQueueAvg();
-setInterval(() => appState.refreshServerQueueAvg(), 15000);
+startVisibleInterval(() => appState.refreshServerQueueAvg(), 15000);
 
 // 백그라운드 → 포그라운드 복귀 + WS 재연결 시 export/driveRetry 상태 동기화.
 // iPhone Safari가 백그라운드 가면 WS 끊겨서 progress/complete 이벤트 미스 →
