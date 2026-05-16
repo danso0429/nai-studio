@@ -1,10 +1,12 @@
 // 클라이언트 frame timing 측정 — 큐 도는 동안 main thread jank/발열 진단용.
 // rAF 기반: 매 frame 간격 측정 → 50ms 초과(=3 frame budget over)면 slow frame 카운트.
-// 60초마다 batch sendBeacon → 서버 console.log → pm2 logs로 본인 분석 가능.
-// visibility=hidden 시 rAF 자동 정지 (iOS Safari native) → 별도 visibility 게이트 불필요.
+// 15초마다 batch sendBeacon → 서버 console.log → pm2 logs로 본인 분석 가능.
+// visibility=hidden 전환 시점에 강제 flush (탭 바꾸기 전 partial 데이터 굳힘).
+
+import { API_BASE_PATH } from './models/util';
 
 const SLOW_FRAME_THRESHOLD_MS = 50; // 약한 jank 기준 (16.67ms budget × 3)
-const BATCH_INTERVAL_MS = 60 * 1000;
+const BATCH_INTERVAL_MS = 15 * 1000;
 
 let frameCount = 0;
 let slowFrameCount = 0;
@@ -45,7 +47,7 @@ function flush(now: number) {
       const blob = new Blob([JSON.stringify(data)], {
         type: 'application/json',
       });
-      navigator.sendBeacon('/api/client-perf', blob);
+      navigator.sendBeacon(API_BASE_PATH + '/api/client-perf', blob);
     } catch {
       // sendBeacon 미지원 등 — 무시 (측정 인프라가 앱 동작 영향 X)
     }
@@ -76,4 +78,12 @@ export function startClientPerf() {
   batchStartTs = performance.now();
   lastFrameTs = 0;
   requestAnimationFrame(tick);
+  // 탭 hidden 전환 직전 강제 flush. iOS Safari가 hidden 시 rAF 정지하니까
+  // 그 전에 partial batch 굳혀야 /queue 패널에서 데이터 볼 수 있음. visible→hidden
+  // 경계에서만 flush (hidden→visible 는 그냥 다음 rAF tick이 알아서 처리).
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      flush(performance.now());
+    }
+  });
 }
