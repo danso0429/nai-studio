@@ -158,6 +158,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
   const handleProjectMenu = async (name: string) => {
     const currentFolder = sessionService.getFolderOf(name);
     const items: { text: string; value: string }[] = [];
+    items.push({ text: '📦 이미지 내보내기', value: '__export__' });
     if (currentFolder !== null) items.push({ text: '루트로 이동', value: '__root__' });
     for (const f of sortedFolders) {
       if (f !== currentFolder) items.push({ text: '📁 ' + f + josaRo(f) + ' 이동', value: f });
@@ -169,6 +170,11 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
       items,
     });
     if (!target) return;
+    if (target === '__export__') {
+      setOpen(false);
+      appState.exportProjectImages(name);
+      return;
+    }
     if (target === '__delete__') {
       setOpen(false);
       appState.deleteProjectBackground(name);

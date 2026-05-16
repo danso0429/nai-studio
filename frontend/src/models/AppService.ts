@@ -1722,6 +1722,90 @@ export class AppState {
     }
   }
 
+  // 단일 프로젝트 이미지 일괄 export. SessionTreePicker 프로젝트 점세개 메뉴 진입점 —
+  // 프로젝트를 열지 않고도 옵션 chain → exports/{name}.tar 산출. 폴더 export와 동일한
+  // preset/form 흐름이지만 단일이라 다이얼로그 텍스트와 finalName sub-dir만 다름.
+  async exportProjectImages(projectName: string) {
+    const items = [
+      ...this.exportPresets.map((p) => ({
+        text: `★ ${p.name} 적용`,
+        value: `preset:${p.id}`,
+      })),
+      { text: '⚙️ 새 옵션으로 내보내기', value: 'form' },
+    ];
+    const choice = await appState.pushDialogAsync({
+      type: 'select',
+      text: `'${projectName}' 프로젝트 이미지에 적용할 옵션`,
+      items,
+    });
+    if (!choice) return;
+
+    let preset: ExportPreset | undefined;
+    if (choice === 'form') {
+      const opts = await appState.openExportOptionsForm();
+      if (!opts) return;
+      preset = opts;
+    } else if (choice.startsWith('preset:')) {
+      const presetId = choice.slice('preset:'.length);
+      preset = this.exportPresets.find((p) => p.id === presetId);
+    }
+    if (!preset) return;
+
+    const fav = preset.imageSelection === 'fav';
+    const opt = preset.optimize;
+    const imageSize = preset.imageSize;
+    const separator = preset.separator || '.';
+    const charsToReplace = new Set(preset.charsToReplace || []);
+    const prefix = preset.fileNameFormat === 'prefix' && preset.prefixName
+      ? preset.prefixName + separator
+      : '';
+
+    const pid = appState.pushProgressDialog(
+      `'${projectName}' path 수집 중...`,
+      1,
+    );
+
+    let allItems: Array<{ srcPath: string; finalName: string }> = [];
+    try {
+      const session = await sessionService.get(projectName, { throwOnError: true });
+      if (!session) {
+        appState.finishProgressDialog(pid, '세션 객체 로드 실패', false);
+        return;
+      }
+      const collected = await this.gatherExportItems(
+        session, 'scene', undefined, fav, opt, prefix, separator, charsToReplace,
+      );
+      allItems = collected.map((it) => ({
+        srcPath: it.srcPath,
+        finalName: it.finalName,
+      }));
+    } catch (e: any) {
+      appState.finishProgressDialog(pid, `수집 실패: ${e?.message ?? e}`, false);
+      return;
+    }
+
+    if (allItems.length === 0) {
+      appState.finishProgressDialog(pid, '내보낼 이미지가 없어요', false);
+      return;
+    }
+
+    appState.finishProgressDialog(
+      pid,
+      `✓ '${projectName}' path 수집 완료 (${allItems.length}장)`,
+      true,
+    );
+
+    const outFilePath = 'exports/' + projectName + '.tar';
+    const optimize: 'none' | 'lossy' | 'lossless' | 'avif' =
+      opt === 'original' ? 'none' : (opt as 'lossy' | 'lossless' | 'avif');
+    await this.enqueueExportJob(
+      allItems,
+      outFilePath,
+      optimize,
+      opt === 'original' ? 0 : imageSize,
+    );
+  }
+
   async exportPreset(session: Session, preset: any) {
     try {
       let pngData;
