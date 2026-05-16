@@ -173,6 +173,10 @@ export class AppState {
   @observable accessor pinnedProgressDialogs: ProgressDialog[] = [];
   @observable accessor driveRetryStatus: DriveRetryStatus | null = null;
   @observable accessor driveRetryModalOpen: boolean = false;
+  // 큐가 현재 처리 중인 씬의 getSceneKey 값 (session.name/type/name). null이면 처리 중 아님.
+  // WS queue-job-start로 set, queue-status 응답 jobs[0].meta로 초기화/회복.
+  @observable accessor currentProcessingSceneKey: string | null = null;
+
   // 서버 큐 통계 — TaskProgressBar의 정확한 ETA용. /api/queue/status에서 폴링.
   // recentAvgMs(최근 100건) → currentBucketAvgMs → allTimeAvgMs 순서로 fallback. 2026-05-13.
   @observable accessor serverQueueAvgMs: number = 0;
@@ -641,6 +645,13 @@ export class AppState {
       const d = await r.json();
       const avg = d.recentAvgMs || d.currentBucketAvgMs || d.allTimeAvgMs || 0;
       if (avg > 0) this.serverQueueAvgMs = avg;
+      // 백그라운드 복귀 / WS 재연결 / 초기 부트 시 현재 처리 중 씬 회복.
+      // genQueue[0].meta.sceneKey가 있으면 그게 진행 중 씬. processing=false면 null.
+      const first = Array.isArray(d.jobs) && d.jobs.length > 0 ? d.jobs[0] : null;
+      const liveKey = d.processing && first && first.meta ? (first.meta.sceneKey || null) : null;
+      if (this.currentProcessingSceneKey !== liveKey) {
+        this.currentProcessingSceneKey = liveKey;
+      }
     } catch (e) {}
   }
 
@@ -3064,6 +3075,8 @@ queueMicrotask(() => {
   const resyncBackgroundState = () => {
     appState.refreshExportStatus();
     appState.refreshDriveRetryStatus();
+    // 백그라운드 사이 놓친 queue-job-start 이벤트 대비 — 진행 중 씬 sceneKey도 회복.
+    appState.refreshServerQueueAvg();
   };
   backend.onWsReconnect(resyncBackgroundState);
   document.addEventListener('visibilitychange', () => {
@@ -3071,6 +3084,16 @@ queueMicrotask(() => {
       resyncBackgroundState();
     }
   });
+
+  // 현재 처리 중인 씬 sceneKey 추적 — SceneCell 외곽 파란 펄스 표시용.
+  backend.onQueueJobStart((data) => {
+    const key = data?.meta?.sceneKey;
+    if (typeof key === 'string' && key.length > 0) {
+      appState.currentProcessingSceneKey = key;
+    }
+  });
+  // complete/error는 sceneKey를 굳이 null로 비우지 않음 — 다음 job-start가 곧 덮어씀.
+  // 큐가 진짜 비면 다음 refreshServerQueueAvg 폴링에서 processing=false 보고 null로 회복.
 });
 
 // Phase 7A: v4.5 자동 vibe 비활성화 알림 (페이지 로드당 1회)

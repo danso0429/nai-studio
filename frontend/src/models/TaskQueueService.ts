@@ -1108,7 +1108,7 @@ export class TaskQueueService extends EventTarget {
       // params는 placeholder. scene은 meta.sceneName/taskType으로 fake 객체 — getInfo에서 name 표시용.
       // session/job는 없음. handleMirroredComplete에서 task.params.session 체크해서 afterGenComplete 스킵.
       const placeholderScene = meta.sceneName
-        ? ({ name: meta.sceneName, type: meta.taskType || 'scene' } as any)
+        ? ({ name: meta.sceneName, type: meta.taskType || 'scene', _sceneKey: meta.sceneKey } as any)
         : (undefined as any);
       const restoredTask: Task = {
         id: taskId,

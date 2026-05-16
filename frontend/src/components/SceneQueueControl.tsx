@@ -32,7 +32,7 @@ import {
   dataUriToBase64,
   deleteImageFiles,
 } from '../models/ImageService';
-import { queueI2IWorkflow, queueMirrorWorkflow, queueWorkflow } from '../models/TaskQueueService';
+import { getSceneKey, queueI2IWorkflow, queueMirrorWorkflow, queueWorkflow } from '../models/TaskQueueService';
 import {
   GenericScene,
   ContextMenuType,
@@ -155,14 +155,13 @@ export const SceneCell = observer(
       landscape: 'aspect-[4/3]',
     };
     const aspectClass = aspectMap[cardStyle];
-    const cellSizes = isMobile
-      ? ['w-48 h-48', 'w-36 h-36', 'w-96 h-96']
-      : aspectClass
-        ? [`w-full ${aspectClass}`, `w-full ${aspectClass}`, `w-full ${aspectClass}`]
-        : ['w-full h-48', 'w-full h-64', 'w-full h-96'];
-    const cellSizes3 = isMobile
-      ? ['w-48', 'w-36', 'w-96']
-      : ['', '', ''];
+    // 셀 내부 크기는 부모 grid track width를 따라감 (w-full). 모바일/데스크탑 공통.
+    // 본인 페인 (2026-05-16): 모바일 fixed w-48/w-36에서 그리드 오른쪽 빈 공간 컸음 →
+    // w-full + auto-fill grid로 가로 fill.
+    const cellSizes = aspectClass
+      ? [`w-full ${aspectClass}`, `w-full ${aspectClass}`, `w-full ${aspectClass}`]
+      : ['w-full h-36', 'w-full h-48', 'w-full h-72'];
+    const cellSizes3 = ['', '', ''];
 
     const curIndex = curSession.getScenes(scene.type).indexOf(scene);
     const [{ isDragging }, drag, preview] = useDrag(
@@ -356,6 +355,11 @@ export const SceneCell = observer(
     };
 
     const focusRing = isFocused ? ' outline outline-4 outline-sky-400 outline-offset-2' : '';
+    // 큐가 현재 이 씬을 처리 중일 때 외곽 파란 펄스 — App.css의 .scene-processing 클래스.
+    const isProcessing =
+      !!appState.currentProcessingSceneKey &&
+      appState.currentProcessingSceneKey === getSceneKey(curSession!, scene);
+    const processingClass = isProcessing ? ' scene-processing' : '';
 
     if (isClassic) {
       // ===== 클래식 디자인 =====
@@ -366,7 +370,8 @@ export const SceneCell = observer(
             'relative z-0 m-2 p-1 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-500 ' +
             (isDragging ? 'opacity-0 no-touch ' : '') +
             (isOver ? ' outline outline-sky-500' : '') +
-            focusRing
+            focusRing +
+            processingClass
           }
           style={style}
           ref={cardRef}
@@ -424,7 +429,8 @@ export const SceneCell = observer(
           (scene.mains.length > 0 ? 'border-yellow-400 ' : 'border-gray-200 dark:border-slate-600 ') +
           (isDragging ? 'opacity-0 no-touch ' : '') +
           (isOver ? ' ring-2 ring-sky-500' : '') +
-          focusRing
+          focusRing +
+          processingClass
         }
         style={style}
         ref={cardRef}
@@ -1577,8 +1583,13 @@ const QueueControl = observer(
         <div className="flex flex-1 overflow-hidden">
           {(() => {
             const effectiveCellSize = showPannel || isMobile ? cellSize : 2;
-            const minWidths = ['180px', '240px', '320px'];
-            const useGrid = !isMobile;
+            // 모바일은 화면 좁아서 별도 minWidth — 데스크탑 값 그대로면 medium에서 1컬밖에 안 나옴.
+            const minWidths = isMobile
+              ? ['125px', '160px', '260px']
+              : ['180px', '240px', '320px'];
+            // 본인 페인 (2026-05-16): 모바일도 grid로 통일해 가로 fill — flex-wrap fixed-width면
+            // 오른쪽 빈 공간 컸음.
+            const useGrid = true;
             const renderedScenes = getFilteredScenes();
             if (renderedScenes.length === 0) {
               const totalScenes = curSession.getScenes(type).length;

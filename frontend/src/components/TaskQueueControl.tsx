@@ -3,8 +3,8 @@ import { FaSpinner } from 'react-icons/fa';
 import { FaCaretLeft, FaCaretRight, FaPause, FaPlay, FaRegCalendarTimes } from 'react-icons/fa';
 import { FaTimes } from 'react-icons/fa';
 import { FaRegClock } from 'react-icons/fa';
-import { taskQueueService } from '../models';
-import { Task } from '../models/TaskQueueService';
+import { sessionService, taskQueueService } from '../models';
+import { getSceneKey, Task } from '../models/TaskQueueService';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 
@@ -169,7 +169,33 @@ export const TaskProgressBar = observer(({ fast }: TaskProgressBarProps) => {
   );
 });
 
-const TaskQueueList = ({ onClose }: { onClose?: () => void }) => {
+// 태스크 1건의 sceneKey 추출 — placeholder restored task는 task.params.session이 없어서
+// scene._sceneKey 또는 sceneKey 직접 보관 필드를 fallback으로 사용.
+const taskSceneKey = (task: Task): string | null => {
+  if (task.params?.session && task.params?.scene) {
+    return getSceneKey(task.params.session, task.params.scene);
+  }
+  const sk = (task.params?.scene as any)?._sceneKey;
+  return typeof sk === 'string' ? sk : null;
+};
+
+// 표시 분해: 폴더 / 프로젝트(=session) / 씬. 폴더는 sessionService.folderMap에서 조회.
+// placeholder task는 sessionName을 sceneKey 첫 segment에서 파싱.
+const taskDisplay = (task: Task) => {
+  const sceneName = task.params?.scene?.name ?? '(none)';
+  let projectName = task.params?.session?.name ?? null;
+  if (!projectName) {
+    const sk = (task.params?.scene as any)?._sceneKey;
+    if (typeof sk === 'string' && sk.includes('/')) {
+      projectName = sk.split('/')[0];
+    }
+  }
+  const project = projectName ?? '(unknown)';
+  const folder = projectName ? sessionService.folderMap[projectName] ?? '' : '';
+  return { folder, project, scene: sceneName };
+};
+
+const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
   const [tasks, setTasks] = useState<any[]>([]);
   useEffect(() => {
     const onChange = () => {
@@ -198,9 +224,24 @@ const TaskQueueList = ({ onClose }: { onClose?: () => void }) => {
     return taskQueueService.getTaskInfo(task).emoji;
   };
 
-  const getTaskText = (task: Task) => {
-    return taskQueueService.getTaskInfo(task).name;
-  };
+  const currentKey = appState.currentProcessingSceneKey;
+
+  // sceneKey 단위 그룹핑: 같은 씬을 여러 번 큐에 넣어도 row 1개. done/total은 누적 합산.
+  // sceneKey 없는(=parsing 실패) task는 task.id로 fallback 그룹키.
+  const grouped: Array<{ sceneKey: string | null; firstTask: any; done: number; total: number }> = [];
+  const groupIndex = new Map<string, number>();
+  for (const task of tasks) {
+    const sk = taskSceneKey(task);
+    const groupKey = sk ?? `__no_key__${task.id ?? ''}`;
+    const idx = groupIndex.get(groupKey);
+    if (idx === undefined) {
+      groupIndex.set(groupKey, grouped.length);
+      grouped.push({ sceneKey: sk, firstTask: task, done: task.done, total: task.total });
+    } else {
+      grouped[idx].done += task.done;
+      grouped[idx].total += task.total;
+    }
+  }
 
   return (
     <div className="absolute bottom-0 mb-14 md:mb-20 bg-white dark:bg-slate-700 w-60 md:w-96 z-20 shadow-lg prog-list flex flex-col overflow-hidden">
@@ -214,25 +255,37 @@ const TaskQueueList = ({ onClose }: { onClose?: () => void }) => {
       </button>
       <div className="flex-1 overflow-hidden pb-2">
         <div className="h-full overflow-auto">
-          {tasks.map((task, i) => (
-            <div
-              key={i}
-              className="flex mt-2 items-center gap-2 p-2 border-gray-300 dark:border-slate-500 border mx-2 rounded-lg"
-            >
-              <div className="flex-none ">{getEmoji(task)}</div>
-              <div className="flex-1 truncate text-default">
-                {getTaskText(task)}
+          {grouped.map((g, i) => {
+            const { folder, project, scene } = taskDisplay(g.firstTask);
+            const isProcessing = !!currentKey && g.sceneKey === currentKey;
+            const itemClass = isProcessing
+              ? 'flex mt-2 items-center gap-2 p-2 mx-2 rounded-lg scene-processing-list'
+              : 'flex mt-2 items-center gap-2 p-2 mx-2 rounded-lg border border-gray-300 dark:border-slate-500';
+            return (
+              <div key={i} className={itemClass}>
+                <div className="flex-none">{getEmoji(g.firstTask)}</div>
+                <div className="flex-1 truncate text-default text-sm leading-tight">
+                  {folder && (
+                    <>
+                      {/* 모바일 세로: 폴더는 ... 으로 축약해 씬 이름 자리 확보. md 이상은 풀네임. */}
+                      <span className="text-gray-500 dark:text-gray-300 md:hidden">… / </span>
+                      <span className="text-gray-500 dark:text-gray-300 hidden md:inline">{folder} / </span>
+                    </>
+                  )}
+                  <span className="text-gray-500 dark:text-gray-300">{project} / </span>
+                  <span className="font-medium">{scene}</span>
+                </div>
+                <div className="flex-none ml-auto p-2 bg-gray-300 dark:bg-slate-500 dark:text-white rounded-lg font-medium text-sm text-gray-500">
+                  {g.done}/{g.total}
+                </div>
               </div>
-              <div className="flex-none ml-auto p-2 bg-gray-300 dark:bg-slate-500 dark:text-white rounded-lg font-medium text-sm text-gray-500">
-                {task!.done}/{task!.total}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
   );
-};
+});
 
 const TaskQueueControl = observer(({}) => {
   const [_, rerender] = useState<{}>({});
