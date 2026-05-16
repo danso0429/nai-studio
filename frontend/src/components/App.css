@@ -763,6 +763,7 @@ input[type='number']::-webkit-outer-spin-button {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  border-radius: 8px;
   box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.7), 0 0 28px 6px rgba(14, 165, 233, 0.5);
   animation: scene-processing-pulse 1.4s ease-in-out infinite;
   will-change: opacity, transform;
