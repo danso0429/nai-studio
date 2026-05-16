@@ -275,6 +275,25 @@ export class ServerBackend extends Backend {
     await api('/fs/write', { method: 'POST', body: JSON.stringify({ path: filename, data }) });
   }
 
+  writeFileKeepalive(filename: string, data: string): void {
+    // visibilitychange/pagehide에서 호출. await 안 함 — fire-and-forget.
+    // keepalive:true는 page unload 이후에도 브라우저가 request 완료 보장 (iOS Safari 14.5+).
+    // body 64KB total 한도 — 한 page lifecycle 안에서 keepalive 합산 기준.
+    try {
+      const body = JSON.stringify({ path: filename, data });
+      fetch(`${API_BASE}/api/fs/write`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive: true,
+      }).catch(() => {
+        // unload 중이라 fetch가 reject되어도 무시 (브라우저가 백그라운드에서 시도).
+      });
+    } catch {
+      // body 크기 초과로 fetch 생성 자체 실패 — 무시.
+    }
+  }
+
   async copyFile(src: string, dest: string): Promise<void> {
     await api('/fs/copy', { method: 'POST', body: JSON.stringify({ src, dest }) });
   }

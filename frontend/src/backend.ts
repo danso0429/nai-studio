@@ -156,6 +156,10 @@ export abstract class Backend {
   abstract listFilesRecursive(arg: string, depth?: number): Promise<RecursiveListResult>;
   abstract readFile(filename: string): Promise<string>;
   abstract writeFile(filename: string, data: string): Promise<void>;
+  // visibilitychange→hidden 같은 tab close 임박 시점에서 호출하는 변종. fetch keepalive:true
+  // 사용해서 page unload 이후에도 request 완료 보장. body 64KB 한도가 있어 큰 파일은
+  // 잘려나갈 수 있음 — 호출처가 작은 데이터(개별 dirty resource)만 보내야 함. fire-and-forget.
+  abstract writeFileKeepalive(filename: string, data: string): void;
   abstract copyFile(src: string, dest: string): Promise<void>;
   abstract readDataFile(arg: string): Promise<string>;
   abstract writeDataFile(filename: string, data: string): Promise<void>;

@@ -54,6 +54,29 @@ export abstract class ResourceSyncService<
     // 백그라운드 update() 도착 시 saveCache로 갱신 + listupdated dispatch.
     this.loadCache();
     this.dummy = this.createDummy();
+    // tab close 임박 (visibilitychange→hidden, pagehide) 직전 dirty 자원을 keepalive fetch로
+    // 즉시 굳힘. run() loop의 5초 polling + reaction debounce 사이에 사용자가 탭 닫으면
+    // 마지막 편집이 디스크 도달 못 하는 race window 해소. 본인 페인 2026-05-16: 편집 직후
+    // sdstudio 닫으면 원래 프로젝트 default로 회귀 (이미지엔 in-memory state 박혀있음).
+    if (typeof document !== 'undefined') {
+      const flushOnHide = () => {
+        if (document.visibilityState !== 'hidden') return;
+        for (const name of Object.keys(this.resources)) {
+          const rc = this.resources[name];
+          if (!rc) continue;
+          try {
+            backend.writeFileKeepalive(
+              this.getPath(name),
+              JSON.stringify(rc.toJSON()),
+            );
+          } catch {
+            // 개별 자원 toJSON 실패 — 무시 (다른 자원은 계속 flush)
+          }
+        }
+      };
+      document.addEventListener('visibilitychange', flushOnHide);
+      window.addEventListener('pagehide', flushOnHide);
+    }
   }
 
   // dummy 인스턴스 — prototype access만 필요. 빈 인스턴스 반환.

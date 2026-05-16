@@ -40,6 +40,27 @@ export class GlobalPresetService extends EventTarget {
   @observable accessor loaded: boolean = false;
   private saveTimeout: any = null;
 
+  constructor() {
+    super();
+    // scheduleSave()의 2초 debounce가 fire 전에 사용자가 탭 닫으면 손실. keepalive fetch로
+    // visibility hidden 시점 강제 flush. saveTimeout 있을 때만 (실제 pending인 경우만).
+    if (typeof document !== 'undefined') {
+      const flushOnHide = () => {
+        if (document.visibilityState !== 'hidden') return;
+        if (!this.saveTimeout) return;
+        clearTimeout(this.saveTimeout);
+        this.saveTimeout = null;
+        const store: IGlobalPresetStore = {
+          version: 1,
+          presets: this.presets,
+        };
+        backend.writeFileKeepalive(GLOBAL_PRESETS_FILE, JSON.stringify(store));
+      };
+      document.addEventListener('visibilitychange', flushOnHide);
+      window.addEventListener('pagehide', flushOnHide);
+    }
+  }
+
   // ---------- lifecycle ----------
 
   async load(): Promise<void> {
