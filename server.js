@@ -1258,6 +1258,14 @@ app.get('/api/version', (req, res) => {
   res.json({ version: '2.0.0-web' });
 });
 
+// 클라이언트 frame timing 수집 — clientPerf.ts에서 60s마다 sendBeacon batch.
+// 모바일 발열 진단용 측정 인프라 (P14). pm2 logs에 흘러가 본인 분석 가능.
+app.post('/api/client-perf', (req, res) => {
+  const body = req.body || {};
+  console.log(`[client-perf] ${JSON.stringify(body)}`);
+  res.status(204).end();
+});
+
 // ─── API: Auth ──────────────────────────────────────────────────────
 // /api/auth/login + /api/auth/login-token rate limit. NAI 측 자체 throttle이 있지만
 // 공개 노출 시 brute-force 시도가 NAI에 그대로 forward 되는 부담 회피 + 본인 IP가

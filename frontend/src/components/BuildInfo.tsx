@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiUrl } from '../models/util';
 import { backend } from '../models';
+import { startVisibleInterval } from '../visibleInterval';
 
 const GITHUB_REPO_URL = 'https://github.com/danso0429/nai-studio';
 
@@ -60,11 +61,10 @@ export const BuildInfoBadge = ({ variant }: BuildInfoBadgeProps) => {
   useEffect(() => {
     fetchBuildInfo().then(setBuildInfo);
     fetchVersionCheck().then(setVersionInfo);
-    // 30분마다 재확인
-    const id = setInterval(() => {
+    // 30분마다 재확인 (visibility 게이트 — 백그라운드 시 timer 정지)
+    return startVisibleInterval(() => {
       fetchVersionCheck().then(setVersionInfo);
     }, 30 * 60 * 1000);
-    return () => clearInterval(id);
   }, []);
 
   if (!buildInfo) return null;
