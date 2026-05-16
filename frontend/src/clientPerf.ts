@@ -49,6 +49,20 @@ function flush(now: number) {
     } catch {
       // sendBeacon 미지원 등 — 무시 (측정 인프라가 앱 동작 영향 X)
     }
+    // [clientPerf-DEV] queue.html에서 데이터 보기 위한 localStorage ring buffer.
+    // 다 지울 땐 이 블록 + queue.html clientPerf 패널 + index.tsx
+    // startClientPerf 호출 + server.js /api/client-perf endpoint 다 같이.
+    try {
+      const recent = JSON.parse(
+        localStorage.getItem('clientPerf.recent') || '[]',
+      );
+      recent.unshift(data);
+      if (recent.length > 20) recent.length = 20;
+      localStorage.setItem('clientPerf.recent', JSON.stringify(recent));
+    } catch {
+      // localStorage quota / private mode 등 — 무시
+    }
+    // [/clientPerf-DEV]
   }
   frameCount = 0;
   slowFrameCount = 0;
