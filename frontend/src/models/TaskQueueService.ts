@@ -746,6 +746,11 @@ export class TaskQueueService extends EventTarget {
   mirroredJobs: Map<string, { taskId: string; outputFilePath: string }> = new Map();
   // mirror 도중 prep 시간 측정 시작점 (시간 추정 보정용)
   private mirrorRunStartTimes: Map<string, number> = new Map();
+  // queueAddBatch를 호출 순서대로 직렬화하는 promise chain. 본인 페인 (2026-05-16):
+  // addAllToQueue가 CHUNK=4 Promise.all 병렬로 addMirroredTask 호출 → 각 scene의 prep이
+  // 동시 진행 → 누가 먼저 끝나서 server push하느냐 race → server 큐에 scene 순서 어긋남.
+  // 해결: prep은 병렬 유지 + queueAddBatch만 chain 직렬화 → push는 항상 호출 순서.
+  private addBatchChain: Promise<void> = Promise.resolve();
   // mirror task의 sceneKey 보존 (placeholder restored task는 task.params.session 없어서 getSceneKey로 추출 불가).
   // removeAllTasks/removeTasksFromScene에서 정확한 stats unwind에 사용.
   private mirrorTaskSceneKeys: Map<string, string> = new Map();
@@ -935,57 +940,72 @@ export class TaskQueueService extends EventTarget {
     this.taskSet[taskId] = true;
     this.mirrorRunStartTimes.set(taskId, Date.now());
     this.mirrorTaskSceneKeys.set(taskId, sceneKey);
-    this.dispatchProgress();
 
     if (wasEmpty) {
-      // push 전에 pause — 서버가 자동 처리 시작하지 않게.
-      try {
-        await backend.pauseQueue();
-        this.mirrorPaused = true;
-      } catch (e) {
-        console.warn('[TaskQueue] pauseQueue (initial) failed:', e);
-      }
+      // optimistic: dispatchProgress 전에 mirrorPaused=true 박아서 UI가 ▶로 표시되게.
+      // 옛 코드는 await backend.pauseQueue() 후에야 mirrorPaused=true 박았는데, 그 사이
+      // dispatchProgress가 먼저 fire되면 isRunning() = true → 버튼이 ⏸로 표시 (본인 페인:
+      // 큐 끝나고 새로 등록하면 일시정지 표시가 떠서 ⏸ → ▶ 두 번 누르는 흐름). pauseQueue는
+      // 서버 측 확인만 하는 fire-and-forget.
+      this.mirrorPaused = true;
+      backend.pauseQueue().catch((e) => console.warn('[TaskQueue] pauseQueue (initial) failed:', e));
     }
 
-    // prep N번. 같은 run 객체 전달 → cachedVibes/Refs 재사용 (같은 task의 N장은 vibes 동일).
-    const run: TaskQueueRun = { stopped: false, delayCnt: 0 };
-    const items: Array<{ params: ImageGenInput; meta: QueueJobMeta }> = [];
-    const localOutputs: string[] = [];
-    for (let i = 0; i < task.total; i++) {
-      const { arg, outputFilePath } = await handler.prepGenInput(task, run);
-      localOutputs.push(outputFilePath);
-      items.push({
-        params: arg,
-        meta: {
-          taskId,
-          cls: task.cls,
-          sceneKey,
-          sceneName: task.params.scene?.name,
-          taskType: task.params.scene?.type,
-          jobIndex: i + 1,
-          jobTotal: task.total,
-        },
-      });
-    }
+    // 호출 순서대로 queueAddBatch 직렬화 — sync 구간에서 chain 슬롯 예약. 이후 prep은
+    // 병렬로 진행되더라도, push 차례는 여기서 캡처한 prevSlot이 풀려야 옴.
+    const prevSlot = this.addBatchChain;
+    let releaseMySlot!: () => void;
+    this.addBatchChain = new Promise<void>((resolve) => { releaseMySlot = resolve; });
 
-    // 서버 batch push
-    const result = await backend.queueAddBatch(items);
-    for (let i = 0; i < result.jobIds.length; i++) {
-      this.mirroredJobs.set(result.jobIds[i], {
-        taskId,
-        outputFilePath: localOutputs[i],
-      });
-    }
-    if (result.rejected > 0) {
-      console.warn(`[TaskQueue] queueAddBatch rejected ${result.rejected} of ${task.total} (큐 가득 참)`);
-      // 등록 실패한 만큼 stats 보정
-      this.groupStats[task.cls].total -= result.rejected;
-      if (sceneKey && (sceneKey in this.sceneStats)) {
-        this.sceneStats[sceneKey].total -= result.rejected;
-      }
-      task.total -= result.rejected;
-    }
     this.dispatchProgress();
+
+    try {
+      // prep N번. 같은 run 객체 전달 → cachedVibes/Refs 재사용 (같은 task의 N장은 vibes 동일).
+      const run: TaskQueueRun = { stopped: false, delayCnt: 0 };
+      const items: Array<{ params: ImageGenInput; meta: QueueJobMeta }> = [];
+      const localOutputs: string[] = [];
+      for (let i = 0; i < task.total; i++) {
+        const { arg, outputFilePath } = await handler.prepGenInput(task, run);
+        localOutputs.push(outputFilePath);
+        items.push({
+          params: arg,
+          meta: {
+            taskId,
+            cls: task.cls,
+            sceneKey,
+            sceneName: task.params.scene?.name,
+            taskType: task.params.scene?.type,
+            jobIndex: i + 1,
+            jobTotal: task.total,
+          },
+        });
+      }
+
+      // 앞 scene의 push가 끝날 때까지 대기 → 서버 큐에 scene 호출 순서대로 들어감.
+      await prevSlot;
+
+      // 서버 batch push
+      const result = await backend.queueAddBatch(items);
+      for (let i = 0; i < result.jobIds.length; i++) {
+        this.mirroredJobs.set(result.jobIds[i], {
+          taskId,
+          outputFilePath: localOutputs[i],
+        });
+      }
+      if (result.rejected > 0) {
+        console.warn(`[TaskQueue] queueAddBatch rejected ${result.rejected} of ${task.total} (큐 가득 참)`);
+        // 등록 실패한 만큼 stats 보정
+        this.groupStats[task.cls].total -= result.rejected;
+        if (sceneKey && (sceneKey in this.sceneStats)) {
+          this.sceneStats[sceneKey].total -= result.rejected;
+        }
+        task.total -= result.rejected;
+      }
+      this.dispatchProgress();
+    } finally {
+      // 성공/실패 무관하게 다음 슬롯 해제 — 한 scene 실패가 뒤 chain을 deadlock 시키지 않게.
+      releaseMySlot();
+    }
   }
 
   // WS queue-job-complete handler. mirror task만 처리 (다른 jobId는 무시).
