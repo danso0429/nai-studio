@@ -645,11 +645,7 @@
       + '<div class="card"><div class="label">상태</div><div class="value" id="q-status">💤 idle</div></div>'
       + '</div>'
       + '<div id="q-timing-panel"></div>'
-      + '<div id="q-errors-panel"></div>'
-      // [clientPerf-DEV] frame 측정 패널 — P14 발열 진단 임시. 다 지울 땐
-      // clientPerf-DEV 마커로 grep 검색 후 한 번에 제거.
-      + '<div id="q-clientperf-panel"></div>';
-      // [/clientPerf-DEV]
+      + '<div id="q-errors-panel"></div>';
   }
   function setText(id, t) {
     const el = document.getElementById(id);
@@ -797,55 +793,6 @@
       }).join('');
   }
 
-  // [clientPerf-DEV] frame 측정 패널 — localStorage 'clientPerf.recent' ring buffer
-  // 읽어 표시. React 앱 페이지(=/nainai)에서 60초마다 push. 다 지울 땐 마커로 grep.
-  let lastClientPerfKey = '';
-  function renderClientPerfPanel() {
-    const panel = document.getElementById('q-clientperf-panel');
-    if (!panel) return;
-    let recent = [];
-    try {
-      recent = JSON.parse(localStorage.getItem('clientPerf.recent') || '[]');
-    } catch (e) {
-      // localStorage parse 실패 — 무시
-    }
-    if (!recent.length) {
-      const html = '<h2 class="section-h">📊 frame 측정 (P14 임시)</h2>'
-        + '<div class="paused">앱 페이지(/nainai) 60초 사용 후 데이터 표시됨</div>';
-      if (lastClientPerfKey !== 'empty') {
-        panel.innerHTML = html;
-        lastClientPerfKey = 'empty';
-      }
-      return;
-    }
-    const latest = recent[0];
-    const ageSec = Math.max(0, Math.round((Date.now() - latest.ts) / 1000));
-    const slowPct = (latest.slowRatio * 100).toFixed(2);
-    const key = recent.length + ':' + latest.ts + ':' + ageSec;
-    if (key === lastClientPerfKey) return;
-    lastClientPerfKey = key;
-    const rowsHtml = recent.slice(0, 5).map((d) => {
-      const age = Math.max(0, Math.round((Date.now() - d.ts) / 1000));
-      const ratio = (d.slowRatio * 100).toFixed(2);
-      const vis = d.visible ? '👁️' : '🌙';
-      return '<div class="entry">'
-        + '<div class="row1"><div class="fn">' + age + '초 전 ' + vis + '</div>'
-        + '<span class="pill">' + d.frameCount + 'fr</span>'
-        + '<span class="pill ' + (d.slowFrameCount > 5 ? 'failed' : 'pending') + '">slow ' + d.slowFrameCount + ' (' + ratio + '%)</span>'
-        + '<span class="pill">max ' + d.maxFrameMs + 'ms</span>'
-        + '</div>'
-        + '</div>';
-    }).join('');
-    panel.innerHTML = '<h2 class="section-h">📊 frame 측정 (P14 임시) — 최근 ' + recent.length + '건</h2>'
-      + '<div class="card full">'
-      + '<div class="label">최근 batch (' + ageSec + '초 전)</div>'
-      + '<div class="value">' + latest.frameCount + ' frame · slow ' + latest.slowFrameCount + ' (' + slowPct + '%)</div>'
-      + '<div class="small">max ' + latest.maxFrameMs + 'ms · ' + Math.round(latest.durationMs / 1000) + '초 동안 · ' + (latest.visible ? 'visible' : 'hidden') + '</div>'
-      + '</div>'
-      + rowsHtml;
-  }
-  // [/clientPerf-DEV]
-
   async function tick() {
     if (document.hidden) return;
     if (tickInflight) return;
@@ -948,9 +895,6 @@
 
       renderTimingPanel();
       renderErrorsPanel(d);
-      // [clientPerf-DEV]
-      renderClientPerfPanel();
-      // [/clientPerf-DEV]
 
       tsEl.textContent = '갱신: ' + new Date().toLocaleTimeString();
     } catch (e) {
