@@ -99,6 +99,28 @@ export async function getFirstFile(accept?: string) {
   });
 }
 
+// 다중 파일 선택. iOS Safari/Files 앱에서 multiple 지원 (드래그드롭이 안 되는 환경 대체).
+// 사용자 취소 시 reject. 0개 선택은 cancel과 구분 안 됨 — 둘 다 reject.
+export async function getFiles(accept?: string): Promise<File[]> {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.style.display = 'none';
+    if (accept) input.accept = accept;
+
+    input.addEventListener('change', (event: any) => {
+      const files: File[] = Array.from(event.target.files || []);
+      if (files.length > 0) resolve(files);
+      else reject(new Error('No file selected'));
+    });
+
+    document.body.appendChild(input);
+    input.click();
+    document.body.removeChild(input);
+  });
+}
+
 function base64ToArrayBuffer(base64: string) {
   const binaryString = atob(base64);
   const len = binaryString.length;

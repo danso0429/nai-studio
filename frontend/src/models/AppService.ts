@@ -40,7 +40,7 @@ import {
   Scene,
   Session,
 } from './types';
-import { apiUrl, extractApiError, extractPromptDataFromBase64, getFirstFile, josaIGa, josaRo, josaEulReul } from './util';
+import { apiUrl, extractApiError, extractPromptDataFromBase64, getFiles, getFirstFile, josaIGa, josaRo, josaEulReul } from './util';
 import { DriveRetryStatus } from '../backend';
 import { v4 } from 'uuid';
 import { Resolution, resolutionMap } from '../backends/imageGen';
@@ -1440,20 +1440,28 @@ export class AppState {
 
   @action
   async projectImport() {
-    // 프로젝트(.json)만 허용. .tar/.png 등 다른 파일은 거부.
-    let file: File;
+    // 프로젝트(.json)만 허용. iOS Safari/Files 앱은 드래그드롭 안 되니까 multiple
+    // 파일 선택으로 다중 임포트 진입 가능. 단일 파일 선택은 기존 흐름.
+    let files: File[];
     try {
-      file = (await getFirstFile('.json,application/json')) as File;
+      files = await getFiles('.json,application/json');
     } catch {
       return; // 사용자 취소
     }
     // iOS Safari가 .json에 빈 file.type을 주는 경우 → 확장자 fallback.
-    const isJson = file.type === 'application/json' || /\.json$/i.test(file.name);
-    if (!isJson) {
+    const validFiles = files.filter(
+      (f) => f.type === 'application/json' || /\.json$/i.test(f.name),
+    );
+    if (validFiles.length === 0) {
       appState.pushMessage('프로젝트 파일(.json)만 불러올 수 있습니다.');
       return;
     }
-    appState.handleFile(file);
+    if (validFiles.length < files.length) {
+      appState.pushMessage(
+        `${files.length - validFiles.length}개 파일은 .json이 아니라 무시했어요`,
+      );
+    }
+    await appState.handleFiles(validFiles);
   }
 
   @action
