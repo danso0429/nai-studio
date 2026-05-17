@@ -330,74 +330,92 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
   );
 
   return (
-    // 하단바 위에 정확히 붙음 — bottom-full(=100%)로 부모(pill) 바로 위. 부모는 relative 필수.
+    // 하단바 위에 정확히 붙음 — bottom-full로 부모(pill) 바로 위. 부모는 relative 필수.
     // 클릭 stopPropagation으로 펴고 접기 안에서 toggle close 안 되게 차단.
-    // 본인 페인 (2026-05-17): 옛 mb-14 고정은 모바일 2-row 하단바 가렸음.
+    // 본인 페인 (2026-05-17): UI 너무 컸음 → 폴더 row 컴팩트 + 4개 정도 default 보임 + 세로 스크롤.
+    //   반투명 + rounded. 트리 연결은 ㄴ unicode 사용.
     <div
-      className="absolute bottom-full right-0 mb-2 bg-white dark:bg-slate-700 w-60 md:w-96 z-20 shadow-lg prog-list flex flex-col overflow-hidden max-h-[70vh]"
+      className="absolute bottom-full right-0 mb-2 bg-white/85 dark:bg-slate-700/85 backdrop-blur-md w-60 md:w-96 z-20 shadow-lg rounded-xl flex flex-col overflow-hidden max-h-[200px] md:max-h-[260px]"
       onClick={(e) => e.stopPropagation()}
     >
       <button
-        className="ml-auto mt-2 mr-2 text-gray-500 hover:text-gray-700 flex-none"
+        className="ml-auto mt-1 mr-1 text-gray-500 hover:text-gray-700 flex-none"
         onClick={() => {
           onClose?.();
         }}
       >
-        <FaTimes size={20} />
+        <FaTimes size={16} />
       </button>
-      <div className="flex-1 overflow-hidden pb-2">
-        <div className="h-full overflow-auto">
+      <div className="flex-1 overflow-hidden pb-2 px-1">
+        <div className="h-full overflow-y-auto">
           {tree.map((folder) => {
             const fKey = `f:${folder.name}`;
             const fOpen = expanded.has(fKey);
             return (
               <div key={fKey}>
                 <div
-                  className="flex mt-2 items-center gap-2 p-2 mx-2 rounded-lg border border-gray-300 dark:border-slate-500 cursor-pointer"
+                  className="flex items-center gap-1.5 px-2 py-1 mx-1 mt-0.5 rounded-md border border-gray-300 dark:border-slate-500 cursor-pointer"
                   onClick={() => toggle(fKey)}
                 >
                   {chevron(fOpen)}
-                  <div className="flex-none">📁</div>
-                  <div className="flex-1 truncate text-default text-sm leading-tight font-medium">
+                  <div className="flex-none text-sm">📁</div>
+                  <div className="flex-1 truncate text-default text-xs md:text-sm leading-tight font-medium">
                     {folder.name}
                   </div>
-                  <div className="flex-none ml-auto p-2 bg-gray-300 dark:bg-slate-500 dark:text-white rounded-lg font-medium text-sm text-gray-500">
+                  <div className="flex-none ml-auto px-1.5 py-0.5 bg-gray-300/70 dark:bg-slate-500/70 dark:text-white rounded font-medium text-xs text-gray-600">
                     {folder.done}/{folder.total}
                   </div>
                 </div>
                 {fOpen &&
-                  folder.projects.map((proj) => {
+                  folder.projects.map((proj, pIdx) => {
                     const pKey = `p:${folder.name}/${proj.name}`;
                     const pOpen = expanded.has(pKey);
+                    const isPLast = pIdx === folder.projects.length - 1;
                     return (
                       <div key={pKey}>
-                        <div
-                          className="flex mt-1 items-center gap-2 p-2 ml-6 mr-2 rounded-lg border border-gray-200 dark:border-slate-600 cursor-pointer"
-                          onClick={() => toggle(pKey)}
-                        >
-                          {chevron(pOpen)}
-                          <div className="flex-1 truncate text-default text-sm leading-tight">
-                            {proj.name}
-                          </div>
-                          <div className="flex-none ml-auto px-2 py-1 bg-gray-200 dark:bg-slate-600 dark:text-white rounded-md font-medium text-xs text-gray-500">
-                            {proj.done}/{proj.total}
+                        <div className="flex items-center gap-0 mt-0.5 ml-2">
+                          <span className="flex-none text-gray-400 dark:text-gray-500 text-xs font-mono w-3 inline-block">
+                            {isPLast ? '└' : '├'}
+                          </span>
+                          <div
+                            className="flex flex-1 items-center gap-1.5 px-2 py-1 mr-1 rounded-md border border-gray-200 dark:border-slate-600 cursor-pointer"
+                            onClick={() => toggle(pKey)}
+                          >
+                            {chevron(pOpen)}
+                            <div className="flex-1 truncate text-default text-xs md:text-sm leading-tight">
+                              {proj.name}
+                            </div>
+                            <div className="flex-none ml-auto px-1.5 py-0.5 bg-gray-200/70 dark:bg-slate-600/70 dark:text-white rounded font-medium text-xs text-gray-600">
+                              {proj.done}/{proj.total}
+                            </div>
                           </div>
                         </div>
                         {pOpen &&
-                          proj.scenes.map((s, idx) => {
+                          proj.scenes.map((s, sIdx) => {
+                            const isSLast = sIdx === proj.scenes.length - 1;
                             const isProcessing =
                               !!currentKey && s.sceneKey === currentKey;
-                            const sceneClass = isProcessing
-                              ? 'flex mt-1 items-center gap-2 p-2 ml-10 mr-2 rounded-lg scene-processing-list'
-                              : 'flex mt-1 items-center gap-2 p-2 ml-10 mr-2 rounded-lg border border-gray-200 dark:border-slate-600';
+                            const sceneBoxClass = isProcessing
+                              ? 'flex flex-1 items-center gap-1.5 px-2 py-1 mr-1 rounded-md scene-processing-list'
+                              : 'flex flex-1 items-center gap-1.5 px-2 py-1 mr-1 rounded-md border border-gray-200 dark:border-slate-600';
                             return (
-                              <div key={idx} className={sceneClass}>
-                                <div className="flex-none">{getEmoji(s.firstTask)}</div>
-                                <div className="flex-1 truncate text-default text-sm leading-tight">
-                                  <span className="font-medium">{s.sceneName}</span>
-                                </div>
-                                <div className="flex-none ml-auto px-2 py-1 bg-gray-200 dark:bg-slate-600 dark:text-white rounded-md font-medium text-xs text-gray-500">
-                                  {s.done}/{s.total}
+                              <div
+                                key={sIdx}
+                                className="flex items-center gap-0 mt-0.5 ml-5"
+                              >
+                                <span className="flex-none text-gray-400 dark:text-gray-500 text-xs font-mono w-3 inline-block">
+                                  {isSLast ? '└' : '├'}
+                                </span>
+                                <div className={sceneBoxClass}>
+                                  <div className="flex-none text-sm">
+                                    {getEmoji(s.firstTask)}
+                                  </div>
+                                  <div className="flex-1 truncate text-default text-xs md:text-sm leading-tight">
+                                    <span className="font-medium">{s.sceneName}</span>
+                                  </div>
+                                  <div className="flex-none ml-auto px-1.5 py-0.5 bg-gray-200/70 dark:bg-slate-600/70 dark:text-white rounded font-medium text-xs text-gray-600">
+                                    {s.done}/{s.total}
+                                  </div>
                                 </div>
                               </div>
                             );
