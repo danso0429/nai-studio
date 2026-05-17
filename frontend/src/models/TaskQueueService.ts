@@ -749,6 +749,11 @@ export class TaskQueueService extends EventTarget {
   // mirror task의 sceneKey 보존 (placeholder restored task는 task.params.session 없어서 getSceneKey로 추출 불가).
   // removeAllTasks/removeTasksFromScene에서 정확한 stats unwind에 사용.
   private mirrorTaskSceneKeys: Map<string, string> = new Map();
+  // restoreMirroredState single-flight 가드. 호출처 3곳(생성자, WS reconnect, 30s 폴링)이
+  // 백그라운드 복귀 시 거의 동시에 깨어나면 concurrent unwind+rebuild가 groupStats를
+  // 중복 누적시켜 숫자 부풀림. 본인 보고 (2026-05-17): 246 → 90 → 146으로 증가, queue.html과 불일치.
+  // 진행 중이면 새 호출은 같은 promise를 await — 중복 fetch + 중복 누적 둘 다 차단.
+  private restoreInFlight: Promise<void> | null = null;
   constructor(handlers: TaskHandler[]) {
     super();
     this.handlers = handlers;
@@ -1093,6 +1098,15 @@ export class TaskQueueService extends EventTarget {
   // mirroredTasks 전체 재구성. idempotent — 매번 기존 mirror state unwind 후 재구축.
   // task.params는 서버에 저장 안 됨 → 빈 placeholder. 알약/리스트 표시만 가능, imageService 갱신 X.
   async restoreMirroredState() {
+    // single-flight: 진행 중이면 같은 promise를 반환 (concurrent unwind+rebuild의 중복 누적 차단).
+    if (this.restoreInFlight) return this.restoreInFlight;
+    this.restoreInFlight = this._doRestoreMirroredState().finally(() => {
+      this.restoreInFlight = null;
+    });
+    return this.restoreInFlight;
+  }
+
+  private async _doRestoreMirroredState() {
     const full = await backend.queueGetFullState();
 
     // 기존 mirror state 전체 unwind (groupStats/sceneStats 정확히 빼기)
