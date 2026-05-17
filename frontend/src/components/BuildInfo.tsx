@@ -154,54 +154,286 @@ interface UpdateModalProps {
   onClose: () => void;
 }
 
+const TOKEN_STORAGE_KEY = 'naiStudio_adminToken';
+
+interface Progress {
+  step: string;
+  percent: number;
+  message: string;
+}
+
+// 서버 재시작 대기. PocketRisu update.ts:117 패턴 — 3초 sleep (서버 죽기 전 fetch
+// 의미 X) 후 60초 동안 2초 간격으로 build-info 폴링 → version 일치하면 return true.
+async function waitForServerRestart(expectedVersion: string): Promise<boolean> {
+  await new Promise((r) => setTimeout(r, 3000));
+  const start = Date.now();
+  while (Date.now() - start < 60000) {
+    try {
+      const r = await fetch(`${API}/build-info?t=${Date.now()}`);
+      if (r.ok) {
+        const info = await r.json();
+        if (info.version === expectedVersion) return true;
+      }
+    } catch {}
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return false;
+}
+
 const UpdateModal = ({ current, latest, notes, released, onClose }: UpdateModalProps) => {
+  type Phase = 'idle' | 'tokenInput' | 'running' | 'done' | 'error';
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [tokenInput, setTokenInput] = useState('');
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  const runUpdate = async (token: string) => {
+    setPhase('running');
+    setErrMsg(null);
+    setProgress({ step: 'connecting', percent: 0, message: '서버 연결 중...' });
+
+    let r: Response;
+    try {
+      r = await fetch(`${API}/self-update`, {
+        method: 'POST',
+        headers: { 'X-Admin-Token': token },
+      });
+    } catch (e: any) {
+      setPhase('error');
+      setErrMsg('서버 연결 실패: ' + (e?.message || e));
+      return;
+    }
+
+    if (r.status === 401) {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+      setPhase('tokenInput');
+      setErrMsg('잘못된 토큰입니다. 다시 입력해주세요.');
+      return;
+    }
+    if (r.status === 503) {
+      setPhase('error');
+      setErrMsg('서버에 ADMIN_TOKEN이 설정되어 있지 않습니다. SSH 접속해서 .env.local에 추가 후 pm2 restart 필요.');
+      return;
+    }
+    if (r.status === 409) {
+      setPhase('error');
+      setErrMsg('이미 다른 업데이트가 진행 중입니다.');
+      return;
+    }
+    if (!r.ok || !r.body) {
+      setPhase('error');
+      setErrMsg(`HTTP ${r.status}`);
+      return;
+    }
+
+    // NDJSON 스트림 read — 라인 단위로 buffer split + JSON.parse.
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let lastObj: Progress & { step: string } | null = null;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line) continue;
+          try {
+            const obj = JSON.parse(line) as Progress;
+            setProgress(obj);
+            lastObj = obj;
+            if (obj.step === 'error') {
+              setPhase('error');
+              setErrMsg(obj.message);
+              return;
+            }
+          } catch {}
+        }
+      }
+    } catch (e: any) {
+      // 서버가 pm2 restart로 죽으면서 connection reset — restarting 단계에선 정상.
+      if (lastObj?.step !== 'restarting') {
+        setPhase('error');
+        setErrMsg('스트림 끊김: ' + (e?.message || e));
+        return;
+      }
+    }
+
+    if (lastObj?.step === 'restarting') {
+      setProgress({ step: 'reconnecting', percent: 100, message: `서버 재시작 대기 중... (v${latest})` });
+      const ok = await waitForServerRestart(latest);
+      if (ok) {
+        setPhase('done');
+        setProgress({ step: 'done', percent: 100, message: `업데이트 완료 — v${latest}` });
+      } else {
+        setPhase('error');
+        setErrMsg('서버 재시작 60초 타임아웃. 수동으로 확인 필요.');
+      }
+    } else if (lastObj?.step === 'done') {
+      // "이미 최신" 응답
+      setPhase('done');
+    }
+  };
+
+  const onClickStart = () => {
+    const saved = localStorage.getItem(TOKEN_STORAGE_KEY);
+    if (saved) runUpdate(saved);
+    else setPhase('tokenInput');
+  };
+
+  const onSubmitToken = () => {
+    const t = tokenInput.trim();
+    if (!t) return;
+    localStorage.setItem(TOKEN_STORAGE_KEY, t);
+    runUpdate(t);
+  };
+
+  // PocketRisu UpdatePopup canClose 패턴 — running 중엔 backdrop/닫기 차단.
+  const canClose = phase !== 'running';
+  const backdropClick = canClose ? onClose : undefined;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
+      onClick={backdropClick}
     >
       <div
         className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-lg font-bold mb-3 text-gray-900 dark:text-gray-100">
-          🔄 업데이트 사용 가능
+          {phase === 'done' ? '✓ 업데이트 완료' : phase === 'error' ? '❌ 업데이트 실패' : '🔄 업데이트 사용 가능'}
         </h2>
-        <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
-          <p>
-            현재: <code className="bg-gray-100 dark:bg-gray-900 px-1 py-0.5 rounded">v{current}</code>
-            {' → '}
-            최신: <code className="bg-orange-100 dark:bg-orange-900/40 px-1 py-0.5 rounded">v{latest}</code>
-          </p>
-          {released && (
-            <p className="text-xs opacity-70">출시일: {released}</p>
-          )}
-          {notes && (
-            <div className="mt-3 p-2 bg-gray-50 dark:bg-gray-900/50 rounded text-xs">
-              <div className="font-semibold mb-1">변경사항:</div>
-              <div className="whitespace-pre-wrap opacity-80">{notes}</div>
+
+        {phase === 'idle' && (
+          <>
+            <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+              <p>
+                현재: <code className="bg-gray-100 dark:bg-gray-900 px-1 py-0.5 rounded">v{current}</code>
+                {' → '}
+                최신: <code className="bg-orange-100 dark:bg-orange-900/40 px-1 py-0.5 rounded">v{latest}</code>
+              </p>
+              {released && <p className="text-xs opacity-70">출시일: {released}</p>}
+              {notes && (
+                <div className="mt-3 p-2 bg-gray-50 dark:bg-gray-900/50 rounded text-xs">
+                  <div className="font-semibold mb-1">변경사항:</div>
+                  <div className="whitespace-pre-wrap opacity-80">{notes}</div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+            <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded text-xs text-blue-800 dark:text-blue-300 opacity-90">
+              데이터(프리셋, 이미지, 설정)는 그대로 유지됩니다. 업데이트 중 약 1~2분 서버 재시작.
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={onClickStart}
+                className="flex-1 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded text-sm font-medium"
+              >
+                지금 업데이트
+              </button>
+              <button
+                onClick={onClose}
+                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-sm font-medium text-gray-900 dark:text-gray-100"
+              >
+                나중에
+              </button>
+            </div>
+          </>
+        )}
 
-        <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded text-xs">
-          <div className="font-semibold mb-2 text-blue-900 dark:text-blue-200">
-            서버에서 다음 명령 실행:
-          </div>
-          <div className="bg-gray-900 text-green-400 p-2 rounded font-mono text-[11px] overflow-x-auto">
-            cd ~/nai-studio-2 && ./update.sh
-          </div>
-          <div className="mt-2 text-blue-800 dark:text-blue-300 opacity-80">
-            데이터(프리셋, 이미지, 설정)는 그대로 유지됩니다.
-          </div>
-        </div>
+        {phase === 'tokenInput' && (
+          <>
+            <div className="text-sm text-gray-700 dark:text-gray-300 space-y-2">
+              <p>관리자 토큰을 입력하세요. (`.env.local`의 `ADMIN_TOKEN`)</p>
+              {errMsg && <p className="text-red-600 dark:text-red-400 text-xs">{errMsg}</p>}
+              <input
+                type="password"
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && onSubmitToken()}
+                placeholder="ADMIN_TOKEN"
+                className="w-full px-3 py-2 border rounded text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600"
+                autoFocus
+              />
+              <p className="text-xs opacity-60">한 번 입력 후 브라우저에 저장됩니다 (localStorage).</p>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={onSubmitToken}
+                disabled={!tokenInput.trim()}
+                className="flex-1 px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-400 text-white rounded text-sm font-medium"
+              >
+                업데이트 시작
+              </button>
+              <button
+                onClick={() => setPhase('idle')}
+                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-sm font-medium text-gray-900 dark:text-gray-100"
+              >
+                뒤로
+              </button>
+            </div>
+          </>
+        )}
 
-        <button
-          onClick={onClose}
-          className="mt-4 w-full px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-sm font-medium text-gray-900 dark:text-gray-100"
-        >
-          닫기
-        </button>
+        {phase === 'running' && progress && (
+          <>
+            <div className="space-y-3">
+              <div className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="font-semibold">{progress.step}</span>
+                <span className="opacity-60 ml-2">{progress.message}</span>
+              </div>
+              <div className="w-full h-3 bg-gray-200 dark:bg-gray-700 rounded overflow-hidden">
+                <div
+                  className="h-full bg-orange-500 transition-all duration-300"
+                  style={{ width: `${Math.max(2, Math.min(100, progress.percent ?? 0))}%` }}
+                />
+              </div>
+              <p className="text-xs opacity-60 text-center">
+                업데이트 중에는 닫지 마세요. 약 1~2분 소요됩니다.
+              </p>
+            </div>
+          </>
+        )}
+
+        {phase === 'done' && (
+          <>
+            <div className="text-sm text-gray-700 dark:text-gray-300 space-y-2">
+              <p>v{current} → <span className="font-semibold">v{latest}</span> 업데이트 완료.</p>
+              <p className="text-xs opacity-70">새로고침해서 적용된 화면을 확인하세요.</p>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 w-full px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded text-sm font-medium"
+            >
+              새로고침
+            </button>
+          </>
+        )}
+
+        {phase === 'error' && (
+          <>
+            <div className="text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 p-3 rounded whitespace-pre-wrap break-all max-h-60 overflow-y-auto">
+              {errMsg || '알 수 없는 오류'}
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => { setPhase('idle'); setErrMsg(null); setProgress(null); }}
+                className="flex-1 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded text-sm font-medium"
+              >
+                다시 시도
+              </button>
+              <button
+                onClick={onClose}
+                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-sm font-medium text-gray-900 dark:text-gray-100"
+              >
+                닫기
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
