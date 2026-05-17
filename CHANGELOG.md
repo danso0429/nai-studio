@@ -9,6 +9,32 @@
 
 ---
 
+## v1.6.1 (2026-05-17)
+
+stable. v1.6.0 → v1.6.1 patch. 큐 race fix + 큐 list UI 전면 리뉴얼(트리/우선순위/카운터/렉/포털) + 다중 프로젝트 임포트 + 작은 rename 묶음.
+
+### 큐 안정화
+- **fix(queue)**: `restoreMirroredState` single-flight 가드 — 호출처 3곳(생성자/WS reconnect/30s 폴링)이 백그라운드 복귀 시 동시에 깨어나면 concurrent unwind+rebuild가 `groupStats` 중복 누적 → 카운트 부풀음. 본인 보고 (246 → 90 → 146 vs 서버 130 → 163 불일치) 해소.
+
+### 큐 list UI 리뉴얼
+- **feat(queue-list)**: 알약 popup 폴더 → 프로젝트 → 씬 3단 트리 + default 다 접힘. 본인이 expand 단위로 디테일 확인.
+- **feat(queue-list)**: 처리 중 씬이 속한 폴더/프로젝트 row도 펄스 (자식 따라 부모 강조).
+- **feat(queue-list)**: 우선순위 큐 — 서버 `/api/queue/prioritize` (헤드 보호 + 안정 정렬) + 클라 `task.priority` + 씬/프로젝트 ⭐ toggle + 두 섹션 분리 (우선순위 큐 / 일반 큐) + 가로선 divider.
+- **fix(queue-list)**: 카운터 snapshot 모델 — 분모는 큐 등록 시점 고정, 분자만 증가. 씬/프로젝트/폴더 각 레벨 독립적 `done` 누적 + 완료 후 2초 vanish. 자식이 사라져도 부모는 자기 `originalTotal` 유지 (1/132 → 132/132 → vanish, 폴더는 132/400 식 유지).
+- **fix(queue-list)**: pill 바로 위로 anchor (`bottom-full mb-2`) — 옛 `mb-14` 고정이 모바일 2-row 하단바 가렸음.
+- **fix(queue-list)**: portal로 popup을 `document.body` 직속 + `position:fixed` — 씬/이미지 FloatView와 stacking context 충돌로 X 안 닫히던 회귀 fix.
+- **fix(queue-list)**: 컴팩트 row (옛 50vh + p-2 row가 너무 컸음) + ㄴ unicode 연결자 + rounded + 불투명 배경.
+- **fix(queue-list)**: 가로 스크롤 차단 (모든 truncate flex item에 `min-w-0`) + 세로 `overscroll-contain` (iOS rubber-band가 부모로 chain 안 가게).
+
+### 다중 프로젝트 임포트
+- **feat(import)**: 드래그드롭 ≥2 JSON 자동 감지 → 3-way select (전부 새 / 일부 머지 / 전부 머지). `MultiImportNameDialog`: 페이지당 4개 입력칸 + 원본 이름 라벨 + 빈칸/중복 inline 검증. `curSession` 없으면 multi-name UI 직행.
+- **feat(import)**: iOS 파일 picker `multiple` 플래그 — 드래그드롭 안 되는 환경 대체. `util.getFiles(accept)` + `projectImport` 다중 분기.
+
+### UI rename
+- **ui(picker)**: 프로젝트 선택 헤더 "프로젝트 선택" → "프로젝트 선택 및 설정". 버튼 "파일" → "내보내기", "폴더" → "폴더 추가".
+
+---
+
 ## v1.6.0 (2026-05-17)
 
 stable. v1.5.3 → v1.6.0 누적 (20+ commit). SDStudio v4.8.0 부분 흡수 + catalog 정독 정리 라운드 + 본인 별도 fix.
