@@ -174,6 +174,12 @@ export const App = observer(() => {
   }, []);
 
   const [darkMode, setDarkMode] = useState(false);
+  // portal로 document.body에 렌더되는 자식(TaskQueueList, Tooltip 등)은 App inner div의
+  // dark 클래스 ancestor 범위 밖이라 Tailwind `dark:` variant가 안 먹는다. documentElement에
+  // 같이 토글해서 portal까지 ancestor 매칭이 닿게 한다.
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode);
+  }, [darkMode]);
   useEffect(() => {
     const refreshDarkMode = async () => {
       const conf = await backend.getConfig();
