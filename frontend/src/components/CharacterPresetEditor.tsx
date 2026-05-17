@@ -418,6 +418,8 @@ const CharacterPresetInnerEditor = observer(({
         />
       </div>
 
+      <div className={isMobile ? 'flex flex-row overflow-x-auto snap-x snap-mandatory pb-2' : ''}>
+      <section className={isMobile ? 'flex-none w-full snap-start' : ''}>
       {/* 대표 이미지 */}
       <div className="mb-4 p-3 border border-gray-200 dark:border-gray-600 rounded-lg">
         <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">대표 이미지</div>
@@ -522,7 +524,8 @@ const CharacterPresetInnerEditor = observer(({
           </div>
         </div>
       )}
-
+      </section>
+      <section className={isMobile ? 'flex-none w-full snap-start' : ''}>
       {/* 바이브 트랜스퍼 */}
       <div
         className={`mb-4 p-3 border rounded-lg transition-colors ${isDraggingVibe ? 'ring-2 ring-sky-500 bg-sky-50 dark:bg-sky-900/20 border-sky-400' : 'border-gray-200 dark:border-gray-600'}`}
@@ -589,7 +592,8 @@ const CharacterPresetInnerEditor = observer(({
           </div>
         ))}
       </div>
-
+      </section>
+      <section className={isMobile ? 'flex-none w-full snap-start' : ''}>
       {/* 캐릭터 레퍼런스 */}
       <div
         className={`mb-4 p-3 border rounded-lg transition-colors ${isDraggingRef ? 'ring-2 ring-sky-500 bg-sky-50 dark:bg-sky-900/20 border-sky-400' : 'border-gray-200 dark:border-gray-600'}`}
@@ -694,7 +698,8 @@ const CharacterPresetInnerEditor = observer(({
           </div>
         ))}
       </div>
-
+      </section>
+      <section className={isMobile ? 'flex-none w-full snap-start' : ''}>
       {/* 파일명 옵션 (옵셔널 섹션) */}
       <div className="mb-4 p-3 border border-gray-200 dark:border-gray-600 rounded-lg">
         <div
@@ -736,6 +741,8 @@ const CharacterPresetInnerEditor = observer(({
             </div>
           </div>
         )}
+      </div>
+      </section>
       </div>
 
       {/* 하단 저장 버튼 */}
