@@ -17,6 +17,10 @@ import {
   FaCloudUploadAlt,
   FaDownload,
   FaUpload,
+  FaPlay,
+  FaPause,
+  FaStop,
+  FaSync,
 } from 'react-icons/fa';
 import {
   CharacterPreset,
@@ -28,6 +32,8 @@ import {
   imageService,
   isMobile,
   backend,
+  cyclingSessionService,
+  taskQueueService,
 } from '../models';
 import { appState } from '../models/AppService';
 import { FileUploadBase64 } from './UtilComponents';
@@ -136,6 +142,7 @@ interface CharacterPresetCardProps {
   onApplyCharacter: () => void;
   onDuplicate: () => void;
   isEasyMode: boolean;
+  hideActions?: boolean;
 }
 
 const CharacterPresetCard = observer(({
@@ -146,6 +153,7 @@ const CharacterPresetCard = observer(({
   onApplyCharacter,
   onDuplicate,
   isEasyMode,
+  hideActions,
 }: CharacterPresetCardProps) => {
   return (
     <div className={`group relative rounded-lg bg-white dark:bg-slate-800 border-2 border-gray-200 dark:border-slate-600 overflow-hidden cursor-pointer transition-shadow hover:shadow-lg ${isMobile ? 'flex-none w-32' : ''}`}>
@@ -170,8 +178,8 @@ const CharacterPresetCard = observer(({
           </div>
         </div>
       </div>
-      {/* 호버 액션 버튼 */}
-      <div className="absolute top-0 left-0 right-0 flex justify-center items-center gap-1 z-20 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+      {/* 호버 액션 버튼 (순차 생성 모드에선 숨김) */}
+      {!hideActions && <div className="absolute top-0 left-0 right-0 flex justify-center items-center gap-1 z-20 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
         {isEasyMode && (
           <Tooltip content="이지모드 적용">
             <button
@@ -214,7 +222,7 @@ const CharacterPresetCard = observer(({
             <FaTrash size={12} />
           </button>
         </Tooltip>
-      </div>
+      </div>}
     </div>
   );
 });
@@ -902,13 +910,72 @@ export const CharacterPresetEditor = observer(({
   const { curSession } = appState;
   const [editingPreset, setEditingPreset] = useState<CharacterPreset | null>(null);
   const [isNew, setIsNew] = useState(false);
+  // 순차 생성 모드 state
+  const [cyclingMode, setCyclingMode] = useState(false);
+  const [selectedPresets, setSelectedPresets] = useState<Set<string>>(new Set());
+  const [selectedScenes, setSelectedScenes] = useState<Set<string>>(new Set());
+  const [cyclingSamples, setCyclingSamples] = useState(10);
+  const [sceneFilter, setSceneFilter] = useState('');
+
+  const cyclingState = cyclingSessionService.state;
 
   if (!curSession) {
     return <div className="p-4 text-gray-500">세션을 선택해주세요</div>;
   }
 
   const presets = curSession.getCharacterPresets();
+  const scenes = Array.from(curSession.scenes.values());
   const isEasyMode = curSession.selectedWorkflow?.workflowType === 'SDImageGenEasy';
+
+  // 씬 검색 필터
+  const filteredScenes = useMemo(() => {
+    if (!sceneFilter.trim()) return scenes;
+    const q = sceneFilter.toLowerCase();
+    return scenes.filter((s) => s.name.toLowerCase().includes(q));
+  }, [scenes, sceneFilter]);
+
+  // 순차 생성 모드 진입/종료
+  const enterCyclingMode = () => {
+    setCyclingMode(true);
+    setSelectedPresets(new Set());
+    setSelectedScenes(new Set());
+    setSceneFilter('');
+  };
+
+  const exitCyclingMode = () => {
+    setCyclingMode(false);
+    setSelectedPresets(new Set());
+    setSelectedScenes(new Set());
+    setSceneFilter('');
+  };
+
+  const togglePresetSelection = (name: string) => {
+    const next = new Set(selectedPresets);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    setSelectedPresets(next);
+  };
+
+  const toggleSceneSelection = (name: string) => {
+    const next = new Set(selectedScenes);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    setSelectedScenes(next);
+  };
+
+  const startCycling = () => {
+    const selectedPresetList = presets.filter((p) => selectedPresets.has(p.name));
+    const selectedSceneList = scenes.filter((s) => selectedScenes.has(s.name));
+    if (selectedPresetList.length === 0) {
+      appState.pushMessage('프리셋을 하나 이상 선택해주세요');
+      return;
+    }
+    if (selectedSceneList.length === 0) {
+      appState.pushMessage('씬을 하나 이상 선택해주세요');
+      return;
+    }
+    cyclingSessionService.start(curSession, selectedPresetList, selectedSceneList, cyclingSamples);
+  };
 
   const handleAddNew = () => {
     const newPreset = new CharacterPreset();
@@ -974,11 +1041,87 @@ export const CharacterPresetEditor = observer(({
     );
   }
 
+  // 순회 진행 중 / 일시정지 상태
+  if (cyclingState === 'running' || cyclingState === 'paused') {
+    return (
+      <div className="text-default">
+        <div className="p-4 border border-sky-300 dark:border-sky-600 rounded-lg bg-sky-50 dark:bg-sky-900/20">
+          <div className="flex items-center gap-2 mb-3">
+            <FaSync className={`text-sky-500 ${cyclingState === 'running' ? 'animate-spin' : ''}`} />
+            <span className="text-base font-medium text-sky-700 dark:text-sky-300">
+              {cyclingState === 'running' ? '순차 생성 진행 중' : '순차 생성 일시정지'}
+            </span>
+          </div>
+          <div className="text-sm text-gray-700 dark:text-gray-300 mb-2">
+            현재: <span className="font-medium">{cyclingSessionService.currentPresetName}</span>
+            {' '}({cyclingSessionService.completedPresets + 1}/{cyclingSessionService.totalPresets})
+          </div>
+          <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full mb-3">
+            <div
+              className="h-full bg-sky-500 rounded-full transition-all"
+              style={{ width: `${(cyclingSessionService.completedPresets / cyclingSessionService.totalPresets) * 100}%` }}
+            />
+          </div>
+          {cyclingSessionService.remainingPresets.length > 0 && (
+            <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+              남은 프리셋: {cyclingSessionService.remainingPresets.map((p) => p.name).join(', ')}
+            </div>
+          )}
+          <div className="flex gap-2">
+            {cyclingState === 'running' ? (
+              <button
+                className="px-4 py-1.5 rounded-lg bg-yellow-500 hover:bg-yellow-600 text-white text-sm font-medium transition-colors flex items-center gap-1.5"
+                onClick={() => taskQueueService.stop()}
+              >
+                <FaPause size={10} />
+                일시정지
+              </button>
+            ) : (
+              <button
+                className="px-4 py-1.5 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-medium transition-colors flex items-center gap-1.5"
+                onClick={() => cyclingSessionService.resume()}
+              >
+                <FaPlay size={10} />
+                재개
+              </button>
+            )}
+            <button
+              className="px-4 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-medium transition-colors flex items-center gap-1.5"
+              onClick={() => {
+                taskQueueService.stop();
+                cyclingSessionService.cancel();
+              }}
+            >
+              <FaStop size={10} />
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // 카드 그리드 모드
   return (
     <div className="text-default">
-      {/* 상단 컨트롤 — 내보내기 / 불러오기 */}
-      <div className="mb-3 flex items-center justify-end gap-2 flex-wrap">
+      {/* 상단 컨트롤 — 순차 생성 모드 / 내보내기 / 불러오기 */}
+      <div className="mb-3 flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          {presets.length >= 2 && (
+            <button
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                cyclingMode
+                  ? 'bg-sky-500 text-white'
+                  : 'bg-gray-200 dark:bg-slate-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-slate-500'
+              }`}
+              onClick={() => cyclingMode ? exitCyclingMode() : enterCyclingMode()}
+            >
+              <FaSync size={11} />
+              {cyclingMode ? '순차 생성 모드 끄기' : '순차 생성 모드'}
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
         {presets.length > 0 && (
           <Tooltip content="모든 프리셋 내보내기">
             <button
@@ -1008,6 +1151,7 @@ export const CharacterPresetEditor = observer(({
             />
           </label>
         </Tooltip>
+        </div>
       </div>
       {presets.length === 0 ? (
         // 빈 상태
@@ -1024,6 +1168,7 @@ export const CharacterPresetEditor = observer(({
           </button>
         </div>
       ) : (
+        <>
         <div
           style={
             isMobile
@@ -1031,31 +1176,128 @@ export const CharacterPresetEditor = observer(({
               : { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.75rem', alignContent: 'start' }
           }
         >
-          {/* 새 프리셋 카드 */}
-          <div
-            className={`rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-sky-400 dark:hover:border-sky-500 cursor-pointer flex flex-col items-center justify-center aspect-[3/4] transition-colors group ${isMobile ? 'flex-none w-32' : ''}`}
-            onClick={handleAddNew}
-          >
-            <FaPlus className="text-2xl text-gray-400 dark:text-gray-500 group-hover:text-sky-500 transition-colors mb-2" />
-            <span className="text-sm text-gray-400 dark:text-gray-500 group-hover:text-sky-500 transition-colors">
-              새 프리셋
-            </span>
-          </div>
+          {/* 새 프리셋 카드 (순회 모드가 아닐 때만) */}
+          {!cyclingMode && (
+            <div
+              className={`rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-sky-400 dark:hover:border-sky-500 cursor-pointer flex flex-col items-center justify-center aspect-[3/4] transition-colors group ${isMobile ? 'flex-none w-32' : ''}`}
+              onClick={handleAddNew}
+            >
+              <FaPlus className="text-2xl text-gray-400 dark:text-gray-500 group-hover:text-sky-500 transition-colors mb-2" />
+              <span className="text-sm text-gray-400 dark:text-gray-500 group-hover:text-sky-500 transition-colors">
+                새 프리셋
+              </span>
+            </div>
+          )}
 
           {/* 프리셋 카드들 */}
           {presets.map((preset) => (
-            <CharacterPresetCard
-              key={preset.name}
-              preset={preset}
-              onEdit={() => handleEdit(preset)}
-              onDelete={() => handleDelete(preset)}
-              onApplyEasy={() => handleApplyEasy(preset)}
-              onApplyCharacter={() => handleApplyCharacter(preset)}
-              onDuplicate={() => handleDuplicate(preset)}
-              isEasyMode={isEasyMode}
-            />
+            <div key={preset.name} className={`relative ${isMobile ? 'flex-none w-32' : ''}`}>
+              {cyclingMode && (
+                <div
+                  className="absolute top-2 left-2 z-30 cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); togglePresetSelection(preset.name); }}
+                >
+                  <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${
+                    selectedPresets.has(preset.name)
+                      ? 'bg-sky-500 border-sky-500 text-white'
+                      : 'bg-white/80 dark:bg-slate-800/80 border-gray-300 dark:border-gray-500'
+                  }`}>
+                    {selectedPresets.has(preset.name) && <FaCheck size={12} />}
+                  </div>
+                </div>
+              )}
+              <CharacterPresetCard
+                preset={preset}
+                onEdit={() => cyclingMode ? togglePresetSelection(preset.name) : handleEdit(preset)}
+                onDelete={() => handleDelete(preset)}
+                onApplyEasy={() => handleApplyEasy(preset)}
+                onApplyCharacter={() => handleApplyCharacter(preset)}
+                onDuplicate={() => handleDuplicate(preset)}
+                isEasyMode={isEasyMode}
+                hideActions={cyclingMode}
+              />
+            </div>
           ))}
         </div>
+
+        {/* 순차 생성 설정 패널 */}
+        {cyclingMode && (
+          <div className="mt-4 p-3 border border-gray-200 dark:border-gray-600 rounded-lg">
+            {/* 씬 선택 */}
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  씬 선택 ({selectedScenes.size}/{scenes.length})
+                </span>
+                <button
+                  onClick={() => {
+                    const targets = filteredScenes.map((s) => s.name);
+                    const allSelected = targets.every((n) => selectedScenes.has(n));
+                    const next = new Set(selectedScenes);
+                    targets.forEach((n) => allSelected ? next.delete(n) : next.add(n));
+                    setSelectedScenes(next);
+                  }}
+                  className="text-xs text-sky-500 hover:text-sky-600"
+                >
+                  {filteredScenes.every((s) => selectedScenes.has(s.name)) ? '전체 해제' : '전체 선택'}
+                  {sceneFilter.trim() && ` (${filteredScenes.length}개)`}
+                </button>
+              </div>
+              <input
+                type="text"
+                placeholder="씬 이름 검색..."
+                value={sceneFilter}
+                onChange={(e) => setSceneFilter(e.target.value)}
+                className="w-full mb-1 px-3 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+              />
+              <div className="max-h-36 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-lg p-2 space-y-1">
+                {filteredScenes.map((scene) => (
+                  <label key={scene.name} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700/50 rounded px-1 py-0.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedScenes.has(scene.name)}
+                      onChange={() => toggleSceneSelection(scene.name)}
+                      className="rounded border-gray-300 dark:border-gray-600"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{scene.name}</span>
+                  </label>
+                ))}
+                {filteredScenes.length === 0 && (
+                  <div className="text-xs text-gray-400 py-1">일치하는 씬이 없습니다</div>
+                )}
+              </div>
+            </div>
+            {/* 생성 수 + 시작 버튼 */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                프리셋: <span className="font-medium text-gray-800 dark:text-gray-200">{selectedPresets.size}개</span>
+              </div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                씬: <span className="font-medium text-gray-800 dark:text-gray-200">{selectedScenes.size}개</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm text-gray-600 dark:text-gray-400">생성 수:</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={cyclingSamples}
+                  onChange={(e) => setCyclingSamples(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-16 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                />
+              </div>
+              <button
+                className="ml-auto px-4 py-1.5 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-medium transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={startCycling}
+                disabled={selectedPresets.size === 0 || selectedScenes.size === 0}
+              >
+                <FaPlay size={10} />
+                순차 생성 시작
+              </button>
+            </div>
+          </div>
+        )}
+        </>
       )}
     </div>
   );

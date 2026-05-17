@@ -24,6 +24,7 @@ import { taskHandlers, TaskQueueService } from './TaskQueueService';
 import { WorkFlowService } from './workflows/WorkFlowService';
 import { registerWorkFlows } from './workflows';
 import { TrashService } from './TrashService';
+import { CyclingSessionService } from './CyclingSessionService';
 import { GlobalPieceService } from './GlobalPieceService';
 import { GlobalPresetService } from './GlobalPresetService';
 
@@ -94,6 +95,8 @@ export const gameService = new GameService();
 
 export const workFlowService = new WorkFlowService();
 registerWorkFlows(workFlowService);
+
+export const cyclingSessionService = new CyclingSessionService();
 
 (window as any).promptService = promptService;
 (window as any).sessionService = sessionService;
