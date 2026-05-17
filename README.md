@@ -523,6 +523,37 @@ crontab -e
 | `DEBUG_GENERATE_LOG` | `false` | `true`로 설정 시 매 generate request의 파라미터(프롬프트 포함, binary truncate)를 pm2 logs에 기록 |
 | `NAI_STUDIO_VERSION_URL` | (git remote에서 derive) | 빈값으로 설정 시 업데이트 알림 자체 비활성화 |
 
+### Port 22 (SSH) 외부 노출 정리 — 실측 + 절차
+
+본 운영자가 약 한 달간 fail2ban + sshd hardening 상태로 운영하면서 측정한 자료. publickey 인증 + `PasswordAuthentication no`만 박혀있어도 침투는 0건이지만, port 22 외부 노출 자체로 로그 노이즈 + sshd CPU/bandwidth 부담이 누적돼요. Tailscale 들어와있으면 Oracle 보안그룹에서 port 22 제거 권장.
+
+**측정 (2026-04-19 ~ 2026-05-17, ~30일)**
+
+| 구간 | Invalid user 시도/일 | preauth probe/일 | fail2ban 자동 ban/일 | 침투 성공 |
+|---|---|---|---|---|
+| port 22 open (~22일) | 평균 307 (최대 550) | 평균 555 (최대 1163) | 평균 17 (최대 52) | **0** |
+| port 22 close 후 (7일) | **0** | **0** | **0** | 0 |
+
+publickey + `PasswordAuthentication no` + fail2ban 셋이 박혀있으면 외부에 22 열려있어도 안전은 유지돼요. 다만 닫으면 로그가 깨끗해지고 sshd 부담도 0이 됨.
+
+**Oracle Cloud 보안그룹에서 port 22 제거 절차**
+
+⚠️ 닫기 전 안전망: Tailscale SSH 새 세션을 별도 터미널로 열어두세요. Oracle 룰 잘못 건드려도 이미 열린 세션은 살아있어서 복구 가능.
+
+1. Oracle Cloud Console → 햄버거 ☰ → **Networking** → **Virtual Cloud Networks**
+2. 본인 VCN 클릭 (instance가 묶인 VCN. 확신 안 되면 **Compute → Instances → 본인 instance → "Virtual Cloud Network"** 필드로 확인)
+3. VCN 상세 페이지 → 왼쪽 사이드바 → **보안 목록**
+4. ingress rule에 `0.0.0.0/0` source + TCP destination port `22`가 있는 보안 목록 클릭
+5. 해당 룰 우측 ⋮ → **Remove**
+6. (NSG도 쓰는 경우) **네트워크 보안 그룹** 페이지에서도 동일하게 port 22 룰 제거
+
+룰 제거 후 5-10초 안에 반영. **이미 연결된 SSH 세션은 state 매칭으로 유지**되니까 끊기지 않음. 새 SSH 시도는 timeout (Oracle이 silently drop).
+
+> 알려진 안전한 ingress rule (그대로 유지):
+> - `10.0.0.0/16 TCP 22` (VCN 내부 전용 — 외부 X)
+> - `0.0.0.0/0 ICMP 3,4` (MTU path discovery)
+> - `10.0.0.0/16 ICMP 3` (내부 unreachable 통보)
+
 ---
 
 ## 자주 묻는 질문
