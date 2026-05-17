@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { FaCaretLeft, FaCaretRight, FaPause, FaPlay, FaRegCalendarTimes, FaTimes, FaRegClock, FaStar, FaRegStar } from 'react-icons/fa';
 import { sessionService, taskQueueService, cyclingSessionService } from '../models';
 import { getSceneKey, Task } from '../models/TaskQueueService';
@@ -271,7 +272,10 @@ type FolderSnap = {
   completedAt?: number;
 };
 
-const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
+// anchor: pill DOM. 옛 popup은 pill의 relative 안 absolute였는데, FloatView(scene/image)
+// 와 stacking context 충돌로 X 클릭이 안 먹는 회귀 — 본인 보고 (2026-05-17).
+// 해결: popup을 portal로 document.body에 직접 렌더 + position: fixed + pill rect 기반 좌표.
+const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anchor: HTMLElement | null }) => {
   const taskTrackersRef = useRef<Map<string, TaskTracker>>(new Map());
   const sceneSnapsRef = useRef<Map<string, SceneSnap>>(new Map());
   const projectSnapsRef = useRef<Map<string, ProjectSnap>>(new Map());
@@ -663,13 +667,38 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
       );
     });
 
-  return (
-    // 하단바 위에 정확히 붙음 — bottom-full로 부모(pill) 바로 위. 부모는 relative 필수.
-    // 클릭 stopPropagation으로 펴고 접기 안에서 toggle close 안 되게 차단.
-    // 본인 페인 (2026-05-17): UI 너무 컸음 → 폴더 row 컴팩트 + 4개 정도 default 보임 + 세로 스크롤.
-    //   반투명 + rounded. 트리 연결은 ㄴ unicode 사용.
+  // anchor(pill) rect 추적해 fixed 좌표 갱신. window resize/scroll/visible 변화 대응.
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  useLayoutEffect(() => {
+    if (!anchor) {
+      setAnchorRect(null);
+      return;
+    }
+    const update = () => setAnchorRect(anchor.getBoundingClientRect());
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    const ro = new ResizeObserver(update);
+    ro.observe(anchor);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+      ro.disconnect();
+    };
+  }, [anchor]);
+
+  if (!anchorRect) return null;
+  const styleFixed: React.CSSProperties = {
+    position: 'fixed',
+    bottom: window.innerHeight - anchorRect.top + 8,
+    right: window.innerWidth - anchorRect.right,
+    zIndex: 100,
+  };
+
+  return createPortal(
     <div
-      className="absolute bottom-full right-0 mb-2 bg-white dark:bg-slate-700 w-60 md:w-96 z-20 shadow-lg rounded-xl flex flex-col overflow-hidden max-h-[260px] md:max-h-[320px]"
+      className="bg-white dark:bg-slate-700 w-60 md:w-96 shadow-lg rounded-xl flex flex-col overflow-hidden max-h-[260px] md:max-h-[320px]"
+      style={styleFixed}
       onClick={(e) => e.stopPropagation()}
     >
       <button
@@ -706,13 +735,15 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
         )}
         {renderTree(normalTree, 'nor:')}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 });
 
 const TaskQueueControl = observer(() => {
   const [_, rerender] = useState<{}>({});
   const [showList, setShowList] = useState(false);
+  const pillRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onChange = () => {
       rerender({});
@@ -774,6 +805,7 @@ const TaskQueueControl = observer(() => {
         </button>
       </div>
       <div
+        ref={pillRef}
         className="relative cursor-pointer hover:brightness-95 active:brightness-90"
         onClick={() => {
           setShowList(!showList);
@@ -781,6 +813,7 @@ const TaskQueueControl = observer(() => {
       >
         {showList && (
           <TaskQueueList
+            anchor={pillRef.current}
             onClose={() => {
               setShowList(false);
             }}
@@ -844,6 +877,7 @@ const TaskQueueControl = observer(() => {
 export const TaskQueueProgress = observer(() => {
   const [_, rerender] = useState<{}>({});
   const [showList, setShowList] = useState(false);
+  const pillRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onChange = () => { rerender({}); };
     taskQueueService.addEventListener('start', onChange);
@@ -861,11 +895,12 @@ export const TaskQueueProgress = observer(() => {
   }, []);
   return (
     <div
+      ref={pillRef}
       className="relative cursor-pointer hover:brightness-95 active:brightness-90"
       onClick={() => { setShowList(!showList); }}
     >
       {showList && (
-        <TaskQueueList onClose={() => { setShowList(false); }} />
+        <TaskQueueList anchor={pillRef.current} onClose={() => { setShowList(false); }} />
       )}
       <TaskProgressBar />
     </div>
