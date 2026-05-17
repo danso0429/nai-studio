@@ -2,7 +2,6 @@ import {
   forwardRef,
   useEffect,
   useImperativeHandle,
-  useInsertionEffect,
   useRef,
   useState,
 } from 'react';

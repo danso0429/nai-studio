@@ -6,12 +6,11 @@ import {
   useRef,
   useState,
 } from 'react';
-import { backend, promptService, sessionService, globalPieceService } from '../models';
+import { backend, sessionService, globalPieceService } from '../models';
 import { DropdownSelect } from './UtilComponents';
 import Tooltip from './Tooltip';
 import PromptEditTextArea from './PromptEditTextArea';
 import {
-  FaArrowCircleUp,
   FaExchangeAlt,
   FaFileExport,
   FaFileImport,

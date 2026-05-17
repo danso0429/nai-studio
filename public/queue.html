@@ -325,22 +325,6 @@
     return M + '월 ' + D + '일 ' + pad(H) + ':' + pad(Mi);
   }
 
-  function extractProject(p) {
-    if (!p) return null;
-    // outs/<project>/<file>.png  또는  outs/<folder>/<project>/<file>.png
-    const parts = p.split('/');
-    if (parts.length >= 3 && parts[0] === 'outs') {
-      // 2단계 폴더 케이스 검증 어려움 → 마지막 디렉터리 기준
-      return parts.slice(1, -1).join(' / ');
-    }
-    return parts.length > 1 ? parts[1] : null;
-  }
-
-  function extractFile(p) {
-    if (!p) return null;
-    return p.split('/').pop();
-  }
-
   const root = document.getElementById('root');
   const driveRoot = document.getElementById('drive-root');
   const completedRoot = document.getElementById('completed-root');

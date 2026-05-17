@@ -45,7 +45,7 @@ import { FaPlus, FaRegSquareCheck, FaCopy, FaPaste } from 'react-icons/fa6';
 import { useContextMenu } from 'react-contexify';
 import { useDrag, useDrop } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
-import { reaction, set } from 'mobx';
+import { reaction } from 'mobx';
 import Tooltip from './Tooltip';
 import {
   CharacterPrompt,
@@ -644,7 +644,6 @@ const createItemData = memoizeOne(
     onSelected,
     columnCount,
     refreshImageFuncs,
-    draggedIndex,
     isMainImage,
     onFilenameChange,
     imageSize,
@@ -658,7 +657,6 @@ const createItemData = memoizeOne(
       onSelected,
       columnCount,
       refreshImageFuncs,
-      draggedIndex,
       isMainImage,
       onFilenameChange,
       imageSize,
@@ -703,7 +701,6 @@ const ImageGallery = forwardRef<ImageGalleryRef, ImageGalleryProps>(
       imageService.addEventListener('image-cache-invalidated', onInvalidated);
       return () => imageService.removeEventListener('image-cache-invalidated', onInvalidated);
     }, []);
-    const draggedIndex = useRef<number | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const gridRef = useRef<any>(null);
 
@@ -773,7 +770,6 @@ const ImageGallery = forwardRef<ImageGalleryRef, ImageGalleryProps>(
             onSelected,
             columnCount,
             refreshImageFuncs,
-            draggedIndex,
             isMainImage,
             onFilenameChange,
             imageSize,
@@ -980,14 +976,6 @@ const ResultDetailView = observer(
         gameService.removeEventListener('updated', refreshPaths);
       };
     }, [selectedIndex, paths]);
-
-    useEffect(() => {
-      return () => {
-        watchedImages.current.forEach((path) => {
-          // invoke('unwatch-image', path);
-        });
-      };
-    });
 
     const [showPrompt, setShowPrompt] = useState<boolean>(false);
     const { show, hideAll } = useContextMenu({
@@ -1252,7 +1240,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
     }: ResultViewerProps,
     ref,
   ) => {
-    const { curSession, samples } = appState;
+    const { curSession } = appState;
     const [_, forceUpdate] = useState<{}>({});
     const [selectMode, setSelectMode] = useState<boolean>(false);
     const [tournament, setTournament] = useState<boolean>(false);

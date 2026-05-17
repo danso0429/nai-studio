@@ -10,16 +10,10 @@ import React, {
 import Select from 'react-select';
 import { isMobile } from '../models';
 import {
-  FaAddressBook,
-  FaAmilia,
-  FaDAndD,
   FaFileUpload,
-  FaPenNib,
   FaPuzzlePiece,
-  FaTimes,
 } from 'react-icons/fa';
 import { Scrollbars } from 'react-custom-scrollbars-2';
-import { FaAnchor, FaOpencart, FaPerson } from 'react-icons/fa6';
 import { FloatView } from './FloatView';
 import { appState } from '../models/AppService';
 

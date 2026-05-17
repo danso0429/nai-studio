@@ -1,9 +1,8 @@
-import * as React from 'react';
 import { useRef, useState } from 'react';
 import SessionTreePicker from './SessionTreePicker';
 import { FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaRegBookmark } from 'react-icons/fa';
 import Tooltip from './Tooltip';
-import { sessionService, imageService, backend, zipService, workFlowService } from '../models';
+import { sessionService, imageService, workFlowService } from '../models';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { CharacterPresetFloatEditor } from './CharacterPresetEditor';

@@ -1,7 +1,5 @@
-import { Scrollbars } from 'react-custom-scrollbars-2';
 import * as Hangul from 'hangul-js';
 import {
-  DOMElement,
   createRef,
   forwardRef,
   useCallback,
@@ -15,13 +13,11 @@ import Denque from 'denque';
 import {
   FaBook,
   FaBox,
-  FaBrush,
   FaDatabase,
   FaExpand,
   FaPaintBrush,
   FaTag,
   FaTimes,
-  FaTimesCircle,
   FaUndo,
 } from 'react-icons/fa';
 import { FaPerson, FaStar } from 'react-icons/fa6';
@@ -429,11 +425,6 @@ class CursorMemorizeEditor {
     if (this.compositionBuffer.length) this.flushCompositon(this.previousRange);
   }
 
-  handleMouseDown(e: any) {
-    // const pos = this.getCaretPosition();
-    // this.setCaretPosition(pos);
-  }
-
   flushCompositon(prev: number[]) {
     if (!prev) return false;
     const [start, end] = prev;
@@ -731,7 +722,6 @@ const PromptAutoComplete = ({
   const [posX, setPosX] = useState(0);
   const [posY, setPosY] = useState(0);
   const [matchMasks, setMatchMasks] = useState<any[][]>([]);
-  const tagsRef = useRef<any[]>([]);
   const listRef = createRef<any>();
   const categoryIcon = (category: number) => {
     if (category === 0) return <FaTag />;
@@ -750,7 +740,7 @@ const PromptAutoComplete = ({
   }, [tags, curWord]);
   useEffect(() => {
     if (listRef.current) listRef.current.scrollToItem(selectedTag, 'smart');
-  }, [listRef, selectedTag, tagsRef.current.length]);
+  }, [listRef, selectedTag]);
   const processWord = (word: string, mask: number[]) => {
     const sections = [];
     let currentSection = { text: '', bold: false };
@@ -786,7 +776,6 @@ const PromptAutoComplete = ({
   const renderRow = ({ index, style }: { index: number; style: any }) => {
     return (
       <div
-        ref={tagsRef.current[index]}
         className={
           'hover:brightness-95 active:brightness-90 cursor-pointer ' +
           (index === selectedTag
@@ -969,7 +958,6 @@ interface EditTextAreaProps {
   onEnter: () => void;
   onEsc: () => void;
   onFocus: () => void;
-  onBlur: () => void;
   closeAutoComplete: () => void;
 }
 
@@ -1041,8 +1029,6 @@ const EmulatedEditTextArea = observer(
           editor.handleWindowMouseDown(e);
         };
         window.addEventListener('mousedown', handleWindowMouseDown);
-        const handleMouseDown = (e: any) => editor.handleMouseDown(e);
-        editorRef.current.addEventListener('mousedown', handleMouseDown);
         return () => {
           window.removeEventListener('mousedown', handleWindowMouseDown);
           if (editorRef.current === null) return;
@@ -1058,7 +1044,6 @@ const EmulatedEditTextArea = observer(
             );
           }
           editorRef.current.removeEventListener('paste', handlePaste);
-          editorRef.current.removeEventListener('mousedown', handleMouseDown);
         };
       }, []);
 
@@ -1140,7 +1125,6 @@ const NativeEditTextArea = observer(
         onEsc,
         closeAutoComplete,
         onFocus,
-        onBlur,
       }: EditTextAreaProps,
       ref,
     ) => {
@@ -1223,7 +1207,6 @@ const NativeEditTextArea = observer(
 
         textareaRef.current.addEventListener('input', handleInput);
         textareaRef.current.addEventListener('focus', onFocus);
-        textareaRef.current.addEventListener('blur', onBlur);
 
         // 초기 렌더링 (자동완성 트리거 없이 하이라이트만)
         {
@@ -1243,7 +1226,6 @@ const NativeEditTextArea = observer(
           if (!textareaRef.current) return;
           textareaRef.current.removeEventListener('input', handleInput);
           textareaRef.current.removeEventListener('focus', onFocus);
-          textareaRef.current.removeEventListener('blur', onBlur);
         };
       }, []);
 
@@ -1459,8 +1441,6 @@ const PromptEditTextArea = observer(
       }
     };
 
-    const onBlur = () => {};
-
     const flagRef = useRef(false);
     const handleClick = (event: any) => {
       flagRef.current = true;
@@ -1515,7 +1495,6 @@ const PromptEditTextArea = observer(
           onEsc={onEsc}
           closeAutoComplete={closeAutoComplete}
           onFocus={onFoucs}
-          onBlur={onBlur}
         />
         {isMobile && fullScreen && (
           <div className="absolute right-0 bottom-0 z-10 p-1 active:brightness-90">

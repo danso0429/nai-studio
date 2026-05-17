@@ -572,15 +572,6 @@ function enqueueDriveRetry(localPath, remotePath, initialError, requestedPath = 
   console.log('[Drive retry] enqueued: ' + localPath + ' (queue size=' + driveRetryQueue.length + ')');
 }
 
-function dequeueDriveRetry(localPath) {
-  const idx = driveRetryQueue.findIndex((e) => e.localPath === localPath);
-  if (idx >= 0) {
-    driveRetryQueue.splice(idx, 1);
-    saveDriveRetryQueue();
-    console.log('[Drive retry] removed: ' + localPath);
-  }
-}
-
 function rcloneCopytoOnce(localPath, remotePath, timeoutMs) {
   return new Promise((resolve) => {
     // execFile + array args — shell parsing 0이라 path에 $(...) backtick 들어가도
@@ -2728,24 +2719,8 @@ app.post('/api/fs/sync-exports', async (req, res) => {
     return res.status(202).json({ ok: true, jobId: requestedPath, queued: true });
   }
 
-  // 레거시 dir 모드: 전체 exports/ 디렉토리 동기 업로드. 현재 클라에서 호출하는 경로 없음.
-  // backwards compat 유지차 동기 흐름 그대로 둠. execFile + array args로 shell-safe.
-  const { execFile } = require('child_process');
-  const rcloneArgs = [
-    'copy',
-    exportsDir + '/',
-    `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/exports/`,
-    '--log-level',
-    'INFO',
-  ];
-  execFile('rclone', rcloneArgs, { timeout: 180000, maxBuffer: 4 * 1024 * 1024 }, (err) => {
-    if (err) {
-      console.error('[Sync exports] error (mode=dir):', err.message);
-      return res.status(500).json({ ok: false, error: err.message, mode: 'dir' });
-    }
-    console.log('[Sync exports] uploaded (mode=dir)');
-    res.json({ ok: true, mode: 'dir' });
-  });
+  // path 필드 없으면 잘못된 요청 (레거시 dir 모드는 호출처 없음, 제거됨)
+  return res.status(400).json({ ok: false, error: 'path field required' });
 });
 
 app.get('/api/drive/retry-status', (req, res) => {

@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Buffer } from 'buffer';
@@ -8,23 +7,18 @@ import {
   FaTrash,
   FaShare,
   FaFont,
-  FaDownload,
   FaTimes,
   FaCheckSquare,
   FaSquare,
   FaFileUpload,
 } from 'react-icons/fa';
 import {
-  backend,
   globalPresetService,
-  imageService,
   isMobile,
 } from '../models';
 import { extractApiError } from '../models/util';
 import {
-  GlobalPresetType,
   IGlobalPresetEntry,
-  SUPPORTED_GLOBAL_PRESET_TYPES,
 } from '../models/GlobalPresetService';
 import { appState } from '../models/AppService';
 import Tooltip from './Tooltip';

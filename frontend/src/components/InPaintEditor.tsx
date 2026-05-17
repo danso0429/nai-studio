@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Tooltip from './Tooltip';
 import BrushTool, {
   BrushToolRef,
@@ -8,7 +8,6 @@ import BrushTool, {
 import { DropdownSelect, TabComponent } from './UtilComponents';
 import { Resolution, resolutionMap } from '../backends/imageGen';
 import {
-  FaArrowAltCircleLeft,
   FaArrowLeft,
   FaArrowsAlt,
   FaPaintBrush,
@@ -28,7 +27,6 @@ import {
 } from '../models';
 import { dataUriToBase64 } from '../models/ImageService';
 import { InpaintScene, PromptPiece } from '../models/types';
-import { extractPromptDataFromBase64 } from '../models/util';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { InnerPreSetEditor } from './PreSetEditor';
@@ -51,7 +49,7 @@ let brushSizeSaved = 10;
 
 const InPaintEditor = observer(
   ({ editingScene, onConfirm, onDelete }: Props) => {
-    const [_, rerender] = useState({});
+    const [, rerender] = useState({});
     useEffect(() => {
       const handleProgress = () => {
         rerender({});

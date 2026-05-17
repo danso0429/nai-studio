@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { useContext, useEffect, useState } from 'react';
-import * as mobx from 'mobx';
 import {
   TextAreaWithUndo,
   NumberSelect,
@@ -82,7 +81,7 @@ const GrayLabel: React.FC<{ children: React.ReactNode; className?: string }> = (
 
 const ImageSelect = observer(({ input }: { input: WFIInlineInput }) => {
   const { curSession } = appState;
-  const { type, preset, shared, meta, editVibe } =
+  const { preset, shared, meta } =
     useContext(WFElementContext)!;
   const getField = () => {
     if (input.fieldType === 'preset') return preset[input.field];
@@ -1714,7 +1713,7 @@ const WFRenderElement = observer(({ element }: WFElementProps) => {
 });
 
 const WFRSceneOnly = observer(({ element }: WFElementProps) => {
-  const { type, shared, preset, meta, editVibe, showGroup } =
+  const { meta, editVibe, showGroup } =
     useContext(WFElementContext)!;
   const { curGroup } = useContext(WFGroupContext)!;
   const input = element as WFISceneOnly;
@@ -1728,7 +1727,7 @@ const WFRSceneOnly = observer(({ element }: WFElementProps) => {
 });
 
 const WFRIfIn = observer(({ element }: WFElementProps) => {
-  const { type, shared, preset, meta, showGroup, editVibe } =
+  const { shared, preset, meta, showGroup, editVibe } =
     useContext(WFElementContext)!;
   const { curGroup } = useContext(WFGroupContext)!;
   const input = element as WFIIfIn;
@@ -1748,7 +1747,7 @@ const WFRIfIn = observer(({ element }: WFElementProps) => {
 
 const WFRShowImage = observer(({ element }: WFElementProps) => {
   const curSession = appState.curSession;
-  const { type, meta, preset, shared, editVibe, showGroup } =
+  const { meta, preset, shared, editVibe, showGroup } =
     useContext(WFElementContext)!;
   const { curGroup } = useContext(WFGroupContext)!;
   const input = element as WFIShowImage;
@@ -1794,7 +1793,6 @@ const WFRMiddlePlaceholder = observer(({ element }: WFElementProps) => {
 });
 
 const WFRProfilePresetSelect = observer(({ element }: WFElementProps) => {
-  const { type } = useContext(WFElementContext)!;
   return <ProfilePreSetSelect />;
 });
 

@@ -4,7 +4,6 @@ import { appState } from '../models/AppService';
 import { backend } from '../models';
 import ModalOverlay from './ModalOverlay';
 import { FaSearch, FaExchangeAlt, FaPlus } from 'react-icons/fa';
-import { Scene, CharacterPreset } from '../models/types';
 
 /** 검색 결과 한 건 */
 interface SearchResult {

@@ -139,17 +139,6 @@ export function generateFilename(options: FilenameOptions): string {
 }
 
 /**
- * 다운로드 항목
- */
-export interface DownloadItem {
-  id: string;
-  sourcePath: string;
-  targetFilename: string;
-  sceneName: string;
-  selected: boolean;
-}
-
-/**
  * 이미지 다운로드 서비스
  */
 export class ImageDownloadService {
@@ -158,8 +147,6 @@ export class ImageDownloadService {
     overwriteExisting: false,
     includeTimestamp: false,
   };
-
-  @observable accessor downloadQueue: DownloadItem[] = [];
 
   @observable accessor isDownloading: boolean = false;
 
@@ -206,30 +193,6 @@ export class ImageDownloadService {
   async updateLastSavePath(path: string) {
     this.settings.lastSavePath = path;
     await this.saveSettings();
-  }
-
-  /**
-   * 파일명 미리보기 생성
-   */
-  generateFilenamePreview(
-    _session: Session,
-    scene: GenericScene,
-    characterPreset?: CharacterPreset,
-    index?: number,
-  ): string {
-    const prefix =
-      characterPreset?.filenamePrefix || this.settings.defaultPrefix || '';
-    const suffix =
-      characterPreset?.filenameSuffix || this.settings.defaultSuffix || '';
-
-    return generateFilename({
-      sceneName: scene.name,
-      prefix,
-      suffix,
-      includeTimestamp: this.settings.includeTimestamp,
-      includeIndex: index !== undefined,
-      index,
-    });
   }
 
   /**

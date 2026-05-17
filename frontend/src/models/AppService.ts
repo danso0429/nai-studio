@@ -476,12 +476,6 @@ export class AppState {
     return id;
   }
 
-  // 진행 중 토스트 갱신 (sticky 토스트의 텍스트 바꿔야 할 때).
-  updateMessage(id: string, msg: string) {
-    const idx = this.messages.findIndex((m) => m.id === id);
-    if (idx >= 0) this.messages[idx] = { id, text: msg };
-  }
-
   // sticky 토스트 명시 제거 또는 일반 토스트 즉시 제거.
   dismissMessage(id: string) {
     const idx = this.messages.findIndex((m) => m.id === id);

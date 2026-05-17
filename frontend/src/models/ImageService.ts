@@ -777,10 +777,6 @@ export const deleteImageFiles = async (
   }
 };
 
-export const renameImage = async (oldPath: string, newPath: string) => {
-  await imageService.renameImage(oldPath, newPath);
-};
-
 export function cropMirrorResultFromDataUri(dataUri: string, mirrorCropX?: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();

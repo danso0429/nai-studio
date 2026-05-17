@@ -1,6 +1,5 @@
 import {
   Model,
-  Resolution,
   Sampling,
   ImageGenInput,
   ImageGenService,

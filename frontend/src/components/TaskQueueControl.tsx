@@ -1,5 +1,4 @@
-import { useContext, useEffect, useRef, useState } from 'react';
-import { FaSpinner } from 'react-icons/fa';
+import { useEffect, useRef, useState } from 'react';
 import { FaCaretLeft, FaCaretRight, FaPause, FaPlay, FaRegCalendarTimes } from 'react-icons/fa';
 import { FaTimes } from 'react-icons/fa';
 import { FaRegClock } from 'react-icons/fa';
@@ -13,10 +12,9 @@ interface ProgressBarProps {
   isError: boolean;
   isPaused?: boolean;
   text: string;
-  key: number;
 }
 
-const ProgressBar = ({ duration, isError, isPaused, text, key }: ProgressBarProps) => {
+const ProgressBar = ({ duration, isError, isPaused, text }: ProgressBarProps) => {
   // paused 상태: 애니메이션 정지 + 회색 톤 + ⏸ 아이콘. 본인이 명확히 "큐 등록만 됨, 진행 X" 인지.
   const barColor = isError
     ? 'bg-red-500'
@@ -26,7 +24,6 @@ const ProgressBar = ({ duration, isError, isPaused, text, key }: ProgressBarProp
   const effectiveDuration = isPaused ? 0 : duration;
   return (
     <div
-      key={key}
       className="relative w-40 md:w-52 bg-gray-200 dark:bg-slate-700 rounded-full h-8"
     >
       <div className="top-0 left-0 w-40 md:w-52 h-8 absolute flex items-center justify-center text-gray-600 dark:text-white gap-2">

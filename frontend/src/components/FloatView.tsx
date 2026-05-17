@@ -69,13 +69,6 @@ export const FloatViewProvider: React.FC<FloatViewProviderProps> = ({
     }
   };
 
-  const handleBackButton = (e: any) => {
-    if (views.length > 0) {
-      closeTopView();
-    } else {
-    }
-  };
-
   useEffect(() => {
     document.addEventListener('keydown', handleEscape);
     return () => {

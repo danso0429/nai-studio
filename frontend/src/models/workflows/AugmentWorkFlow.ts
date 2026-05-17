@@ -5,7 +5,6 @@ import { createSDPrompts, createSDCharacterPrompts } from '../PromptService';
 import { TaskParam } from '../TaskQueueService';
 import {
   AugmentJob,
-  CharacterPrompt,
   GenericScene,
   PromptNode,
   Scene,

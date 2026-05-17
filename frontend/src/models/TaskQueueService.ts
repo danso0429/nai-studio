@@ -276,10 +276,6 @@ class GenerateImageTaskHandler implements TaskHandler {
       run.lastSessionName = currentSessionName;
     }
 
-    // 캐시 초기화 (없는 경우)
-    if (!run.cachedVibes) run.cachedVibes = new Map();
-    if (!run.cachedReferences) run.cachedReferences = new Map();
-
     // 바이브 이미지 처리 - 캐싱 적용
     const vibes = await Promise.all(
       job.vibes.map(async (vibe) => {

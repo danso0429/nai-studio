@@ -132,7 +132,6 @@ export function useTournament(scene: GenericScene, path: string): UseTournamentR
           text: '1위가 결정되었습니다. 여기서 멈춰도 됩니다.',
         });
       }
-    } else {
     }
     bump();
     lock.current = false;

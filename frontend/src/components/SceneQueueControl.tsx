@@ -1,18 +1,15 @@
-import { memo, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { FloatView } from './FloatView';
 import SceneEditor from './SceneEditor';
 import { FaBookmark, FaBroom, FaEdit, FaExchangeAlt, FaFileImage, FaPlus, FaRegCalendarTimes, FaSearch, FaStar, FaTimes, FaTrash, FaTrashRestore } from 'react-icons/fa';
-import Tournament from './Tournament';
 import ResultViewer from './ResultViewer';
 import InPaintEditor from './InPaintEditor';
-import { base64ToDataUri } from './BrushTool';
 import { useDrag, useDrop } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { useContextMenu } from 'react-contexify';
 import BatchItemSelector from './BatchItemSelector';
 import Tooltip from './Tooltip';
 import { v4 } from 'uuid';
-import { ImageOptimizeMethod } from '../backend';
 import {
   isMobile,
   gameService,
@@ -20,8 +17,6 @@ import {
   imageService,
   taskQueueService,
   backend,
-  localAIService,
-  zipService,
   workFlowService,
   trashService,
   promptService,
@@ -30,7 +25,6 @@ import {
 import {
   getMainImage,
   dataUriToBase64,
-  deleteImageFiles,
 } from '../models/ImageService';
 import { getSceneKey, queueI2IWorkflow, queueMirrorWorkflow, queueWorkflow } from '../models/TaskQueueService';
 import {
@@ -161,8 +155,6 @@ export const SceneCell = observer(
     const cellSizes = aspectClass
       ? [`w-full ${aspectClass}`, `w-full ${aspectClass}`, `w-full ${aspectClass}`]
       : ['w-full h-36', 'w-full h-48', 'w-full h-72'];
-    const cellSizes3 = ['', '', ''];
-
     const curIndex = curSession.getScenes(scene.type).indexOf(scene);
     const [{ isDragging }, drag, preview] = useDrag(
       () => ({
@@ -216,11 +208,9 @@ export const SceneCell = observer(
           curIndex: number;
         }) {},
         drop: (item: any, monitor) => {
-          if (!isMobile || true) {
-            const { scene: droppedScene, curIndex: droppedIndex } = item;
-            const overIndex = curSession.getScenes(scene.type).indexOf(scene);
-            moveScene!(droppedScene, overIndex);
-          }
+          const { scene: droppedScene, curIndex: droppedIndex } = item;
+          const overIndex = curSession.getScenes(scene.type).indexOf(scene);
+          moveScene!(droppedScene, overIndex);
         },
       }),
       [moveScene],
@@ -251,7 +241,7 @@ export const SceneCell = observer(
       }
     };
 
-    const [_, rerender] = useState<{}>({});
+    const [, rerender] = useState<{}>({});
 
     const removeFromQueue = (scene: GenericScene) => {
       taskQueueService.removeTasksFromScene(curSession!, scene);
@@ -311,7 +301,7 @@ export const SceneCell = observer(
     const onContext = (e: any) => {
       show({ event: e, props: { ctx: { type: 'scene', scene } } });
     };
-    const onClickCard = (event: any) => {
+    const onClickCard = () => {
       if (isDragging) return;
       setDisplayScene?.(scene);
     };
@@ -383,7 +373,7 @@ export const SceneCell = observer(
             </span>
           )}
           <div className="-z-10 clickable bg-white dark:bg-slate-800" onClick={onClickCard}>
-            <div className={'p-2 flex text-lg text-default ' + cellSizes3[cellSize]}>
+            <div className={'p-2 flex text-lg text-default'}>
               <div className="truncate flex-1">
                 {isBookmarked && <span className="text-orange-500">📌</span>}
                 {emoji}
@@ -637,7 +627,7 @@ interface QueueControlProps {
 const QueueControl = observer(
   ({ type, className, showPannel, filterFunc, onClose }: QueueControlProps) => {
     const curSession = appState.curSession!;
-    const [_, rerender] = useState<{}>({});
+    const [, rerender] = useState<{}>({});
     const [editingScene, setEditingScene] = useState<GenericScene | undefined>(
       undefined,
     );
@@ -1322,7 +1312,7 @@ const QueueControl = observer(
                           appState.pushMessage('워크플로우가 선택되지 않았습니다.');
                           return;
                         }
-                        const [wfType, , shared] = curSession!.getCommonSetup(workflow);
+                        const [, , shared] = curSession!.getCommonSetup(workflow);
                         const originalSeed = shared?.seed;
                         try {
                           for (const targetScene of selected) {

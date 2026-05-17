@@ -5,17 +5,13 @@ import { backend, imageService, workFlowService, zipService } from '.';
 import { FileEntry } from '../backend';
 import defaultassets from '../defaultassets';
 import { dataUriToBase64 } from './ImageService';
-import { defaultUC } from './PromptService';
 import { ResourceSyncService } from './ResourceSyncService';
 import {
-  PromptPieceSlot,
   GenericScene,
   InpaintScene,
-  Scene,
   Session,
   ISession,
 } from './types';
-import { extractPromptDataFromBase64 } from './util';
 import * as PngChunk from 'png-chunk-text';
 import { Sampling } from '../backends/imageGen';
 import encodeChunks from 'png-chunks-encode';

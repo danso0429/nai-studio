@@ -23,7 +23,6 @@ const TRASH_FILE = 'trash.json';
 const IMAGE_TRASH_DIR = '.trash';
 const TRASH_META_FILE = '.trash_meta.json';
 
-const IMAGE_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;    // 3 days
 const SCENE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;   // 14 days
 
 // --- Service class ---

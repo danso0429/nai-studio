@@ -1,5 +1,4 @@
 import { backend, isMobile, promptService, globalPieceService } from '.';
-import { NoiseSchedule, Sampling } from '../backends/imageGen';
 import {
   InpaintScene,
   PARR,
@@ -11,7 +10,7 @@ import {
   Session,
 } from './types';
 
-export function cleanPARR(parr: PARR): PARR {
+function cleanPARR(parr: PARR): PARR {
   return parr.map((p) => p.trim());
 }
 
@@ -21,7 +20,7 @@ export function cleanPARR(parr: PARR): PARR {
  * - 짝이 맞지 않는 단일 `##` 는 리터럴로 유지
  * - API 송신 직전에만 제거. 저장 데이터는 원문 유지.
  */
-export function stripPromptComments(str: string): string {
+function stripPromptComments(str: string): string {
   return str.replace(/##[\s\S]*?##/g, '');
 }
 
@@ -54,10 +53,8 @@ export function expandPieces(
 }
 
 export class PromptService extends EventTarget {
-  running: boolean;
   constructor() {
     super();
-    this.running = true;
   }
 
   tryExpandPiece(
@@ -483,7 +480,7 @@ export const createSDCharacterPrompts = async (
   );
 };
 
-const mouth = ['<', '>', '(', ')', '{', '}', ')', '('];
+const mouth = ['<', '>', '(', ')', '{', '}'];
 const eyes = [':', ';'];
 const expressions = mouth.map((m) => eyes.map((e) => e + m)).flat();
 expressions.push('><');
@@ -643,14 +640,13 @@ export const highlightPrompt = (
     .map((x) => {
       const word = x
         .split(/([,])/)
-        .map((word: string, index) => {
+        .map((word: string) => {
           if (word === '\n') {
             return word;
           }
           if (word === ',') {
             // 콤마가 주석 영역 내부면 주석 스타일
             const isInComment = overlapsComment(offset, offset + 1);
-            offset += 0; // 기존 로직과 맞춤 (콤마는 offset 증가 안 함 — 다음 단어의 +1에 포함)
             if (isInComment) {
               return '<span class="syntax-comment">,</span>';
             }

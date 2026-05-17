@@ -1,18 +1,13 @@
 import {
-  createRef,
-  useContext,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
 import { extractApiError } from '../models/util';
 import Tooltip from './Tooltip';
 import {
-  CustomScrollbars,
   DropdownSelect,
   TabComponent,
-  TextAreaWithUndo,
 } from './UtilComponents';
 import {
   FaImages,
@@ -22,19 +17,13 @@ import {
   FaSearch,
   FaStar,
   FaStop,
-  FaTimes,
   FaTrash,
   FaUser,
-  FaUserAlt,
-  FaCheck,
   FaToggleOn,
   FaToggleOff,
-  FaEdit,
 } from 'react-icons/fa';
-import Denque from 'denque';
-import Scrollbars from 'react-custom-scrollbars-2';
 import PromptEditTextArea from './PromptEditTextArea';
-import PreSetEditor, { UnionPreSetEditor } from './PreSetEditor';
+import { UnionPreSetEditor } from './PreSetEditor';
 import { TaskProgressBar } from './TaskQueueControl';
 import { Resolution, resolutionMap } from '../backends/imageGen';
 import { FloatView } from './FloatView';
@@ -45,8 +34,6 @@ import {
   imageService,
   taskQueueService,
   isMobile,
-  sessionService,
-  backend,
   workFlowService,
 } from '../models';
 import { getMainImagePath } from '../models/ImageService';
@@ -57,7 +44,6 @@ import {
   PromptPiece,
   PromptPieceSlot,
   PromptNode,
-  CharacterPreset,
   CharacterPrompt,
 } from '../models/types';
 import { appState } from '../models/AppService';
@@ -90,7 +76,6 @@ export const PromptHighlighter = observer(
 
 interface SlotEditorProps {
   scene: { slots: PromptPieceSlot[] };
-  big?: boolean;
 }
 
 interface BigPromptEditorProps {
@@ -446,7 +431,6 @@ export const SlotPiece = observer(
 
     return (
       <div
-        key={piece.id!}
         ref={(node) => drag(drop(node))}
         style={style}
         className={
@@ -760,7 +744,7 @@ const SceneCharacterPromptEditor = observer(({ scene }: SceneCharacterPromptEdit
   );
 });
 
-export const SlotEditor = observer(({ scene, big }: SlotEditorProps) => {
+export const SlotEditor = observer(({ scene }: SlotEditorProps) => {
   useEffect(() => {
     for (const slot of scene.slots) {
       for (const piece of slot) {
@@ -834,7 +818,7 @@ export const SlotEditor = observer(({ scene, big }: SlotEditorProps) => {
                 scene={scene}
                 piece={piece}
                 removePiece={(piece: PromptPiece) =>
-                  removePiece(slot, slot.indexOf(piece)!)
+                  removePiece(slot, slot.indexOf(piece))
                 }
                 moveSlotPiece={moveSlotPiece}
               />
@@ -880,7 +864,7 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
   const { curSession } = appState;
   const [_, rerender] = useState<{}>({});
   const [curName, setCurName] = useState('');
-  const [type, preset, shared, def] = curSession!.getCommonSetup(
+  const [type, preset, shared] = curSession!.getCommonSetup(
     curSession!.selectedWorkflow!,
   );
 
@@ -993,7 +977,7 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
     </div>
   );
 
-  const SmallSlotEditor = <SlotEditor scene={scene} big={false} />;
+  const SmallSlotEditor = <SlotEditor scene={scene} />;
 
   const BigEditor = (
     <BigPromptEditor
@@ -1081,7 +1065,6 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
                 appState.pushMessage('해당 이름의 씬이 이미 존재합니다');
                 return;
               }
-              const oldName = scene.name;
               await renameScene(curSession!, scene.name, trimmedName);
             }}
           >

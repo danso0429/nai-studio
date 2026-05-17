@@ -1,13 +1,10 @@
 import { observer } from 'mobx-react-lite';
-import { getSnapshot } from 'mobx-state-tree';
 import { Item, Menu } from 'react-contexify';
 import { sessionService, backend, imageService, isMobile, imageDownloadService } from '../models';
 import { appState } from '../models/AppService';
 import { dataUriToBase64, deleteImageFiles } from '../models/ImageService';
-import { createImageWithText, embedJSONInPNG } from '../models/SessionService';
 import {
   SceneContextAlt,
-  ImageContextAlt,
   StyleContextAlt,
   ContextMenuType,
   genericSceneFromJSON,
