@@ -335,98 +335,99 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
     // 본인 페인 (2026-05-17): UI 너무 컸음 → 폴더 row 컴팩트 + 4개 정도 default 보임 + 세로 스크롤.
     //   반투명 + rounded. 트리 연결은 ㄴ unicode 사용.
     <div
-      className="absolute bottom-full right-0 mb-2 bg-white/85 dark:bg-slate-700/85 backdrop-blur-md w-60 md:w-96 z-20 shadow-lg rounded-xl flex flex-col overflow-hidden max-h-[200px] md:max-h-[260px]"
+      className="absolute bottom-full right-0 mb-2 bg-white/85 dark:bg-slate-700/85 backdrop-blur-md w-60 md:w-96 z-20 shadow-lg rounded-xl flex flex-col overflow-hidden max-h-[260px] md:max-h-[320px]"
       onClick={(e) => e.stopPropagation()}
     >
       <button
-        className="ml-auto mt-1 mr-1 text-gray-500 hover:text-gray-700 flex-none"
+        className="ml-auto mt-1 mr-1.5 text-gray-500 hover:text-gray-700 flex-none"
         onClick={() => {
           onClose?.();
         }}
       >
-        <FaTimes size={16} />
+        <FaTimes size={18} />
       </button>
-      <div className="flex-1 overflow-hidden pb-2 px-1">
-        <div className="h-full overflow-y-auto">
-          {tree.map((folder) => {
-            const fKey = `f:${folder.name}`;
-            const fOpen = expanded.has(fKey);
-            return (
-              <div key={fKey}>
-                <div
-                  className="flex items-center gap-1.5 px-2 py-1 mx-1 mt-0.5 rounded-md border border-gray-300 dark:border-slate-500 cursor-pointer"
-                  onClick={() => toggle(fKey)}
-                >
-                  {chevron(fOpen)}
-                  <div className="flex-none text-sm">📁</div>
-                  <div className="flex-1 truncate text-default text-xs md:text-sm leading-tight font-medium">
-                    {folder.name}
-                  </div>
-                  <div className="flex-none ml-auto px-1.5 py-0.5 bg-gray-300/70 dark:bg-slate-500/70 dark:text-white rounded font-medium text-xs text-gray-600">
-                    {folder.done}/{folder.total}
-                  </div>
+      {/* scroll fix: 옛 'flex-1 overflow-hidden > h-full overflow-y-auto' 조합은
+          flex item 자체에 h 없어서 grandchild의 h-full이 ignored → scroll 안 됨.
+          한 단계 합쳐 flex-1 자체에 overflow-y-auto. */}
+      <div className="flex-1 overflow-y-auto pb-2 px-1 min-h-0">
+        {tree.map((folder) => {
+          const fKey = `f:${folder.name}`;
+          const fOpen = expanded.has(fKey);
+          return (
+            <div key={fKey}>
+              <div
+                className="flex items-center gap-2 px-2.5 py-2 mx-1 mt-1 rounded-md border border-gray-300 dark:border-slate-500 cursor-pointer"
+                onClick={() => toggle(fKey)}
+              >
+                {chevron(fOpen)}
+                <div className="flex-none text-base">📁</div>
+                <div className="flex-1 truncate text-default text-sm md:text-base leading-tight font-medium">
+                  {folder.name}
                 </div>
-                {fOpen &&
-                  folder.projects.map((proj, pIdx) => {
-                    const pKey = `p:${folder.name}/${proj.name}`;
-                    const pOpen = expanded.has(pKey);
-                    const isPLast = pIdx === folder.projects.length - 1;
-                    return (
-                      <div key={pKey}>
-                        <div className="flex items-center gap-0 mt-0.5 ml-2">
-                          <span className="flex-none text-gray-400 dark:text-gray-500 text-xs font-mono w-3 inline-block">
-                            {isPLast ? '└' : '├'}
-                          </span>
-                          <div
-                            className="flex flex-1 items-center gap-1.5 px-2 py-1 mr-1 rounded-md border border-gray-200 dark:border-slate-600 cursor-pointer"
-                            onClick={() => toggle(pKey)}
-                          >
-                            {chevron(pOpen)}
-                            <div className="flex-1 truncate text-default text-xs md:text-sm leading-tight">
-                              {proj.name}
-                            </div>
-                            <div className="flex-none ml-auto px-1.5 py-0.5 bg-gray-200/70 dark:bg-slate-600/70 dark:text-white rounded font-medium text-xs text-gray-600">
-                              {proj.done}/{proj.total}
-                            </div>
+                <div className="flex-none ml-auto px-2 py-0.5 bg-gray-300/70 dark:bg-slate-500/70 dark:text-white rounded font-medium text-xs md:text-sm text-gray-700 dark:text-gray-100">
+                  {folder.done}/{folder.total}
+                </div>
+              </div>
+              {fOpen &&
+                folder.projects.map((proj, pIdx) => {
+                  const pKey = `p:${folder.name}/${proj.name}`;
+                  const pOpen = expanded.has(pKey);
+                  const isPLast = pIdx === folder.projects.length - 1;
+                  return (
+                    <div key={pKey}>
+                      <div className="flex items-center gap-0 mt-0.5 ml-3">
+                        <span className="flex-none text-gray-400 dark:text-gray-500 text-sm font-mono w-3.5 inline-block">
+                          {isPLast ? '└' : '├'}
+                        </span>
+                        <div
+                          className="flex flex-1 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md border border-gray-200 dark:border-slate-600 cursor-pointer"
+                          onClick={() => toggle(pKey)}
+                        >
+                          {chevron(pOpen)}
+                          <div className="flex-1 truncate text-default text-sm leading-tight">
+                            {proj.name}
+                          </div>
+                          <div className="flex-none ml-auto px-2 py-0.5 bg-gray-200/70 dark:bg-slate-600/70 dark:text-white rounded font-medium text-xs text-gray-700 dark:text-gray-100">
+                            {proj.done}/{proj.total}
                           </div>
                         </div>
-                        {pOpen &&
-                          proj.scenes.map((s, sIdx) => {
-                            const isSLast = sIdx === proj.scenes.length - 1;
-                            const isProcessing =
-                              !!currentKey && s.sceneKey === currentKey;
-                            const sceneBoxClass = isProcessing
-                              ? 'flex flex-1 items-center gap-1.5 px-2 py-1 mr-1 rounded-md scene-processing-list'
-                              : 'flex flex-1 items-center gap-1.5 px-2 py-1 mr-1 rounded-md border border-gray-200 dark:border-slate-600';
-                            return (
-                              <div
-                                key={sIdx}
-                                className="flex items-center gap-0 mt-0.5 ml-5"
-                              >
-                                <span className="flex-none text-gray-400 dark:text-gray-500 text-xs font-mono w-3 inline-block">
-                                  {isSLast ? '└' : '├'}
-                                </span>
-                                <div className={sceneBoxClass}>
-                                  <div className="flex-none text-sm">
-                                    {getEmoji(s.firstTask)}
-                                  </div>
-                                  <div className="flex-1 truncate text-default text-xs md:text-sm leading-tight">
-                                    <span className="font-medium">{s.sceneName}</span>
-                                  </div>
-                                  <div className="flex-none ml-auto px-1.5 py-0.5 bg-gray-200/70 dark:bg-slate-600/70 dark:text-white rounded font-medium text-xs text-gray-600">
-                                    {s.done}/{s.total}
-                                  </div>
+                      </div>
+                      {pOpen &&
+                        proj.scenes.map((s, sIdx) => {
+                          const isSLast = sIdx === proj.scenes.length - 1;
+                          const isProcessing =
+                            !!currentKey && s.sceneKey === currentKey;
+                          const sceneBoxClass = isProcessing
+                            ? 'flex flex-1 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md scene-processing-list'
+                            : 'flex flex-1 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md border border-gray-200 dark:border-slate-600';
+                          return (
+                            <div
+                              key={sIdx}
+                              className="flex items-center gap-0 mt-0.5 ml-7"
+                            >
+                              <span className="flex-none text-gray-400 dark:text-gray-500 text-sm font-mono w-3.5 inline-block">
+                                {isSLast ? '└' : '├'}
+                              </span>
+                              <div className={sceneBoxClass}>
+                                <div className="flex-none text-sm">
+                                  {getEmoji(s.firstTask)}
+                                </div>
+                                <div className="flex-1 truncate text-default text-sm leading-tight">
+                                  <span className="font-medium">{s.sceneName}</span>
+                                </div>
+                                <div className="flex-none ml-auto px-2 py-0.5 bg-gray-200/70 dark:bg-slate-600/70 dark:text-white rounded font-medium text-xs text-gray-700 dark:text-gray-100">
+                                  {s.done}/{s.total}
                                 </div>
                               </div>
-                            );
-                          })}
-                      </div>
-                    );
-                  })}
-              </div>
-            );
-          })}
-        </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  );
+                })}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

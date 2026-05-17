@@ -217,7 +217,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-              <span className="font-bold">프로젝트 선택</span>
+              <span className="font-bold">프로젝트 선택 및 설정</span>
               <button
                 type="button"
                 className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -245,7 +245,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
                 title="프로젝트 파일 내보내기 (이미지 미포함)"
               >
                 <FaUpload size={11} className="flex-shrink-0" />
-                <span className="truncate">파일</span>
+                <span className="truncate">내보내기</span>
               </button>
               <button
                 type="button"
@@ -263,7 +263,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
                 title="새 폴더"
               >
                 <FaFolderPlus size={11} className="flex-shrink-0" />
-                <span className="truncate">폴더</span>
+                <span className="truncate">폴더 추가</span>
               </button>
             </div>
 
