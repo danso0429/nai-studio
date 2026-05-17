@@ -1445,12 +1445,12 @@ export class AppState {
       const candSet = new Set(cands);
       const images: string[] = [];
       if (fav) {
+        // 별표(scene.mains) 한 이미지만 export. 별표 없는 씬은 0장 (자동 폴백 X).
+        // 모든 씬 별표 0개면 caller(line 1346)가 "내보낼 이미지가 없어요" 안내 + 중단.
         if (scene.mains.length) {
           for (const main of scene.mains) {
             if (candSet.has(main)) images.push(main);
           }
-        } else if (cands.length) {
-          images.push(cands[0]);
         }
       } else {
         for (const cand of cands) images.push(cand);
