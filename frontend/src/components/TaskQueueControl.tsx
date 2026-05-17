@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { FaCaretLeft, FaCaretRight, FaPause, FaPlay, FaRegCalendarTimes, FaTimes, FaRegClock } from 'react-icons/fa';
 import { sessionService, taskQueueService, cyclingSessionService } from '../models';
 import { getSceneKey, Task } from '../models/TaskQueueService';
@@ -190,8 +190,36 @@ const taskDisplay = (task: Task) => {
   return { folder, project, scene: sceneName };
 };
 
+// 폴더 → 프로젝트 → 씬 3단 트리. 기본 다 접힘, 본인이 필요할 때만 expand.
+// 본인 spec (2026-05-17): 폴더로 먼저 감싸기, default expand 안 함.
+type SceneNode = {
+  sceneKey: string | null;
+  sceneName: string;
+  firstTask: Task;
+  done: number;
+  total: number;
+};
+type ProjectNode = {
+  name: string;
+  scenes: SceneNode[];
+  done: number;
+  total: number;
+};
+type FolderNode = {
+  name: string;
+  hasFolder: boolean; // '(폴더 없음)' 묶음 구분
+  projects: ProjectNode[];
+  done: number;
+  total: number;
+};
+
+const NO_FOLDER_KEY = '(폴더 없음)';
+
 const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
-  const [tasks, setTasks] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  // expand 상태: 폴더는 `f:{name}`, 프로젝트는 `p:{name}`. 본인이 직접 toggle.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     const onChange = () => {
       // 클라 큐 (augment/remove-bg) + server-mirror 큐 (gen/inpaint/i2i) 합쳐서 표시
@@ -221,22 +249,85 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
 
   const currentKey = appState.currentProcessingSceneKey;
 
-  // sceneKey 단위 그룹핑: 같은 씬을 여러 번 큐에 넣어도 row 1개. done/total은 누적 합산.
-  // sceneKey 없는(=parsing 실패) task는 task.id로 fallback 그룹키.
-  const grouped: Array<{ sceneKey: string | null; firstTask: any; done: number; total: number }> = [];
-  const groupIndex = new Map<string, number>();
-  for (const task of tasks) {
-    const sk = taskSceneKey(task);
-    const groupKey = sk ?? `__no_key__${task.id ?? ''}`;
-    const idx = groupIndex.get(groupKey);
-    if (idx === undefined) {
-      groupIndex.set(groupKey, grouped.length);
-      grouped.push({ sceneKey: sk, firstTask: task, done: task.done, total: task.total });
-    } else {
-      grouped[idx].done += task.done;
-      grouped[idx].total += task.total;
+  // 트리 빌드. useMemo로 grouping 캐시 — 매 'progress' 이벤트(잡 완료마다)에 재빌드되지만
+  // O(n) + 보통 N ≤ 수백이라 무시 수준.
+  const tree: FolderNode[] = useMemo(() => {
+    const folders = new Map<string, Map<string, Map<string, SceneNode>>>();
+    const folderMeta = new Map<string, { hasFolder: boolean }>();
+    for (const task of tasks) {
+      const { folder, project, scene } = taskDisplay(task);
+      const sk = taskSceneKey(task);
+      const hasFolder = !!folder;
+      const folderKey = folder || NO_FOLDER_KEY;
+      if (!folders.has(folderKey)) {
+        folders.set(folderKey, new Map());
+        folderMeta.set(folderKey, { hasFolder });
+      }
+      const projMap = folders.get(folderKey)!;
+      if (!projMap.has(project)) projMap.set(project, new Map());
+      const sceneMap = projMap.get(project)!;
+      const sceneId = sk ?? `__no_key__${task.id ?? ''}`;
+      const existing = sceneMap.get(sceneId);
+      if (existing) {
+        existing.done += task.done;
+        existing.total += task.total;
+      } else {
+        sceneMap.set(sceneId, {
+          sceneKey: sk,
+          sceneName: scene,
+          firstTask: task,
+          done: task.done,
+          total: task.total,
+        });
+      }
     }
-  }
+    const result: FolderNode[] = [];
+    for (const [folderKey, projMap] of folders) {
+      const projects: ProjectNode[] = [];
+      let folderDone = 0;
+      let folderTotal = 0;
+      for (const [projName, sceneMap] of projMap) {
+        const scenes = Array.from(sceneMap.values());
+        let projDone = 0;
+        let projTotal = 0;
+        for (const s of scenes) {
+          projDone += s.done;
+          projTotal += s.total;
+        }
+        projects.push({ name: projName, scenes, done: projDone, total: projTotal });
+        folderDone += projDone;
+        folderTotal += projTotal;
+      }
+      result.push({
+        name: folderKey,
+        hasFolder: folderMeta.get(folderKey)!.hasFolder,
+        projects,
+        done: folderDone,
+        total: folderTotal,
+      });
+    }
+    // 폴더 없음 묶음은 마지막에 배치 (시각적 구분)
+    result.sort((a, b) => {
+      if (a.hasFolder !== b.hasFolder) return a.hasFolder ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    return result;
+  }, [tasks]);
+
+  const toggle = (key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const chevron = (open: boolean) => (
+    <span className="flex-none text-xs text-gray-500 dark:text-gray-300 w-3 inline-block">
+      {open ? '▼' : '▶'}
+    </span>
+  );
 
   return (
     <div className="absolute bottom-0 mb-14 md:mb-20 bg-white dark:bg-slate-700 w-60 md:w-96 z-20 shadow-lg prog-list flex flex-col overflow-hidden">
@@ -250,29 +341,64 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
       </button>
       <div className="flex-1 overflow-hidden pb-2">
         <div className="h-full overflow-auto">
-          {grouped.map((g, i) => {
-            const { folder, project, scene } = taskDisplay(g.firstTask);
-            const isProcessing = !!currentKey && g.sceneKey === currentKey;
-            const itemClass = isProcessing
-              ? 'flex mt-2 items-center gap-2 p-2 mx-2 rounded-lg scene-processing-list'
-              : 'flex mt-2 items-center gap-2 p-2 mx-2 rounded-lg border border-gray-300 dark:border-slate-500';
+          {tree.map((folder) => {
+            const fKey = `f:${folder.name}`;
+            const fOpen = expanded.has(fKey);
             return (
-              <div key={i} className={itemClass}>
-                <div className="flex-none">{getEmoji(g.firstTask)}</div>
-                <div className="flex-1 truncate text-default text-sm leading-tight">
-                  {folder && (
-                    <>
-                      {/* 모바일 세로: 폴더는 ... 으로 축약해 씬 이름 자리 확보. md 이상은 풀네임. */}
-                      <span className="text-gray-500 dark:text-gray-300 md:hidden">… / </span>
-                      <span className="text-gray-500 dark:text-gray-300 hidden md:inline">{folder} / </span>
-                    </>
-                  )}
-                  <span className="text-gray-500 dark:text-gray-300">{project} / </span>
-                  <span className="font-medium">{scene}</span>
+              <div key={fKey}>
+                <div
+                  className="flex mt-2 items-center gap-2 p-2 mx-2 rounded-lg border border-gray-300 dark:border-slate-500 cursor-pointer"
+                  onClick={() => toggle(fKey)}
+                >
+                  {chevron(fOpen)}
+                  <div className="flex-none">📁</div>
+                  <div className="flex-1 truncate text-default text-sm leading-tight font-medium">
+                    {folder.name}
+                  </div>
+                  <div className="flex-none ml-auto p-2 bg-gray-300 dark:bg-slate-500 dark:text-white rounded-lg font-medium text-sm text-gray-500">
+                    {folder.done}/{folder.total}
+                  </div>
                 </div>
-                <div className="flex-none ml-auto p-2 bg-gray-300 dark:bg-slate-500 dark:text-white rounded-lg font-medium text-sm text-gray-500">
-                  {g.done}/{g.total}
-                </div>
+                {fOpen &&
+                  folder.projects.map((proj) => {
+                    const pKey = `p:${folder.name}/${proj.name}`;
+                    const pOpen = expanded.has(pKey);
+                    return (
+                      <div key={pKey}>
+                        <div
+                          className="flex mt-1 items-center gap-2 p-2 ml-6 mr-2 rounded-lg border border-gray-200 dark:border-slate-600 cursor-pointer"
+                          onClick={() => toggle(pKey)}
+                        >
+                          {chevron(pOpen)}
+                          <div className="flex-1 truncate text-default text-sm leading-tight">
+                            {proj.name}
+                          </div>
+                          <div className="flex-none ml-auto px-2 py-1 bg-gray-200 dark:bg-slate-600 dark:text-white rounded-md font-medium text-xs text-gray-500">
+                            {proj.done}/{proj.total}
+                          </div>
+                        </div>
+                        {pOpen &&
+                          proj.scenes.map((s, idx) => {
+                            const isProcessing =
+                              !!currentKey && s.sceneKey === currentKey;
+                            const sceneClass = isProcessing
+                              ? 'flex mt-1 items-center gap-2 p-2 ml-10 mr-2 rounded-lg scene-processing-list'
+                              : 'flex mt-1 items-center gap-2 p-2 ml-10 mr-2 rounded-lg border border-gray-200 dark:border-slate-600';
+                            return (
+                              <div key={idx} className={sceneClass}>
+                                <div className="flex-none">{getEmoji(s.firstTask)}</div>
+                                <div className="flex-1 truncate text-default text-sm leading-tight">
+                                  <span className="font-medium">{s.sceneName}</span>
+                                </div>
+                                <div className="flex-none ml-auto px-2 py-1 bg-gray-200 dark:bg-slate-600 dark:text-white rounded-md font-medium text-xs text-gray-500">
+                                  {s.done}/{s.total}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    );
+                  })}
               </div>
             );
           })}
