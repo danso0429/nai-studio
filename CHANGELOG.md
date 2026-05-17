@@ -9,6 +9,24 @@
 
 ---
 
+## v1.7.0 (2026-05-17)
+
+stable. v1.6.1 → v1.7.0 minor. **자동 업데이트 시스템**. SSH 접속 없이 UI 한 클릭으로 업데이트. PocketRisu 패턴 차용 + 우리 환경 단순화.
+
+### 자동 업데이트 (UI)
+- **feat(self-update)**: `POST /api/self-update` endpoint (`lib/self-update.js`). NDJSON 스트림으로 단계별 진행 보고 — `checking → pulling → installing → installing-frontend → building → writing-buildinfo → restarting`. 각 단계 `execSync` + timeout (gitFetch 30s, npm 5분, vite 10분). 마지막 단계 후 detached spawn `pm2 restart` + 1초 후 `process.exit(0)` — pm2가 새 인스턴스로 갈아끼움. dirty working tree 가드 (`update.sh`와 동일, `public/build/` 변경은 제외). 동시 두 번 트리거 차단 락 (`selfUpdateInProgress`).
+- **feat(self-update/ui)**: `BuildInfo.tsx UpdateModal` phase machine — `idle` (현재 버전 + 최신 버전 + notes + '지금 업데이트' / '나중에') → `running` (단계별 progress bar + 메시지, backdrop 클릭 차단) → `done` ('새로고침' 버튼 → `location.reload`) → `error` (다시 시도 / 닫기). `waitForServerRestart`: 3초 sleep + 60초 동안 2초 간격 `GET /api/build-info` 폴링 → `version` 일치 시 ok. NDJSON `restarting` 단계에서 connection reset은 정상 (pm2가 서버 죽이는 자연 흐름).
+- **인증**: NAI 로그인 상태(서버 측 `nai.token` 존재)로 검증 — 별도 admin token 입력 없음. risuai-nodeonly의 "로그인되면 자동 인증" 정신 차용 + 우리 인증 흐름(서버 측 단일 NAI 토큰)에 맞춰 단순화. 401이면 클라가 "NAI 로그인 필요" 안내.
+
+### 설계
+- PocketRisu 7가지 패턴 중 차용 3 (NDJSON 스트리밍 / 락 vs disconnect 분리 / phase machine canClose 차단) + 4가지는 우리 환경에서 자연 대체: portable/git/docker 4 deployment → git only / Cloudflare Worker → GitHub raw version.json 직접 / detached restart script → pm2 / Phase 1/2 backup 트랜잭션 → git 회귀 시 `git checkout <prev tag>`.
+
+### Docs
+- README "업데이트 방법" 섹션 갱신 — "방법 1 UI 자동 (권장)" + "방법 2 수동 SSH (대체)". SDStudio 차이점 표 "업데이트 방식" row 갱신.
+- 옛 in-progress release 용어 통일: `-preview.N` → `-experimental.N` (CLAUDE.md).
+
+---
+
 ## v1.6.1 (2026-05-17)
 
 stable. v1.6.0 → v1.6.1 patch. 큐 race fix + 큐 list UI 전면 리뉴얼(트리/우선순위/카운터/렉/포털) + 다중 프로젝트 임포트 + 작은 rename 묶음.
