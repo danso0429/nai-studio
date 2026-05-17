@@ -23,6 +23,7 @@ import { DropdownSelect, TabComponent } from './UtilComponents';
 import PieceEditor, { PieceCell } from './PieceEditor';
 import PromptTooltip from './PromptTooltip';
 import ConfirmWindow from './ConfirmWindow';
+import MultiImportNameDialog from './MultiImportNameDialog';
 import QueueControl from './SceneQueueControl';
 import { FloatView, FloatViewProvider } from './FloatView';
 import { observer } from 'mobx-react-lite';
@@ -259,6 +260,9 @@ export const App = observer(() => {
         return '이미지에서 프롬프트 메타데이터를 추출합니다';
       }
       if (type === 'application/json') {
+        if (items.length >= 2) {
+          return `${items.length}개 프로젝트를 한 번에 임포트합니다`;
+        }
         return '프로젝트 또는 프롬프트조각을 임포트합니다';
       }
       // type이 빈 문자열일 수 있음 — 파일 이름 확장자로 추정
@@ -299,9 +303,10 @@ export const App = observer(() => {
       setDragOverlay(null);
       // 모달 오버레이 열려 있으면 메타 처리 차단
       if (appState.modalOverlayCount > 0) return;
-      const file = event.dataTransfer.files[0];
-      if (file) {
-        appState.handleFile(file);
+      const files = event.dataTransfer.files;
+      if (files && files.length > 0) {
+        // ≥2 JSON 파일이면 다중 임포트 흐름으로 자동 분기, 단일은 기존 흐름.
+        appState.handleFiles(files);
       }
     };
     window.addEventListener('dragenter', handleDragEnter);
@@ -478,6 +483,7 @@ export const App = observer(() => {
         </ErrorBoundary>
         <AlertWindow />
         <ConfirmWindow />
+        <MultiImportNameDialog />
         <GlobalPresetPickerOverlay />
         <ProgressWindow
           dialogs={appState.progressDialogs}

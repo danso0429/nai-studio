@@ -175,6 +175,15 @@ export class AppState {
   @observable accessor driveRetryStatus: DriveRetryStatus | null = null;
   @observable accessor driveRetryModalOpen: boolean = false;
 
+  // 여러 프로젝트 한 번에 임포트(드래그 ≥2 JSON) 시 새 프로젝트 이름 입력 다이얼로그 상태.
+  // MultiImportNameDialog가 observer로 읽어 렌더. null이면 다이얼로그 닫힘.
+  @observable accessor multiImportRequest: {
+    items: { origName: string; defaultName: string }[];
+    existingNames: string[];
+    onConfirm: (names: string[]) => void;
+    onCancel: () => void;
+  } | null = null;
+
   // 모달 오버레이 카운터 — ModalOverlay open/close 시 useEffect에서 증감. 메타데이터 D&D 차단용.
   @observable accessor modalOverlayCount: number = 0;
   @action
@@ -715,7 +724,7 @@ export class AppState {
       reader.onload = (e: any) => {
         try {
           const json = JSON.parse(e.target.result);
-          handleJSONContent(file.name, json);
+          this._handleParsedJson(file.name, json);
         } catch (err) {
           console.error(err);
         }
@@ -738,10 +747,261 @@ export class AppState {
         console.error(err);
       }
     }
-    const handleJSONContent = async (name: string, json: any) => {
-      if (name.endsWith('.json')) {
-        name = name.slice(0, -5);
+  }
+
+  // 다중 파일 드래그드롭 핸들러. JSON ≥ 2개면 다중 임포트 흐름 진입.
+  // 그 외 (단일/혼합)는 기존 단일 파일 흐름으로 fallback.
+  async handleFiles(files: File[] | FileList) {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    if (list.length === 1) {
+      this.handleFile(list[0]);
+      return;
+    }
+    const jsonFiles = list.filter(
+      (f) => f.type === 'application/json' || /\.json$/i.test(f.name),
+    );
+    if (jsonFiles.length <= 1) {
+      // JSON 0~1개면 다중 흐름 의미 없음 — 첫 파일만 단일 흐름.
+      this.handleFile(list[0]);
+      return;
+    }
+    // 모든 JSON 병렬 파싱
+    const parsed = await Promise.all(
+      jsonFiles.map(
+        (f) =>
+          new Promise<{ name: string; json: any } | null>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e: any) => {
+              try {
+                let name = f.name;
+                if (name.endsWith('.json')) name = name.slice(0, -5);
+                resolve({ name, json: JSON.parse(e.target.result) });
+              } catch {
+                resolve(null);
+              }
+            };
+            reader.onerror = () => resolve(null);
+            reader.readAsText(f);
+          }),
+      ),
+    );
+    const sessions: { origName: string; json: ISession }[] = [];
+    const others: { origName: string; json: any }[] = [];
+    for (const p of parsed) {
+      if (!p) continue;
+      if (isValidSession(p.json)) {
+        sessions.push({ origName: p.name, json: p.json as ISession });
+      } else {
+        others.push({ origName: p.name, json: p.json });
       }
+    }
+    if (sessions.length < 2) {
+      // 유효 ISession 2개 미만이면 다중 흐름 불필요 — 각각 단일 흐름.
+      for (const s of sessions) this._handleParsedJson(s.origName, s.json);
+      for (const o of others) this._handleParsedJson(o.origName, o.json);
+      return;
+    }
+    if (others.length > 0) {
+      this.pushMessage(
+        `프로젝트가 아닌 ${others.length}개 파일은 무시했어요 (NAIS 프리셋/조각모음은 한 번에 하나씩 임포트해주세요)`,
+      );
+    }
+    this._runMultiSessionImport(sessions);
+  }
+
+  // 여러 ISession 다중 임포트 흐름. curSession 유무에 따라 분기.
+  private _runMultiSessionImport(
+    sessions: { origName: string; json: ISession }[],
+  ) {
+    const existingNames = sessionService.list();
+    if (!this.curSession) {
+      // 머지 대상 없음 → 무조건 전부 새 프로젝트
+      this._openMultiNameDialog(sessions, existingNames);
+      return;
+    }
+    const labels = sessions.map((s) => s.origName).join(', ');
+    const curName = this.curSession.name;
+    this.pushDialog({
+      type: 'select',
+      text: `${sessions.length}개 프로젝트를 임포트합니다. 방식을 선택해주세요.\n\n임포트 대상: ${labels}`,
+      items: [
+        { text: '전부 새 프로젝트로 임포트', value: 'all-new' },
+        { text: `일부는 "${curName}"으로 머지, 나머지는 새 프로젝트`, value: 'partial' },
+        { text: `전부 "${curName}"으로 머지 (⚠️ 같은 이름의 씬은 덮어씌워짐)`, value: 'all-merge' },
+      ],
+      callback: async (option?: string) => {
+        if (!option) return;
+        if (option === 'all-new') {
+          this._openMultiNameDialog(sessions, existingNames);
+        } else if (option === 'all-merge') {
+          this._confirmAndMergeAll(sessions);
+        } else if (option === 'partial') {
+          this._openMergeSelectThenMultiName(sessions, existingNames);
+        }
+      },
+    });
+  }
+
+  private _confirmAndMergeAll(
+    sessions: { origName: string; json: ISession }[],
+  ) {
+    const cur = this.curSession!;
+    const list = sessions.map((s) => `• ${s.origName}`).join('\n');
+    this.pushDialog({
+      type: 'confirm',
+      text: `${sessions.length}개 프로젝트의 씬을 모두 "${cur.name}"으로 머지합니다. 같은 이름의 씬은 덮어씌워져요.\n\n임포트할 프로젝트:\n${list}`,
+      confirmText: '머지',
+      callback: async () => {
+        const pid = appState.pushProgressDialog(
+          `머지 중... 0/${sessions.length}`,
+          sessions.length,
+        );
+        let done = 0;
+        for (const s of sessions) {
+          try {
+            await this._mergeSessionScenes(s.json, cur);
+          } catch (e: any) {
+            console.warn('[multiImport] merge failed for', s.origName, e);
+          }
+          done++;
+          appState.updateProgressDialog(pid, {
+            done,
+            text: `머지 중... ${done}/${sessions.length}`,
+          });
+        }
+        appState.finishProgressDialog(
+          pid,
+          `✓ ${sessions.length}개 프로젝트 머지 완료`,
+          true,
+        );
+      },
+    });
+  }
+
+  private _openMergeSelectThenMultiName(
+    sessions: { origName: string; json: ISession }[],
+    existingNames: string[],
+  ) {
+    const cur = this.curSession!;
+    this.pushDialog({
+      type: 'checkbox',
+      text: `"${cur.name}"으로 머지할 프로젝트들을 선택해주세요. 선택하지 않은 건 새 프로젝트로 임포트돼요.`,
+      items: sessions.map((s) => ({ text: s.origName, value: s.origName })),
+      callback: async (jsonValue) => {
+        const selected = new Set<string>(jsonValue ? JSON.parse(jsonValue) : []);
+        const toMerge = sessions.filter((s) => selected.has(s.origName));
+        const toNew = sessions.filter((s) => !selected.has(s.origName));
+        if (toMerge.length > 0) {
+          const pid = appState.pushProgressDialog(
+            `머지 중... 0/${toMerge.length}`,
+            toMerge.length,
+          );
+          let done = 0;
+          for (const s of toMerge) {
+            try {
+              await this._mergeSessionScenes(s.json, cur);
+            } catch (e: any) {
+              console.warn('[multiImport] merge failed for', s.origName, e);
+            }
+            done++;
+            appState.updateProgressDialog(pid, {
+              done,
+              text: `머지 중... ${done}/${toMerge.length}`,
+            });
+          }
+          appState.finishProgressDialog(
+            pid,
+            `✓ ${toMerge.length}개 머지 완료`,
+            true,
+          );
+        }
+        if (toNew.length > 0) {
+          this._openMultiNameDialog(toNew, existingNames);
+        }
+      },
+    });
+  }
+
+  private _openMultiNameDialog(
+    sessions: { origName: string; json: ISession }[],
+    existingNames: string[],
+  ) {
+    const occupied = new Set(existingNames);
+    const defaultNames: string[] = [];
+    for (const s of sessions) {
+      let name = s.origName;
+      let n = 2;
+      while (occupied.has(name) || defaultNames.includes(name)) {
+        name = `${s.origName}_${n}`;
+        n++;
+      }
+      defaultNames.push(name);
+    }
+    this.multiImportRequest = {
+      items: sessions.map((s, i) => ({
+        origName: s.origName,
+        defaultName: defaultNames[i],
+      })),
+      existingNames,
+      onConfirm: async (names: string[]) => {
+        this.multiImportRequest = null;
+        const pid = appState.pushProgressDialog(
+          `임포트 중... 0/${sessions.length}`,
+          sessions.length,
+        );
+        let done = 0;
+        let lastNewSession: Session | undefined;
+        for (let i = 0; i < sessions.length; i++) {
+          try {
+            await sessionService.importSessionShallow(sessions[i].json, names[i]);
+            lastNewSession = (await sessionService.get(names[i])) || undefined;
+          } catch (e: any) {
+            console.warn('[multiImport] import failed for', names[i], e);
+          }
+          done++;
+          appState.updateProgressDialog(pid, {
+            done,
+            text: `임포트 중... ${done}/${sessions.length}`,
+          });
+        }
+        if (lastNewSession) this.curSession = lastNewSession;
+        appState.finishProgressDialog(
+          pid,
+          `✓ ${sessions.length}개 프로젝트 임포트 완료`,
+          true,
+        );
+      },
+      onCancel: () => {
+        this.multiImportRequest = null;
+      },
+    };
+  }
+
+  // 단일 프로젝트 JSON을 현재 프로젝트로 씬 머지. 옛 'cur-project' 분기 동일 동작.
+  private async _mergeSessionScenes(json: ISession, cur: Session) {
+    const newJson: ISession = await sessionService.migrate(json);
+    for (const key of Object.keys(newJson.scenes)) {
+      if (cur.scenes.has(key)) {
+        cur.scenes.get(key)!.slots = newJson.scenes[key].slots.map(
+          (slot: any) =>
+            slot.map((piece: any) => PromptPiece.fromJSON(piece)),
+        );
+        cur.scenes.get(key)!.resolution = newJson.scenes[key].resolution;
+      } else {
+        const scene = newJson.scenes[key];
+        cur.scenes.set(key, Scene.fromJSON(scene));
+        cur.scenes.get(key)!.mains = [];
+        cur.scenes.get(key)!.game = undefined;
+      }
+    }
+  }
+
+  // 파싱된 JSON 1개 처리 — 단일 파일 흐름의 본체. handleFile 및 다중 임포트의 fallback에서 호출.
+  private _handleParsedJson = async (name: string, json: any) => {
+    if (name.endsWith('.json')) {
+      name = name.slice(0, -5);
+    }
       const handleAddSession = async (json: any) => {
         const importCool = async () => {
           const sess = await sessionService.get(json.name);
@@ -987,7 +1247,6 @@ export class AppState {
         });
       }
     };
-  }
 
   @action
   async projectExportShallow() {
