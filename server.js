@@ -939,15 +939,8 @@ async function diskCleanupStage4() {
   const { execSync } = require('child_process');
   const outsDir = path.join(DATA_DIR, 'outs');
 
-  // rclone이 있는지, RCLONE_REMOTE가 설정되어 있는지 확인
-  let rcloneOK = false;
-  try {
-    execSync('which rclone', { stdio: 'pipe' });
-    execSync(`rclone listremotes 2>/dev/null | grep ${RCLONE_REMOTE}`, { stdio: 'pipe' });
-    rcloneOK = true;
-  } catch {}
-
-  if (!rcloneOK) {
+  // rclone 가용성 확인 — 60초 캐시 헬퍼 사용
+  if (!checkRcloneAvailable()) {
     console.log(`[Disk] Stage 4: skipped — rclone/${RCLONE_REMOTE} not available`);
     return 0;
   }

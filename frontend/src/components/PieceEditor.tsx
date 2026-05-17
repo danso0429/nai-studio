@@ -18,9 +18,9 @@ import {
   FaPlus,
   FaPuzzlePiece,
   FaShare,
+  FaTrash,
   FaTrashAlt,
 } from 'react-icons/fa';
-import { FaTrash } from 'react-icons/fa';
 import { useDrag, useDrop } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { isValidPieceLibrary, Piece, PieceLibrary } from '../models/types';

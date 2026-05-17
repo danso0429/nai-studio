@@ -3,18 +3,19 @@ import { backend, imageService } from '.';
 import { GenericScene, InpaintScene, Session, CharacterPreset } from './types';
 
 import { apiUrl, extractApiError } from './util';
-function getMirrorCropX(scene: GenericScene): number | undefined {
-  if (isMirrorScene(scene)) {
-    return (scene as InpaintScene).mirrorCropX;
-  }
-  return undefined;
-}
 import { appState } from './AppService';
 import { cropMirrorResultFromDataUri, dataUriToBase64 } from './ImageService';
 import { DownloadSettings } from '../main/config';
 
 function isMirrorScene(scene: GenericScene): boolean {
   return scene.type === 'inpaint' && (scene as InpaintScene).workflowType === 'SDMirror';
+}
+
+function getMirrorCropX(scene: GenericScene): number | undefined {
+  if (isMirrorScene(scene)) {
+    return (scene as InpaintScene).mirrorCropX;
+  }
+  return undefined;
 }
 
 /**

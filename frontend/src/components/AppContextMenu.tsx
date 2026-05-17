@@ -167,42 +167,26 @@ export const AppContextMenu = observer(() => {
       );
     }
   };
+  // 공통 dispatcher — 두 진입점이 ctx 형태(path 단일/배열)와 transform 지원 여부만 다름
+  const dispatchImageAction = (id: string, ctx: any, supportTransform: boolean) => {
+    if (id === 'duplicate') duplicateImage(ctx);
+    else if (id === 'copy') copyImage(ctx);
+    else if (id === 'clipboard') clipboardImage(ctx);
+    else if (id === 'fav') favImage(ctx);
+    else if (id === 'delete') deleteImg(ctx);
+    else if (id === 'download') downloadImage(ctx);
+    else if (id === 'transform' && supportTransform) transformImage(ctx);
+  };
   const handleImageItemClick = ({ id, props }: any) => {
     const ctx2: GallaryImageContextAlt = {
       ...props.ctx,
       type: 'gallary_image',
       path: [props.ctx.path],
     };
-    if (id === 'duplicate') {
-      duplicateImage(ctx2);
-    } else if (id === 'copy') {
-      copyImage(ctx2);
-    } else if (id === 'clipboard') {
-      clipboardImage(ctx2);
-    } else if (id === 'fav') {
-      favImage(ctx2);
-    } else if (id === 'delete') {
-      deleteImg(ctx2);
-    } else if (id === 'download') {
-      downloadImage(ctx2);
-    }
+    dispatchImageAction(id, ctx2, false);
   };
   const handleImageItemClick2 = ({ id, props }: any) => {
-    if (id === 'duplicate') {
-      duplicateImage(props.ctx);
-    } else if (id === 'copy') {
-      copyImage(props.ctx);
-    } else if (id === 'clipboard') {
-      clipboardImage(props.ctx);
-    } else if (id === 'fav') {
-      favImage(props.ctx);
-    } else if (id === 'delete') {
-      deleteImg(props.ctx);
-    } else if (id === 'transform') {
-      transformImage(props.ctx);
-    } else if (id === 'download') {
-      downloadImage(props.ctx);
-    }
+    dispatchImageAction(id, props.ctx, true);
   };
   const exportStyle = async (ctx: StyleContextAlt) => {
     await appState.exportPreset(appState.curSession!, ctx.preset);

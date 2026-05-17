@@ -198,44 +198,37 @@ async function migrateSessionLegacy(session: any) {
         inpaint.mask = undefined;
       }
     }
-    if ((inpaint as any).middlePrompt != null) {
-      inpaint.prompt = '';
+    // 같은 inpaint org 이미지 → 1회 fetch + extractPromptData로 prompt/uc 둘 다 추출
+    const hasMiddle = (inpaint as any).middlePrompt != null;
+    const needsUc = !inpaint.uc;
+    if (hasMiddle || needsUc) {
+      let extracted: any[] | null = null;
       try {
         const image = dataUriToBase64(
           (await imageService.fetchImage(getInpaintOrgPath(session, inpaint)))!,
         );
-        const [prompt, seed, scale, sampler, steps, uc] =
-          await extractPromptDataFromBase64(image);
-        inpaint.prompt = prompt;
-      } catch (e) {
-        inpaint.prompt = (inpaint as any).middlePrompt;
+        extracted = await extractPromptDataFromBase64(image);
+      } catch (e) {}
+      if (hasMiddle) {
+        inpaint.prompt = extracted ? extracted[0] : (inpaint as any).middlePrompt;
+        (inpaint as any).middlePrompt = undefined;
       }
-      (inpaint as any).middlePrompt = undefined;
-    }
-    if (!inpaint.uc) {
-      inpaint.uc = '';
-      try {
-        const image = dataUriToBase64(
-          (await imageService.fetchImage(getInpaintOrgPath(session, inpaint)))!,
-        );
-        const [prompt, seed, scale, sampler, steps, uc] =
-          await extractPromptDataFromBase64(image);
-        inpaint.uc = uc;
-      } catch (e) {
-        inpaint.uc = defaultUC;
+      if (needsUc) {
+        inpaint.uc = extracted ? extracted[5] : defaultUC;
       }
     }
   }
 
-  for (const scene of Object.values(session.scenes) as any) {
-    if (scene.landscape != null) {
-      if (scene.landscape) {
-        scene.resolution = 'landscape';
-      } else {
-        scene.resolution = 'portrait';
-      }
-      scene.landscape = undefined;
+  // landscape → resolution 변환 (scene/inpaint 공통)
+  const migrateLandscape = (item: any) => {
+    if (item.landscape != null) {
+      item.resolution = item.landscape ? 'landscape' : 'portrait';
+      item.landscape = undefined;
     }
+  };
+
+  for (const scene of Object.values(session.scenes) as any) {
+    migrateLandscape(scene);
     if ((scene as any).main) {
       scene.mains = [(scene as any).main];
       (scene as any).main = undefined;
@@ -244,14 +237,7 @@ async function migrateSessionLegacy(session: any) {
   }
 
   for (const inpaint of Object.values(session.inpaints) as any) {
-    if (inpaint.landscape != null) {
-      if (inpaint.landscape) {
-        inpaint.resolution = 'landscape';
-      } else {
-        inpaint.resolution = 'portrait';
-      }
-      inpaint.landscape = undefined;
-    }
+    migrateLandscape(inpaint);
   }
 
   for (const library of Object.values(session.library) as any) {
@@ -260,41 +246,17 @@ async function migrateSessionLegacy(session: any) {
     }
   }
 
-  for (const scene of Object.values(session.scenes) as any) {
-    if (!scene.imageMap) {
-      scene.imageMap = [];
-      if (scene.game) {
-        scene.game = scene.game.map((x: any) => ({
-          rank: x.rank,
-          path: x.path.split('/').pop()!,
-        }));
-      }
-      if (scene.round) {
-        scene.round.players = scene.round.players.map((x: any) => ({
-          rank: x.rank,
-          path: x.path.split('/').pop()!,
-        }));
-      }
-    }
-  }
+  // imageMap 초기화 + game/round.players path 정규화 (scene/inpaint 공통)
+  const migrateImageMap = (item: any) => {
+    if (item.imageMap) return;
+    item.imageMap = [];
+    const normPath = (x: any) => ({ rank: x.rank, path: x.path.split('/').pop()! });
+    if (item.game) item.game = item.game.map(normPath);
+    if (item.round) item.round.players = item.round.players.map(normPath);
+  };
 
-  for (const inpaint of Object.values(session.inpaints) as any) {
-    if (!inpaint.imageMap) {
-      inpaint.imageMap = [];
-      if (inpaint.game) {
-        inpaint.game = inpaint.game.map((x: any) => ({
-          rank: x.rank,
-          path: x.path.split('/').pop()!,
-        }));
-      }
-      if (inpaint.round) {
-        inpaint.round.players = inpaint.round.players.map((x: any) => ({
-          rank: x.rank,
-          path: x.path.split('/').pop()!,
-        }));
-      }
-    }
-  }
+  for (const scene of Object.values(session.scenes) as any) migrateImageMap(scene);
+  for (const inpaint of Object.values(session.inpaints) as any) migrateImageMap(inpaint);
 }
 
 export async function migrateSession(oldSession: any): Promise<ISession> {

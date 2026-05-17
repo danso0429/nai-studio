@@ -132,7 +132,7 @@ class CursorMemorizeEditor {
       updateAutoComplete: boolean,
     ) => string,
     onUpdated: (text: string) => void,
-    historBuf: any,
+    historyBuf: any,
     redoBuf: any,
     onUpArrow: () => void,
     onDownArrow: () => void,
@@ -148,7 +148,7 @@ class CursorMemorizeEditor {
     this.clipboard = clipboard;
     this.highlightPrompt = highlightPrompt;
     this.onUpdated = onUpdated;
-    this.historyBuf = historBuf;
+    this.historyBuf = historyBuf;
     this.redoBuf = redoBuf;
     this.autocomplete = false;
     this.onUpArrow = onUpArrow;

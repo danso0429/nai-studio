@@ -1403,7 +1403,7 @@ export class AppState {
       appState.openExportPresetsDialog(type);
       return;
     }
-    if (typeof menu === 'string' && menu.startsWith('preset:')) {
+    if (menu.startsWith('preset:')) {
       const presetId = menu.slice('preset:'.length);
       const preset = appState.exportPresets.find((p) => p.id === presetId);
       if (preset) {
@@ -1896,7 +1896,7 @@ export class AppState {
       value: 'extract',
     });
 
-    const presetLabel = meta.name ? `"${meta.name}" ` : '';
+    const presetLabel = `"${meta.name}" `;
     const typeLabel = isGlobalSupported
       ? meta.type === 'SDImageGenEasy'
         ? ' (그림체 이지모드)'

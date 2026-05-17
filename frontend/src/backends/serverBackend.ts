@@ -68,8 +68,7 @@ async function api(
 }
 
 async function apiJSON(path: string, options?: RequestInit) {
-  const res = await api(path, options);
-  return res.json();
+  return (await api(path, options)).json();
 }
 
 export class ServerBackend extends Backend {
@@ -336,6 +335,7 @@ export class ServerBackend extends Backend {
     await api('/fs/delete-dir', { method: 'POST', body: JSON.stringify({ path: filename }) });
   }
 
+  // 웹 모드에선 휴지통 거치지 않고 즉시 영구 삭제 (deleteFile alias).
   async trashFile(filename: string): Promise<void> { await this.deleteFile(filename); }
   async selectDir(): Promise<string | undefined> { return undefined; }
   async selectFile(): Promise<string | undefined> { return undefined; }
