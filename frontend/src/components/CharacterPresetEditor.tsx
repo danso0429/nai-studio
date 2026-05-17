@@ -145,7 +145,7 @@ const CharacterPresetCard = observer(({
   isEasyMode,
 }: CharacterPresetCardProps) => {
   return (
-    <div className="group relative rounded-lg bg-white dark:bg-slate-800 border-2 border-gray-200 dark:border-slate-600 overflow-hidden cursor-pointer transition-shadow hover:shadow-lg">
+    <div className={`group relative rounded-lg bg-white dark:bg-slate-800 border-2 border-gray-200 dark:border-slate-600 overflow-hidden cursor-pointer transition-shadow hover:shadow-lg ${isMobile ? 'flex-none w-32' : ''}`}>
       {/* 이미지 영역 */}
       <div className="relative overflow-hidden aspect-[3/4]" onClick={onEdit}>
         <CardImage
@@ -546,15 +546,15 @@ const CharacterPresetInnerEditor = observer(({
           </div>
         )}
         {vibes.map((vibe, index) => (
-          <div key={vibe.path + index} className="border border-gray-300 dark:border-gray-600 mt-2 p-2 flex gap-2 items-start rounded-lg">
+          <div key={vibe.path + index} className="border border-gray-300 dark:border-gray-600 mt-2 p-2 flex md:flex-row flex-col gap-2 items-start rounded-lg">
             <VibeImage
               path={imageService.getVibeImagePath(curSession!, vibe.path)}
               className="flex-none w-28 h-28 object-cover rounded"
             />
             <div className="flex flex-col gap-2 w-full min-w-0">
-              <div className="flex w-full items-center">
-                <div className="whitespace-nowrap flex-none mr-2 gray-label">정보 추출률 (IS):</div>
-                <div className="flex flex-1 gap-1 min-w-0">
+              <div className="flex w-full items-center md:flex-row flex-col">
+                <div className="whitespace-nowrap flex-none mr-auto md:mr-2 gray-label">정보 추출률 (IS):</div>
+                <div className="flex flex-1 md:w-auto w-full gap-1">
                   <input className="flex-1 min-w-0" type="range" step="0.01" min="0" max="1"
                     value={vibe.info}
                     onChange={(e) => updateVibeField(index, 'info', parseFloat(e.target.value))}
@@ -562,9 +562,9 @@ const CharacterPresetInnerEditor = observer(({
                   <div className="w-11 flex-none text-lg text-center back-lllgray">{vibe.info}</div>
                 </div>
               </div>
-              <div className="flex w-full items-center">
-                <div className="whitespace-nowrap flex-none mr-2 gray-label">레퍼런스 강도 (RS):</div>
-                <div className="flex flex-1 gap-1 min-w-0">
+              <div className="flex w-full items-center md:flex-row flex-col">
+                <div className="whitespace-nowrap flex-none mr-auto md:mr-2 gray-label">레퍼런스 강도 (RS):</div>
+                <div className="flex flex-1 md:w-auto w-full gap-1">
                   <input className="flex-1 min-w-0" type="range" step="0.01" min="0" max="1"
                     value={vibe.strength}
                     onChange={(e) => updateVibeField(index, 'strength', parseFloat(e.target.value))}
@@ -615,7 +615,7 @@ const CharacterPresetInnerEditor = observer(({
         {characterReferences.map((ref, index) => (
           <div
             key={ref.path + index}
-            className={`mt-2 p-2 flex gap-2 items-start rounded-lg ${
+            className={`mt-2 p-2 flex md:flex-row flex-col gap-2 items-start rounded-lg ${
               ref.enabled !== false
                 ? 'border border-sky-500 bg-sky-50 dark:bg-sky-900/20'
                 : 'border border-gray-300 dark:border-gray-600 opacity-60'
@@ -652,9 +652,9 @@ const CharacterPresetInnerEditor = observer(({
                 </Tooltip>
               </div>
               {/* Strength */}
-              <div className="flex w-full items-center">
-                <div className="whitespace-nowrap flex-none mr-2 gray-label">Strength:</div>
-                <div className="flex flex-1 gap-1 min-w-0">
+              <div className="flex w-full items-center md:flex-row flex-col">
+                <div className="whitespace-nowrap flex-none mr-auto md:mr-2 gray-label">Strength:</div>
+                <div className="flex flex-1 md:w-auto w-full gap-1">
                   <input className="flex-1 min-w-0" type="range" step="0.01" min="0" max="2"
                     value={ref.strength}
                     onChange={(e) => updateRefField(index, 'strength', parseFloat(e.target.value))}
@@ -663,9 +663,9 @@ const CharacterPresetInnerEditor = observer(({
                 </div>
               </div>
               {/* Fidelity */}
-              <div className="flex w-full items-center">
-                <div className="whitespace-nowrap flex-none mr-2 gray-label">Fidelity:</div>
-                <div className="flex flex-1 gap-1 min-w-0">
+              <div className="flex w-full items-center md:flex-row flex-col">
+                <div className="whitespace-nowrap flex-none mr-auto md:mr-2 gray-label">Fidelity:</div>
+                <div className="flex flex-1 md:w-auto w-full gap-1">
                   <input className="flex-1 min-w-0" type="range" step="0.01" min="0" max="2"
                     value={ref.fidelity}
                     onChange={(e) => updateRefField(index, 'fidelity', parseFloat(e.target.value))}
@@ -860,16 +860,15 @@ export const CharacterPresetEditor = observer(({
         </div>
       ) : (
         <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-            gap: '0.75rem',
-            alignContent: 'start',
-          }}
+          style={
+            isMobile
+              ? { display: 'flex', flexDirection: 'row', gap: '0.75rem', overflowX: 'auto', paddingBottom: '0.5rem' }
+              : { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.75rem', alignContent: 'start' }
+          }
         >
           {/* 새 프리셋 카드 */}
           <div
-            className="rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-sky-400 dark:hover:border-sky-500 cursor-pointer flex flex-col items-center justify-center aspect-[3/4] transition-colors group"
+            className={`rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-sky-400 dark:hover:border-sky-500 cursor-pointer flex flex-col items-center justify-center aspect-[3/4] transition-colors group ${isMobile ? 'flex-none w-32' : ''}`}
             onClick={handleAddNew}
           >
             <FaPlus className="text-2xl text-gray-400 dark:text-gray-500 group-hover:text-sky-500 transition-colors mb-2" />
