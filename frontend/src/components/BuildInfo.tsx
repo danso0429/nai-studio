@@ -154,8 +154,6 @@ interface UpdateModalProps {
   onClose: () => void;
 }
 
-const TOKEN_STORAGE_KEY = 'naiStudio_adminToken';
-
 interface Progress {
   step: string;
   percent: number;
@@ -181,23 +179,19 @@ async function waitForServerRestart(expectedVersion: string): Promise<boolean> {
 }
 
 const UpdateModal = ({ current, latest, notes, released, onClose }: UpdateModalProps) => {
-  type Phase = 'idle' | 'tokenInput' | 'running' | 'done' | 'error';
+  type Phase = 'idle' | 'running' | 'done' | 'error';
   const [phase, setPhase] = useState<Phase>('idle');
-  const [tokenInput, setTokenInput] = useState('');
   const [progress, setProgress] = useState<Progress | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  const runUpdate = async (token: string) => {
+  const runUpdate = async () => {
     setPhase('running');
     setErrMsg(null);
     setProgress({ step: 'connecting', percent: 0, message: '서버 연결 중...' });
 
     let r: Response;
     try {
-      r = await fetch(`${API}/self-update`, {
-        method: 'POST',
-        headers: { 'X-Admin-Token': token },
-      });
+      r = await fetch(`${API}/self-update`, { method: 'POST' });
     } catch (e: any) {
       setPhase('error');
       setErrMsg('서버 연결 실패: ' + (e?.message || e));
@@ -205,14 +199,8 @@ const UpdateModal = ({ current, latest, notes, released, onClose }: UpdateModalP
     }
 
     if (r.status === 401) {
-      localStorage.removeItem(TOKEN_STORAGE_KEY);
-      setPhase('tokenInput');
-      setErrMsg('잘못된 토큰입니다. 다시 입력해주세요.');
-      return;
-    }
-    if (r.status === 503) {
       setPhase('error');
-      setErrMsg('서버에 ADMIN_TOKEN이 설정되어 있지 않습니다. SSH 접속해서 .env.local에 추가 후 pm2 restart 필요.');
+      setErrMsg('NAI 로그인이 필요합니다. 로그인 후 다시 시도하세요.');
       return;
     }
     if (r.status === 409) {
@@ -278,19 +266,6 @@ const UpdateModal = ({ current, latest, notes, released, onClose }: UpdateModalP
     }
   };
 
-  const onClickStart = () => {
-    const saved = localStorage.getItem(TOKEN_STORAGE_KEY);
-    if (saved) runUpdate(saved);
-    else setPhase('tokenInput');
-  };
-
-  const onSubmitToken = () => {
-    const t = tokenInput.trim();
-    if (!t) return;
-    localStorage.setItem(TOKEN_STORAGE_KEY, t);
-    runUpdate(t);
-  };
-
   // PocketRisu UpdatePopup canClose 패턴 — running 중엔 backdrop/닫기 차단.
   const canClose = phase !== 'running';
   const backdropClick = canClose ? onClose : undefined;
@@ -329,7 +304,7 @@ const UpdateModal = ({ current, latest, notes, released, onClose }: UpdateModalP
             </div>
             <div className="mt-4 flex gap-2">
               <button
-                onClick={onClickStart}
+                onClick={runUpdate}
                 className="flex-1 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded text-sm font-medium"
               >
                 지금 업데이트
@@ -339,40 +314,6 @@ const UpdateModal = ({ current, latest, notes, released, onClose }: UpdateModalP
                 className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-sm font-medium text-gray-900 dark:text-gray-100"
               >
                 나중에
-              </button>
-            </div>
-          </>
-        )}
-
-        {phase === 'tokenInput' && (
-          <>
-            <div className="text-sm text-gray-700 dark:text-gray-300 space-y-2">
-              <p>관리자 토큰을 입력하세요. (`.env.local`의 `ADMIN_TOKEN`)</p>
-              {errMsg && <p className="text-red-600 dark:text-red-400 text-xs">{errMsg}</p>}
-              <input
-                type="password"
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && onSubmitToken()}
-                placeholder="ADMIN_TOKEN"
-                className="w-full px-3 py-2 border rounded text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600"
-                autoFocus
-              />
-              <p className="text-xs opacity-60">한 번 입력 후 브라우저에 저장됩니다 (localStorage).</p>
-            </div>
-            <div className="mt-4 flex gap-2">
-              <button
-                onClick={onSubmitToken}
-                disabled={!tokenInput.trim()}
-                className="flex-1 px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-400 text-white rounded text-sm font-medium"
-              >
-                업데이트 시작
-              </button>
-              <button
-                onClick={() => setPhase('idle')}
-                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-sm font-medium text-gray-900 dark:text-gray-100"
-              >
-                뒤로
               </button>
             </div>
           </>

@@ -25,9 +25,10 @@ const URL_PREFIX = process.env.URL_PREFIX || '';
 const RCLONE_REMOTE = process.env.RCLONE_REMOTE || 'gdrivemain';
 const RCLONE_REMOTE_BASE = process.env.RCLONE_REMOTE_BASE || 'NAI-Studio';
 
-// 자동 업데이트 (POST /api/self-update) 인증. .env.local에 ADMIN_TOKEN 박혀
-// 있어야 endpoint 활성. 없으면 503으로 거부 — 안전 default.
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+// 자동 업데이트 (POST /api/self-update) 동시 호출 차단 락.
+// 인증은 NAI 로그인 상태(nai.token 존재)로 판정 — 별도 admin token 입력 X.
+// risuai-nodeonly 패턴 정신("로그인되면 자동 인증")을 우리 환경(서버 측 단일
+// NAI token 보관)에 맞춰 단순화.
 let selfUpdateInProgress = false;
 
 // ─── Ensure directories ────────────────────────────────────────────
@@ -1205,14 +1206,15 @@ app.get('/api/version-check', async (req, res) => {
 
 // POST /api/self-update — git pull + 빌드 + build-info.json + pm2 restart 트리거.
 // NDJSON 스트림으로 단계별 진행 보고. PocketRisu 패턴 차용 (NDJSON + 락 분리).
-// 권한: X-Admin-Token 헤더가 ADMIN_TOKEN env와 일치해야 함. ADMIN_TOKEN 미설정 시
-// endpoint 자체 비활성 (503) — fork/공유 사용자가 실수 트리거 사고 차단.
+// 권한: NAI 로그인 상태(nai.token 존재)면 OK. 본인 환경 단일 NAI 계정이라
+// 사실상 본인만. Tailnet 공유 사용자는 같은 nai.token 사용 중이라 트리거 가능
+// — 신뢰 영역이라 OK.
 app.post('/api/self-update', async (req, res) => {
-  if (!ADMIN_TOKEN) {
-    return res.status(503).json({ error: 'self-update not configured (set ADMIN_TOKEN env in .env.local)' });
+  if (!nai.token) {
+    try { nai.token = await fs.readFile(resolvePath('TOKEN.txt', { allowSensitive: true }), 'utf-8'); } catch {}
   }
-  if (req.headers['x-admin-token'] !== ADMIN_TOKEN) {
-    return res.status(401).json({ error: 'unauthorized' });
+  if (!nai.token) {
+    return res.status(401).json({ error: 'NAI 로그인 필요' });
   }
   if (selfUpdateInProgress) {
     return res.status(409).json({ error: 'update already in progress' });
