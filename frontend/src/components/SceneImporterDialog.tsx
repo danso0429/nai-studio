@@ -30,7 +30,6 @@ const SceneImporterDialog = observer(() => {
   const [policy, setPolicy] = useState<Record<string, Action>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
-  const [resultMsg, setResultMsg] = useState<string>('');
   const [copied, setCopied] = useState(false);
 
   const isOpen = appState.sceneImporterOpen;
@@ -70,7 +69,6 @@ const SceneImporterDialog = observer(() => {
       setPlan(null);
       setPolicy({});
       setError('');
-      setResultMsg('');
       setCopied(false);
     }
   }, [isOpen]);
@@ -96,7 +94,6 @@ const SceneImporterDialog = observer(() => {
 
   const runDryRun = async () => {
     setError('');
-    setResultMsg('');
     if (!selectedProject) {
       setError('프로젝트를 선택하세요');
       return;
@@ -142,7 +139,6 @@ const SceneImporterDialog = observer(() => {
   const apply = async () => {
     if (!plan || !selectedProject) return;
     setError('');
-    setResultMsg('');
     let parsed: any;
     try {
       parsed = JSON.parse(jsonText);
@@ -301,12 +297,6 @@ const SceneImporterDialog = observer(() => {
         {error && (
           <div className="rounded border border-red-400 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-3 py-2 text-xs">
             {error}
-          </div>
-        )}
-
-        {resultMsg && (
-          <div className="rounded border border-green-400 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-3 py-2 text-xs">
-            {resultMsg}
           </div>
         )}
 

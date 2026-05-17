@@ -58,11 +58,13 @@ export class TrashService extends EventTarget {
 
   // ===== Image trash =====
 
+  // scene output dir 표기 (outs/{session}/{scene} 또는 inpaints/...). 두 곳에서 동일하게 쓰여서 묶음.
+  private getSceneOutputDir(session: Session, scene: GenericScene): string {
+    return (scene.type === 'scene' ? 'outs/' : 'inpaints/') + session.name + '/' + scene.name;
+  }
+
   private getImageTrashDir(session: Session, scene: GenericScene): string {
-    const base = scene.type === 'scene'
-      ? 'outs/' + session.name + '/' + scene.name
-      : 'inpaints/' + session.name + '/' + scene.name;
-    return base + '/' + IMAGE_TRASH_DIR;
+    return this.getSceneOutputDir(session, scene) + '/' + IMAGE_TRASH_DIR;
   }
 
   private getImageTrashMetaPath(session: Session, scene: GenericScene): string {
@@ -149,9 +151,7 @@ export class TrashService extends EventTarget {
 
   async restoreImages(session: Session, scene: GenericScene, filenames: string[]): Promise<void> {
     const trashDir = this.getImageTrashDir(session, scene);
-    const outputDir = scene.type === 'scene'
-      ? 'outs/' + session.name + '/' + scene.name
-      : 'inpaints/' + session.name + '/' + scene.name;
+    const outputDir = this.getSceneOutputDir(session, scene);
     const meta = await this.loadImageTrashMeta(session, scene);
 
     for (const filename of filenames) {
@@ -427,9 +427,10 @@ export class TrashService extends EventTarget {
       const entry = this.data.scenes[key];
       if (!entry) continue;
       if (now - entry.deletedAt < SCENE_RETENTION_MS) continue;
+      const colonIdx = key.indexOf(':');
       expired.push({
-        projectName: key.substring(0, key.indexOf(':')),
-        sceneName: key.substring(key.indexOf(':') + 1),
+        projectName: key.substring(0, colonIdx),
+        sceneName: key.substring(colonIdx + 1),
         sceneType: entry.sceneData.type === 'inpaint' ? 'inpaint' : 'scene',
         key,
       });

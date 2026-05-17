@@ -556,6 +556,11 @@ export const highlightPrompt = (
   text: string,
   lineHighlight: boolean = false,
 ) => {
+  const escapeHtmlText = (s: string): string =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const escapeJsInAttr = (s: string): string =>
+    s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+
   // 주석 범위 수집 (원본 text 기준 절대 오프셋)
   const commentRanges: Array<[number, number]> = [];
   const commentRegex = /##[\s\S]*?##/g;
@@ -706,17 +711,9 @@ export const highlightPrompt = (
             lastPos < offset + word.length
           ) {
             const originalWordLength = word.length;
-            const left = word
-              .substring(0, lastPos - offset)
-              .replace('<', '&lt;')
-              .replace('>', '&gt;');
-            const mid = word[lastPos - offset]
-              .replace('<', '&lt;')
-              .replace('>', '&gt;');
-            const right = word
-              .substring(lastPos - offset + 1, word.length)
-              .replace('<', '&lt;')
-              .replace('>', '&gt;');
+            const left = escapeHtmlText(word.substring(0, lastPos - offset));
+            const mid = escapeHtmlText(word[lastPos - offset]);
+            const right = escapeHtmlText(word.substring(lastPos - offset + 1, word.length));
             word = `${left}<span class="syntax-error">${mid}</span>${right}`;
             let res = `<span class="syntax-word">`;
             res += word + '</span>';
@@ -730,7 +727,7 @@ export const highlightPrompt = (
             if (!isMobile)
               js =
                 'onmousemove="window.promptService.showPromptTooltip(\'' +
-                pword +
+                escapeJsInAttr(pword) +
                 '\', event)" onmouseout="window.promptService.clearPromptTooltip()"';
           }
           // 가중치 하이라이트 (배경색만, 폰트 변경 없음)
@@ -756,13 +753,13 @@ export const highlightPrompt = (
 
               js =
                 'onmousemove="window.promptService.showPromptTooltip(\'' +
-                pword +
+                escapeJsInAttr(pword) +
                 '\', event)" onmouseout="window.promptService.clearPromptTooltip()"';
             } catch (e: any) {
               classNames.push('syntax-error');
             }
           }
-          pword = pword.replace('<', '&lt;').replace('>', '&gt;');
+          pword = escapeHtmlText(pword);
           const leading = word.substring(0, leftTrimPos);
           const trailing = word.substring(rightTrimPos + 1, word.length);
           // 가중치 범위 내 공백은 하이라이트에 포함 (연속된 시각 피드백)

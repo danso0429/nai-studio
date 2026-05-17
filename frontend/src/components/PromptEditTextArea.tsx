@@ -40,7 +40,7 @@ interface PromptEditTextAreaProps {
 interface HistoryEntry {
   text: string;
   cursorPos: number[];
-  copmositionBuffer: string[];
+  compositionBuffer: string[];
 }
 
 function isMacPlatform() {
@@ -95,6 +95,26 @@ class Mutex {
 const mutex = new Mutex();
 
 const MAX_HISTORY_SIZE = 4096; // 1024 * 4096 bytes = 4 MB
+
+// 단어 경계 계산 (콤마/개행이 경계). fullWord=true면 커서 오른쪽도 진행.
+// fullWord=false (기본 모드)면 endIdx는 start 그대로 — 커서 왼쪽만 교체/조회.
+const getWordBounds = (
+  text: string,
+  start: number,
+  fullWord: boolean,
+): [number, number] => {
+  let startIdx = start;
+  while (startIdx > 0 && !',\n'.includes(text[startIdx - 1])) {
+    startIdx--;
+  }
+  let endIdx = start;
+  if (fullWord) {
+    while (endIdx < text.length && !',\n'.includes(text[endIdx])) {
+      endIdx++;
+    }
+  }
+  return [startIdx, endIdx];
+};
 
 class CursorMemorizeEditor {
   compositionBuffer: string[];
@@ -170,14 +190,13 @@ class CursorMemorizeEditor {
       null,
     );
     let currentNode;
+    const pairs: [Node, number][] = [
+      [startContainer, startOffset],
+      [endContainer, endOffset],
+    ];
     while ((currentNode = nodeIterator.nextNode())) {
-      for (let [i, container, offset] of [
-        [0, startContainer, startOffset],
-        [1, endContainer, endOffset],
-      ]) {
-        i = i as number;
-        offset = offset as number;
-        container = container as Node;
+      for (let i = 0; i < pairs.length; i++) {
+        const [container, offset] = pairs[i];
         if (currentNode === container) {
           if (container.nodeType === 3) {
             res[i] += offset;
@@ -289,41 +308,22 @@ class CursorMemorizeEditor {
   }
 
   getCurWord(start: number) {
-    let curText = this.domText;
-    let startIdx = start;
-    while (startIdx > 0 && !',\n'.includes(curText[startIdx - 1])) {
-      startIdx--;
-    }
-    if (appState.fullWordAutoComplete) {
-      // 콤마 사이 전체 단어 모드
-      let endIdx = start;
-      while (endIdx < curText.length && !',\n'.includes(curText[endIdx])) {
-        endIdx++;
-      }
-      return curText.substring(startIdx, endIdx).trim();
-    }
-    // 기본: 커서 왼쪽만
-    return curText.substring(startIdx, start).trim();
+    const curText = this.domText;
+    const fullWord = appState.fullWordAutoComplete;
+    const [startIdx, endIdx] = getWordBounds(curText, start, fullWord);
+    // fullWord=false면 endIdx=start. 두 분기 모두 substring(startIdx, endIdx).
+    return curText.substring(startIdx, endIdx).trim();
   }
 
   setCurWord(word: string) {
     mutex.runExclusive(async () => {
-      const [start, end] = this.getCaretPosition();
-      let curText = this.domText;
-      let startIdx = start;
-      while (startIdx > 0 && !',\n'.includes(curText[startIdx - 1])) {
-        startIdx--;
-      }
-      if (appState.fullWordAutoComplete) {
-        // 전체 단어 모드: 커서 오른쪽도 포함하여 교체
-        var endIdx = start;
-        while (endIdx < curText.length && !',\n'.includes(curText[endIdx])) {
-          endIdx++;
-        }
-      } else {
-        // 기본 모드: 커서 왼쪽만 교체 (오른쪽 텍스트 보존)
-        var endIdx = start;
-      }
+      const [start] = this.getCaretPosition();
+      const curText = this.domText;
+      const [startIdx, endIdx] = getWordBounds(
+        curText,
+        start,
+        appState.fullWordAutoComplete,
+      );
       if (startIdx !== 0 && curText[startIdx - 1] !== '\n') word = ' ' + word;
       this.updateCurText(
         curText.substring(0, startIdx) + word + curText.substring(endIdx),
@@ -1134,20 +1134,14 @@ const NativeEditTextArea = observer(
       const isAutoComplete = useRef(false);
 
       const getCurWord = () => {
-        let start = textareaRef.current.selectionStart;
+        const start = textareaRef.current.selectionStart;
         const curText = textareaRef.current.value;
-        let startIdx = start;
-        while (startIdx > 0 && !',\n'.includes(curText[startIdx - 1])) {
-          startIdx--;
-        }
-        if (appState.fullWordAutoComplete) {
-          let endIdx = start;
-          while (endIdx < curText.length && !',\n'.includes(curText[endIdx])) {
-            endIdx++;
-          }
-          return curText.substring(startIdx, endIdx).trim();
-        }
-        return curText.substring(startIdx, start).trim();
+        const [startIdx, endIdx] = getWordBounds(
+          curText,
+          start,
+          appState.fullWordAutoComplete,
+        );
+        return curText.substring(startIdx, endIdx).trim();
       };
 
       const renderText = () => {
@@ -1163,7 +1157,7 @@ const NativeEditTextArea = observer(
         if (history.length > MAX_HISTORY_SIZE) {
           history.shift();
         }
-        history.push({ text, cursorPos: [start, end], copmositionBuffer: [] });
+        history.push({ text, cursorPos: [start, end], compositionBuffer: [] });
         redo.clear();
       };
 
@@ -1238,20 +1232,12 @@ const NativeEditTextArea = observer(
         },
         setCurWord: (word: string) => {
           const start = textareaRef.current.selectionStart;
-          let curText = textareaRef.current.value;
-          let startIdx = start;
-          while (startIdx > 0 && !',\n'.includes(curText[startIdx - 1])) {
-            startIdx--;
-          }
-          let endIdx: number;
-          if (appState.fullWordAutoComplete) {
-            endIdx = start;
-            while (endIdx < curText.length && !',\n'.includes(curText[endIdx])) {
-              endIdx++;
-            }
-          } else {
-            endIdx = start;
-          }
+          const curText = textareaRef.current.value;
+          const [startIdx, endIdx] = getWordBounds(
+            curText,
+            start,
+            appState.fullWordAutoComplete,
+          );
           if (startIdx !== 0 && curText[startIdx - 1] !== '\n')
             word = ' ' + word;
           const newText =

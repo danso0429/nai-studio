@@ -200,13 +200,6 @@ export const SceneCell = observer(
           }
           return { isOver: false };
         },
-        hover({
-          scene: draggedScene,
-          curIndex: draggedIndex,
-        }: {
-          scene: GenericScene;
-          curIndex: number;
-        }) {},
         drop: (item: any, monitor) => {
           const { scene: droppedScene, curIndex: droppedIndex } = item;
           const overIndex = curSession.getScenes(scene.type).indexOf(scene);

@@ -92,6 +92,28 @@ async function atomicWriteFile(filePath, data, encoding) {
   await fs.rename(tmp, filePath);
 }
 
+// Debounced disk saver. save()는 첫 호출 후 delayMs 안 후속 호출을 묶어 한 번 syncFn().
+// flush()는 pending timeout 강제 즉시 실행 (shutdown/idle 시).
+function makeDebouncedSaver(syncFn, delayMs) {
+  let timeout = null;
+  return {
+    save() {
+      if (timeout) return;
+      timeout = setTimeout(() => {
+        timeout = null;
+        syncFn();
+      }, delayMs);
+    },
+    flush() {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      syncFn();
+    },
+  };
+}
+
 // ─── Sharp (optional) ───────────────────────────────────────────────
 let sharp;
 try {
@@ -195,7 +217,6 @@ function recordTiming(finishedAt, durationMs) {
   pruneTimingHistory();
 }
 
-let _timingSaveTimeout = null;
 function _writeTimingHistorySync() {
   try {
     fss.writeFileSync(TIMING_HISTORY_FILE, JSON.stringify(timingHistory));
@@ -206,22 +227,12 @@ function _writeTimingStatsSync() {
     fss.writeFileSync(TIMING_STATS_FILE, JSON.stringify(timingStats));
   } catch {}
 }
-function saveTimingHistory() {
-  if (_timingSaveTimeout) return;
-  _timingSaveTimeout = setTimeout(() => {
-    _timingSaveTimeout = null;
-    _writeTimingHistorySync();
-    _writeTimingStatsSync();
-  }, 5000);
-}
-function flushTimingHistory() {
-  if (_timingSaveTimeout) {
-    clearTimeout(_timingSaveTimeout);
-    _timingSaveTimeout = null;
-  }
+const _timingSaver = makeDebouncedSaver(() => {
   _writeTimingHistorySync();
   _writeTimingStatsSync();
-}
+}, 5000);
+function saveTimingHistory() { _timingSaver.save(); }
+function flushTimingHistory() { _timingSaver.flush(); }
 function loadTimingHistory() {
   // raw
   try {
@@ -314,19 +325,13 @@ function pruneCompletedJobs() {
   completedJobs = completedJobs.filter((e) => now - e.completedAt < COMPLETED_RETENTION_MS);
 }
 const COMPLETED_JOBS_FILE = path.join(DATA_DIR, '.queue_completed.json');
-let _completedSaveTimeout = null;
 function _writeCompletedJobsSync() {
   try {
     fss.writeFileSync(COMPLETED_JOBS_FILE, JSON.stringify(completedJobs));
   } catch {}
 }
-function saveCompletedJobs() {
-  if (_completedSaveTimeout) return;
-  _completedSaveTimeout = setTimeout(() => {
-    _completedSaveTimeout = null;
-    _writeCompletedJobsSync();
-  }, 5000);
-}
+const _completedSaver = makeDebouncedSaver(_writeCompletedJobsSync, 5000);
+function saveCompletedJobs() { _completedSaver.save(); }
 function loadCompletedJobs() {
   try {
     const raw = fss.readFileSync(COMPLETED_JOBS_FILE, 'utf8');
@@ -351,29 +356,16 @@ function broadcastQueueStatus() {
   });
 }
 const QUEUE_STATE_FILE = path.join(DATA_DIR, '.queue_state.json');
-let _queueSaveTimeout = null;
 function _writeQueueStateSync() {
   try {
     const state = { queue: genQueue.slice(), stats: queueStats, savedAt: Date.now() };
     fss.writeFileSync(QUEUE_STATE_FILE, JSON.stringify(state));
   } catch {}
 }
-function saveQueueState() {
-  // Debounced: collapse rapid calls into one disk write per 1s
-  if (_queueSaveTimeout) return;
-  _queueSaveTimeout = setTimeout(() => {
-    _queueSaveTimeout = null;
-    _writeQueueStateSync();
-  }, 1000);
-}
-function flushQueueState() {
-  // Force immediate write (e.g. on shutdown or queue idle)
-  if (_queueSaveTimeout) {
-    clearTimeout(_queueSaveTimeout);
-    _queueSaveTimeout = null;
-  }
-  _writeQueueStateSync();
-}
+// 1초 debounce: rapid enqueue/process 중 disk write 폭주 방지.
+const _queueSaver = makeDebouncedSaver(_writeQueueStateSync, 1000);
+function saveQueueState() { _queueSaver.save(); }
+function flushQueueState() { _queueSaver.flush(); }
 function loadQueueState() {
   try {
     const raw = fss.readFileSync(QUEUE_STATE_FILE, 'utf8');
@@ -510,7 +502,6 @@ async function loadDriveRetryQueue() {
 
 // Queue state와 동일 패턴: rapid enqueue/process 중 in-place save 폭주 +
 // 진행 중 enqueue 개입으로 인한 부분 저장 회피.
-let _driveRetrySaveTimeout = null;
 function _writeDriveRetryQueueSync() {
   try {
     fss.writeFileSync(DRIVE_RETRY_QUEUE_FILE, JSON.stringify(driveRetryQueue, null, 2));
@@ -518,22 +509,9 @@ function _writeDriveRetryQueueSync() {
     console.error('[Drive retry] save failed:', e.message);
   }
 }
-function saveDriveRetryQueue() {
-  // 1초 debounce — rapid calls를 한 번 disk write로 묶음.
-  if (_driveRetrySaveTimeout) return;
-  _driveRetrySaveTimeout = setTimeout(() => {
-    _driveRetrySaveTimeout = null;
-    _writeDriveRetryQueueSync();
-  }, 1000);
-}
-function flushDriveRetryQueue() {
-  // 즉시 write (process tick 끝 / shutdown / 외부 reload 전에 부르기).
-  if (_driveRetrySaveTimeout) {
-    clearTimeout(_driveRetrySaveTimeout);
-    _driveRetrySaveTimeout = null;
-  }
-  _writeDriveRetryQueueSync();
-}
+const _driveRetrySaver = makeDebouncedSaver(_writeDriveRetryQueueSync, 1000);
+function saveDriveRetryQueue() { _driveRetrySaver.save(); }
+function flushDriveRetryQueue() { _driveRetrySaver.flush(); }
 
 // requestedPath: 클라가 보낸 path (jobId 역할). WS broadcast 시 클라 매칭용.
 // immediate: true면 nextRetryAt=now (초기 sync), false면 INTERVALS[0]만큼 띄움 (실패 후 재시도).

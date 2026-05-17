@@ -59,24 +59,17 @@ export async function getUniqueFilename(
   let filename = `${baseFilename}.${extension}`;
   let counter = 1;
 
-  // 파일 존재 여부 확인 (최대 9999번까지)
-  const checkFile = async (): Promise<string> => {
+  // 파일 존재 여부 확인 (최대 9999번까지). async 재귀 대신 while로 단순화.
+  while (true) {
     const fullPath = `${directory}/${filename}`;
     const exists = useAbsolutePath
       ? await backend.existFileAbsolute(fullPath)
       : await backend.existFile(fullPath);
-    if (!exists) {
-      return filename;
-    }
-    if (counter > 9999) {
-      return `${baseFilename}_${Date.now()}.${extension}`;
-    }
+    if (!exists) return filename;
+    if (counter > 9999) return `${baseFilename}_${Date.now()}.${extension}`;
     filename = `${baseFilename}_${counter}.${extension}`;
     counter += 1;
-    return checkFile();
-  };
-
-  return checkFile();
+  }
 }
 
 /**
@@ -195,6 +188,18 @@ export class ImageDownloadService {
     await this.saveSettings();
   }
 
+  // prefix/suffix는 characterPreset 우선 → settings default → ''. 두 다운로드 경로에서 반복됨.
+  private resolvePrefixSuffix(
+    characterPreset?: CharacterPreset,
+  ): { prefix: string; suffix: string } {
+    return {
+      prefix:
+        characterPreset?.filenamePrefix || this.settings.defaultPrefix || '',
+      suffix:
+        characterPreset?.filenameSuffix || this.settings.defaultSuffix || '',
+    };
+  }
+
   /**
    * 단일 이미지 다운로드
    */
@@ -210,10 +215,7 @@ export class ImageDownloadService {
     customFilename?: string,
   ): Promise<boolean> {
     try {
-      const prefix =
-        characterPreset?.filenamePrefix || this.settings.defaultPrefix || '';
-      const suffix =
-        characterPreset?.filenameSuffix || this.settings.defaultSuffix || '';
+      const { prefix, suffix } = this.resolvePrefixSuffix(characterPreset);
       const baseFilename = customFilename
         ? sanitizeFilename(customFilename)
         : generateFilename({
@@ -294,10 +296,7 @@ export class ImageDownloadService {
       this.isDownloading = true;
       this.downloadProgress = 0;
 
-      const prefix =
-        characterPreset?.filenamePrefix || this.settings.defaultPrefix || '';
-      const suffix =
-        characterPreset?.filenameSuffix || this.settings.defaultSuffix || '';
+      const { prefix, suffix } = this.resolvePrefixSuffix(characterPreset);
 
       // 웹 fallback: 브라우저 N번 다운로드. autoNumbering/덮어쓰기 무관 (브라우저 다운로드는
       // 클라 측 파일명만 결정, 충돌은 OS가 처리).

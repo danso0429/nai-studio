@@ -20,7 +20,6 @@ interface ImportOptions {
   vibesAppend: boolean;
   settings: boolean;
   seed: boolean;
-  resolution: boolean;
 }
 
 interface ExternalImageViewProps {
@@ -42,7 +41,6 @@ export const ExternalImageView = observer(
       vibesAppend: false,
       settings: true,
       seed: true,
-      resolution: true,
     });
 
     useEffect(() => {
@@ -58,7 +56,6 @@ export const ExternalImageView = observer(
           ...prev,
           characters: (newJob.characterPrompts?.length ?? 0) > 0,
           vibes: (newJob.vibes?.length ?? 0) > 0,
-          resolution: !!newJob.resolution,
         }));
       })();
     }, [image]);
@@ -72,7 +69,6 @@ export const ExternalImageView = observer(
     const hasVibeImages = (job?.vibeImageData?.length ?? 0) > 0;
     const hasRefImages = (job?.referenceImageData?.length ?? 0) > 0;
     const hasCharRefs = (job?.characterReferences?.length ?? 0) > 0;
-    const hasResolution = !!job?.resolution;
 
     const applyImport = async () => {
       if (!job || !appState.curSession) return;
@@ -157,24 +153,27 @@ export const ExternalImageView = observer(
           return;
         }
 
-        // 시드는 presetShared에 저장
-        if (options.seed && job.seed != null) {
+        // shared(presetType)이 없으면 빌드해서 세션에 set. 동일 4줄 패턴이 시드/바이브/refs 3곳에서
+        // 반복돼 helper로 묶음.
+        const getOrCreateShared = () => {
           let shared = session.presetShareds.get(presetType);
           if (!shared) {
             shared = workFlowService.buildShared(presetType);
             session.presetShareds.set(presetType, shared);
           }
+          return shared;
+        };
+
+        // 시드는 presetShared에 저장
+        if (options.seed && job.seed != null) {
+          const shared = getOrCreateShared();
           runInAction(() => {
             shared.seed = job.seed;
           });
         }
 
         if (options.vibes && hasVibes) {
-          let shared = session.presetShareds.get(presetType);
-          if (!shared) {
-            shared = workFlowService.buildShared(presetType);
-            session.presetShareds.set(presetType, shared);
-          }
+          const shared = getOrCreateShared();
           const newVibes: VibeItem[] = [];
           for (let i = 0; i < job.vibes.length; i++) {
             const vibe = job.vibes[i];
@@ -204,11 +203,7 @@ export const ExternalImageView = observer(
         }
 
         if (hasCharRefs) {
-          let shared = session.presetShareds.get(presetType);
-          if (!shared) {
-            shared = workFlowService.buildShared(presetType);
-            session.presetShareds.set(presetType, shared);
-          }
+          const shared = getOrCreateShared();
           const newRefs: ReferenceItem[] = [];
           for (let i = 0; i < job.characterReferences.length; i++) {
             const ref = job.characterReferences[i];
@@ -518,14 +513,6 @@ export const ExternalImageView = observer(
                     checked={options.seed}
                     onChange={(v) => setOpt('seed', v)}
                     disabled={job.seed == null}
-                  />
-
-                  {/* 해상도 */}
-                  <CheckboxRow
-                    label={`해상도${hasResolution ? `: ${job.resolution!.width} × ${job.resolution!.height}` : ''}`}
-                    checked={options.resolution}
-                    onChange={(v) => setOpt('resolution', v)}
-                    disabled={!hasResolution}
                   />
                 </>
               )}
