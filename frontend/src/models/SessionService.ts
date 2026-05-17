@@ -142,11 +142,12 @@ export class SessionService extends ResourceSyncService<Session> {
   async delete(name: string) {
     this.favorites.delete(name);
     await this.saveFavorites();
-    // 북마크 정리
+    // 북마크 정리 — 삭제 전 존재 여부 캡처 (delete 후 검사는 항상 falsy)
+    const hadSceneBookmark = name in this.bookmarkData.scenes;
     delete this.bookmarkData.scenes[name];
     const keysToDelete = Object.keys(this.bookmarkData.images).filter(k => k.startsWith(name + ':'));
     keysToDelete.forEach(k => delete this.bookmarkData.images[k]);
-    if (keysToDelete.length > 0 || this.bookmarkData.scenes[name]) {
+    if (keysToDelete.length > 0 || hadSceneBookmark) {
       await this.saveBookmarks();
     }
     // 메모리 캐시 정리

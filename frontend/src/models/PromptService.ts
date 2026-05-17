@@ -714,14 +714,14 @@ export const highlightPrompt = (
             const left = word
               .substring(0, lastPos - offset)
               .replace('<', '&lt;')
-              .replace('>', '&gt');
+              .replace('>', '&gt;');
             const mid = word[lastPos - offset]
               .replace('<', '&lt;')
-              .replace('>', '&gt');
+              .replace('>', '&gt;');
             const right = word
               .substring(lastPos - offset + 1, word.length)
               .replace('<', '&lt;')
-              .replace('>', '&gt');
+              .replace('>', '&gt;');
             word = `${left}<span class="syntax-error">${mid}</span>${right}`;
             let res = `<span class="syntax-word">`;
             res += word + '</span>';
@@ -767,7 +767,7 @@ export const highlightPrompt = (
               classNames.push('syntax-error');
             }
           }
-          pword = pword.replace('<', '&lt;').replace('>', '&gt');
+          pword = pword.replace('<', '&lt;').replace('>', '&gt;');
           const leading = word.substring(0, leftTrimPos);
           const trailing = word.substring(rightTrimPos + 1, word.length);
           // 가중치 범위 내 공백은 하이라이트에 포함 (연속된 시각 피드백)

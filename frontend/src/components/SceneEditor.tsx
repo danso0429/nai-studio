@@ -884,10 +884,13 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
     curSession!.selectedWorkflow!,
   );
 
-  if (type && !scene.meta.has(type)) {
-    scene.meta.set(type, workFlowService.buildMeta(type));
-    rerender({});
-  }
+  // render 본문 setState 안티패턴 회피 — useEffect로 이동 (concurrent rendering 무한 루프 위험)
+  useEffect(() => {
+    if (type && !scene.meta.has(type)) {
+      scene.meta.set(type, workFlowService.buildMeta(type));
+      rerender({});
+    }
+  }, [type, scene]);
 
   useEffect(() => {
     setCurName(scene.name);
@@ -963,7 +966,7 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
 
   const setMainImage = (path: string) => {
     const filename = path.split('/').pop()!;
-    if (!(filename in scene.mains)) {
+    if (!scene.mains.includes(filename)) {
       scene.mains.push(filename);
     }
   };

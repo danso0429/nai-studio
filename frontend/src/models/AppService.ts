@@ -2048,7 +2048,7 @@ export class AppState {
             let image = await imageService.fetchImage(path);
             image = dataUriToBase64(image!);
             queueRemoveBg(this.curSession!, scene, image, (newPath: string) => {
-              for (let j = 0; scene.mains.length; j++) {
+              for (let j = 0; j < scene.mains.length; j++) {
                 if (scene.mains[j] === main) {
                   scene.mains[j] = newPath.split('/').pop()!;
                   break;

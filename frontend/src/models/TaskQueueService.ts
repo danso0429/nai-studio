@@ -122,7 +122,7 @@ class TaskTimeEstimator {
 
   estimateMedian() {
     const smp = this.samples.filter((x) => x != undefined);
-    smp.sort();
+    smp.sort((a, b) => a! - b!);
     if (smp.length) return smp[smp.length >> 1]!;
     return this.defaultEstimate;
   }

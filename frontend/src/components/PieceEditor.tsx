@@ -70,7 +70,7 @@ export const PieceCell = observer(
     const [{ isDragging }, drag, preview] = useDrag(
       {
         type: 'piece',
-        item: { piece, curPieceLibrary, name, width: curWidth },
+        item: { piece, curPieceLibrary, pieceName: name, width: curWidth },
         canDrag: () => true,
         collect: (monitor) => ({
           isDragging: monitor.isDragging(),
