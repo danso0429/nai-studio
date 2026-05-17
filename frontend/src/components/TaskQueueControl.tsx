@@ -335,7 +335,7 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
     // 본인 페인 (2026-05-17): UI 너무 컸음 → 폴더 row 컴팩트 + 4개 정도 default 보임 + 세로 스크롤.
     //   반투명 + rounded. 트리 연결은 ㄴ unicode 사용.
     <div
-      className="absolute bottom-full right-0 mb-2 bg-white/85 dark:bg-slate-700/85 backdrop-blur-md w-60 md:w-96 z-20 shadow-lg rounded-xl flex flex-col overflow-hidden max-h-[260px] md:max-h-[320px]"
+      className="absolute bottom-full right-0 mb-2 bg-white/65 dark:bg-slate-700/65 backdrop-blur-md w-60 md:w-96 z-20 shadow-lg rounded-xl flex flex-col overflow-hidden max-h-[260px] md:max-h-[320px]"
       onClick={(e) => e.stopPropagation()}
     >
       <button
@@ -349,19 +349,21 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
       {/* scroll fix: 옛 'flex-1 overflow-hidden > h-full overflow-y-auto' 조합은
           flex item 자체에 h 없어서 grandchild의 h-full이 ignored → scroll 안 됨.
           한 단계 합쳐 flex-1 자체에 overflow-y-auto. */}
-      <div className="flex-1 overflow-y-auto pb-2 px-1 min-h-0">
+      {/* overflow-x-hidden + 자식 truncate flex item에 min-w-0 필수 — flex 기본
+          min-width:auto면 intrinsic content가 row 폭을 밀어내서 가로 스크롤 발생. */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2 px-1 min-h-0">
         {tree.map((folder) => {
           const fKey = `f:${folder.name}`;
           const fOpen = expanded.has(fKey);
           return (
-            <div key={fKey}>
+            <div key={fKey} className="min-w-0">
               <div
-                className="flex items-center gap-2 px-2.5 py-2 mx-1 mt-1 rounded-md border border-gray-300 dark:border-slate-500 cursor-pointer"
+                className="flex items-center gap-2 px-2.5 py-2 mx-1 mt-1 rounded-md border border-gray-300 dark:border-slate-500 cursor-pointer min-w-0"
                 onClick={() => toggle(fKey)}
               >
                 {chevron(fOpen)}
                 <div className="flex-none text-base">📁</div>
-                <div className="flex-1 truncate text-default text-sm md:text-base leading-tight font-medium">
+                <div className="flex-1 min-w-0 truncate text-default text-sm md:text-base leading-tight font-medium">
                   {folder.name}
                 </div>
                 <div className="flex-none ml-auto px-2 py-0.5 bg-gray-300/70 dark:bg-slate-500/70 dark:text-white rounded font-medium text-xs md:text-sm text-gray-700 dark:text-gray-100">
@@ -374,17 +376,17 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
                   const pOpen = expanded.has(pKey);
                   const isPLast = pIdx === folder.projects.length - 1;
                   return (
-                    <div key={pKey}>
-                      <div className="flex items-center gap-0 mt-0.5 ml-3">
+                    <div key={pKey} className="min-w-0">
+                      <div className="flex items-center gap-0 mt-0.5 ml-3 min-w-0">
                         <span className="flex-none text-gray-400 dark:text-gray-500 text-sm font-mono w-3.5 inline-block">
                           {isPLast ? '└' : '├'}
                         </span>
                         <div
-                          className="flex flex-1 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md border border-gray-200 dark:border-slate-600 cursor-pointer"
+                          className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md border border-gray-200 dark:border-slate-600 cursor-pointer"
                           onClick={() => toggle(pKey)}
                         >
                           {chevron(pOpen)}
-                          <div className="flex-1 truncate text-default text-sm leading-tight">
+                          <div className="flex-1 min-w-0 truncate text-default text-sm leading-tight">
                             {proj.name}
                           </div>
                           <div className="flex-none ml-auto px-2 py-0.5 bg-gray-200/70 dark:bg-slate-600/70 dark:text-white rounded font-medium text-xs text-gray-700 dark:text-gray-100">
@@ -398,12 +400,12 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
                           const isProcessing =
                             !!currentKey && s.sceneKey === currentKey;
                           const sceneBoxClass = isProcessing
-                            ? 'flex flex-1 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md scene-processing-list'
-                            : 'flex flex-1 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md border border-gray-200 dark:border-slate-600';
+                            ? 'flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md scene-processing-list'
+                            : 'flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md border border-gray-200 dark:border-slate-600';
                           return (
                             <div
                               key={sIdx}
-                              className="flex items-center gap-0 mt-0.5 ml-7"
+                              className="flex items-center gap-0 mt-0.5 ml-7 min-w-0"
                             >
                               <span className="flex-none text-gray-400 dark:text-gray-500 text-sm font-mono w-3.5 inline-block">
                                 {isSLast ? '└' : '├'}
@@ -412,7 +414,7 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
                                 <div className="flex-none text-sm">
                                   {getEmoji(s.firstTask)}
                                 </div>
-                                <div className="flex-1 truncate text-default text-sm leading-tight">
+                                <div className="flex-1 min-w-0 truncate text-default text-sm leading-tight">
                                   <span className="font-medium">{s.sceneName}</span>
                                 </div>
                                 <div className="flex-none ml-auto px-2 py-0.5 bg-gray-200/70 dark:bg-slate-600/70 dark:text-white rounded font-medium text-xs text-gray-700 dark:text-gray-100">
