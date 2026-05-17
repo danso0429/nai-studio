@@ -155,6 +155,14 @@ export class ServerBackend extends Backend {
     return { cancelled: data.cancelled || 0 };
   }
 
+  async queuePrioritize(taskIds: string[], priority: boolean): Promise<{ changed: number }> {
+    const data = await apiJSON('/queue/prioritize', {
+      method: 'POST',
+      body: JSON.stringify({ taskIds, priority }),
+    });
+    return { changed: data.changed || 0 };
+  }
+
   async getDriveRetryStatus(): Promise<DriveRetryStatus> {
     return apiJSON('/drive/retry-status');
   }

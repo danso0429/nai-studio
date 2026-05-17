@@ -75,6 +75,7 @@ export interface Task {
   params: TaskParam;
   done: number;
   total: number;
+  priority?: boolean; // 우선순위 큐. 서버 측 jobs[i].priority 기반으로 restore 시 set.
 }
 
 function getRandomInt(min: number, max: number): number {
@@ -803,6 +804,27 @@ export class TaskQueueService extends EventTarget {
     this.taskLogs = [];
   }
 
+  // 우선순위 toggle — 서버에 호출 + 로컬 task.priority 즉시 갱신 (optimistic) + 재동기화 트리거.
+  // 본인 spec (2026-05-17): 처리 중 잡 외 priority=true 잡들이 큐 앞으로. FIFO within 우선순위.
+  async prioritizeTasks(taskIds: string[], priority: boolean) {
+    // 옵티미스틱: 로컬 mirroredTasks의 task.priority를 즉시 set → UI 즉각 반영.
+    for (const id of taskIds) {
+      const task = this.mirroredTasks.get(id);
+      if (task) task.priority = priority;
+    }
+    this.dispatchProgress();
+    try {
+      await backend.queuePrioritize(taskIds, priority);
+    } catch (e) {
+      console.warn('[TaskQueue] prioritize failed:', e);
+      // 실패 시 서버 상태로 되돌리기 위해 재동기화. dispatchProgress로 UI도 보정됨.
+      this.restoreMirroredState().catch(() => {});
+      throw e;
+    }
+    // 성공해도 서버 측 정렬이 적용된 최신 상태를 가져옴 (다른 탭 sync + 안전망).
+    this.restoreMirroredState().catch(() => {});
+  }
+
   removeAllTasks() {
     while (!this.queue.isEmpty()) {
       const task = this.queue.peek();
@@ -1150,6 +1172,9 @@ export class TaskQueueService extends EventTarget {
       const placeholderScene = meta.sceneName
         ? ({ name: meta.sceneName, type: meta.taskType || 'scene', _sceneKey: meta.sceneKey } as any)
         : (undefined as any);
+      // task 단위 priority — 한 task의 어떤 job이라도 priority면 task 통째로 priority 취급.
+      // 서버는 task의 모든 jobs를 한 묶음으로 prioritize하니 보통 일치하지만 race 시 보호용.
+      const hasPriority = jobs.some((j: any) => !!j.priority);
       const restoredTask: Task = {
         id: taskId,
         cls,
@@ -1161,6 +1186,7 @@ export class TaskQueueService extends EventTarget {
         },
         done: 0,
         total: jobs.length,
+        priority: hasPriority,
       };
       this.mirroredTasks.set(taskId, restoredTask);
       this.taskSet[taskId] = true;

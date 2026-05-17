@@ -1416,8 +1416,38 @@ app.get('/api/queue/full-state', (req, res) => {
       jobId: j.jobId,
       meta: j.meta || {},
       outputFilePath: j.params && j.params.outputFilePath,
+      priority: !!j.priority,
     })),
   });
+});
+
+// 우선순위 toggle. 한 task에 속한 모든 잡의 priority 플래그를 설정 + 큐 재정렬.
+// 우선순위 true인 잡들이 처리 중인 헤드 다음 위치로 앞당겨짐. 우선순위끼리는 FIFO
+// (처음 mark된 순서 유지 = sort 안정성). 처리 중 잡(genQueue[0])은 안 건드림.
+app.post('/api/queue/prioritize', async (req, res) => {
+  const body = req.body || {};
+  const taskIds = Array.isArray(body.taskIds) ? body.taskIds : [];
+  const priority = !!body.priority;
+  if (taskIds.length === 0) return res.json({ changed: 0 });
+  const targetSet = new Set(taskIds);
+  const protectHead = queueProcessing && genQueue.length > 0;
+  let changed = 0;
+  for (let i = protectHead ? 1 : 0; i < genQueue.length; i++) {
+    const j = genQueue[i];
+    if (j.meta && targetSet.has(j.meta.taskId) && !!j.priority !== priority) {
+      j.priority = priority;
+      changed++;
+    }
+  }
+  if (changed > 0) {
+    // 안정 정렬: priority=true가 앞. 같은 그룹 내 기존 순서 유지.
+    const head = protectHead ? genQueue.shift() : null;
+    genQueue.sort((a, b) => (b.priority ? 1 : 0) - (a.priority ? 1 : 0));
+    if (head) genQueue.unshift(head);
+    broadcastQueueStatus();
+    saveQueueState();
+  }
+  res.json({ changed });
 });
 
 // 완료된 jobs. 메모리 ring buffer (정확한 meta) + 파일시스템 walk (옛 jobs 복원).

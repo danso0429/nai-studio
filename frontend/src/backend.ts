@@ -78,6 +78,7 @@ export interface QueueFullState {
     jobId: string;
     meta: QueueJobMeta;
     outputFilePath?: string;
+    priority?: boolean;
   }>;
 }
 
@@ -132,6 +133,7 @@ export abstract class Backend {
   abstract resumeQueue(): Promise<void>;
   abstract cancelQueue(): Promise<{ cancelled: number }>;
   abstract cancelQueueByTaskIds(taskIds: string[]): Promise<{ cancelled: number }>;
+  abstract queuePrioritize(taskIds: string[], priority: boolean): Promise<{ changed: number }>;
   abstract getDriveRetryStatus(): Promise<DriveRetryStatus>;
   abstract driveRetryNow(): Promise<void>;
   abstract driveRetryDismiss(localPath: string): Promise<void>;

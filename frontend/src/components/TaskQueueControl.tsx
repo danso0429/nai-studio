@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FaCaretLeft, FaCaretRight, FaPause, FaPlay, FaRegCalendarTimes, FaTimes, FaRegClock } from 'react-icons/fa';
+import { FaCaretLeft, FaCaretRight, FaPause, FaPlay, FaRegCalendarTimes, FaTimes, FaRegClock, FaStar, FaRegStar } from 'react-icons/fa';
 import { sessionService, taskQueueService, cyclingSessionService } from '../models';
 import { getSceneKey, Task } from '../models/TaskQueueService';
 import { appState } from '../models/AppService';
@@ -201,6 +201,8 @@ type SceneNode = {
   emoji: string;
   done: number;
   total: number; // 원래 큐 등록된 총 잡 수 (snapshot, 고정)
+  taskIds: string[]; // 우선순위 toggle 시 서버에 보낼 task ID들
+  isPriority: boolean; // 이 씬의 task 중 하나라도 priority면 true
 };
 type ProjectNode = {
   name: string;
@@ -233,6 +235,7 @@ type SeenEntry = {
   emoji: string;
   originalTotal: number;
   done: number;
+  priority: boolean;
   completedAt?: number; // task가 mirroredTasks에서 사라진 시점 (vanish 타이머 시작)
 };
 
@@ -271,12 +274,12 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
           emoji: taskQueueService.getTaskInfo(task).emoji,
           originalTotal: task.total,
           done: task.done,
+          priority: !!task.priority,
         });
       } else {
-        // task가 살아있는 동안 done 갱신. completedAt은 task가 사라졌다가 다시 같은 id로
-        // 들어올 일이 없으니 안전.
+        // task가 살아있는 동안 done/priority 갱신.
         existing.done = task.done;
-        // originalTotal이 늘었다면(추가 queueAddBatch 등) 갱신 — 거의 발생 안 함이지만 보호.
+        existing.priority = !!task.priority;
         if (task.total > existing.originalTotal) {
           existing.originalTotal = task.total;
         }
@@ -326,12 +329,12 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
 
   const currentKey = appState.currentProcessingSceneKey;
 
-  // 트리 빌드 — seenTasksRef snapshot 기준. task가 사라져도 (vanish delay 동안) 보존돼서
-  // 분모가 갑자기 줄지 않음. 폴더/프로젝트 카운트도 자식 entry의 originalTotal/done sum.
-  const tree: FolderNode[] = useMemo(() => {
+  // 트리 빌드 헬퍼 — entries 필터(priority/normal)별로 분리해 두 트리 생성. seenTasksRef snapshot
+  // 기준이라 task 사라져도 (vanish delay 동안) 카운트 유지.
+  const buildTree = (entries: SeenEntry[]): FolderNode[] => {
     const folders = new Map<string, Map<string, Map<string, SceneNode>>>();
     const folderMeta = new Map<string, { hasFolder: boolean }>();
-    for (const entry of seenTasksRef.current.values()) {
+    for (const entry of entries) {
       const folderKey = entry.folder || NO_FOLDER_KEY;
       if (!folders.has(folderKey)) {
         folders.set(folderKey, new Map());
@@ -345,6 +348,8 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
       if (existing) {
         existing.done += entry.done;
         existing.total += entry.originalTotal;
+        existing.taskIds.push(entry.taskId);
+        if (entry.priority) existing.isPriority = true;
       } else {
         sceneMap.set(sceneId, {
           sceneKey: entry.sceneKey,
@@ -352,6 +357,8 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
           emoji: entry.emoji,
           done: entry.done,
           total: entry.originalTotal,
+          taskIds: [entry.taskId],
+          isPriority: entry.priority,
         });
       }
     }
@@ -397,6 +404,19 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
       return a.name.localeCompare(b.name);
     });
     return result;
+  };
+
+  // 우선순위 vs 일반 두 섹션 — 한 씬에 같은 task가 두 priority 모두면 (드물지만) 두 섹션 모두 표시.
+  // task 단위 priority라 entry 단위 분리 자연스러움.
+  const { priorityTree, normalTree } = useMemo(() => {
+    const entries = Array.from(seenTasksRef.current.values());
+    const pri = entries.filter((e) => e.priority);
+    const nor = entries.filter((e) => !e.priority);
+    return {
+      priorityTree: buildTree(pri),
+      normalTree: buildTree(nor),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, currentKey]);
 
   const toggle = (key: string) => {
@@ -413,6 +433,111 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
       {open ? '▼' : '▶'}
     </span>
   );
+
+  const onTogglePriority = (taskIds: string[], next: boolean) => {
+    taskQueueService.prioritizeTasks(taskIds, next).catch(() => {
+      // 실패는 prioritizeTasks 내부에서 restoreMirroredState로 복원. 토스트는 안 띄움.
+    });
+  };
+
+  // 트리 한 섹션 렌더. priority/normal 두 번 호출되니 keyPrefix로 expand state 충돌 회피.
+  const renderTree = (treeNodes: FolderNode[], keyPrefix: string) =>
+    treeNodes.map((folder) => {
+      const fKey = `${keyPrefix}f:${folder.name}`;
+      const fOpen = expanded.has(fKey);
+      return (
+        <div key={fKey} className="min-w-0">
+          <div
+            className={
+              'flex items-center gap-2 px-2.5 py-2 mx-1 mt-1 rounded-md cursor-pointer min-w-0 ' +
+              (folder.isProcessing
+                ? 'scene-processing-list'
+                : 'border border-gray-300 dark:border-slate-500')
+            }
+            onClick={() => toggle(fKey)}
+          >
+            {chevron(fOpen)}
+            <div className="flex-none text-base">📁</div>
+            <div className="flex-1 min-w-0 truncate text-default text-sm md:text-base leading-tight font-medium">
+              {folder.name}
+            </div>
+            <div className="flex-none ml-auto px-2 py-0.5 bg-gray-300/70 dark:bg-slate-500/70 dark:text-white rounded font-medium text-xs md:text-sm text-gray-700 dark:text-gray-100">
+              {folder.done}/{folder.total}
+            </div>
+          </div>
+          {fOpen &&
+            folder.projects.map((proj, pIdx) => {
+              const pKey = `${keyPrefix}p:${folder.name}/${proj.name}`;
+              const pOpen = expanded.has(pKey);
+              const isPLast = pIdx === folder.projects.length - 1;
+              return (
+                <div key={pKey} className="min-w-0">
+                  <div className="flex items-center gap-0 mt-0.5 ml-3 min-w-0">
+                    <span className="flex-none text-gray-400 dark:text-gray-500 text-sm font-mono w-3.5 inline-block">
+                      {isPLast ? '└' : '├'}
+                    </span>
+                    <div
+                      className={
+                        'flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md cursor-pointer ' +
+                        (proj.isProcessing
+                          ? 'scene-processing-list'
+                          : 'border border-gray-200 dark:border-slate-600')
+                      }
+                      onClick={() => toggle(pKey)}
+                    >
+                      {chevron(pOpen)}
+                      <div className="flex-1 min-w-0 truncate text-default text-sm leading-tight">
+                        {proj.name}
+                      </div>
+                      <div className="flex-none ml-auto px-2 py-0.5 bg-gray-200/70 dark:bg-slate-600/70 dark:text-white rounded font-medium text-xs text-gray-700 dark:text-gray-100">
+                        {proj.done}/{proj.total}
+                      </div>
+                    </div>
+                  </div>
+                  {pOpen &&
+                    proj.scenes.map((s, sIdx) => {
+                      const isSLast = sIdx === proj.scenes.length - 1;
+                      const isProcessing =
+                        !!currentKey && s.sceneKey === currentKey;
+                      const sceneBoxClass = isProcessing
+                        ? 'flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md scene-processing-list'
+                        : 'flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md border border-gray-200 dark:border-slate-600';
+                      return (
+                        <div
+                          key={sIdx}
+                          className="flex items-center gap-0 mt-0.5 ml-7 min-w-0"
+                        >
+                          <span className="flex-none text-gray-400 dark:text-gray-500 text-sm font-mono w-3.5 inline-block">
+                            {isSLast ? '└' : '├'}
+                          </span>
+                          <div className={sceneBoxClass}>
+                            <div className="flex-none text-sm">{s.emoji}</div>
+                            <div className="flex-1 min-w-0 truncate text-default text-sm leading-tight">
+                              <span className="font-medium">{s.sceneName}</span>
+                            </div>
+                            <button
+                              className="flex-none ml-1 p-0.5 text-amber-500 dark:text-amber-400 hover:scale-110 transition-transform"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onTogglePriority(s.taskIds, !s.isPriority);
+                              }}
+                              title={s.isPriority ? '우선순위 해제' : '우선순위로 이동'}
+                            >
+                              {s.isPriority ? <FaStar size={12} /> : <FaRegStar size={12} />}
+                            </button>
+                            <div className="flex-none ml-auto px-2 py-0.5 bg-gray-200/70 dark:bg-slate-600/70 dark:text-white rounded font-medium text-xs text-gray-700 dark:text-gray-100">
+                              {s.done}/{s.total}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              );
+            })}
+        </div>
+      );
+    });
 
   return (
     // 하단바 위에 정확히 붙음 — bottom-full로 부모(pill) 바로 위. 부모는 relative 필수.
@@ -437,94 +562,25 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
       {/* overflow-x-hidden + 자식 truncate flex item에 min-w-0 필수 — flex 기본
           min-width:auto면 intrinsic content가 row 폭을 밀어내서 가로 스크롤 발생. */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-2 px-1 min-h-0">
-        {tree.map((folder) => {
-          const fKey = `f:${folder.name}`;
-          const fOpen = expanded.has(fKey);
-          return (
-            <div key={fKey} className="min-w-0">
-              <div
-                className={
-                  'flex items-center gap-2 px-2.5 py-2 mx-1 mt-1 rounded-md cursor-pointer min-w-0 ' +
-                  (folder.isProcessing
-                    ? 'scene-processing-list'
-                    : 'border border-gray-300 dark:border-slate-500')
-                }
-                onClick={() => toggle(fKey)}
-              >
-                {chevron(fOpen)}
-                <div className="flex-none text-base">📁</div>
-                <div className="flex-1 min-w-0 truncate text-default text-sm md:text-base leading-tight font-medium">
-                  {folder.name}
-                </div>
-                <div className="flex-none ml-auto px-2 py-0.5 bg-gray-300/70 dark:bg-slate-500/70 dark:text-white rounded font-medium text-xs md:text-sm text-gray-700 dark:text-gray-100">
-                  {folder.done}/{folder.total}
-                </div>
-              </div>
-              {fOpen &&
-                folder.projects.map((proj, pIdx) => {
-                  const pKey = `p:${folder.name}/${proj.name}`;
-                  const pOpen = expanded.has(pKey);
-                  const isPLast = pIdx === folder.projects.length - 1;
-                  return (
-                    <div key={pKey} className="min-w-0">
-                      <div className="flex items-center gap-0 mt-0.5 ml-3 min-w-0">
-                        <span className="flex-none text-gray-400 dark:text-gray-500 text-sm font-mono w-3.5 inline-block">
-                          {isPLast ? '└' : '├'}
-                        </span>
-                        <div
-                          className={
-                            'flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md cursor-pointer ' +
-                            (proj.isProcessing
-                              ? 'scene-processing-list'
-                              : 'border border-gray-200 dark:border-slate-600')
-                          }
-                          onClick={() => toggle(pKey)}
-                        >
-                          {chevron(pOpen)}
-                          <div className="flex-1 min-w-0 truncate text-default text-sm leading-tight">
-                            {proj.name}
-                          </div>
-                          <div className="flex-none ml-auto px-2 py-0.5 bg-gray-200/70 dark:bg-slate-600/70 dark:text-white rounded font-medium text-xs text-gray-700 dark:text-gray-100">
-                            {proj.done}/{proj.total}
-                          </div>
-                        </div>
-                      </div>
-                      {pOpen &&
-                        proj.scenes.map((s, sIdx) => {
-                          const isSLast = sIdx === proj.scenes.length - 1;
-                          const isProcessing =
-                            !!currentKey && s.sceneKey === currentKey;
-                          const sceneBoxClass = isProcessing
-                            ? 'flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md scene-processing-list'
-                            : 'flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md border border-gray-200 dark:border-slate-600';
-                          return (
-                            <div
-                              key={sIdx}
-                              className="flex items-center gap-0 mt-0.5 ml-7 min-w-0"
-                            >
-                              <span className="flex-none text-gray-400 dark:text-gray-500 text-sm font-mono w-3.5 inline-block">
-                                {isSLast ? '└' : '├'}
-                              </span>
-                              <div className={sceneBoxClass}>
-                                <div className="flex-none text-sm">
-                                  {s.emoji}
-                                </div>
-                                <div className="flex-1 min-w-0 truncate text-default text-sm leading-tight">
-                                  <span className="font-medium">{s.sceneName}</span>
-                                </div>
-                                <div className="flex-none ml-auto px-2 py-0.5 bg-gray-200/70 dark:bg-slate-600/70 dark:text-white rounded font-medium text-xs text-gray-700 dark:text-gray-100">
-                                  {s.done}/{s.total}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                    </div>
-                  );
-                })}
+        {priorityTree.length > 0 && (
+          <>
+            <div className="flex items-center gap-2 mt-1 px-2">
+              <FaStar size={11} className="text-amber-500 dark:text-amber-400 flex-none" />
+              <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 flex-none">
+                우선순위 큐
+              </span>
+              <span className="flex-1 border-t border-amber-400/60 dark:border-amber-500/50 ml-1" />
             </div>
-          );
-        })}
+            {renderTree(priorityTree, 'pri:')}
+            <div className="flex items-center gap-2 mt-3 px-2">
+              <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 flex-none">
+                일반 큐
+              </span>
+              <span className="flex-1 border-t border-gray-400/60 dark:border-slate-500 ml-1" />
+            </div>
+          </>
+        )}
+        {renderTree(normalTree, 'nor:')}
       </div>
     </div>
   );
