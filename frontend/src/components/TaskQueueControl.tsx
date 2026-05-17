@@ -192,12 +192,15 @@ const taskDisplay = (task: Task) => {
 
 // 폴더 → 프로젝트 → 씬 3단 트리. 기본 다 접힘, 본인이 필요할 때만 expand.
 // 본인 spec (2026-05-17): 폴더로 먼저 감싸기, default expand 안 함.
+// 카운터 spec (2026-05-17 후속): 분모는 "최초 큐 등록된 총 잡 수" 고정. 분자만 증가.
+// 한 씬 잡 N개 다 완료되면 분모 그대로 둔 채 잠시(2초) 후 사라짐. 그 사이 상위 폴더/프로젝트
+// 카운트는 그 씬의 원래 총 수를 유지 (씬이 사라져도 1/132 → 2/132 → ... 132/132 식 흐름).
 type SceneNode = {
   sceneKey: string | null;
   sceneName: string;
-  firstTask: Task;
+  emoji: string;
   done: number;
-  total: number;
+  total: number; // 원래 큐 등록된 총 잡 수 (snapshot, 고정)
 };
 type ProjectNode = {
   name: string;
@@ -214,70 +217,139 @@ type FolderNode = {
 };
 
 const NO_FOLDER_KEY = '(폴더 없음)';
+const VANISH_DELAY_MS = 2000;
+
+// 본인 spec: 큐에 한 번 잡힌 task의 originalTotal은 고정. task가 mirroredTasks에서 사라져도
+// (잡 완료) 표시 측에서 일정 시간 유지 → 카운트가 갑자기 줄어들지 않음.
+type SeenEntry = {
+  taskId: string;
+  sceneKey: string | null;
+  sceneName: string;
+  project: string;
+  folder: string;
+  hasFolder: boolean;
+  emoji: string;
+  originalTotal: number;
+  done: number;
+  completedAt?: number; // task가 mirroredTasks에서 사라진 시점 (vanish 타이머 시작)
+};
 
 const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
-  const [tasks, setTasks] = useState<Task[]>([]);
+  // 표시 source of truth — TaskQueueService의 mirroredTasks를 mirror해 snapshot 유지.
+  // task가 사라져도 entry 보존 + completedAt 찍어 2초 후 자연 제거.
+  const seenTasksRef = useRef<Map<string, SeenEntry>>(new Map());
   // expand 상태: 폴더는 `f:{name}`, 프로젝트는 `p:{name}`. 본인이 직접 toggle.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // 렌더 강제 트리거용 카운터 (seenTasksRef는 ref라 mutation만으론 re-render 안 함).
+  // useMemo의 dep에도 사용 — counter 바뀌면 트리 재빌드.
+  const [tick, rerender] = useState(0);
+
+  const syncFromService = () => {
+    const seen = seenTasksRef.current;
+    const current = new Map<string, Task>();
+    for (const t of taskQueueService.queue) {
+      if (t && t.id) current.set(t.id, t);
+    }
+    for (const [id, t] of taskQueueService.mirroredTasks) {
+      current.set(id, t);
+    }
+    // 새 task 추가 + 기존 task done 갱신
+    for (const [taskId, task] of current) {
+      const existing = seen.get(taskId);
+      if (!existing) {
+        const { folder, project, scene } = taskDisplay(task);
+        const sk = taskSceneKey(task);
+        seen.set(taskId, {
+          taskId,
+          sceneKey: sk,
+          sceneName: scene,
+          project,
+          folder: folder || '',
+          hasFolder: !!folder,
+          emoji: taskQueueService.getTaskInfo(task).emoji,
+          originalTotal: task.total,
+          done: task.done,
+        });
+      } else {
+        // task가 살아있는 동안 done 갱신. completedAt은 task가 사라졌다가 다시 같은 id로
+        // 들어올 일이 없으니 안전.
+        existing.done = task.done;
+        // originalTotal이 늘었다면(추가 queueAddBatch 등) 갱신 — 거의 발생 안 함이지만 보호.
+        if (task.total > existing.originalTotal) {
+          existing.originalTotal = task.total;
+        }
+      }
+    }
+    // 사라진 task에 completedAt 찍기 + done = originalTotal (4/4 정확히 보이게)
+    const now = Date.now();
+    for (const [taskId, entry] of seen) {
+      if (!current.has(taskId) && !entry.completedAt) {
+        entry.done = entry.originalTotal;
+        entry.completedAt = now;
+      }
+    }
+    rerender((n) => n + 1);
+  };
 
   useEffect(() => {
-    const onChange = () => {
-      // 클라 큐 (augment/remove-bg) + server-mirror 큐 (gen/inpaint/i2i) 합쳐서 표시
-      setTasks([
-        ...taskQueueService.queue,
-        ...Array.from(taskQueueService.mirroredTasks.values()),
-      ]);
-    };
+    syncFromService();
+    const onChange = () => syncFromService();
     taskQueueService.addEventListener('start', onChange);
     taskQueueService.addEventListener('stop', onChange);
     taskQueueService.addEventListener('progress', onChange);
     taskQueueService.addEventListener('complete', onChange);
     taskQueueService.addEventListener('error', onChange);
-    onChange();
+    // vanish 타이머 — completedAt + VANISH_DELAY_MS 지난 entry 정리.
+    const vanishTimer = setInterval(() => {
+      const seen = seenTasksRef.current;
+      const now = Date.now();
+      let changed = false;
+      for (const [taskId, entry] of seen) {
+        if (entry.completedAt && now - entry.completedAt > VANISH_DELAY_MS) {
+          seen.delete(taskId);
+          changed = true;
+        }
+      }
+      if (changed) rerender((n) => n + 1);
+    }, 500);
     return () => {
       taskQueueService.removeEventListener('start', onChange);
       taskQueueService.removeEventListener('stop', onChange);
       taskQueueService.removeEventListener('progress', onChange);
       taskQueueService.removeEventListener('complete', onChange);
       taskQueueService.removeEventListener('error', onChange);
+      clearInterval(vanishTimer);
     };
   }, []);
 
-  const getEmoji = (task: Task) => {
-    return taskQueueService.getTaskInfo(task).emoji;
-  };
-
   const currentKey = appState.currentProcessingSceneKey;
 
-  // 트리 빌드. useMemo로 grouping 캐시 — 매 'progress' 이벤트(잡 완료마다)에 재빌드되지만
-  // O(n) + 보통 N ≤ 수백이라 무시 수준.
+  // 트리 빌드 — seenTasksRef snapshot 기준. task가 사라져도 (vanish delay 동안) 보존돼서
+  // 분모가 갑자기 줄지 않음. 폴더/프로젝트 카운트도 자식 entry의 originalTotal/done sum.
   const tree: FolderNode[] = useMemo(() => {
     const folders = new Map<string, Map<string, Map<string, SceneNode>>>();
     const folderMeta = new Map<string, { hasFolder: boolean }>();
-    for (const task of tasks) {
-      const { folder, project, scene } = taskDisplay(task);
-      const sk = taskSceneKey(task);
-      const hasFolder = !!folder;
-      const folderKey = folder || NO_FOLDER_KEY;
+    for (const entry of seenTasksRef.current.values()) {
+      const folderKey = entry.folder || NO_FOLDER_KEY;
       if (!folders.has(folderKey)) {
         folders.set(folderKey, new Map());
-        folderMeta.set(folderKey, { hasFolder });
+        folderMeta.set(folderKey, { hasFolder: entry.hasFolder });
       }
       const projMap = folders.get(folderKey)!;
-      if (!projMap.has(project)) projMap.set(project, new Map());
-      const sceneMap = projMap.get(project)!;
-      const sceneId = sk ?? `__no_key__${task.id ?? ''}`;
+      if (!projMap.has(entry.project)) projMap.set(entry.project, new Map());
+      const sceneMap = projMap.get(entry.project)!;
+      const sceneId = entry.sceneKey ?? `__no_key__${entry.taskId}`;
       const existing = sceneMap.get(sceneId);
       if (existing) {
-        existing.done += task.done;
-        existing.total += task.total;
+        existing.done += entry.done;
+        existing.total += entry.originalTotal;
       } else {
         sceneMap.set(sceneId, {
-          sceneKey: sk,
-          sceneName: scene,
-          firstTask: task,
-          done: task.done,
-          total: task.total,
+          sceneKey: entry.sceneKey,
+          sceneName: entry.sceneName,
+          emoji: entry.emoji,
+          done: entry.done,
+          total: entry.originalTotal,
         });
       }
     }
@@ -312,7 +384,7 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
       return a.name.localeCompare(b.name);
     });
     return result;
-  }, [tasks]);
+  }, [tick]);
 
   const toggle = (key: string) => {
     setExpanded((prev) => {
@@ -351,7 +423,7 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
           한 단계 합쳐 flex-1 자체에 overflow-y-auto. */}
       {/* overflow-x-hidden + 자식 truncate flex item에 min-w-0 필수 — flex 기본
           min-width:auto면 intrinsic content가 row 폭을 밀어내서 가로 스크롤 발생. */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2 px-1 min-h-0">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-2 px-1 min-h-0">
         {tree.map((folder) => {
           const fKey = `f:${folder.name}`;
           const fOpen = expanded.has(fKey);
@@ -412,7 +484,7 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
                               </span>
                               <div className={sceneBoxClass}>
                                 <div className="flex-none text-sm">
-                                  {getEmoji(s.firstTask)}
+                                  {s.emoji}
                                 </div>
                                 <div className="flex-1 min-w-0 truncate text-default text-sm leading-tight">
                                   <span className="font-medium">{s.sceneName}</span>
