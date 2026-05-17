@@ -379,19 +379,33 @@ Windows SDStudio 데이터 위치: `%APPDATA%\SDStudio\SDStudio\`
 
 ## 업데이트 방법
 
-새 버전 나오면 화면 우측 상단(PC) / 알약(모바일)에 **🔄 업데이트** 표시가 뜨고, 클릭하면 모달에 정확한 명령이 안내됩니다:
+새 버전 나오면 화면 우측 상단(PC) / 알약(모바일)에 **🔄 업데이트** 표시가 뜹니다.
+
+### 방법 1 — UI 자동 (v1.7.0+, 권장)
+
+알약 클릭 → 모달의 **'지금 업데이트'** 누르면 끝. 단계별 진행률(checking → pulling → installing → building → restarting)이 progress bar로 표시되고, 완료 후 '새로고침' 버튼 누르면 새 버전 자동 활성. **SSH 접속 불필요**, iPhone에서도 한 클릭으로 가능.
+
+- 인증: **NAI 로그인 상태면 자동 통과** (별도 토큰 입력 없음). 로그아웃 상태면 401 안내.
+- 동시 두 번 트리거 차단 (lock).
+- 진행 중 모달 닫기 차단 (canClose=false).
+- pm2 사용 환경 한정 (`update.sh`와 동일 명령으로 자기 자신 재시작).
+
+### 방법 2 — 수동 SSH (대체)
+
+UI 사용 불가하거나 트러블슈팅 필요 시:
 
 ```bash
-cd ~/nai-studio && ./update.sh
+cd ~/nai-studio-2 && ./update.sh
 ```
 
 `update.sh`가 자동으로:
-1. GitHub에서 최신 코드 pull
-2. 의존성 갱신
-3. 프론트엔드 재빌드
-4. pm2로 서버 재시작 (pm2 사용 시)
+1. GitHub에서 최신 코드 pull (`--ff-only`)
+2. 의존성 갱신 (root + frontend)
+3. 프론트엔드 재빌드 (`vite build`)
+4. `build-info.json` 갱신 (gitHash + version)
+5. pm2로 서버 재시작 (`--update-env`로 `.env.local` 환경변수 재주입)
 
-**데이터(프리셋, 이미지, 큐 상태, 설정)는 그대로 유지됩니다.** 큐에 대기 중인 작업이 있으면 confirm 묻고, 진행 중인 한 장은 잃을 수 있으니 신중히 y/N 선택하세요.
+**데이터(프리셋, 이미지, 큐 상태, 설정)는 그대로 유지됩니다.** 큐 영속화 시스템이라 pm2 restart 중 큐 데이터 안전.
 
 ---
 
