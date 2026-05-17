@@ -11,6 +11,7 @@ const { execSync, execFile } = require('child_process');
 const { NaiClient } = require('./lib/nai-client');
 const tagSearch = require('./lib/tag-search');
 const versionCheck = require('./lib/version-check');
+const selfUpdate = require('./lib/self-update');
 
 // .env.local 자동 로드 (Node 20.6+ 네이티브). 첫 install에서 `node server.js`만으로
 // PORT/URL_PREFIX가 동작하게. pm2 ecosystem이 이미 주입한 값은 덮어쓰지 않음 (Node 동작).
@@ -23,6 +24,11 @@ const URL_PREFIX = process.env.URL_PREFIX || '';
 // rclone Google Drive remote 이름. 'rclone config'로 만든 remote와 동일해야 함.
 const RCLONE_REMOTE = process.env.RCLONE_REMOTE || 'gdrivemain';
 const RCLONE_REMOTE_BASE = process.env.RCLONE_REMOTE_BASE || 'NAI-Studio';
+
+// 자동 업데이트 (POST /api/self-update) 인증. .env.local에 ADMIN_TOKEN 박혀
+// 있어야 endpoint 활성. 없으면 503으로 거부 — 안전 default.
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+let selfUpdateInProgress = false;
 
 // ─── Ensure directories ────────────────────────────────────────────
 async function ensureDirs() {
@@ -1194,6 +1200,62 @@ app.get('/api/version-check', async (req, res) => {
     res.json(await versionCheck.checkVersion({ projectDir: __dirname }));
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/self-update — git pull + 빌드 + build-info.json + pm2 restart 트리거.
+// NDJSON 스트림으로 단계별 진행 보고. PocketRisu 패턴 차용 (NDJSON + 락 분리).
+// 권한: X-Admin-Token 헤더가 ADMIN_TOKEN env와 일치해야 함. ADMIN_TOKEN 미설정 시
+// endpoint 자체 비활성 (503) — fork/공유 사용자가 실수 트리거 사고 차단.
+app.post('/api/self-update', async (req, res) => {
+  if (!ADMIN_TOKEN) {
+    return res.status(503).json({ error: 'self-update not configured (set ADMIN_TOKEN env in .env.local)' });
+  }
+  if (req.headers['x-admin-token'] !== ADMIN_TOKEN) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  if (selfUpdateInProgress) {
+    return res.status(409).json({ error: 'update already in progress' });
+  }
+  selfUpdateInProgress = true;
+
+  // 클라이언트 disconnect는 의도적으로 무시 — git/npm/vite는 한 번 시작되면 끝까지
+  // 가야 안전 (중간 중단 시 dirty 상태 + 다음 시도에 dirty 가드 trip). PocketRisu는
+  // 다운로드 단계만 disconnect 시 중단했지만, 우리는 git 일관성 우선.
+  res.writeHead(200, {
+    'Content-Type': 'application/x-ndjson',
+    'Cache-Control': 'no-cache',
+    'X-Accel-Buffering': 'no',
+  });
+
+  const send = (step, percent, message) => {
+    try {
+      res.write(JSON.stringify({ step, percent, message, ts: Date.now() }) + '\n');
+    } catch {}
+  };
+
+  try {
+    const result = await selfUpdate.runSelfUpdate({ projectDir: __dirname, send });
+    res.end();
+    if (result.restarted) {
+      // res.end() 직후 500ms 안에 pm2 restart 트리거 → 본 프로세스 종료.
+      // pm2가 자동으로 새 인스턴스 띄움. 락은 새 프로세스에서 자연 해제.
+      setTimeout(() => {
+        const pm2Name = process.env.NAI_PM2_NAME || 'nai-studio-2';
+        selfUpdate.triggerPm2Restart(pm2Name);
+      }, 500);
+    } else {
+      // 이미 최신이거나 no-op — 락 해제 후 정상 종료.
+      selfUpdateInProgress = false;
+    }
+  } catch (e) {
+    // runSelfUpdate 안에서 이미 send('error', ...) 던졌을 가능성 큼.
+    // 추가 안전망으로 catch에서 한 번 더 송신 시도 (이미 res 끊겼으면 무시됨).
+    try {
+      res.write(JSON.stringify({ step: 'error', percent: 0, message: e.message, ts: Date.now() }) + '\n');
+    } catch {}
+    res.end();
+    selfUpdateInProgress = false;
   }
 });
 
