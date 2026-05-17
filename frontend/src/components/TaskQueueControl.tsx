@@ -330,7 +330,13 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
   );
 
   return (
-    <div className="absolute bottom-0 mb-14 md:mb-20 bg-white dark:bg-slate-700 w-60 md:w-96 z-20 shadow-lg prog-list flex flex-col overflow-hidden">
+    // 하단바 위에 정확히 붙음 — bottom-full(=100%)로 부모(pill) 바로 위. 부모는 relative 필수.
+    // 클릭 stopPropagation으로 펴고 접기 안에서 toggle close 안 되게 차단.
+    // 본인 페인 (2026-05-17): 옛 mb-14 고정은 모바일 2-row 하단바 가렸음.
+    <div
+      className="absolute bottom-full right-0 mb-2 bg-white dark:bg-slate-700 w-60 md:w-96 z-20 shadow-lg prog-list flex flex-col overflow-hidden max-h-[70vh]"
+      onClick={(e) => e.stopPropagation()}
+    >
       <button
         className="ml-auto mt-2 mr-2 text-gray-500 hover:text-gray-700 flex-none"
         onClick={() => {
@@ -433,13 +439,6 @@ const TaskQueueControl = observer(() => {
 
   return (
     <div className="flex gap-2 md:gap-4 items-center">
-      {showList && (
-        <TaskQueueList
-          onClose={() => {
-            setShowList(false);
-          }}
-        />
-      )}
       {cyclingActive && (
         <div className="hidden md:flex items-center gap-1 px-2 py-1 bg-sky-100 dark:bg-sky-900/30 rounded-lg text-xs whitespace-nowrap">
           <span className="text-sky-600 dark:text-sky-400">🔄</span>
@@ -484,6 +483,13 @@ const TaskQueueControl = observer(() => {
           setShowList(!showList);
         }}
       >
+        {showList && (
+          <TaskQueueList
+            onClose={() => {
+              setShowList(false);
+            }}
+          />
+        )}
         <TaskProgressBar />
       </div>
       <button
@@ -558,17 +564,15 @@ export const TaskQueueProgress = observer(() => {
     };
   }, []);
   return (
-    <>
+    <div
+      className="relative cursor-pointer hover:brightness-95 active:brightness-90"
+      onClick={() => { setShowList(!showList); }}
+    >
       {showList && (
         <TaskQueueList onClose={() => { setShowList(false); }} />
       )}
-      <div
-        className="relative cursor-pointer hover:brightness-95 active:brightness-90"
-        onClick={() => { setShowList(!showList); }}
-      >
-        <TaskProgressBar />
-      </div>
-    </>
+      <TaskProgressBar />
+    </div>
   );
 });
 
