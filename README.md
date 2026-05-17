@@ -68,7 +68,7 @@
 
 - **🖥️ 서버 큐 백그라운드 처리** — 브라우저 닫아도, 폰 꺼도 서버가 계속 처리. 다시 열면 진행 상태 자동 복원
 - **📱 어디서든 접속** — Tailscale로 PC·모바일에서 동일 서버에 접근
-- **🔄 자동 업데이트 알림** — 새 버전 출시 시 우측 상단 / 모바일 알약에 표시. 알림 클릭 → 모달에 정확한 업데이트 명령
+- **🔄 자동 업데이트** (v1.7.0+) — 새 버전 출시 시 우측 상단 / 모바일 알약에 표시. **NAI 로그인 상태면 UI 한 클릭**으로 `git pull → npm install → vite build → pm2 restart` 자동 진행. SSH 접속 불필요, iPhone에서도 가능. SSH `./update.sh` 대체 가능
 - **📊 상단 진행 알약 + 큐 트리** — 진행률 + 예상 남은 시간 표시. 클릭 시 폴더 → 프로젝트 → 씬 3단 트리(default 다 접힘) + 처리 중 항목 펄스 + **⭐ 우선순위 큐**(씬/프로젝트 단위 toggle, 큐 앞으로 정렬) + 카운터 snapshot(분모 고정, 완료 후 자연 사라짐)
 - **🎚️ 개수 컨트롤** — ◀▶ 버튼으로 ±1, 텍스트 입력도 가능
 - **📁 프로젝트 폴더 분류** — 폴더로 프로젝트 카테고리화 (depth=1)
@@ -104,7 +104,7 @@
 | **다중 사용자** | 불가 | 단일 사용자 가정 (인증 미구현, 사설망 전제) |
 | **파일 시스템 접근** | 무제한 (네이티브) | API 통한 sandbox (`data/` 하위만) |
 | **NAI 토큰 저장** | OS keychain 또는 설정 | `data/TOKEN.txt` 평문 |
-| **업데이트 방식** | 앱이 자동 감지 + 클릭 | 앱이 자동 감지 + UI 한 클릭 ('지금 업데이트' → progress → 새로고침, v1.7.0+) / SSH `./update.sh` 대체 가능 |
+| **업데이트 방식** | 앱이 자동 감지 + 클릭 | 앱이 자동 감지 + UI 한 클릭 (NAI 로그인 상태면 자동 인증 → progress → 새로고침, v1.7.0+) / SSH `./update.sh` 대체 가능 |
 | **태그 DB (Danbooru)** | 앱 내장 | `data/db.csv` 별도 배치 (선택) |
 | **백업** | 사용자가 폴더 복사 | 자동 동기화 (선택, rclone) |
 | **AVIF 최적화** | 미지원 | 지원 (모바일 데이터 절약) |
@@ -499,6 +499,14 @@ crontab -e
 - ✅ `/api/auth/login` rate limit (5회/분, IP 기반)
 - ✅ CSP enforce + 보안 헤더 5축 (X-Frame-Options DENY, X-Content-Type-Options, Referrer-Policy no-referrer, Permissions-Policy, CSP)
 - ✅ WebSocket same-origin 검사 (cross-origin 차단)
+
+#### 자동 업데이트(v1.7.0+) 위협 모델
+
+- **인증**: `POST /api/self-update` = NAI 로그인 상태(서버 측 `nai.token` 존재)로 검증. logged-out 401. 동시 두 번 트리거 차단 락.
+- **실행 명령**: 고정 4단계 (`git pull --ff-only` / `npm install` / `vite build` / `pm2 restart`). user input 안 들어감 — command injection 면역.
+- **권한 범위**: server 프로세스 user(`ubuntu`) 권한 내 — root X.
+- **신뢰 영역**: Tailnet 안 사용자가 같은 `nai.token` 사용 중이면 update 트리거 가능. 본인이 들여보낸 신뢰 사용자 가정. **인터넷 노출 시점에 위협 변화** — 외부 사용자가 NAI 계정 알면 update 트리거 가능 → 외부 노출하면 위 방어선(인증 게이트웨이 등) 필수.
+- **회귀**: 회귀 시 SSH로 `git checkout <prev tag> && ./update.sh` 수동 복귀. Phase 1/2 backup 트랜잭션 없음(git이 대체).
 
 ### 외부 통신 — 어떤 데이터가 어디로 가나
 
