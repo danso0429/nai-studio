@@ -267,8 +267,12 @@ type FolderSnap = {
   key: string;
   name: string;
   hasFolder: boolean;
-  originalTotal: number;
-  done: number;
+  // priority/normal 분리 누적. 같은 폴더 안 두 프로젝트가 priority 다를 때
+  // 폴더 row 카운터가 트리별로 분리돼야 함 (예: 우선 0/8 + 일반 0/16).
+  priorityTotal: number;
+  priorityDone: number;
+  normalTotal: number;
+  normalDone: number;
   completedAt?: number;
 };
 
@@ -300,10 +304,14 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
       current.set(id, t);
     }
 
-    const applyDelta = (sceneKey: string, pKey: string, fKey: string, delta: number) => {
+    const applyDelta = (sceneKey: string, pKey: string, fKey: string, delta: number, priority: boolean) => {
       const sc = scenes.get(sceneKey); if (sc) sc.done += delta;
       const pr = projects.get(pKey); if (pr) pr.done += delta;
-      const fo = folders.get(fKey); if (fo) fo.done += delta;
+      const fo = folders.get(fKey);
+      if (fo) {
+        if (priority) fo.priorityDone += delta;
+        else fo.normalDone += delta;
+      }
     };
 
     // 새 task 추가 + 기존 task done delta 전파
@@ -342,11 +350,19 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
         projects.set(pKey, pr);
         const fo = folders.get(fKey) ?? {
           key: fKey, name: fKey, hasFolder: !!folder,
-          originalTotal: 0, done: 0,
+          priorityTotal: 0, priorityDone: 0,
+          normalTotal: 0, normalDone: 0,
         };
-        fo.originalTotal += task.total;
-        fo.done += task.done;
-        if (fo.completedAt && fo.done < fo.originalTotal) fo.completedAt = undefined;
+        if (task.priority) {
+          fo.priorityTotal += task.total;
+          fo.priorityDone += task.done;
+        } else {
+          fo.normalTotal += task.total;
+          fo.normalDone += task.done;
+        }
+        if (fo.completedAt && (fo.priorityDone < fo.priorityTotal || fo.normalDone < fo.normalTotal)) {
+          fo.completedAt = undefined;
+        }
         folders.set(fKey, fo);
         tracker = {
           sceneKey: sk, projectKey: pKey, folderKey: fKey,
@@ -357,9 +373,25 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
       } else {
         // 기존 task — done delta 전파 + priority 변화 반영
         const delta = task.done - tracker.lastSeenDone;
-        if (delta !== 0) applyDelta(tracker.sceneKey, tracker.projectKey, tracker.folderKey, delta);
+        if (delta !== 0) applyDelta(tracker.sceneKey, tracker.projectKey, tracker.folderKey, delta, tracker.priority);
         tracker.lastSeenDone = task.done;
-        tracker.priority = !!task.priority;
+        // priority toggle 시 fo 분리 누적 슬롯 이동 (sc/pr은 한 트리만 표시되므로 분리 불필요)
+        const newPri = !!task.priority;
+        if (tracker.priority !== newPri) {
+          const fo = folders.get(tracker.folderKey);
+          if (fo) {
+            const total = tracker.originalTotal;
+            const done = tracker.lastSeenDone;
+            if (newPri) {
+              fo.normalTotal -= total; fo.normalDone -= done;
+              fo.priorityTotal += total; fo.priorityDone += done;
+            } else {
+              fo.priorityTotal -= total; fo.priorityDone -= done;
+              fo.normalTotal += total; fo.normalDone += done;
+            }
+          }
+          tracker.priority = newPri;
+        }
       }
     }
 
@@ -368,7 +400,7 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
     for (const [taskId, tracker] of Array.from(trackers)) {
       if (!current.has(taskId)) {
         const delta = tracker.originalTotal - tracker.lastSeenDone;
-        if (delta !== 0) applyDelta(tracker.sceneKey, tracker.projectKey, tracker.folderKey, delta);
+        if (delta !== 0) applyDelta(tracker.sceneKey, tracker.projectKey, tracker.folderKey, delta, tracker.priority);
         // scene.taskIds에서 제거 (우선순위 toggle 시 보낼 ID 갱신)
         const sc = scenes.get(tracker.sceneKey);
         if (sc) sc.taskIds.delete(taskId);
@@ -395,7 +427,9 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
       if (pr.done >= pr.originalTotal && !pr.completedAt) pr.completedAt = now;
     }
     for (const fo of folders.values()) {
-      if (fo.done >= fo.originalTotal && !fo.completedAt) fo.completedAt = now;
+      if (fo.priorityDone >= fo.priorityTotal && fo.normalDone >= fo.normalTotal && !fo.completedAt) {
+        fo.completedAt = now;
+      }
     }
     rerender((n) => n + 1);
   };
@@ -501,10 +535,15 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
         allTaskIds,
       });
     }
-    // 폴더 빌드
+    // 폴더 빌드. 카운터는 priorityFilter 슬롯 사용 — 같은 폴더 안 두 프로젝트가
+    // priority 다를 때 우선/일반 트리에 각각 분리 카운터 (예: 우선 0/8 / 일반 0/16).
     const result: FolderNode[] = [];
     for (const fo of folderSnapsRef.current.values()) {
       const projs = folderProjects.get(fo.key) ?? [];
+      const folderDone = priorityFilter ? fo.priorityDone : fo.normalDone;
+      const folderTotal = priorityFilter ? fo.priorityTotal : fo.normalTotal;
+      // 이 트리 슬롯에 누적 0이면 폴더 자체를 표시 X
+      if (folderTotal === 0) continue;
       // 자식 프로젝트가 priorityFilter 섹션에 매칭 안 되면 폴더도 skip
       if (projs.length === 0) {
         // 폴더 snapshot만 살아있고 자식이 다 vanish — normal에만 표시
@@ -514,8 +553,8 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
         name: fo.name,
         hasFolder: fo.hasFolder,
         projects: projs,
-        done: fo.done,
-        total: fo.originalTotal,
+        done: folderDone,
+        total: folderTotal,
         isProcessing: projs.some((p) => p.isProcessing),
       });
     }
