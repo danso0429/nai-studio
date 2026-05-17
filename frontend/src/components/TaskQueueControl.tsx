@@ -207,6 +207,7 @@ type ProjectNode = {
   scenes: SceneNode[];
   done: number;
   total: number;
+  isProcessing: boolean; // 자식 씬 중 현재 처리 중인 게 있으면 펄스
 };
 type FolderNode = {
   name: string;
@@ -214,6 +215,7 @@ type FolderNode = {
   projects: ProjectNode[];
   done: number;
   total: number;
+  isProcessing: boolean; // 자식 프로젝트 중 처리 중인 게 있으면 펄스
 };
 
 const NO_FOLDER_KEY = '(폴더 없음)';
@@ -358,17 +360,27 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
       const projects: ProjectNode[] = [];
       let folderDone = 0;
       let folderTotal = 0;
+      let folderProcessing = false;
       for (const [projName, sceneMap] of projMap) {
         const scenes = Array.from(sceneMap.values());
         let projDone = 0;
         let projTotal = 0;
+        let projProcessing = false;
         for (const s of scenes) {
           projDone += s.done;
           projTotal += s.total;
+          if (currentKey && s.sceneKey === currentKey) projProcessing = true;
         }
-        projects.push({ name: projName, scenes, done: projDone, total: projTotal });
+        projects.push({
+          name: projName,
+          scenes,
+          done: projDone,
+          total: projTotal,
+          isProcessing: projProcessing,
+        });
         folderDone += projDone;
         folderTotal += projTotal;
+        if (projProcessing) folderProcessing = true;
       }
       result.push({
         name: folderKey,
@@ -376,6 +388,7 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
         projects,
         done: folderDone,
         total: folderTotal,
+        isProcessing: folderProcessing,
       });
     }
     // 폴더 없음 묶음은 마지막에 배치 (시각적 구분)
@@ -384,7 +397,7 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
       return a.name.localeCompare(b.name);
     });
     return result;
-  }, [tick]);
+  }, [tick, currentKey]);
 
   const toggle = (key: string) => {
     setExpanded((prev) => {
@@ -430,7 +443,12 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
           return (
             <div key={fKey} className="min-w-0">
               <div
-                className="flex items-center gap-2 px-2.5 py-2 mx-1 mt-1 rounded-md border border-gray-300 dark:border-slate-500 cursor-pointer min-w-0"
+                className={
+                  'flex items-center gap-2 px-2.5 py-2 mx-1 mt-1 rounded-md cursor-pointer min-w-0 ' +
+                  (folder.isProcessing
+                    ? 'scene-processing-list'
+                    : 'border border-gray-300 dark:border-slate-500')
+                }
                 onClick={() => toggle(fKey)}
               >
                 {chevron(fOpen)}
@@ -454,7 +472,12 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
                           {isPLast ? '└' : '├'}
                         </span>
                         <div
-                          className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md border border-gray-200 dark:border-slate-600 cursor-pointer"
+                          className={
+                            'flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 mr-1 rounded-md cursor-pointer ' +
+                            (proj.isProcessing
+                              ? 'scene-processing-list'
+                              : 'border border-gray-200 dark:border-slate-600')
+                          }
                           onClick={() => toggle(pKey)}
                         >
                           {chevron(pOpen)}
