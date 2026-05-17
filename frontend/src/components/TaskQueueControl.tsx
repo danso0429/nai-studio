@@ -196,61 +196,98 @@ const taskDisplay = (task: Task) => {
 // 한 씬 잡 N개 다 완료되면 분모 그대로 둔 채 잠시(2초) 후 사라짐. 그 사이 상위 폴더/프로젝트
 // 카운트는 그 씬의 원래 총 수를 유지 (씬이 사라져도 1/132 → 2/132 → ... 132/132 식 흐름).
 type SceneNode = {
-  sceneKey: string | null;
+  sceneKey: string;
   sceneName: string;
   emoji: string;
   done: number;
-  total: number; // 원래 큐 등록된 총 잡 수 (snapshot, 고정)
-  taskIds: string[]; // 우선순위 toggle 시 서버에 보낼 task ID들
-  isPriority: boolean; // 이 씬의 task 중 하나라도 priority면 true
+  total: number;
+  taskIds: string[];
+  isPriority: boolean;
 };
 type ProjectNode = {
   name: string;
-  scenes: SceneNode[];
+  scenes: SceneNode[]; // snapshot 살아있는 씬만 (vanish 끝난 씬은 빠짐)
   done: number;
   total: number;
-  isProcessing: boolean; // 자식 씬 중 현재 처리 중인 게 있으면 펄스
+  isProcessing: boolean;
+  isPriority: boolean; // 자식 씬 중 하나라도 priority면 true (toggle 시 모든 active task 적용)
+  allTaskIds: string[]; // 프로젝트 우선순위 toggle 시 보낼 모든 active task ID
 };
 type FolderNode = {
   name: string;
-  hasFolder: boolean; // '(폴더 없음)' 묶음 구분
+  hasFolder: boolean;
   projects: ProjectNode[];
   done: number;
   total: number;
-  isProcessing: boolean; // 자식 프로젝트 중 처리 중인 게 있으면 펄스
+  isProcessing: boolean;
 };
 
 const NO_FOLDER_KEY = '(폴더 없음)';
 const VANISH_DELAY_MS = 2000;
 
-// 본인 spec: 큐에 한 번 잡힌 task의 originalTotal은 고정. task가 mirroredTasks에서 사라져도
-// (잡 완료) 표시 측에서 일정 시간 유지 → 카운트가 갑자기 줄어들지 않음.
-type SeenEntry = {
-  taskId: string;
-  sceneKey: string | null;
+// 본인 spec (2026-05-17 최종): 카운터 vanish는 task 단위 X, 레벨 단위 (씬/프로젝트/폴더).
+// - 씬: done==originalTotal 도달 시 2초 후 씬 row 통째 사라짐. 그 사이 14/14 유지.
+// - 프로젝트: 자식 씬이 사라져도 프로젝트의 originalTotal은 누적 유지. 프로젝트 자체가
+//   done==originalTotal 도달 시 2초 후 프로젝트 통째 사라짐.
+// - 폴더도 동일.
+// 각 레벨 snapshot이 독립적 — 자식이 사라져도 부모 카운트 그대로.
+// task 단위 priority/done 추적은 taskTrackers에서. snapshot에 delta로 전파.
+type TaskTracker = {
+  sceneKey: string;
+  projectKey: string;
+  folderKey: string;
+  lastSeenDone: number;
+  originalTotal: number;
+  priority: boolean;
+};
+type SceneSnap = {
+  sceneKey: string;
   sceneName: string;
+  emoji: string;
   project: string;
   folder: string;
   hasFolder: boolean;
-  emoji: string;
+  originalTotal: number; // 모든 task original 합산, 누적만 (자식 사라져도 안 줄음)
+  done: number;          // 완료 잡 누적, 누적만
+  completedAt?: number;  // done >= originalTotal 도달 시각 (vanish 타이머 시작)
+  taskIds: Set<string>;  // 우선순위 toggle 시 보낼 ID
+  isPriority: boolean;
+};
+type ProjectSnap = {
+  key: string;
+  name: string;
+  folder: string;
+  hasFolder: boolean;
   originalTotal: number;
   done: number;
-  priority: boolean;
-  completedAt?: number; // task가 mirroredTasks에서 사라진 시점 (vanish 타이머 시작)
+  completedAt?: number;
+};
+type FolderSnap = {
+  key: string;
+  name: string;
+  hasFolder: boolean;
+  originalTotal: number;
+  done: number;
+  completedAt?: number;
 };
 
 const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
-  // 표시 source of truth — TaskQueueService의 mirroredTasks를 mirror해 snapshot 유지.
-  // task가 사라져도 entry 보존 + completedAt 찍어 2초 후 자연 제거.
-  const seenTasksRef = useRef<Map<string, SeenEntry>>(new Map());
+  const taskTrackersRef = useRef<Map<string, TaskTracker>>(new Map());
+  const sceneSnapsRef = useRef<Map<string, SceneSnap>>(new Map());
+  const projectSnapsRef = useRef<Map<string, ProjectSnap>>(new Map());
+  const folderSnapsRef = useRef<Map<string, FolderSnap>>(new Map());
   // expand 상태: 폴더는 `f:{name}`, 프로젝트는 `p:{name}`. 본인이 직접 toggle.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // 렌더 강제 트리거용 카운터 (seenTasksRef는 ref라 mutation만으론 re-render 안 함).
-  // useMemo의 dep에도 사용 — counter 바뀌면 트리 재빌드.
+  // 렌더 강제 트리거용 카운터.
   const [tick, rerender] = useState(0);
 
+  const projKey = (folder: string, project: string) => folder + '\0' + project;
+
   const syncFromService = () => {
-    const seen = seenTasksRef.current;
+    const trackers = taskTrackersRef.current;
+    const scenes = sceneSnapsRef.current;
+    const projects = projectSnapsRef.current;
+    const folders = folderSnapsRef.current;
     const current = new Map<string, Task>();
     for (const t of taskQueueService.queue) {
       if (t && t.id) current.set(t.id, t);
@@ -258,40 +295,103 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
     for (const [id, t] of taskQueueService.mirroredTasks) {
       current.set(id, t);
     }
-    // 새 task 추가 + 기존 task done 갱신
+
+    const applyDelta = (sceneKey: string, pKey: string, fKey: string, delta: number) => {
+      const sc = scenes.get(sceneKey); if (sc) sc.done += delta;
+      const pr = projects.get(pKey); if (pr) pr.done += delta;
+      const fo = folders.get(fKey); if (fo) fo.done += delta;
+    };
+
+    // 새 task 추가 + 기존 task done delta 전파
     for (const [taskId, task] of current) {
-      const existing = seen.get(taskId);
-      if (!existing) {
-        const { folder, project, scene } = taskDisplay(task);
-        const sk = taskSceneKey(task);
-        seen.set(taskId, {
-          taskId,
+      const { folder, project, scene } = taskDisplay(task);
+      const sk = taskSceneKey(task) ?? `__no_key__${taskId}`;
+      const fKey = folder || NO_FOLDER_KEY;
+      const pKey = projKey(fKey, project);
+      let tracker = trackers.get(taskId);
+      if (!tracker) {
+        // 새 task — snapshot에 originalTotal + 현재 done 더하기 (페이지 로드 직후 task.done>0 가능).
+        const sc = scenes.get(sk) ?? {
           sceneKey: sk,
           sceneName: scene,
-          project,
-          folder: folder || '',
-          hasFolder: !!folder,
           emoji: taskQueueService.getTaskInfo(task).emoji,
-          originalTotal: task.total,
-          done: task.done,
+          project, folder: folder || '',
+          hasFolder: !!folder,
+          originalTotal: 0, done: 0,
+          taskIds: new Set<string>(),
+          isPriority: false,
+        };
+        sc.originalTotal += task.total;
+        sc.done += task.done;
+        sc.taskIds.add(taskId);
+        if (task.priority) sc.isPriority = true;
+        // 부활(resurrection): 새 task 추가로 originalTotal 늘었으면 completedAt 무효화.
+        if (sc.completedAt && sc.done < sc.originalTotal) sc.completedAt = undefined;
+        scenes.set(sk, sc);
+        const pr = projects.get(pKey) ?? {
+          key: pKey, name: project, folder: folder || '',
+          hasFolder: !!folder, originalTotal: 0, done: 0,
+        };
+        pr.originalTotal += task.total;
+        pr.done += task.done;
+        if (pr.completedAt && pr.done < pr.originalTotal) pr.completedAt = undefined;
+        projects.set(pKey, pr);
+        const fo = folders.get(fKey) ?? {
+          key: fKey, name: fKey, hasFolder: !!folder,
+          originalTotal: 0, done: 0,
+        };
+        fo.originalTotal += task.total;
+        fo.done += task.done;
+        if (fo.completedAt && fo.done < fo.originalTotal) fo.completedAt = undefined;
+        folders.set(fKey, fo);
+        tracker = {
+          sceneKey: sk, projectKey: pKey, folderKey: fKey,
+          lastSeenDone: task.done, originalTotal: task.total,
           priority: !!task.priority,
-        });
+        };
+        trackers.set(taskId, tracker);
       } else {
-        // task가 살아있는 동안 done/priority 갱신.
-        existing.done = task.done;
-        existing.priority = !!task.priority;
-        if (task.total > existing.originalTotal) {
-          existing.originalTotal = task.total;
-        }
+        // 기존 task — done delta 전파 + priority 변화 반영
+        const delta = task.done - tracker.lastSeenDone;
+        if (delta !== 0) applyDelta(tracker.sceneKey, tracker.projectKey, tracker.folderKey, delta);
+        tracker.lastSeenDone = task.done;
+        tracker.priority = !!task.priority;
       }
     }
-    // 사라진 task에 completedAt 찍기 + done = originalTotal (4/4 정확히 보이게)
-    const now = Date.now();
-    for (const [taskId, entry] of seen) {
-      if (!current.has(taskId) && !entry.completedAt) {
-        entry.done = entry.originalTotal;
-        entry.completedAt = now;
+
+    // 사라진 task — 남은 done 전부 push (originalTotal까지) + tracker 정리
+    // scene/project/folder snapshot은 유지 (vanish poll에서 레벨 단위 처리)
+    for (const [taskId, tracker] of Array.from(trackers)) {
+      if (!current.has(taskId)) {
+        const delta = tracker.originalTotal - tracker.lastSeenDone;
+        if (delta !== 0) applyDelta(tracker.sceneKey, tracker.projectKey, tracker.folderKey, delta);
+        // scene.taskIds에서 제거 (우선순위 toggle 시 보낼 ID 갱신)
+        const sc = scenes.get(tracker.sceneKey);
+        if (sc) sc.taskIds.delete(taskId);
+        trackers.delete(taskId);
       }
+    }
+
+    // 씬 isPriority 재계산 — 현재 active tracker만 보고
+    for (const sc of scenes.values()) {
+      let anyPri = false;
+      for (const tid of sc.taskIds) {
+        const tr = trackers.get(tid);
+        if (tr?.priority) { anyPri = true; break; }
+      }
+      sc.isPriority = anyPri;
+    }
+
+    // 각 레벨 completedAt 마킹 (done >= originalTotal 도달 시)
+    const now = Date.now();
+    for (const sc of scenes.values()) {
+      if (sc.done >= sc.originalTotal && !sc.completedAt) sc.completedAt = now;
+    }
+    for (const pr of projects.values()) {
+      if (pr.done >= pr.originalTotal && !pr.completedAt) pr.completedAt = now;
+    }
+    for (const fo of folders.values()) {
+      if (fo.done >= fo.originalTotal && !fo.completedAt) fo.completedAt = now;
     }
     rerender((n) => n + 1);
   };
@@ -304,14 +404,25 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
     taskQueueService.addEventListener('progress', onChange);
     taskQueueService.addEventListener('complete', onChange);
     taskQueueService.addEventListener('error', onChange);
-    // vanish 타이머 — completedAt + VANISH_DELAY_MS 지난 entry 정리.
+    // vanish 타이머 — 각 레벨 (씬/프로젝트/폴더) 별로 completedAt + delay 지나면 제거.
     const vanishTimer = setInterval(() => {
-      const seen = seenTasksRef.current;
       const now = Date.now();
       let changed = false;
-      for (const [taskId, entry] of seen) {
-        if (entry.completedAt && now - entry.completedAt > VANISH_DELAY_MS) {
-          seen.delete(taskId);
+      for (const [k, sc] of sceneSnapsRef.current) {
+        if (sc.completedAt && now - sc.completedAt > VANISH_DELAY_MS) {
+          sceneSnapsRef.current.delete(k);
+          changed = true;
+        }
+      }
+      for (const [k, pr] of projectSnapsRef.current) {
+        if (pr.completedAt && now - pr.completedAt > VANISH_DELAY_MS) {
+          projectSnapsRef.current.delete(k);
+          changed = true;
+        }
+      }
+      for (const [k, fo] of folderSnapsRef.current) {
+        if (fo.completedAt && now - fo.completedAt > VANISH_DELAY_MS) {
+          folderSnapsRef.current.delete(k);
           changed = true;
         }
       }
@@ -329,76 +440,82 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
 
   const currentKey = appState.currentProcessingSceneKey;
 
-  // 트리 빌드 헬퍼 — entries 필터(priority/normal)별로 분리해 두 트리 생성. seenTasksRef snapshot
-  // 기준이라 task 사라져도 (vanish delay 동안) 카운트 유지.
-  const buildTree = (entries: SeenEntry[]): FolderNode[] => {
-    const folders = new Map<string, Map<string, Map<string, SceneNode>>>();
-    const folderMeta = new Map<string, { hasFolder: boolean }>();
-    for (const entry of entries) {
-      const folderKey = entry.folder || NO_FOLDER_KEY;
-      if (!folders.has(folderKey)) {
-        folders.set(folderKey, new Map());
-        folderMeta.set(folderKey, { hasFolder: entry.hasFolder });
-      }
-      const projMap = folders.get(folderKey)!;
-      if (!projMap.has(entry.project)) projMap.set(entry.project, new Map());
-      const sceneMap = projMap.get(entry.project)!;
-      const sceneId = entry.sceneKey ?? `__no_key__${entry.taskId}`;
-      const existing = sceneMap.get(sceneId);
-      if (existing) {
-        existing.done += entry.done;
-        existing.total += entry.originalTotal;
-        existing.taskIds.push(entry.taskId);
-        if (entry.priority) existing.isPriority = true;
-      } else {
-        sceneMap.set(sceneId, {
-          sceneKey: entry.sceneKey,
-          sceneName: entry.sceneName,
-          emoji: entry.emoji,
-          done: entry.done,
-          total: entry.originalTotal,
-          taskIds: [entry.taskId],
-          isPriority: entry.priority,
-        });
-      }
+  // 트리 빌드 — snapshot Map에서 직접 빌드. 씬/프로젝트/폴더 카운트는 각자 snapshot 사용
+  // (자식이 사라져도 부모 카운트 유지). priority 필터에 따라 두 트리 분리.
+  const buildTree = (priorityFilter: boolean): FolderNode[] => {
+    const folderProjects = new Map<string, ProjectNode[]>();
+    // 모든 살아있는 씬 → 자기 프로젝트 묶음에. priority 필터로 분리.
+    const scenesByProjKey = new Map<string, SceneSnap[]>();
+    for (const sc of sceneSnapsRef.current.values()) {
+      if (sc.isPriority !== priorityFilter) continue;
+      const pkey = (sc.folder || NO_FOLDER_KEY) + '\0' + sc.project;
+      if (!scenesByProjKey.has(pkey)) scenesByProjKey.set(pkey, []);
+      scenesByProjKey.get(pkey)!.push(sc);
     }
-    const result: FolderNode[] = [];
-    for (const [folderKey, projMap] of folders) {
-      const projects: ProjectNode[] = [];
-      let folderDone = 0;
-      let folderTotal = 0;
-      let folderProcessing = false;
-      for (const [projName, sceneMap] of projMap) {
-        const scenes = Array.from(sceneMap.values());
-        let projDone = 0;
-        let projTotal = 0;
-        let projProcessing = false;
-        for (const s of scenes) {
-          projDone += s.done;
-          projTotal += s.total;
-          if (currentKey && s.sceneKey === currentKey) projProcessing = true;
-        }
-        projects.push({
-          name: projName,
-          scenes,
-          done: projDone,
-          total: projTotal,
-          isProcessing: projProcessing,
-        });
-        folderDone += projDone;
-        folderTotal += projTotal;
-        if (projProcessing) folderProcessing = true;
+    // 프로젝트별 우선순위 toggle용 — 활성 task ID 모음 (모든 자식 씬의 active tasks).
+    // 자식 씬이 vanish해도 task는 이미 끝났으니 toggle 의미 없음 → 살아있는 씬 기준.
+    for (const pr of projectSnapsRef.current.values()) {
+      const pkey = (pr.folder || NO_FOLDER_KEY) + '\0' + pr.name;
+      const scenes = scenesByProjKey.get(pkey) ?? [];
+      if (scenes.length === 0 && !pr.completedAt) continue; // 자식 살아있는 씬 없고 프로젝트만 남으면 priorityFilter 분리 의미 없음 (어느 쪽?). 일단 normal로 떨어짐.
+      // 프로젝트가 어느 섹션에 갈지 — 자식 씬 priority에 따라
+      const anyPri = scenes.some((s) => s.isPriority);
+      // 이 트리는 priorityFilter 섹션 — 자식 매칭 안 되면 skip
+      if (anyPri !== priorityFilter && scenes.length > 0) continue;
+      if (scenes.length === 0) {
+        // 자식 씬 다 vanish됐는데 프로젝트는 살아있음. priorityFilter 둘 다 안 매칭 → normal에만 보임.
+        if (priorityFilter) continue;
       }
-      result.push({
-        name: folderKey,
-        hasFolder: folderMeta.get(folderKey)!.hasFolder,
-        projects,
-        done: folderDone,
-        total: folderTotal,
-        isProcessing: folderProcessing,
+      // 자식 활성 task IDs 수집
+      const allTaskIds: string[] = [];
+      for (const sc of scenes) {
+        for (const tid of sc.taskIds) allTaskIds.push(tid);
+      }
+      let projProcessing = false;
+      const sceneNodes: SceneNode[] = scenes.map((sc) => {
+        const proc = !!currentKey && sc.sceneKey === currentKey;
+        if (proc) projProcessing = true;
+        return {
+          sceneKey: sc.sceneKey,
+          sceneName: sc.sceneName,
+          emoji: sc.emoji,
+          done: sc.done,
+          total: sc.originalTotal,
+          taskIds: Array.from(sc.taskIds),
+          isPriority: sc.isPriority,
+        };
+      });
+      const fKey = pr.folder || NO_FOLDER_KEY;
+      if (!folderProjects.has(fKey)) folderProjects.set(fKey, []);
+      folderProjects.get(fKey)!.push({
+        name: pr.name,
+        scenes: sceneNodes,
+        done: pr.done,
+        total: pr.originalTotal,
+        isProcessing: projProcessing,
+        isPriority: anyPri,
+        allTaskIds,
       });
     }
-    // 폴더 없음 묶음은 마지막에 배치 (시각적 구분)
+    // 폴더 빌드
+    const result: FolderNode[] = [];
+    for (const fo of folderSnapsRef.current.values()) {
+      const projs = folderProjects.get(fo.key) ?? [];
+      // 자식 프로젝트가 priorityFilter 섹션에 매칭 안 되면 폴더도 skip
+      if (projs.length === 0) {
+        // 폴더 snapshot만 살아있고 자식이 다 vanish — normal에만 표시
+        if (priorityFilter) continue;
+      }
+      result.push({
+        name: fo.name,
+        hasFolder: fo.hasFolder,
+        projects: projs,
+        done: fo.done,
+        total: fo.originalTotal,
+        isProcessing: projs.some((p) => p.isProcessing),
+      });
+    }
+    // 폴더 없음 묶음은 마지막에 배치
     result.sort((a, b) => {
       if (a.hasFolder !== b.hasFolder) return a.hasFolder ? -1 : 1;
       return a.name.localeCompare(b.name);
@@ -406,15 +523,10 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
     return result;
   };
 
-  // 우선순위 vs 일반 두 섹션 — 한 씬에 같은 task가 두 priority 모두면 (드물지만) 두 섹션 모두 표시.
-  // task 단위 priority라 entry 단위 분리 자연스러움.
   const { priorityTree, normalTree } = useMemo(() => {
-    const entries = Array.from(seenTasksRef.current.values());
-    const pri = entries.filter((e) => e.priority);
-    const nor = entries.filter((e) => !e.priority);
     return {
-      priorityTree: buildTree(pri),
-      normalTree: buildTree(nor),
+      priorityTree: buildTree(true),
+      normalTree: buildTree(false),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, currentKey]);
@@ -489,6 +601,18 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
                       <div className="flex-1 min-w-0 truncate text-default text-sm leading-tight">
                         {proj.name}
                       </div>
+                      {proj.allTaskIds.length > 0 && (
+                        <button
+                          className="flex-none ml-1 p-0.5 text-amber-500 dark:text-amber-400 hover:scale-110 transition-transform"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onTogglePriority(proj.allTaskIds, !proj.isPriority);
+                          }}
+                          title={proj.isPriority ? '프로젝트 우선순위 해제' : '프로젝트 우선순위로 이동'}
+                        >
+                          {proj.isPriority ? <FaStar size={12} /> : <FaRegStar size={12} />}
+                        </button>
+                      )}
                       <div className="flex-none ml-auto px-2 py-0.5 bg-gray-200/70 dark:bg-slate-600/70 dark:text-white rounded font-medium text-xs text-gray-700 dark:text-gray-100">
                         {proj.done}/{proj.total}
                       </div>
@@ -545,7 +669,7 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
     // 본인 페인 (2026-05-17): UI 너무 컸음 → 폴더 row 컴팩트 + 4개 정도 default 보임 + 세로 스크롤.
     //   반투명 + rounded. 트리 연결은 ㄴ unicode 사용.
     <div
-      className="absolute bottom-full right-0 mb-2 bg-white/65 dark:bg-slate-700/65 backdrop-blur-md w-60 md:w-96 z-20 shadow-lg rounded-xl flex flex-col overflow-hidden max-h-[260px] md:max-h-[320px]"
+      className="absolute bottom-full right-0 mb-2 bg-white dark:bg-slate-700 w-60 md:w-96 z-20 shadow-lg rounded-xl flex flex-col overflow-hidden max-h-[260px] md:max-h-[320px]"
       onClick={(e) => e.stopPropagation()}
     >
       <button
