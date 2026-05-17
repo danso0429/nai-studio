@@ -9,6 +9,44 @@
 
 ---
 
+## v1.6.0 (2026-05-17)
+
+stable. v1.5.3 → v1.6.0 누적 (20+ commit). SDStudio v4.8.0 부분 흡수 + catalog 정독 정리 라운드 + 본인 별도 fix.
+
+### SDStudio v4.8.0 흡수 (부분, sdstudioBase 4.7.1 → 4.8.0)
+- **fix(backup)**: `references/` 디렉토리가 export/import 4곳에서 빠져 사용자 데이터 손실 회귀 — `exportSessionDeep`/`exportFolderDeep`/`importSessionDeep`/`importFolderDeep` 모두 references entries 추가. SDStudio 82b454d 일부 + 우리 폴더 단위까지 fix.
+- **feat(character-preset)**: UI 대개편 (4.8.0 c8594e8 흡수) — FloatView → ModalOverlay 중앙 모달 + 리스트 → 카드 그리드 + 대표 이미지(폴백 체인) + 상세 슬라이더(IS/RS, Strength/Fidelity, 타입/활성화 토글) + modalOverlayCount 카운터(메타 D&D 차단) + VibeButton/CharacterReferenceButton observer 래핑.
+- **feat(character-preset)**: JSON Import/Export (4.8.0 d8b6c41 부분 흡수) — 모든 프리셋 + 바이브/레퍼런스/대표이미지 base64 한 파일로. 중복 이름 `_1` 자동 처리. 캐릭터 프리셋 관리 상단에 내보내기/불러오기 버튼.
+- **feat(character-preset)**: 순차 생성 (4.8.0 7f473f9 흡수) — `CyclingSessionService` mobx 상태 머신 (idle/running/paused/completed). 프리셋 N × 씬 M 자동 순회. 일시정지/재개/취소. TaskQueueControl에 진행 배지 (PC). 세션 변경 시 자동 cancel 안전장치.
+- **fix(misc)**: 자동완성 팝업 다크모드 가독성(`text-gray-900`) + 이미지 생성 retryTimeoutMs 60→120s, 120→180s + 캐릭터 프리셋 적용 중 vibe/ref 개별 삭제·추가 잠금(`presetLocked`).
+
+### UX 조정 (본인 피드백)
+- **fix(character-preset/ui)**: 모바일 캐릭터 프리셋 카드 가로 1줄 스크롤(w-32 고정폭) + 편집 모달 바이브/레퍼런스 슬라이더 row 모바일 세로 stack(`md:flex-row flex-col`) — 슬라이더 가로 폭 전체 활용.
+
+### catalog 정독 후속 정리 (149건)
+- **fix**: 명백한 버그 8건 — AppService for 루프 무한 / PromptEditTextArea y-redo cursorPos / TaskQueueService median sort lexicographic / SceneEditor render 본문 setState 안티패턴 + array `in`→includes / PieceEditor drag key 불일치 / SessionService delete 후 검사 falsy / PromptService `&gt` 세미콜론 누락.
+- **refactor**: C 12건(불필요 우회 — server.js rclone 헬퍼 통합, legacy.ts migration dedup, AppContextMenu 단일 dispatcher) + A 91건(dead code, agent 위임 + 본인 검증) + B 38건(단출 재작성, agent 위임 + 본인 검증).
+
+### 기존 버그 fix
+- **fix(export)**: 즐겨찾기 옵션이 별표 없는 씬에서 첫 이미지 자동 push하던 폴백 제거. 사용자 mental model("별표 한 이미지만") 적용. 모든 씬 별표 0개면 "내보낼 이미지가 없어요" 안내 + 중단.
+
+### 본인 별도 작업
+- **fix(queue)**: addMirroredTask + queueAddBatch scene 순서 race로 stuck 차단.
+- **fix(data-loss)**: visibility hidden 시 keepalive flush — 편집 직후 닫기 race 차단.
+- **fix(client-perf)**: URL prefix 누락 + batch interval 단축 + visibility flush.
+
+### 미흡수 (SDStudio v4.8.0)
+- **ddbcab2** 내보내기 프리셋: 우리 ExportPreset 시스템 이미 더 진화 (id/charsToReplace 필드, regex 캐싱, ExportPresetsDialog+ExportOptionsForm 분리).
+- **65d96eb** 백그라운드 export: 우리 driveRetry+큐+widget 시스템 이미 진화.
+- **f00b645** 슬라이더 직접 입력: 우리 항상 input box (`inputMode='decimal'`).
+- **f2425fb** 모바일 UI: Capacitor 무관(우리 PWA). 슬라이더 row 패턴은 본인 피드백으로 차용.
+- 415bdcc/66ebf4f 잔여 sub-features: workflows 결합 복잡 / 사용 빈도 작음 / patch line 없음 / react-dnd 결합 등.
+
+### 시도 → revert
+- B1 편집 모달 4페이지 가로 슬라이드 시도 → 본인 사용해보고 "한 탭이 4 탭화로 더 비직관" 판단 → revert. 통찰: UX는 build 전 추정 X, 본인 손가락 평가 우선.
+
+---
+
 ## v1.5.3 (2026-05-15)
 
 stable. v1.5.2 → v1.5.3 누적 (180 commit).
