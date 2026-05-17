@@ -186,6 +186,8 @@ export const VibeEditor = observer(({ disabled }: VibeEditorProps) => {
     useContext(WFElementContext)!;
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  // 캐릭터 프리셋 적용 중 + shared(공용) field면 개별 삭제/추가 잠금 (안전장치)
+  const presetLocked = !!appState.appliedCharacterPreset && editVibe?.fieldType === 'shared';
 
   const getField = () => {
     if (editVibe!.fieldType === 'preset') return preset[editVibe!.field];
@@ -391,20 +393,24 @@ export const VibeEditor = observer(({ disabled }: VibeEditorProps) => {
                     </div>
                   </div>
                   <div className="flex-none flex ml-auto mt-auto">
-                    <Tooltip content="바이브 삭제">
-                    <button
-                      className={
-                        `round-button h-8 px-8 ml-auto ` +
-                        (disabled ? 'back-gray' : 'back-red')
-                      }
-                      onClick={() => {
-                        if (disabled) return;
-                        setField(getField().filter((x: any) => x !== vibe));
-                      }}
-                    >
-                      <FaTrash />
-                    </button>
-                    </Tooltip>
+                    {presetLocked ? (
+                      <div className="text-xs text-gray-400 dark:text-gray-500 px-2">🔒 프리셋 잠금</div>
+                    ) : (
+                      <Tooltip content="바이브 삭제">
+                      <button
+                        className={
+                          `round-button h-8 px-8 ml-auto ` +
+                          (disabled ? 'back-gray' : 'back-red')
+                        }
+                        onClick={() => {
+                          if (disabled) return;
+                          setField(getField().filter((x: any) => x !== vibe));
+                        }}
+                      >
+                        <FaTrash />
+                      </button>
+                      </Tooltip>
+                    )}
                   </div>
                 </div>
               </div>
@@ -418,11 +424,13 @@ export const VibeEditor = observer(({ disabled }: VibeEditorProps) => {
             </div>
           )}
           <div className="flex gap-2 items-center">
-            <FileUploadBase64
-              notext
-              disabled={disabled}
-              onFileSelect={vibeChange}
-            ></FileUploadBase64>
+            {!presetLocked && (
+              <FileUploadBase64
+                notext
+                disabled={disabled}
+                onFileSelect={vibeChange}
+              ></FileUploadBase64>
+            )}
             <button
               className={`round-button back-gray h-8 w-full`}
               onClick={() => {
@@ -563,6 +571,8 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [showDefaults, setShowDefaults] = useState(false);
   const [refDefaults, setRefDefaults] = useState(getRefDefaults);
+  // 캐릭터 프리셋 적용 중 + shared(공용) field면 개별 삭제/추가 잠금 (안전장치)
+  const presetLocked = !!appState.appliedCharacterPreset && editCharacterReference?.fieldType === 'shared';
 
   const updateDefault = (key: string, value: string) => {
     localStorage.setItem(key, value);
@@ -793,32 +803,38 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
                 <div className="flex flex-col gap-2 w-full">
                   <div className="flex w-full items-center justify-between">
                     <div className="flex gap-2 items-center">
+                      {presetLocked ? (
+                        <div className="text-xs text-gray-400 dark:text-gray-500">🔒 프리셋 잠금</div>
+                      ) : (
+                        <button
+                          className={`round-button h-8 px-4 ${reference.enabled !== false ? 'back-sky' : 'back-gray'}`}
+                          onClick={() => {
+                            if (disabled) return;
+                            reference.enabled = reference.enabled === false;
+                          }}
+                          disabled={disabled}
+                        >
+                          {reference.enabled !== false ? <FaToggleOn className="mr-1" /> : <FaToggleOff className="mr-1" />}
+                          {reference.enabled !== false ? '활성화됨' : '비활성화됨'}
+                        </button>
+                      )}
+                    </div>
+                    {!presetLocked && (
+                      <Tooltip content="레퍼런스 삭제">
                       <button
-                        className={`round-button h-8 px-4 ${reference.enabled !== false ? 'back-sky' : 'back-gray'}`}
+                        className={
+                          `round-button h-8 px-4 ` +
+                          (disabled ? 'back-gray' : 'back-red')
+                        }
                         onClick={() => {
                           if (disabled) return;
-                          reference.enabled = reference.enabled === false;
+                          setField(getField().filter((x: any) => x !== reference));
                         }}
-                        disabled={disabled}
                       >
-                        {reference.enabled !== false ? <FaToggleOn className="mr-1" /> : <FaToggleOff className="mr-1" />}
-                        {reference.enabled !== false ? '활성화됨' : '비활성화됨'}
+                        <FaTrash />
                       </button>
-                    </div>
-                    <Tooltip content="레퍼런스 삭제">
-                    <button
-                      className={
-                        `round-button h-8 px-4 ` +
-                        (disabled ? 'back-gray' : 'back-red')
-                      }
-                      onClick={() => {
-                        if (disabled) return;
-                        setField(getField().filter((x: any) => x !== reference));
-                      }}
-                    >
-                      <FaTrash />
-                    </button>
-                    </Tooltip>
+                      </Tooltip>
+                    )}
                   </div>
                   <div className="flex w-full md:flex-row flex-col items-center">
                     <GrayLabel>Strength:</GrayLabel>
@@ -938,11 +954,13 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
             </div>
           )}
           <div className="flex gap-2 items-center">
-            <FileUploadBase64
-              notext
-              disabled={disabled}
-              onFileSelect={referenceChange}
-            ></FileUploadBase64>
+            {!presetLocked && (
+              <FileUploadBase64
+                notext
+                disabled={disabled}
+                onFileSelect={referenceChange}
+              ></FileUploadBase64>
+            )}
             <button
               className={`round-button back-gray h-8 w-full`}
               onClick={() => {
