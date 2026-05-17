@@ -26,9 +26,7 @@ const ProgressWindow = ({ dialogs, messagesCount = 0, pinned = false, topOffset 
   if (dialogs.length === 0) return null;
   const topPx = 8 + messagesCount * 40 + topOffset;
   // pinned는 flex-1 균등분할 X — 고정 폭. 일반은 기존 동작 유지.
-  const containerCls = pinned
-    ? 'fixed top-0 left-0 right-0 flex justify-center gap-2 pointer-events-none px-2'
-    : 'fixed top-0 left-0 right-0 flex justify-center gap-2 pointer-events-none px-2';
+  const containerCls = 'fixed top-0 left-0 right-0 flex justify-center gap-2 pointer-events-none px-2';
   const itemCls = pinned
     ? 'px-3 py-2 rounded-md shadow-lg bg-white dark:bg-slate-800 text-black dark:text-white flex items-center gap-2 min-w-0 max-w-full sm:max-w-md w-full sm:w-auto'
     : 'px-3 py-2 rounded-md shadow-lg bg-white dark:bg-slate-800 text-black dark:text-white flex items-center gap-2 flex-1 min-w-0';

@@ -238,7 +238,7 @@ export const BigPromptEditor = observer(
             )}
             <div className="flex-none">
               <button
-                className={`round-button back-sky`}
+                className="round-button back-sky"
                 onClick={() => setPromptOpen(true)}
               >
                 상세설정
@@ -260,7 +260,7 @@ export const BigPromptEditor = observer(
             <div className="ml-auto flex-none flex gap-4 pt-2 mb-2 md:mb-0">
               {path && (
                 <button
-                  className={`round-button back-orange h-8 md:w-36 flex items-center justify-center`}
+                  className="round-button back-orange h-8 md:w-36 flex items-center justify-center"
                   onClick={() => {
                     setMainImage && setMainImage(path);
                   }}
@@ -280,7 +280,7 @@ export const BigPromptEditor = observer(
               {!taskQueueService.isRunning() ? (
                 <Tooltip content="생성">
                 <button
-                  className={`round-button back-green h-8 w-16 md:w-36 flex items-center justify-center`}
+                  className="round-button back-green h-8 w-16 md:w-36 flex items-center justify-center"
                   onClick={() => {
                     queuePrompt(getMiddlePrompt(), (path: string) => {
                       setPath(path);
@@ -293,7 +293,7 @@ export const BigPromptEditor = observer(
               ) : (
                 <Tooltip content="중지">
                 <button
-                  className={`round-button back-red h-8 w-16 md:w-36 flex items-center justify-center`}
+                  className="round-button back-red h-8 w-16 md:w-36 flex items-center justify-center"
                   onClick={() => {
                     taskQueueService.removeAllTasks();
                     taskQueueService.stop();
@@ -1057,7 +1057,7 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
           </div>
 
           <button
-            className={`round-button back-sky`}
+            className="round-button back-sky"
             onClick={async () => {
               const trimmedName = curName.trimEnd();
               if (!trimmedName) return;
@@ -1071,7 +1071,7 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
             이름 변경
           </button>
           <button
-            className={`round-button back-red`}
+            className="round-button back-red"
             onClick={() => {
               appState.pushDialog({
                 type: 'confirm',

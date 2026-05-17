@@ -159,8 +159,6 @@ const SceneImporterDialog = observer(() => {
       policy,
     };
     const targetProject = selectedProject;
-    setPlan(null);
-    setJsonText('');
     appState.closeSceneImporter();
     const toastId = appState.pushMessage(
       `씬 임포트 적용 중… (프로젝트 "${targetProject}")`,

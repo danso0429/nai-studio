@@ -173,10 +173,6 @@ export class KeyboardShortcutService {
     // 키 이름 정규화
     if (key === ' ') key = 'Space';
     else if (key.length === 1) key = key.toUpperCase();
-    else if (key === 'ArrowLeft') key = 'ArrowLeft';
-    else if (key === 'ArrowRight') key = 'ArrowRight';
-    else if (key === 'ArrowUp') key = 'ArrowUp';
-    else if (key === 'ArrowDown') key = 'ArrowDown';
 
     parts.push(key);
     return parts.join('+');

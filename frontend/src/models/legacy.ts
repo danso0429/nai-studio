@@ -45,11 +45,11 @@ async function importStyle(session: any, base64: string) {
   await backend.writeDataFile(path, base64);
   preset.profile = path.split('/').pop()!;
   const presets = session.presets.filter((p: any) => p.type === 'style');
-  let cnt = '';
-  while (presets.find((p: any) => p.name === preset.name + cnt)) {
-    cnt = cnt === '' ? '1' : (parseInt(cnt) + 1).toString();
+  let cnt = 0;
+  while (presets.find((p: any) => p.name === preset.name + (cnt === 0 ? '' : cnt))) {
+    cnt++;
   }
-  preset.name = preset.name + cnt;
+  preset.name = preset.name + (cnt === 0 ? '' : cnt);
   session.presets.push(preset);
   session.presetMode = 'style';
   return preset;
@@ -79,15 +79,7 @@ function getInpaintOrgPath(session: any, inpaint: any) {
 }
 
 function base64ToArrayBuffer(base64: string) {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-
-  return bytes.buffer;
+  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)).buffer;
 }
 
 async function extractExifFromBase64(base64: string) {

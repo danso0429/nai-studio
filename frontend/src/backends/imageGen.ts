@@ -42,12 +42,6 @@ export const upscaleReoslution = (resolution: Resolution) => {
       return Resolution.LargePortrait;
     case Resolution.Square:
       return Resolution.LargeSquare;
-    case Resolution.WallpaperPortrait:
-      return Resolution.WallpaperPortrait;
-    case Resolution.WallpaperLandscape:
-      return Resolution.WallpaperLandscape;
-    case Resolution.Custom:
-      return Resolution.Custom;
     default:
       return resolution;
   }

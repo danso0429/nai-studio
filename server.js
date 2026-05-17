@@ -7,6 +7,7 @@ const http = require('http');
 const { WebSocketServer, WebSocket } = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
+const { execSync, execFile } = require('child_process');
 const { NaiClient } = require('./lib/nai-client');
 const tagSearch = require('./lib/tag-search');
 const versionCheck = require('./lib/version-check');
@@ -197,12 +198,12 @@ function recordTiming(finishedAt, durationMs) {
 let _timingSaveTimeout = null;
 function _writeTimingHistorySync() {
   try {
-    require('fs').writeFileSync(TIMING_HISTORY_FILE, JSON.stringify(timingHistory));
+    fss.writeFileSync(TIMING_HISTORY_FILE, JSON.stringify(timingHistory));
   } catch {}
 }
 function _writeTimingStatsSync() {
   try {
-    require('fs').writeFileSync(TIMING_STATS_FILE, JSON.stringify(timingStats));
+    fss.writeFileSync(TIMING_STATS_FILE, JSON.stringify(timingStats));
   } catch {}
 }
 function saveTimingHistory() {
@@ -224,14 +225,14 @@ function flushTimingHistory() {
 function loadTimingHistory() {
   // raw
   try {
-    const raw = require('fs').readFileSync(TIMING_HISTORY_FILE, 'utf8');
+    const raw = fss.readFileSync(TIMING_HISTORY_FILE, 'utf8');
     const parsed = JSON.parse(raw) || [];
     // 마이그레이션: dict 형식 {finishedAt, durationMs} → tuple [ts, dur] (2026-05-13)
     if (parsed.length > 0 && parsed[0] && typeof parsed[0] === 'object' && !Array.isArray(parsed[0]) && 'finishedAt' in parsed[0]) {
       timingHistory = parsed.map(e => [e.finishedAt, e.durationMs]);
       console.log('[NAI Studio] Migrated timing raw: dict → tuple (' + parsed.length + ' entries)');
       // 즉시 disk에 새 형식으로 저장
-      try { require('fs').writeFileSync(TIMING_HISTORY_FILE, JSON.stringify(timingHistory)); } catch {}
+      try { fss.writeFileSync(TIMING_HISTORY_FILE, JSON.stringify(timingHistory)); } catch {}
     } else {
       timingHistory = parsed;
     }
@@ -240,7 +241,7 @@ function loadTimingHistory() {
   // 단, tz 마커가 없거나 다르면 raw에서 재집계 (timezone 변경 마이그레이션).
   let needsBootstrap = false;
   try {
-    const raw = require('fs').readFileSync(TIMING_STATS_FILE, 'utf8');
+    const raw = fss.readFileSync(TIMING_STATS_FILE, 'utf8');
     const parsed = JSON.parse(raw);
     if (parsed && Array.isArray(parsed.buckets) && parsed.tz === TIMING_TZ) {
       if (parsed.buckets.length === TIMING_BUCKET_COUNT) {
@@ -316,7 +317,7 @@ const COMPLETED_JOBS_FILE = path.join(DATA_DIR, '.queue_completed.json');
 let _completedSaveTimeout = null;
 function _writeCompletedJobsSync() {
   try {
-    require('fs').writeFileSync(COMPLETED_JOBS_FILE, JSON.stringify(completedJobs));
+    fss.writeFileSync(COMPLETED_JOBS_FILE, JSON.stringify(completedJobs));
   } catch {}
 }
 function saveCompletedJobs() {
@@ -328,7 +329,7 @@ function saveCompletedJobs() {
 }
 function loadCompletedJobs() {
   try {
-    const raw = require('fs').readFileSync(COMPLETED_JOBS_FILE, 'utf8');
+    const raw = fss.readFileSync(COMPLETED_JOBS_FILE, 'utf8');
     completedJobs = JSON.parse(raw) || [];
     if (completedJobs.length > 0) {
       console.log('[NAI Studio] Loaded ' + completedJobs.length + ' completed jobs');
@@ -353,8 +354,8 @@ const QUEUE_STATE_FILE = path.join(DATA_DIR, '.queue_state.json');
 let _queueSaveTimeout = null;
 function _writeQueueStateSync() {
   try {
-    const state = { queue: genQueue.map(j => j), stats: queueStats, savedAt: Date.now() };
-    require('fs').writeFileSync(QUEUE_STATE_FILE, JSON.stringify(state));
+    const state = { queue: genQueue.slice(), stats: queueStats, savedAt: Date.now() };
+    fss.writeFileSync(QUEUE_STATE_FILE, JSON.stringify(state));
   } catch {}
 }
 function saveQueueState() {
@@ -375,7 +376,7 @@ function flushQueueState() {
 }
 function loadQueueState() {
   try {
-    const raw = require('fs').readFileSync(QUEUE_STATE_FILE, 'utf8');
+    const raw = fss.readFileSync(QUEUE_STATE_FILE, 'utf8');
     const state = JSON.parse(raw);
     if (Date.now() - state.savedAt > 24 * 60 * 60 * 1000) return; // 24시간 지나면 무시
     if (state.queue && state.queue.length > 0) {
@@ -387,7 +388,7 @@ function loadQueueState() {
       console.log('[NAI Studio] Restored ' + genQueue.length + ' queued jobs from disk');
       processQueue();
     }
-    require('fs').unlinkSync(QUEUE_STATE_FILE);
+    fss.unlinkSync(QUEUE_STATE_FILE);
   } catch {}
 }
 
@@ -403,7 +404,6 @@ const RECONCILE_CHUNK_SIZE = 8;
 async function reconcileImageMap() {
   const PROJECTS_DIR = path.join(DATA_DIR, 'projects');
   const OUTS_DIR = path.join(DATA_DIR, 'outs');
-  const CHUNK = RECONCILE_CHUNK_SIZE;
   const t0 = Date.now();
 
   async function listProjectFilesRecursive(dir) {
@@ -436,8 +436,8 @@ async function reconcileImageMap() {
         .filter(s => (s.imageMap?.length || 0) > 0 || (s.mains?.length || 0) > 0);
       let changed = false;
 
-      for (let i = 0; i < targets.length; i += CHUNK) {
-        const chunk = targets.slice(i, i + CHUNK);
+      for (let i = 0; i < targets.length; i += RECONCILE_CHUNK_SIZE) {
+        const chunk = targets.slice(i, i + RECONCILE_CHUNK_SIZE);
         await Promise.all(chunk.map(async (scene) => {
           const dir = path.join(OUTS_DIR, data.name, scene.name);
           let fileSet;
@@ -513,7 +513,7 @@ async function loadDriveRetryQueue() {
 let _driveRetrySaveTimeout = null;
 function _writeDriveRetryQueueSync() {
   try {
-    require('fs').writeFileSync(DRIVE_RETRY_QUEUE_FILE, JSON.stringify(driveRetryQueue, null, 2));
+    fss.writeFileSync(DRIVE_RETRY_QUEUE_FILE, JSON.stringify(driveRetryQueue, null, 2));
   } catch (e) {
     console.error('[Drive retry] save failed:', e.message);
   }
@@ -577,7 +577,6 @@ function rcloneCopytoOnce(localPath, remotePath, timeoutMs) {
     // execFile + array args — shell parsing 0이라 path에 $(...) backtick 들어가도
     // command injection 면역. (이전 exec + JSON.stringify는 bash double-quote 안의
     // $ 확장을 막지 못함 — P13 5/15 보안 감사 발견.)
-    const { execFile } = require('child_process');
     const args = ['copyto', localPath, remotePath, '--log-level', 'INFO'];
     execFile('rclone', args, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err) => {
       if (err) resolve({ ok: false, error: err.message });
@@ -863,7 +862,6 @@ async function runExportJob(job) {
 
 async function getDiskFreeGB() {
   try {
-    const { execSync } = require('child_process');
     const output = execSync("df --output=avail /home 2>/dev/null | tail -1").toString().trim();
     return parseInt(output) / 1024 / 1024; // KB → GB
   } catch {
@@ -886,7 +884,6 @@ async function diskCleanupStage1() {
         } catch {}
       }
       // Remove empty dirs
-      const { execSync } = require('child_process');
       execSync(`find "${dirPath}" -mindepth 1 -type d -empty -delete 2>/dev/null`);
     } catch {}
   }
@@ -897,7 +894,6 @@ async function diskCleanupStage1() {
 // Delete all files matching `pathPattern` (find -path), then remove now-empty
 // `dirName` directories anywhere under DATA_DIR. Errors silently absorbed.
 async function cleanupDirByPattern(pathPattern, dirName) {
-  const { execSync } = require('child_process');
   let cleaned = 0;
   try {
     const output = execSync(`find "${DATA_DIR}" -path "${pathPattern}" -type f 2>/dev/null`).toString().trim();
@@ -927,7 +923,6 @@ async function diskCleanupStage3() {
 async function diskCleanupStage4() {
   // outs/ 30일+ 이미지 — Drive 동기화 확인 후 삭제
   let cleaned = 0;
-  const { execSync } = require('child_process');
   const outsDir = path.join(DATA_DIR, 'outs');
 
   // rclone 가용성 확인 — 60초 캐시 헬퍼 사용
@@ -1229,11 +1224,11 @@ app.get('/api/build-info', (req, res) => {
   // 2순위: version.json (첫 install 케이스 — update.sh를 안 돌렸으니 build-info.json 부재.
   //                     repo에 커밋된 version.json에서 version + sdstudioBase만 fallback)
   try {
-    const info = require('fs').readFileSync(path.join(__dirname, 'public/build-info.json'), 'utf8');
+    const info = fss.readFileSync(path.join(__dirname, 'public/build-info.json'), 'utf8');
     return res.json(JSON.parse(info));
   } catch {}
   try {
-    const v = JSON.parse(require('fs').readFileSync(path.join(__dirname, 'version.json'), 'utf8'));
+    const v = JSON.parse(fss.readFileSync(path.join(__dirname, 'version.json'), 'utf8'));
     return res.json({ buildTime: 'unknown', gitHash: 'unknown', version: v.version, sdstudioBase: v.sdstudioBase });
   } catch {}
   res.json({ buildTime: 'unknown', gitHash: 'unknown' });
@@ -1438,7 +1433,6 @@ app.get('/api/queue/completed', (req, res) => {
   // 파일시스템 fallback: outs/ 안 4시간 내 mtime png. ring buffer에 없는 것만 추가.
   const fsEntries = [];
   try {
-    const { execSync } = require('child_process');
     const outsDir = path.join(DATA_DIR, 'outs');
     const out = execSync(
       `find ${JSON.stringify(outsDir)} -type f -name "*.png" -mmin -240 -not -path "*/.trash/*" -not -path "*/fastcache/*" -printf "%T@ %P\\n" 2>/dev/null`,
@@ -1934,7 +1928,6 @@ function checkRcloneAvailable() {
   if (_rcloneAvailableCache !== null && (now - _rcloneAvailableCheckedAt) < RCLONE_AVAILABLE_CACHE_MS) {
     return _rcloneAvailableCache;
   }
-  const { execSync } = require('child_process');
   try {
     execSync('which rclone', { stdio: 'pipe' });
     execSync(`rclone listremotes 2>/dev/null | grep ${RCLONE_REMOTE}`, { stdio: 'pipe' });
@@ -1954,7 +1947,6 @@ function checkRcloneAvailable() {
 // 'rclone ' 토큰. stderr/stdout 모두 캡처라 옛 `2>&1` 리다이렉트 불필요.
 function rcloneRun(args, timeoutMs) {
   return new Promise((resolve) => {
-    const { execFile } = require('child_process');
     execFile('rclone', args, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
       resolve({
         ok: !err,

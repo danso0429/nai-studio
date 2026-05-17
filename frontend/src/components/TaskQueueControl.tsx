@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FaCaretLeft, FaCaretRight, FaPause, FaPlay, FaRegCalendarTimes } from 'react-icons/fa';
-import { FaTimes } from 'react-icons/fa';
-import { FaRegClock } from 'react-icons/fa';
+import { FaCaretLeft, FaCaretRight, FaPause, FaPlay, FaRegCalendarTimes, FaTimes, FaRegClock } from 'react-icons/fa';
 import { sessionService, taskQueueService, cyclingSessionService } from '../models';
 import { getSceneKey, Task } from '../models/TaskQueueService';
 import { appState } from '../models/AppService';
@@ -284,7 +282,7 @@ const TaskQueueList = observer(({ onClose }: { onClose?: () => void }) => {
   );
 });
 
-const TaskQueueControl = observer(({}) => {
+const TaskQueueControl = observer(() => {
   const [_, rerender] = useState<{}>({});
   const [showList, setShowList] = useState(false);
   useEffect(() => {
@@ -415,7 +413,7 @@ const TaskQueueControl = observer(({}) => {
 
 // Mobile-only split components (rendered side-by-side in 2-row mobile layout).
 // Each has its own event listeners so observer state updates correctly.
-export const TaskQueueProgress = observer(({}) => {
+export const TaskQueueProgress = observer(() => {
   const [_, rerender] = useState<{}>({});
   const [showList, setShowList] = useState(false);
   useEffect(() => {
@@ -448,7 +446,7 @@ export const TaskQueueProgress = observer(({}) => {
   );
 });
 
-export const TaskQueueControls = observer(({}) => {
+export const TaskQueueControls = observer(() => {
   const [_, rerender] = useState<{}>({});
   useEffect(() => {
     const onChange = () => { rerender({}); };

@@ -253,16 +253,7 @@ export class AbstractScene implements IAbstractScene {
   @observable accessor mains: string[] = [];
 
   static fromJSON(json: IAbstractScene): AbstractScene {
-    const scene = new AbstractScene();
-    scene.name = json.name;
-    scene.resolution = json.resolution;
-    scene.game = json.game;
-    scene.round = json.round;
-    scene.imageMap = json.imageMap;
-    scene.mains = json.mains;
-    scene.resolutionWidth = json.resolutionWidth;
-    scene.resolutionHeight = json.resolutionHeight;
-    return scene;
+    return Object.assign(new AbstractScene(), json);
   }
 
   toJSON(): IAbstractScene {

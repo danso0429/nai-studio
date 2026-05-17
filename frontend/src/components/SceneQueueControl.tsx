@@ -153,7 +153,7 @@ export const SceneCell = observer(
     // 본인 페인 (2026-05-16): 모바일 fixed w-48/w-36에서 그리드 오른쪽 빈 공간 컸음 →
     // w-full + auto-fill grid로 가로 fill.
     const cellSizes = aspectClass
-      ? [`w-full ${aspectClass}`, `w-full ${aspectClass}`, `w-full ${aspectClass}`]
+      ? Array(3).fill(`w-full ${aspectClass}`)
       : ['w-full h-36', 'w-full h-48', 'w-full h-72'];
     const curIndex = curSession.getScenes(scene.type).indexOf(scene);
     const [{ isDragging }, drag, preview] = useDrag(
@@ -308,9 +308,7 @@ export const SceneCell = observer(
 
     // 공통 버튼 렌더
     const renderButtons = (overlay?: boolean) => {
-      const btnClass = overlay
-        ? 'round-button scene-btn'
-        : 'round-button scene-btn';
+      const btnClass = 'round-button scene-btn';
       const green = overlay ? 'bg-green-500 text-white' : 'back-green';
       const gray = overlay ? 'bg-gray-500 text-white' : 'back-gray';
       const orange = overlay ? 'bg-orange-500 text-white' : 'back-orange';

@@ -163,7 +163,7 @@ export class NovelAiImageGenService implements ImageGenService {
         ucPreset: 0,
         negative_prompt: params.uc,
         strength: params.imageStrength,
-        qualityToggle: config.disableQuality ? false : true,
+        qualityToggle: !config.disableQuality,
         characterPrompts: [],
         use_coords: params.useCoords,
         legacy: false,
@@ -173,7 +173,7 @@ export class NovelAiImageGenService implements ImageGenService {
         legacy_uc: params.legacyPromptConditioning,
         inpaintImg2ImgStrength: params.imageStrength,
         cfg_rescale: params.cfgRescale,
-        add_original_image: params.originalImage ? true : false,
+        add_original_image: !!params.originalImage,
         normalize_reference_strength_multiple:
           params.normalizeStrength ?? false,
         skip_cfg_above_sigma: null,
@@ -214,7 +214,7 @@ export class NovelAiImageGenService implements ImageGenService {
     }
     // Filter out references with empty or invalid image data to prevent 500 errors
     const validCharacterReferences = params.characterReferences?.filter(
-      (ref) => ref.image && ref.image.length > 0,
+      (ref) => !!ref.image,
     );
     if (validCharacterReferences?.length) {
       body.parameters.director_reference_images = [];

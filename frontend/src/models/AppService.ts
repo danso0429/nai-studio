@@ -483,10 +483,7 @@ export class AppState {
   }
 
   private _scheduleMessageDismiss(id: string) {
-    setTimeout(() => {
-      const idx = this.messages.findIndex((m) => m.id === id);
-      if (idx >= 0) this.messages.splice(idx, 1);
-    }, TOAST_DISMISS_SHORT_MS);
+    setTimeout(() => this.dismissMessage(id), TOAST_DISMISS_SHORT_MS);
   }
 
   pushDialog(dialog: Dialog) {
@@ -1445,13 +1442,12 @@ export class AppState {
     for (const scene of scenes) {
       await gameService.refreshList(session, scene);
       const cands = gameService.getOutputs(session, scene);
-      const imageMap: any = {};
-      cands.forEach((x) => { imageMap[x] = true; });
+      const candSet = new Set(cands);
       const images: string[] = [];
       if (fav) {
         if (scene.mains.length) {
           for (const main of scene.mains) {
-            if (imageMap[main]) images.push(main);
+            if (candSet.has(main)) images.push(main);
           }
         } else if (cands.length) {
           images.push(cands[0]);
@@ -2291,9 +2287,7 @@ export class AppState {
                 const cands = gameService
                   .getOutputs(this.curSession!, scene)
                   .slice(0, n);
-                scene.mains = scene.mains
-                  .concat(cands)
-                  .filter((x, i, self) => self.indexOf(x) === i);
+                scene.mains = [...new Set(scene.mains.concat(cands))];
               }
             }
           },

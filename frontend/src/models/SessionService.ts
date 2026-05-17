@@ -766,7 +766,7 @@ export class SessionService extends ResourceSyncService<Session> {
   }
 
   configChanged(): void {
-    this.dispatchEvent(new CustomEvent('config-changed', {}));
+    this.dispatchEvent(new CustomEvent('config-changed'));
   }
 
   async reloadPieceLibraryDB(session: Session) {

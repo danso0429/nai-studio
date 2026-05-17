@@ -189,7 +189,7 @@ const PieceEditor = observer(() => {
     : globalPieceService.library;
 
   const libraryOptions = librarySource
-    ? Array.from(librarySource.entries()).map(([name]) => ({
+    ? Array.from(librarySource.keys()).map((name) => ({
         label: name,
         value: name,
       }))
@@ -726,7 +726,7 @@ const PieceEditor = observer(() => {
       {/* 조각 목록 */}
       {curPieceLibrary && (
         <div className="flex-1 overflow-auto">
-          {Array.from(curPieceLibrary.pieces.values()).map((piece) => (
+          {curPieceLibrary.pieces.map((piece) => (
             <PieceCell
               key={curPieceLibrary.name + ' ' + piece.name}
               piece={piece}

@@ -477,7 +477,7 @@ export class ImageService extends EventTarget {
   }
 
   getEncodedVibesDir(session: Session) {
-    return 'vibes/' + session.name + '/encoded';
+    return this.getVibesDir(session) + '/encoded';
   }
 
   getReferenceDir(session: Session) {
@@ -535,7 +535,6 @@ export class ImageService extends EventTarget {
     if (!(session.name in target)) {
       target[session.name] = {};
     }
-    const fileSet: any = {};
     // 옵션 C 단계 C: success 분기 가드 제거. 서버 단계 A로 200+[] = 진짜 빈 디렉토리
     // 신뢰. 5/13 "outs 비웠는데 카운트 안 사라짐" 페인의 근본 원인 fix.
     // 단계 B의 catch 분기 옛 imageMap 유지(guardEmpty=true)는 그대로 유지 — 5/12 cold
@@ -560,23 +559,18 @@ export class ImageService extends EventTarget {
     files = files.filter((x: string) => x.endsWith('.png'));
     files.sort(naturalSort);
 
+    const fileSet = new Set<string>(files);
+    const imageMapSet = new Set<string>(scene.imageMap);
+    const newImageMap = scene.imageMap.filter((x: string) => fileSet.has(x));
     for (const file of files) {
-      fileSet[file] = true;
-    }
-    const invImageMap: any = {};
-    for (let i = 0; i < scene.imageMap.length; i++) {
-      invImageMap[scene.imageMap[i]] = i;
-    }
-    let newImageMap = scene.imageMap.filter((x: string) => x in fileSet);
-    for (const file of files) {
-      if (!(file in invImageMap)) {
+      if (!imageMapSet.has(file)) {
         newImageMap.push(file);
       }
     }
     scene.imageMap = newImageMap;
     target[session.name][scene.name] = [...scene.imageMap];
     if (scene.type === 'scene') {
-      scene.mains = scene.mains.filter((x: string) => x in fileSet);
+      scene.mains = scene.mains.filter((x: string) => fileSet.has(x));
     }
     if (emitEvent)
       this.dispatchEvent(

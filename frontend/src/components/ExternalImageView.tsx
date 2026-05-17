@@ -85,16 +85,11 @@ export const ExternalImageView = observer(
         let presetType =
           target === 'new-easy' || target === 'new-global-easy'
             ? 'SDImageGenEasy'
-            : target === 'new-normal' || target === 'new-global-normal'
-              ? 'SDImageGen'
-              : 'SDImageGen';
+            : 'SDImageGen';
 
         let preset: any;
-        if (isGlobal) {
-          // 글로벌 프리셋 대상 — 메모리상에서만 빌드, 세션엔 넣지 않음
-          preset = workFlowService.buildPreset(presetType);
-          preset.name = 'external image';
-        } else if (isNew) {
+        if (isGlobal || isNew) {
+          // 글로벌 프리셋 대상은 메모리상에서만 빌드, 세션엔 넣지 않음 (이후 분기에서 처리).
           preset = workFlowService.buildPreset(presetType);
           preset.name = 'external image';
         } else if (target === 'current') {

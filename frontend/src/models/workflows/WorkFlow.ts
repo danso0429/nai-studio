@@ -242,31 +242,31 @@ export type WFIElement =
 function createDefaultValue(varObj: WFVar) {
   switch (varObj.type) {
     case 'int':
-      return (varObj as WFIntVar).default;
+      return varObj.default;
     case 'vibeSet':
       return [];
     case 'sampling':
-      return (varObj as WFSamplingVar).default;
+      return varObj.default;
     case 'noiseSchedule':
-      return (varObj as WFNoiseScheduleVar).default;
+      return varObj.default;
     case 'bool':
-      return (varObj as WFBoolVar).default;
+      return varObj.default;
     case 'prompt':
-      return (varObj as WFPromptVar).default;
+      return varObj.default;
     case 'image':
       return '';
     case 'mask':
       return '';
     case 'backend':
-      return (varObj as WFBackendVar).default;
+      return varObj.default;
     case 'nullInt':
       return null;
     case 'string':
-      return (varObj as WFStringVar).default;
+      return varObj.default;
     case 'select':
-      return (varObj as WFSelectVar).default;
+      return varObj.default;
     case 'characterPrompts':
-      return (varObj as WFCharacterPromptsVar).default;
+      return varObj.default;
     case 'characterReferences':
       return [];
     default:

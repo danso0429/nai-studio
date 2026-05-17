@@ -98,7 +98,7 @@ const MAX_HISTORY_SIZE = 4096; // 1024 * 4096 bytes = 4 MB
 
 class CursorMemorizeEditor {
   compositionBuffer: string[];
-  previousRange: number[] | any;
+  previousRange: number[] | undefined;
   curText: string;
   domText: string;
   container: HTMLElement;
@@ -204,7 +204,7 @@ class CursorMemorizeEditor {
     return res;
   }
 
-  async setCaretPosition(pos: number[] | any) {
+  async setCaretPosition(pos: number[]) {
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const selection = window.getSelection()!;
     const range = document.createRange();

@@ -129,8 +129,7 @@ class TaskTimeEstimator {
 
   estimateMean() {
     const smp = this.samples.filter((x) => x != undefined);
-    smp.sort();
-    if (smp.length) return (smp.reduce((x, y) => x! + y!, 0) ?? 0) / smp.length;
+    if (smp.length) return smp.reduce((x, y) => x! + y!, 0) / smp.length;
     return this.defaultEstimate;
   }
 }

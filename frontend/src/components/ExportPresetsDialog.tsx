@@ -291,7 +291,6 @@ export const PresetForm = ({ preset, onChange, onSave, onCancel, hideName, saveL
           onChange={(e) => {
             const chars = e.target.value
               .split(',')
-              .map((c) => c)
               .filter((c) => c.length > 0);
             onChange({ ...preset, charsToReplace: chars });
           }}

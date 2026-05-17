@@ -1857,13 +1857,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
               <Tooltip content="이미지 다운로드">
                 <button
                   className={`round-button back-green`}
-                  onClick={() => {
-                    if (selectMode && selectedImages.current.size > 0) {
-                      setShowDownloadDialog(true);
-                    } else {
-                      setShowDownloadDialog(true);
-                    }
-                  }}
+                  onClick={() => setShowDownloadDialog(true)}
                 >
                   <FaDownload />
                 </button>

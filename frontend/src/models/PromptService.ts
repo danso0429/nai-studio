@@ -482,7 +482,7 @@ export const createSDCharacterPrompts = async (
 
 const mouth = ['<', '>', '(', ')', '{', '}'];
 const eyes = [':', ';'];
-const expressions = mouth.map((m) => eyes.map((e) => e + m)).flat();
+const expressions = mouth.flatMap((m) => eyes.map((e) => e + m));
 expressions.push('><');
 
 function trimUntouch(word: string) {
@@ -508,14 +508,12 @@ function parenCheck(str: string): [boolean, number] {
       if (trimmed) {
         const [leftTirmPos, rightTrimPos] = trimmed;
         const y = x.substring(leftTirmPos, rightTrimPos + 1);
-        for (const exp of expressions) {
-          if (y === exp) {
-            return (
-              x.substring(0, leftTirmPos) +
-              'xx' +
-              x.substring(rightTrimPos + 1, x.length)
-            );
-          }
+        if (expressions.includes(y)) {
+          return (
+            x.substring(0, leftTirmPos) +
+            'xx' +
+            x.substring(rightTrimPos + 1, x.length)
+          );
         }
         return x;
       } else {
@@ -527,15 +525,16 @@ function parenCheck(str: string): [boolean, number] {
   const parens = ['(', ')', '[', ']', '{', '}', '<', '>'];
   for (let i = 0; i < str.length; i++) {
     const c = str[i];
-    if (parens.includes(c)) {
-      if (parens.indexOf(c) % 2 === 0) {
+    const parenIdx = parens.indexOf(c);
+    if (parenIdx >= 0) {
+      if (parenIdx % 2 === 0) {
         stack.push([c, i]);
       } else {
         if (stack.length === 0) {
           return [false, i];
         }
         const last = stack.pop()!;
-        if (parens.indexOf(c) - 1 !== parens.indexOf(last[0] as string)) {
+        if (parenIdx - 1 !== parens.indexOf(last[0] as string)) {
           return [false, last[1] as number];
         }
       }

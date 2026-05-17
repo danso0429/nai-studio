@@ -475,7 +475,7 @@ export const GlobalPresetTab = observer(() => {
       type: 'confirm',
       text: `${selectedIds.size}개의 글로벌 프리셋을 삭제하시겠습니까?`,
       callback: async () => {
-        for (const id of Array.from(selectedIds)) {
+        for (const id of selectedIds) {
           try {
             await globalPresetService.delete(id);
           } catch (e) {
@@ -501,7 +501,7 @@ export const GlobalPresetTab = observer(() => {
     });
     let done = 0;
     let fail = 0;
-    for (const id of Array.from(selectedIds)) {
+    for (const id of selectedIds) {
       try {
         await globalPresetService.instantiateIntoSession(session, id);
       } catch (e) {
@@ -523,7 +523,7 @@ export const GlobalPresetTab = observer(() => {
 
   const handleBulkSetDefault = async (value: boolean) => {
     if (selectedIds.size === 0) return;
-    for (const id of Array.from(selectedIds)) {
+    for (const id of selectedIds) {
       try {
         await globalPresetService.setDefault(id, value);
       } catch (e) {
