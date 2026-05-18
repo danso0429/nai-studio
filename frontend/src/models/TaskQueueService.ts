@@ -1122,7 +1122,13 @@ export class TaskQueueService extends EventTarget {
   async restoreMirroredState() {
     // single-flight: 진행 중이면 같은 promise를 반환 (concurrent unwind+rebuild의 중복 누적 차단).
     if (this.restoreInFlight) return this.restoreInFlight;
-    this.restoreInFlight = this._doRestoreMirroredState().finally(() => {
+    this.restoreInFlight = (async () => {
+      // C-mini lock: addMirroredTask가 backend.queueAddBatch await 중이면 그 사이
+      // mirroredTasks.clear()로 방금 add한 task가 wipe됨 — 본인 페인 (2026-05-18):
+      // "예약 배지 안 뜨다가 큐 목록엔 있음, 이중 등록 위험". chain 마지막 슬롯까지 대기.
+      await this.addBatchChain;
+      await this._doRestoreMirroredState();
+    })().finally(() => {
       this.restoreInFlight = null;
     });
     return this.restoreInFlight;
