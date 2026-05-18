@@ -950,18 +950,22 @@ const ResultDetailView = observer(
       };
       const refreshPaths = () => {
         const newPaths = getPaths();
-        if (newPaths.length === 0) onClose();
-        else {
-          let newIndex = newPaths.indexOf(
-            imageService.getOutputDir(curSession!, scene) +
-              '/' +
-              filenameRef.current,
-          );
-          if (newIndex !== -1) {
-            setSelectedIndex(newIndex);
-          }
-          setPaths(newPaths);
+        if (newPaths.length === 0) {
+          onClose();
+          return;
         }
+        let newIndex = newPaths.indexOf(
+          imageService.getOutputDir(curSession!, scene) +
+            '/' +
+            filenameRef.current,
+        );
+        if (newIndex === -1) {
+          // 현재 보던 이미지가 삭제됨 — 같은 위치(끝이면 마지막)로 클램프.
+          // 이걸 안 하면 selectedIndex가 stale → paths[selectedIndex] undefined → split() throw.
+          newIndex = Math.min(selectedIndex, newPaths.length - 1);
+        }
+        setSelectedIndex(newIndex);
+        setPaths(newPaths);
       };
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('shortcut-action', handleShortcut);
