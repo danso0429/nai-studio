@@ -232,14 +232,30 @@ const VANISH_DELAY_MS = 2000;
 //   done==originalTotal 도달 시 2초 후 프로젝트 통째 사라짐.
 // - 폴더도 동일.
 // 각 레벨 snapshot이 독립적 — 자식이 사라져도 부모 카운트 그대로.
-// task 단위 priority/done 추적은 taskTrackers에서. snapshot에 delta로 전파.
-type TaskTracker = {
+//
+// task 단위 메타는 TaskCommit에 sealed. 첫 등록 시 originalTotal/identity 박히고
+// lifecycle 동안 maxDoneSeen(단조증가)과 priority/active만 갱신. snapshot은 매 sync마다
+// commits로부터 derive (clear-and-rebuild) — completedAt만 영속해서 vanish 타이밍 유지.
+// 옛 delta-only tracker 모델은 restoreMirroredState가 task.done=0 reset / task.total 변경
+// 시키면 분자 음수 delta / 분모 불일치 발생 (v1.6.1, 본인 페인). commit-based로 v1.6.2 교체.
+type TaskCommit = {
+  taskId: string;
   sceneKey: string;
   projectKey: string;
   folderKey: string;
-  lastSeenDone: number;
-  originalTotal: number;
-  priority: boolean;
+  emoji: string;
+  sceneName: string;
+  projectName: string;
+  folderName: string;
+  hasFolder: boolean;
+  originalTotal: number;   // 첫 등록 시 task.total. restore로 task object 교체돼도 불변.
+  maxDoneSeen: number;     // 단조증가. task.done이 0 reset돼도 max로 보호.
+  priority: boolean;       // 매 sync 최신화 (placeholder restore가 바꿔도 따라감).
+  active: boolean;         // mirroredTasks/queue에 살아있나. priority toggle 대상 판별.
+  // 각 레벨 합산 참여 여부 — vanish 시 해당만 false 박음 (다른 레벨엔 기여 유지).
+  sceneVisible: boolean;
+  projectVisible: boolean;
+  folderVisible: boolean;
 };
 type SceneSnap = {
   sceneKey: string;
@@ -280,7 +296,7 @@ type FolderSnap = {
 // 와 stacking context 충돌로 X 클릭이 안 먹는 회귀 — 본인 보고 (2026-05-17).
 // 해결: popup을 portal로 document.body에 직접 렌더 + position: fixed + pill rect 기반 좌표.
 const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anchor: HTMLElement | null }) => {
-  const taskTrackersRef = useRef<Map<string, TaskTracker>>(new Map());
+  const taskCommitsRef = useRef<Map<string, TaskCommit>>(new Map());
   const sceneSnapsRef = useRef<Map<string, SceneSnap>>(new Map());
   const projectSnapsRef = useRef<Map<string, ProjectSnap>>(new Map());
   const folderSnapsRef = useRef<Map<string, FolderSnap>>(new Map());
@@ -292,7 +308,7 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
   const projKey = (folder: string, project: string) => folder + '\0' + project;
 
   const syncFromService = () => {
-    const trackers = taskTrackersRef.current;
+    const commits = taskCommitsRef.current;
     const scenes = sceneSnapsRef.current;
     const projects = projectSnapsRef.current;
     const folders = folderSnapsRef.current;
@@ -304,132 +320,145 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
       current.set(id, t);
     }
 
-    const applyDelta = (sceneKey: string, pKey: string, fKey: string, delta: number, priority: boolean) => {
-      const sc = scenes.get(sceneKey); if (sc) sc.done += delta;
-      const pr = projects.get(pKey); if (pr) pr.done += delta;
-      const fo = folders.get(fKey);
-      if (fo) {
-        if (priority) fo.priorityDone += delta;
-        else fo.normalDone += delta;
-      }
-    };
-
-    // 새 task 추가 + 기존 task done delta 전파
+    // 1) commit 갱신 — 새 task는 sealed로 박고, 기존은 maxDoneSeen 단조증가 + priority/active 최신화.
     for (const [taskId, task] of current) {
-      const { folder, project, scene } = taskDisplay(task);
-      const sk = taskSceneKey(task) ?? `__no_key__${taskId}`;
-      const fKey = folder || NO_FOLDER_KEY;
-      const pKey = projKey(fKey, project);
-      let tracker = trackers.get(taskId);
-      if (!tracker) {
-        // 새 task — snapshot에 originalTotal + 현재 done 더하기 (페이지 로드 직후 task.done>0 가능).
-        const sc = scenes.get(sk) ?? {
+      let commit = commits.get(taskId);
+      if (!commit) {
+        const { folder, project, scene } = taskDisplay(task);
+        const sk = taskSceneKey(task) ?? `__no_key__${taskId}`;
+        const fKey = folder || NO_FOLDER_KEY;
+        const pKey = projKey(fKey, project);
+        commit = {
+          taskId,
           sceneKey: sk,
-          sceneName: scene,
+          projectKey: pKey,
+          folderKey: fKey,
           emoji: taskQueueService.getTaskInfo(task).emoji,
-          project, folder: folder || '',
+          sceneName: scene,
+          projectName: project,
+          folderName: fKey,
           hasFolder: !!folder,
-          originalTotal: 0, done: 0,
-          taskIds: new Set<string>(),
-          isPriority: false,
-        };
-        sc.originalTotal += task.total;
-        sc.done += task.done;
-        sc.taskIds.add(taskId);
-        if (task.priority) sc.isPriority = true;
-        // 부활(resurrection): 새 task 추가로 originalTotal 늘었으면 completedAt 무효화.
-        if (sc.completedAt && sc.done < sc.originalTotal) sc.completedAt = undefined;
-        scenes.set(sk, sc);
-        const pr = projects.get(pKey) ?? {
-          key: pKey, name: project, folder: folder || '',
-          hasFolder: !!folder, originalTotal: 0, done: 0,
-        };
-        pr.originalTotal += task.total;
-        pr.done += task.done;
-        if (pr.completedAt && pr.done < pr.originalTotal) pr.completedAt = undefined;
-        projects.set(pKey, pr);
-        const fo = folders.get(fKey) ?? {
-          key: fKey, name: fKey, hasFolder: !!folder,
-          priorityTotal: 0, priorityDone: 0,
-          normalTotal: 0, normalDone: 0,
-        };
-        if (task.priority) {
-          fo.priorityTotal += task.total;
-          fo.priorityDone += task.done;
-        } else {
-          fo.normalTotal += task.total;
-          fo.normalDone += task.done;
-        }
-        if (fo.completedAt && (fo.priorityDone < fo.priorityTotal || fo.normalDone < fo.normalTotal)) {
-          fo.completedAt = undefined;
-        }
-        folders.set(fKey, fo);
-        tracker = {
-          sceneKey: sk, projectKey: pKey, folderKey: fKey,
-          lastSeenDone: task.done, originalTotal: task.total,
+          originalTotal: task.total,
+          maxDoneSeen: task.done,
           priority: !!task.priority,
+          active: true,
+          sceneVisible: true,
+          projectVisible: true,
+          folderVisible: true,
         };
-        trackers.set(taskId, tracker);
+        commits.set(taskId, commit);
       } else {
-        // 기존 task — done delta 전파 + priority 변화 반영
-        const delta = task.done - tracker.lastSeenDone;
-        if (delta !== 0) applyDelta(tracker.sceneKey, tracker.projectKey, tracker.folderKey, delta, tracker.priority);
-        tracker.lastSeenDone = task.done;
-        // priority toggle 시 fo 분리 누적 슬롯 이동 (sc/pr은 한 트리만 표시되므로 분리 불필요)
-        const newPri = !!task.priority;
-        if (tracker.priority !== newPri) {
-          const fo = folders.get(tracker.folderKey);
-          if (fo) {
-            const total = tracker.originalTotal;
-            const done = tracker.lastSeenDone;
-            if (newPri) {
-              fo.normalTotal -= total; fo.normalDone -= done;
-              fo.priorityTotal += total; fo.priorityDone += done;
-            } else {
-              fo.priorityTotal -= total; fo.priorityDone -= done;
-              fo.normalTotal += total; fo.normalDone += done;
-            }
-          }
-          tracker.priority = newPri;
+        if (task.done > commit.maxDoneSeen) commit.maxDoneSeen = task.done;
+        commit.priority = !!task.priority;
+        commit.active = true;
+      }
+    }
+
+    // 2) current에 없는 commit — task가 큐에서 사라졌으니 active 해제 + 남은 잡 done 자동 마이그.
+    //    vanish 처리는 별도 (snap completedAt → vanishTimer). 여기선 카운트 단조성만 보장.
+    for (const commit of commits.values()) {
+      if (!current.has(commit.taskId) && commit.active) {
+        commit.active = false;
+        commit.maxDoneSeen = commit.originalTotal;
+      }
+    }
+
+    // 3) snap rebuild — completedAt만 기존 값 보존, 나머지 commits로 derive (clear-and-rebuild).
+    //    *Visible=true commit만 해당 레벨 합산에 참여 — vanish poll에서 레벨별 false 박음.
+    const oldScenes = new Map(scenes);
+    const oldProjects = new Map(projects);
+    const oldFolders = new Map(folders);
+    scenes.clear();
+    projects.clear();
+    folders.clear();
+
+    for (const commit of commits.values()) {
+      if (commit.sceneVisible) {
+        let sc = scenes.get(commit.sceneKey);
+        if (!sc) {
+          const old = oldScenes.get(commit.sceneKey);
+          sc = {
+            sceneKey: commit.sceneKey,
+            sceneName: commit.sceneName,
+            emoji: commit.emoji,
+            project: commit.projectName,
+            folder: commit.folderName === NO_FOLDER_KEY ? '' : commit.folderName,
+            hasFolder: commit.hasFolder,
+            originalTotal: 0,
+            done: 0,
+            completedAt: old?.completedAt,
+            taskIds: new Set<string>(),
+            isPriority: false,
+          };
+          scenes.set(commit.sceneKey, sc);
+        }
+        sc.originalTotal += commit.originalTotal;
+        sc.done += commit.maxDoneSeen;
+        // priority toggle 대상은 active commit만. vanished/inactive는 의미 없음.
+        if (commit.active) {
+          sc.taskIds.add(commit.taskId);
+          if (commit.priority) sc.isPriority = true;
+        }
+      }
+      if (commit.projectVisible) {
+        let pr = projects.get(commit.projectKey);
+        if (!pr) {
+          const old = oldProjects.get(commit.projectKey);
+          pr = {
+            key: commit.projectKey,
+            name: commit.projectName,
+            folder: commit.folderName === NO_FOLDER_KEY ? '' : commit.folderName,
+            hasFolder: commit.hasFolder,
+            originalTotal: 0,
+            done: 0,
+            completedAt: old?.completedAt,
+          };
+          projects.set(commit.projectKey, pr);
+        }
+        pr.originalTotal += commit.originalTotal;
+        pr.done += commit.maxDoneSeen;
+      }
+      if (commit.folderVisible) {
+        let fo = folders.get(commit.folderKey);
+        if (!fo) {
+          const old = oldFolders.get(commit.folderKey);
+          fo = {
+            key: commit.folderKey,
+            name: commit.folderName,
+            hasFolder: commit.hasFolder,
+            priorityTotal: 0,
+            priorityDone: 0,
+            normalTotal: 0,
+            normalDone: 0,
+            completedAt: old?.completedAt,
+          };
+          folders.set(commit.folderKey, fo);
+        }
+        // priority/normal slot 분기는 commit.priority 기준 — 매 rebuild라 toggle 자동 반영.
+        if (commit.priority) {
+          fo.priorityTotal += commit.originalTotal;
+          fo.priorityDone += commit.maxDoneSeen;
+        } else {
+          fo.normalTotal += commit.originalTotal;
+          fo.normalDone += commit.maxDoneSeen;
         }
       }
     }
 
-    // 사라진 task — 남은 done 전부 push (originalTotal까지) + tracker 정리
-    // scene/project/folder snapshot은 유지 (vanish poll에서 레벨 단위 처리)
-    for (const [taskId, tracker] of Array.from(trackers)) {
-      if (!current.has(taskId)) {
-        const delta = tracker.originalTotal - tracker.lastSeenDone;
-        if (delta !== 0) applyDelta(tracker.sceneKey, tracker.projectKey, tracker.folderKey, delta, tracker.priority);
-        // scene.taskIds에서 제거 (우선순위 toggle 시 보낼 ID 갱신)
-        const sc = scenes.get(tracker.sceneKey);
-        if (sc) sc.taskIds.delete(taskId);
-        trackers.delete(taskId);
-      }
-    }
-
-    // 씬 isPriority 재계산 — 현재 active tracker만 보고
-    for (const sc of scenes.values()) {
-      let anyPri = false;
-      for (const tid of sc.taskIds) {
-        const tr = trackers.get(tid);
-        if (tr?.priority) { anyPri = true; break; }
-      }
-      sc.isPriority = anyPri;
-    }
-
-    // 각 레벨 completedAt 마킹 (done >= originalTotal 도달 시)
+    // 4) completedAt 마킹/부활. done>=total 도달 시 now 박고, 부활 시 무효화.
     const now = Date.now();
     for (const sc of scenes.values()) {
       if (sc.done >= sc.originalTotal && !sc.completedAt) sc.completedAt = now;
+      else if (sc.done < sc.originalTotal && sc.completedAt) sc.completedAt = undefined;
     }
     for (const pr of projects.values()) {
       if (pr.done >= pr.originalTotal && !pr.completedAt) pr.completedAt = now;
+      else if (pr.done < pr.originalTotal && pr.completedAt) pr.completedAt = undefined;
     }
     for (const fo of folders.values()) {
-      if (fo.priorityDone >= fo.priorityTotal && fo.normalDone >= fo.normalTotal && !fo.completedAt) {
-        fo.completedAt = now;
-      }
+      const done = fo.priorityDone >= fo.priorityTotal && fo.normalDone >= fo.normalTotal;
+      if (done && !fo.completedAt) fo.completedAt = now;
+      else if (!done && fo.completedAt) fo.completedAt = undefined;
     }
     rerender((n) => n + 1);
   };
@@ -442,29 +471,40 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
     taskQueueService.addEventListener('progress', onChange);
     taskQueueService.addEventListener('complete', onChange);
     taskQueueService.addEventListener('error', onChange);
-    // vanish 타이머 — 각 레벨 (씬/프로젝트/폴더) 별로 completedAt + delay 지나면 제거.
+    // vanish 타이머 — 각 레벨 별로 completedAt + delay 지나면 snap 제거 +
+    // commit의 그 레벨 visibility 해제. 다른 레벨 합산엔 commit이 그대로 기여 (씬 vanish해도
+    // 프로젝트/폴더 카운트 유지 spec). 모든 visibility false면 commit 자체 정리 (메모리).
     const vanishTimer = setInterval(() => {
       const now = Date.now();
+      const commits = taskCommitsRef.current;
       let changed = false;
       for (const [k, sc] of sceneSnapsRef.current) {
         if (sc.completedAt && now - sc.completedAt > VANISH_DELAY_MS) {
           sceneSnapsRef.current.delete(k);
+          for (const c of commits.values()) if (c.sceneKey === k) c.sceneVisible = false;
           changed = true;
         }
       }
       for (const [k, pr] of projectSnapsRef.current) {
         if (pr.completedAt && now - pr.completedAt > VANISH_DELAY_MS) {
           projectSnapsRef.current.delete(k);
+          for (const c of commits.values()) if (c.projectKey === k) c.projectVisible = false;
           changed = true;
         }
       }
       for (const [k, fo] of folderSnapsRef.current) {
         if (fo.completedAt && now - fo.completedAt > VANISH_DELAY_MS) {
           folderSnapsRef.current.delete(k);
+          for (const c of commits.values()) if (c.folderKey === k) c.folderVisible = false;
           changed = true;
         }
       }
-      if (changed) rerender((n) => n + 1);
+      if (changed) {
+        for (const [tid, c] of Array.from(commits)) {
+          if (!c.sceneVisible && !c.projectVisible && !c.folderVisible) commits.delete(tid);
+        }
+        rerender((n) => n + 1);
+      }
     }, 500);
     return () => {
       taskQueueService.removeEventListener('start', onChange);
