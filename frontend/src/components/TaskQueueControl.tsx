@@ -237,7 +237,7 @@ const VANISH_DELAY_MS = 2000;
 // lifecycle 동안 maxDoneSeen(단조증가)과 priority/active만 갱신. snapshot은 매 sync마다
 // commits로부터 derive (clear-and-rebuild) — completedAt만 영속해서 vanish 타이밍 유지.
 // 옛 delta-only tracker 모델은 restoreMirroredState가 task.done=0 reset / task.total 변경
-// 시키면 분자 음수 delta / 분모 불일치 발생 (v1.6.1, 본인 페인). commit-based로 v1.6.2 교체.
+// 시키면 분자 음수 delta / 분모 불일치 발생 (본인 페인 2026-05-18). commit-based로 v1.7.1 교체.
 type TaskCommit = {
   taskId: string;
   sceneKey: string;
@@ -351,6 +351,13 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
         if (task.done > commit.maxDoneSeen) commit.maxDoneSeen = task.done;
         commit.priority = !!task.priority;
         commit.active = true;
+        // rejection 보정: 첫 등록 직후 queueAddBatch에서 일부 rejected (큐 1000잡 한계 초과)
+        // 되면 task.total -= rejected. originalTotal은 보통 sealed이지만 이 경우만 down-adjust.
+        // restore placeholder의 task.total=jobs.length(잡 완료된 task)와 구별:
+        //   rejection은 maxDoneSeen=0 시점에 일어남, restore는 maxDoneSeen>task.total 가능.
+        if (task.total < commit.originalTotal && commit.maxDoneSeen <= task.total) {
+          commit.originalTotal = task.total;
+        }
       }
     }
 
