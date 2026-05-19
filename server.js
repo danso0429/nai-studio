@@ -8,6 +8,8 @@ const { WebSocketServer, WebSocket } = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { execSync, execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileP = promisify(execFile);
 const { NaiClient } = require('./lib/nai-client');
 const tagSearch = require('./lib/tag-search');
 const versionCheck = require('./lib/version-check');
@@ -891,13 +893,23 @@ async function runExportJob(job) {
   broadcast('export-complete', { jobId, outFilePath, included, skipped });
 }
 
+// audit H5 — /api/queue/status가 매 polling tick마다 호출돼 매번 execSync df 5ms 블록.
+// 5초 캐시로 hot path 응답성 회복. 디스크 free GB는 second-level granularity 충분.
+let _diskFreeCache = { value: 999, fetchedAt: 0 };
+const DISK_FREE_CACHE_MS = 5000;
 async function getDiskFreeGB() {
-  try {
-    const output = execSync("df --output=avail /home 2>/dev/null | tail -1").toString().trim();
-    return parseInt(output) / 1024 / 1024; // KB → GB
-  } catch {
-    return 999; // assume OK if check fails
+  if (Date.now() - _diskFreeCache.fetchedAt < DISK_FREE_CACHE_MS) {
+    return _diskFreeCache.value;
   }
+  try {
+    const { stdout } = await execFileP('df', ['--output=avail', '/home']);
+    const lastLine = stdout.trim().split('\n').pop();
+    _diskFreeCache.value = parseInt(lastLine) / 1024 / 1024; // KB → GB
+  } catch {
+    _diskFreeCache.value = 999; // assume OK if check fails
+  }
+  _diskFreeCache.fetchedAt = Date.now();
+  return _diskFreeCache.value;
 }
 
 async function diskCleanupStage1() {
@@ -1546,7 +1558,7 @@ app.post('/api/queue/prioritize', async (req, res) => {
 
 // 완료된 jobs. 메모리 ring buffer (정확한 meta) + 파일시스템 walk (옛 jobs 복원).
 // 둘 다 합쳐서 반환. 4시간 이내, 최근부터. dedupe = outputFilePath 기준 (메모리 우선).
-app.get('/api/queue/completed', (req, res) => {
+app.get('/api/queue/completed', async (req, res) => {
   pruneCompletedJobs();
   const limit = Math.min(parseInt(req.query.limit) || COMPLETED_JOBS_MAX, COMPLETED_JOBS_MAX);
   const sinceMs = Date.now() - COMPLETED_RETENTION_MS;
@@ -1555,13 +1567,18 @@ app.get('/api/queue/completed', (req, res) => {
   const seenPaths = new Set(memEntries.map((e) => e.outputFilePath).filter(Boolean));
 
   // 파일시스템 fallback: outs/ 안 4시간 내 mtime png. ring buffer에 없는 것만 추가.
+  // audit H5: execSync find가 HTTP path에서 event loop 블록 (수만 파일 시 100ms+).
+  // execFile async로 전환 — 같은 timeout/maxBuffer 유지.
   const fsEntries = [];
   try {
     const outsDir = path.join(DATA_DIR, 'outs');
-    const out = execSync(
-      `find ${JSON.stringify(outsDir)} -type f -name "*.png" -mmin -240 -not -path "*/.trash/*" -not -path "*/fastcache/*" -printf "%T@ %P\\n" 2>/dev/null`,
-      { maxBuffer: 50 * 1024 * 1024, timeout: 10000 }
-    ).toString();
+    const { stdout: out } = await execFileP('find', [
+      outsDir, '-type', 'f', '-name', '*.png',
+      '-mmin', '-240',
+      '-not', '-path', '*/.trash/*',
+      '-not', '-path', '*/fastcache/*',
+      '-printf', '%T@ %P\\n',
+    ], { maxBuffer: 50 * 1024 * 1024, timeout: 10000 });
     for (const line of out.split('\n')) {
       if (!line.trim()) continue;
       const sp = line.indexOf(' ');
