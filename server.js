@@ -226,16 +226,23 @@ let timingStats = {
 const TIMING_STATS_FILE = path.join(DATA_DIR, '.queue_timing_stats.json');
 
 function pruneTimingHistory() {
+  // audit M6 — 옛: shift() loop은 매번 O(N) 배열 재할당. N개 drop = O(N²).
+  // 새: linear scan으로 drop 끝 index 찾고 splice 한 번 = O(N).
+  // 대규모 batch 처리 후 retention 경계 한 번에 다수 drop 시 (예: 시스템 정지 후
+  // 재가동) ms 단위 절감.
   const cutoff = Date.now() - TIMING_RETENTION_MS;
+  let cutIdx = 0;
+  while (cutIdx < timingHistory.length && timingHistory[cutIdx][0] < cutoff) cutIdx++;
   let removed = 0;
-  while (timingHistory.length > 0 && timingHistory[0][0] < cutoff) {
-    timingHistory.shift();
-    removed++;
+  if (cutIdx > 0) {
+    timingHistory.splice(0, cutIdx);
+    removed += cutIdx;
   }
   // 하드 캡 (이론상 도달 어렵지만 안전망)
-  while (timingHistory.length > TIMING_HISTORY_HARD_CAP) {
-    timingHistory.shift();
-    removed++;
+  if (timingHistory.length > TIMING_HISTORY_HARD_CAP) {
+    const over = timingHistory.length - TIMING_HISTORY_HARD_CAP;
+    timingHistory.splice(0, over);
+    removed += over;
   }
   return removed;
 }
