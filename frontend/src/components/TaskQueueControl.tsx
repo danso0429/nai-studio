@@ -361,12 +361,24 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
       }
     }
 
-    // 2) current에 없는 commit — task가 큐에서 사라졌으니 active 해제 + 남은 잡 done 자동 마이그.
-    //    vanish 처리는 별도 (snap completedAt → vanishTimer). 여기선 카운트 단조성만 보장.
-    for (const commit of commits.values()) {
-      if (!current.has(commit.taskId) && commit.active) {
-        commit.active = false;
-        commit.maxDoneSeen = commit.originalTotal;
+    // 2) current에 없는 commit — task가 큐에서 사라진 두 가지 케이스:
+    //    (a) 자연 complete: maxDoneSeen이 이미 originalTotal까지 차 있음 → vanish poll로
+    //        0.5s 후 자연 정리. active=false만 박음 (분모/분자 = X/X "완료" 표시 의도).
+    //    (b) cancel/remove (사용자 캘린더 버튼 / removeTasksFromScene): maxDoneSeen
+    //        < originalTotal. 옛 룰("그냥 maxDoneSeen=originalTotal 강제")은 cancel을
+    //        complete처럼 false-positive "X/X 완료" 0.5s 보이게 + 후속 큐 추가 시 옛
+    //        commit 합산되어 "2X/3X" 부정확 표시. 본인 보고 (2026-05-19). 처방: commit
+    //        즉시 제거 → snap rebuild에서 합산 자체에서 빠짐 → false-positive 차단 +
+    //        후속 큐 추가 분모/분자 정확.
+    for (const [taskId, commit] of Array.from(commits)) {
+      if (!current.has(taskId) && commit.active) {
+        if (commit.maxDoneSeen >= commit.originalTotal) {
+          // (a) 자연 complete
+          commit.active = false;
+        } else {
+          // (b) cancel/remove — 즉시 제거
+          commits.delete(taskId);
+        }
       }
     }
 
