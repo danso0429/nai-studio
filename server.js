@@ -111,6 +111,20 @@ async function atomicWriteFile(filePath, data, encoding) {
 
 // Debounced disk saver. save()는 첫 호출 후 delayMs 안 후속 호출을 묶어 한 번 syncFn().
 // flush()는 pending timeout 강제 즉시 실행 (shutdown/idle 시).
+// audit H4 — fs batch endpoint Promise.all(items.map(async ...)) fan-out 방지.
+// libuv 기본 thread pool 4 worker라 1만 파일 syscall 던지면 event loop 정체.
+// 16 단위 chunk로 끊으면 thread pool 안 넘어가고 event loop 응답성 유지.
+async function chunkedMap(arr, chunkSize, fn) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += chunkSize) {
+    const chunk = arr.slice(i, i + chunkSize);
+    const results = await Promise.all(chunk.map(fn));
+    for (const r of results) out.push(r);
+  }
+  return out;
+}
+const FS_BATCH_CONCURRENCY = 16;
+
 function makeDebouncedSaver(syncFn, delayMs) {
   let timeout = null;
   return {
@@ -1775,12 +1789,12 @@ app.get('/api/fs/list-stats', async (req, res) => {
     const dirPath = resolvePath(req.query.path);
     await fs.mkdir(dirPath, { recursive: true });
     const files = await fs.readdir(dirPath);
-    const stats = await Promise.all(files.map(async (name) => {
+    const stats = await chunkedMap(files, FS_BATCH_CONCURRENCY, async (name) => {
       try {
         const st = await fs.stat(path.join(dirPath, name));
         return { name, size: st.size, mtime: st.mtimeMs };
       } catch { return { name, size: 0, mtime: 0 }; }
-    }));
+    });
     // list-stats는 파일 mtime/size까지 봄 → 디렉토리 mtime만으론 부족.
     // 결과 자체에서 max mtime + 파일 수로 weak ETag 만듦.
     const maxMtime = stats.reduce((m, s) => Math.max(m, s.mtime), 0);
@@ -1925,12 +1939,12 @@ app.post('/api/fs/delete-batch', async (req, res) => {
   try {
     const paths = req.body.paths || [];
     let deleted = 0;
-    await Promise.all(paths.map(async (p) => {
+    await chunkedMap(paths, FS_BATCH_CONCURRENCY, async (p) => {
       try {
         await fs.unlink(resolvePath(p));
         deleted++;
       } catch {}
-    }));
+    });
     res.json({ ok: true, deleted });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1938,7 +1952,7 @@ app.post('/api/fs/delete-batch', async (req, res) => {
 app.post('/api/fs/move-batch', async (req, res) => {
   try {
     const moves = req.body.moves || []; // [{src, dest}]
-    const results = await Promise.all(moves.map(async ({ src, dest }) => {
+    const results = await chunkedMap(moves, FS_BATCH_CONCURRENCY, async ({ src, dest }) => {
       try {
         const srcPath = resolvePath(src);
         const destPath = resolvePath(dest);
@@ -1946,7 +1960,7 @@ app.post('/api/fs/move-batch', async (req, res) => {
         await fs.rename(srcPath, destPath);
         return 1;
       } catch { return 0; }
-    }));
+    });
     const moved = results.reduce((a, b) => a + b, 0);
     res.json({ ok: true, moved });
   } catch (e) { res.status(500).json({ error: e.message }); }
