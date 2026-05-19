@@ -136,7 +136,7 @@ export const BigPromptEditor = observer(
         taskQueueService.removeEventListener('stop', handleProgress);
         taskQueueService.removeEventListener('progress', handleProgress);
       };
-    });
+    }, []);
 
     const [promptOpen, setPromptOpen] = useState(false);
     const [editDisabled, setEditDisabled] = useState(true);
