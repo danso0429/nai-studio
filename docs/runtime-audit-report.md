@@ -841,6 +841,7 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 ---
 
 ### High — `JSZip.loadAsync(Buffer.from(arrayBuffer))` doubles memory in browser NAI vendor
+- **Status (P17 verification, 2026-05-19)**: ☠ DEAD CODE — `NovelAiImageGenService` 클래스 frontend caller 0건 (`grep -rn NovelAiImageGenService frontend/src` 단일 결과 = 정의 줄). SDStudio Phase 9에서 서버 측 NAI client (`lib/nai-client.js`)로 이전 후 잔존물. Vite tree-shaking으로 빌드 결과물에도 안 들어감. 서버 측 `lib/nai-client.js:267,306`은 이미 `JSZip.loadAsync(buffer)`로 doubling 없음. **Fix 적용해도 production 효과 0** → 본인 결정 (2026-05-19): "일괄 dead-code cleanup 시 같이 폴더 삭제". 본 audit batch에서는 손 안 댐.
 - Location: `frontend/src/backends/genVendors/nai.ts:343-350`, `:403-410`
 - Category: 1 Memory Pressure / 7 Large Binary
 - Issue: arrayBuffer (1.4 MB) + Buffer copy (1.4 MB) + JSZip internal (1.4 MB) + base64 (1.9 MB) ≈ 6 MB simultaneous per 1024² PNG.
