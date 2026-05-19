@@ -437,7 +437,7 @@ function loadQueueState() {
       queueStats.totalProcessTimeMs = state.stats?.totalProcessTimeMs || 0;
       queueStats.completedWithTiming = state.stats?.completedWithTiming || 0;
       console.log('[NAI Studio] Restored ' + genQueue.length + ' queued jobs from disk');
-      processQueue();
+      processQueue().catch((e) => console.error('[queue] runner crashed (restore):', e));
     }
     fss.unlinkSync(QUEUE_STATE_FILE);
   } catch {}
@@ -1452,7 +1452,7 @@ app.post('/api/queue/add', async (req, res) => {
   genQueue.push({ jobId, params, meta });
   broadcastQueueStatus();
   // Kick off processing (non-blocking)
-  setImmediate(() => processQueue());
+  setImmediate(() => processQueue().catch((e) => console.error('[queue] runner crashed:', e)));
   res.json({ jobId });
   saveQueueState();
 });
@@ -1471,7 +1471,7 @@ app.post('/api/queue/add-batch', async (req, res) => {
     jobIds.push(jobId);
   }
   broadcastQueueStatus();
-  setImmediate(() => processQueue());
+  setImmediate(() => processQueue().catch((e) => console.error('[queue] runner crashed:', e)));
   saveQueueState();
   res.json({ jobIds, rejected: jobs.length - toAdd.length });
 });
@@ -1721,7 +1721,7 @@ app.post('/api/queue/resume', (req, res) => {
   pauseRequested = false;
   // pause loop가 다음 iteration에서 빠져나옴. 큐가 idle이면 새로 시작.
   if (!queueProcessing) {
-    setImmediate(() => processQueue());
+    setImmediate(() => processQueue().catch((e) => console.error('[queue] runner crashed:', e)));
   }
   res.json({ ok: true });
 });
