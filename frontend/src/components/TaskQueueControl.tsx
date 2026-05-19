@@ -477,12 +477,11 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
     // 한 프레임 안 동시 발생하는 5-10개 이벤트가 모두 sync 수행 → 60ms+ 한 프레임에.
     // 새: rAF coalesce — 한 frame 내 다중 이벤트는 단 1회 sync로 합침. 모니터링
     // refresh rate (60Hz)와 자연 동기화.
-    let rafScheduled = false;
+    let rafHandle: number | null = null;
     const onChange = () => {
-      if (rafScheduled) return;
-      rafScheduled = true;
-      requestAnimationFrame(() => {
-        rafScheduled = false;
+      if (rafHandle !== null) return;
+      rafHandle = requestAnimationFrame(() => {
+        rafHandle = null;
         syncFromService();
       });
     };
@@ -532,6 +531,9 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
       taskQueueService.removeEventListener('progress', onChange);
       taskQueueService.removeEventListener('complete', onChange);
       taskQueueService.removeEventListener('error', onChange);
+      // pending rAF 취소 — 언마운트 후 callback이 firing되면 rerender 호출 →
+      // React warning. 명시적 cancel.
+      if (rafHandle !== null) cancelAnimationFrame(rafHandle);
       clearInterval(vanishTimer);
     };
   }, []);
