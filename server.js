@@ -474,6 +474,10 @@ async function reconcileImageMap() {
   try {
     const files = await listProjectFilesRecursive(PROJECTS_DIR);
     for (const file of files) {
+      // audit M2: 옛 file loop는 yield 없음. 부팅 시 1000+ project 시나리오에서
+      // 수 초 event loop 블록. 매 file 시작 시 setImmediate yield로 HTTP/WS
+      // 응답성 보존.
+      await new Promise((r) => setImmediate(r));
       let raw, data, mtimeBefore;
       try {
         const st = await fs.stat(file);
