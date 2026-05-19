@@ -349,6 +349,7 @@ function _writeCompletedJobsSync() {
 }
 const _completedSaver = makeDebouncedSaver(_writeCompletedJobsSync, 5000);
 function saveCompletedJobs() { _completedSaver.save(); }
+function flushCompletedJobs() { _completedSaver.flush(); }
 function loadCompletedJobs() {
   try {
     const raw = fss.readFileSync(COMPLETED_JOBS_FILE, 'utf8');
@@ -502,6 +503,9 @@ const DRIVE_RETRY_POLL_MS = 5000;
 // oldest 제거. entry당 ~0.5KB라 5000 = ~2.5MB 메모리 + 디스크 영속.
 const DRIVE_RETRY_QUEUE_MAX = 5000;
 let driveRetryQueue = [];
+// setInterval 핸들 — SIGINT/SIGTERM에서 clearInterval로 1초 종료 window 동안의
+// double-flight 회피 (H1 audit). loadDriveRetryQueue().then 안에서 set.
+let driveRetryTimer = null;
 
 async function loadDriveRetryQueue() {
   try {
@@ -1271,6 +1275,9 @@ app.post('/api/self-update', async (req, res) => {
       // res.end() 직후 500ms 안에 pm2 restart 트리거 → 본 프로세스 종료.
       // pm2가 자동으로 새 인스턴스 띄움. 락은 새 프로세스에서 자연 해제.
       setTimeout(() => {
+        // pm2 SIGINT 전에 driveRetry interval 정리 + state flush — restart window
+        // 동안 double-flight (H1 audit) 회피.
+        shutdownCleanup();
         const pm2Name = process.env.NAI_PM2_NAME || 'nai-studio-2';
         selfUpdate.triggerPm2Restart(pm2Name);
       }, 500);
@@ -3207,7 +3214,7 @@ async function start() {
         }
       }
       if (driveRetryQueue.length > 0) saveDriveRetryQueue();
-      setInterval(processDriveRetryQueue, DRIVE_RETRY_POLL_MS);
+      driveRetryTimer = setInterval(processDriveRetryQueue, DRIVE_RETRY_POLL_MS);
     });
     console.log(`[NAI Studio] Frontend: http://localhost:${PORT}`);
     console.log(`[NAI Studio] API: http://localhost:${PORT}/api`);
@@ -3216,18 +3223,24 @@ async function start() {
   });
 }
 
-process.on('SIGINT', () => {
-  console.log('[NAI Studio] SIGINT received, flushing queue state...');
+function shutdownCleanup() {
+  if (driveRetryTimer) {
+    clearInterval(driveRetryTimer);
+    driveRetryTimer = null;
+  }
   flushQueueState();
   flushTimingHistory();
+  flushCompletedJobs();
   flushDriveRetryQueue();
+}
+process.on('SIGINT', () => {
+  console.log('[NAI Studio] SIGINT received, flushing queue state...');
+  shutdownCleanup();
   process.exit(0);
 });
 process.on('SIGTERM', () => {
   console.log('[NAI Studio] SIGTERM received, flushing queue state...');
-  flushQueueState();
-  flushTimingHistory();
-  flushDriveRetryQueue();
+  shutdownCleanup();
   process.exit(0);
 });
 
