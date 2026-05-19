@@ -351,6 +351,23 @@ export class ImageService extends EventTarget {
     for (const key of toDelete) {
       cache.delete(key);
     }
+    // audit H10 — images/inpaints 맵도 session.name keyed. rename 시 옛 key 잔존하면
+    // 동일 캐시가 두 곳에 남고 후속 read는 새 key 빈 객체로 시작 → 첫 refresh 전엔
+    // 비어 보임. 옛 key 이름만 바뀌도록 이전.
+    if (oldName in this.images) {
+      this.images[newName] = this.images[oldName];
+      delete this.images[oldName];
+    }
+    if (oldName in this.inpaints) {
+      this.inpaints[newName] = this.inpaints[oldName];
+      delete this.inpaints[oldName];
+    }
+    // encodedVibeExistsCache key는 file path 포함 (e.g. 'vibes/<oldName>/<file>')
+    const vibeKeysToDelete: string[] = [];
+    for (const key of this.encodedVibeExistsCache.cache.keys()) {
+      if (key.includes('/' + oldName + '/')) vibeKeysToDelete.push(key);
+    }
+    for (const key of vibeKeysToDelete) this.encodedVibeExistsCache.delete(key);
     for (const dir of ['outs', 'inpaints', 'vibes', 'references', 'inpaint_masks', 'inpaint_orgs']) {
       try {
         await backend.renameDir(dir + '/' + oldName, dir + '/' + newName);
@@ -358,6 +375,24 @@ export class ImageService extends EventTarget {
         // 폴더가 없을 수 있음
       }
     }
+  }
+
+  // audit H10 — 옛 코드엔 session delete 시 images/inpaints 정리 path 없어 long-lived
+  // editor에서 삭제된 session.name 키가 영원히 남음. 본 메서드 호출처: AppService
+  // deleteProjectBackground sessionService.delete 성공 직후.
+  onSessionDeleted(sessionName: string) {
+    delete this.images[sessionName];
+    delete this.inpaints[sessionName];
+    const cacheKeysToDelete: string[] = [];
+    for (const key of this.cache.cache.keys()) {
+      if (key.includes('/' + sessionName + '/')) cacheKeysToDelete.push(key);
+    }
+    for (const key of cacheKeysToDelete) this.cache.delete(key);
+    const vibeKeysToDelete: string[] = [];
+    for (const key of this.encodedVibeExistsCache.cache.keys()) {
+      if (key.includes('/' + sessionName + '/')) vibeKeysToDelete.push(key);
+    }
+    for (const key of vibeKeysToDelete) this.encodedVibeExistsCache.delete(key);
   }
 
   async normalizeReferenceImage(data: string): Promise<string> {

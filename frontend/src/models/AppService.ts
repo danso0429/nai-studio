@@ -400,6 +400,9 @@ export class AppState {
         (async () => {
           try {
             await sessionService.delete(name);
+            // audit H10 — imageService.images/inpaints는 sessionService.delete 무관
+            // 잔존. 삭제 성공 직후 비우기.
+            imageService.onSessionDeleted(name);
             this.finishProgressDialog(
               pid,
               `✓ 프로젝트 "${name}" 삭제 완료`,
