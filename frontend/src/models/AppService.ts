@@ -513,15 +513,24 @@ export class AppState {
       return;
     }
     const targetDir = imageService.getOutputDir(session, scene);
+    // audit H15: 옛 serial loop. 50장+ 붙여넣기 시 wall clock 길어짐. 4-chunk 병렬로
+    // 동시 4 copy → 단축. refresh는 마지막에 한 번만 (옛 동작 유지).
+    const PASTE_CHUNK = 4;
     let copied = 0;
-    for (const srcPath of this.imageClipboard) {
-      try {
-        const filename = Date.now().toString() + '_' + copied + '.png';
-        await backend.copyFile(srcPath, targetDir + '/' + filename);
-        copied++;
-      } catch (e) {
-        console.error('이미지 붙여넣기 실패:', srcPath, e);
-      }
+    let copyIndex = 0;
+    const srcList = this.imageClipboard.slice();
+    for (let i = 0; i < srcList.length; i += PASTE_CHUNK) {
+      const chunk = srcList.slice(i, i + PASTE_CHUNK);
+      await Promise.all(chunk.map(async (srcPath) => {
+        const idx = copyIndex++;
+        try {
+          const filename = Date.now().toString() + '_' + idx + '.png';
+          await backend.copyFile(srcPath, targetDir + '/' + filename);
+          copied++;
+        } catch (e) {
+          console.error('이미지 붙여넣기 실패:', srcPath, e);
+        }
+      }));
     }
     await imageService.refresh(session, scene);
     this.pushMessage(copied + '장의 이미지가 붙여넣어졌습니다.');
