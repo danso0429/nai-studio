@@ -56,11 +56,21 @@ const nai = new NaiClient();
 
 // ─── WebSocket broadcast ────────────────────────────────────────────
 let wss;
+// 단일 클라이언트의 ws 송신 버퍼 한계 — 슬립/poor-link 상태 모바일이 1MB 넘게 쌓이면 강제 종료.
+// 안 끊으면 process resident 메모리에 broadcast 페이로드가 무한 누적 (큐 풀가동 시 수백 MB).
+const WS_MAX_BUFFER = 1 * 1024 * 1024;
 function broadcast(type, data) {
   if (!wss) return;
   const msg = JSON.stringify({ type, data });
   wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) client.send(msg);
+    if (client.readyState !== WebSocket.OPEN) return;
+    if (client.bufferedAmount > WS_MAX_BUFFER) {
+      try { client.terminate(); } catch {}
+      return;
+    }
+    client.send(msg, (err) => {
+      if (err) { try { client.terminate(); } catch {} }
+    });
   });
 }
 
@@ -797,8 +807,11 @@ async function runExportJob(job) {
     if (isExportCanceled(jobId)) throw new Error('canceled');
     const sourceFile = item.processedPath || resolvePath(item.srcPath);
     try {
-      const content = await fs.readFile(sourceFile);
-      zip.file(item.finalName, content);
+      // ENOENT skip을 stream 전에 잡기 — 옛 fs.readFile은 read 시점에 throw였는데,
+      // createReadStream은 비동기 'error'로 흘러서 generateNodeStream 단계에서 전체 zip을 실패시킴.
+      // fs.access 사전 체크로 옛 per-file skip semantics 보존.
+      await fs.access(sourceFile);
+      zip.file(item.finalName, fss.createReadStream(sourceFile));
       included++;
     } catch (e) {
       if (e.code === 'ENOENT') {
@@ -818,11 +831,26 @@ async function runExportJob(job) {
     throw new Error('아카이브할 파일이 없어요');
   }
   if (isExportCanceled(jobId)) throw new Error('canceled');
-  const buf = await zip.generateAsync({ type: 'nodebuffer' });
-  if (isExportCanceled(jobId)) throw new Error('canceled');
   const outAbs = resolvePath(outFilePath);
   await fs.mkdir(path.dirname(outAbs), { recursive: true });
-  await fs.writeFile(outAbs, buf);
+  // 옛: zip.generateAsync(nodebuffer) → 전체 archive를 단일 Buffer로 머터리얼라이즈 후 fs.writeFile.
+  // EXPORT_CONCURRENCY=10 + 수백 MB 잡 + 동시 GB 합산. 24GB RAM에서도 OOM risk.
+  // 새: generateNodeStream + streamFiles → 파일별 chunk만 메모리에 두고 디스크에 즉시 흘림.
+  // Peak heap O(per-file buffer)로 감소.
+  try {
+    await new Promise((resolve, reject) => {
+      const out = fss.createWriteStream(outAbs);
+      out.on('error', reject);
+      out.on('finish', resolve);
+      zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true })
+        .on('error', reject)
+        .pipe(out);
+    });
+  } catch (e) {
+    // partial write 파일 정리 — write stream은 open 시 0-byte 파일 생성하므로 reject 시 잔존.
+    try { await fs.unlink(outAbs); } catch {}
+    throw e;
+  }
   // tar 작성 후에도 한 번 더 체크 — 직후 취소 들어왔으면 정리하고 throw
   if (isExportCanceled(jobId)) {
     try { await fs.unlink(outAbs); } catch {}
@@ -2674,8 +2702,8 @@ app.get('/api/backup/full', async (req, res) => {
           await walkAndAdd(path.join(absPath, e), zipPath + '/' + e);
         }
       } else if (stat.isFile()) {
-        const content = await fs.readFile(absPath);
-        zip.file(zipPath, content);
+        // fs.readFile로 메모리에 다 올리지 말고 stream으로 흘려보냄. 백업 잡은 보통 GB 단위.
+        zip.file(zipPath, fss.createReadStream(absPath));
         fileCount++;
       }
     }
@@ -2686,8 +2714,10 @@ app.get('/api/backup/full', async (req, res) => {
     for (const file of INCLUDE_FILES) {
       const abs = path.join(DATA_DIR, file);
       try {
-        const content = await fs.readFile(abs);
-        zip.file(file, content);
+        // 파일 존재 확인만 (stream으로 추가 — 옛 readFile은 동기 throw로 ENOENT 잡았는데, stream은
+        // 비동기 'error'로 generate 단계에서 surface하니까 access로 미리 거름).
+        await fs.access(abs);
+        zip.file(file, fss.createReadStream(abs));
         fileCount++;
       } catch (e) {
         if (e.code !== 'ENOENT') console.warn('[Backup] skip', file, e.message);
@@ -2936,9 +2966,10 @@ app.post('/api/fs/zip', async (req, res) => {
     const skipped = [];
     let included = 0;
     for (const entry of req.body.files) {
+      const abs = resolvePath(entry.path);
       try {
-        const content = await fs.readFile(resolvePath(entry.path));
-        zip.file(entry.name, content);
+        await fs.access(abs);
+        zip.file(entry.name, fss.createReadStream(abs));
         included++;
       } catch (e) {
         if (e.code === 'ENOENT') {
@@ -2952,10 +2983,22 @@ app.post('/api/fs/zip', async (req, res) => {
     if (included === 0) {
       return res.status(400).json({ ok: false, error: '아카이브할 파일이 없어요', skipped });
     }
-    const buf = await zip.generateAsync({ type: 'nodebuffer' });
     const outPath = resolvePath(req.body.outPath);
     await fs.mkdir(path.dirname(outPath), { recursive: true });
-    await fs.writeFile(outPath, buf);
+    // generateAsync(nodebuffer) → generateNodeStream + pipe. 큰 zip도 메모리에 머터리얼라이즈 X.
+    try {
+      await new Promise((resolve, reject) => {
+        const out = fss.createWriteStream(outPath);
+        out.on('error', reject);
+        out.on('finish', resolve);
+        zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true })
+          .on('error', reject)
+          .pipe(out);
+      });
+    } catch (streamErr) {
+      try { await fs.unlink(outPath); } catch {}
+      throw streamErr;
+    }
     res.json({ ok: true, included, skipped });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3142,6 +3185,8 @@ async function start() {
   });
   wss.on('connection', (ws) => {
     console.log('[NAI Studio] WebSocket client connected');
+    // ws v8+ 이상에선 'error' listener 없으면 EventEmitter unhandled로 process crash 위험.
+    ws.on('error', (err) => console.warn('[ws] client error:', err && err.message));
     ws.on('close', () => console.log('[NAI Studio] WebSocket client disconnected'));
   });
 
