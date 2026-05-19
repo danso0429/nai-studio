@@ -769,26 +769,37 @@ export class AppState {
       this.handleFile(list[0]);
       return;
     }
-    // 모든 JSON 병렬 파싱
-    const parsed = await Promise.all(
-      jsonFiles.map(
-        (f) =>
-          new Promise<{ name: string; json: any } | null>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = (e: any) => {
-              try {
-                let name = f.name;
-                if (name.endsWith('.json')) name = name.slice(0, -5);
-                resolve({ name, json: JSON.parse(e.target.result) });
-              } catch {
-                resolve(null);
-              }
-            };
-            reader.onerror = () => resolve(null);
-            reader.readAsText(f);
-          }),
-      ),
-    );
+    // audit H16: 옛 Promise.all(jsonFiles.map(...))은 N개 JSON.parse가 serial
+    // microtask로 main thread 통째 freeze (50-500KB × 20개 = 1-10초). 4개 단위
+    // chunk + chunk 사이 setTimeout(0) yield로 UI tick 끼워 넣음.
+    const PARSE_CHUNK = 4;
+    const parsed: ({ name: string; json: any } | null)[] = [];
+    for (let i = 0; i < jsonFiles.length; i += PARSE_CHUNK) {
+      const chunk = jsonFiles.slice(i, i + PARSE_CHUNK);
+      const chunkResults = await Promise.all(
+        chunk.map(
+          (f) =>
+            new Promise<{ name: string; json: any } | null>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = (e: any) => {
+                try {
+                  let name = f.name;
+                  if (name.endsWith('.json')) name = name.slice(0, -5);
+                  resolve({ name, json: JSON.parse(e.target.result) });
+                } catch {
+                  resolve(null);
+                }
+              };
+              reader.onerror = () => resolve(null);
+              reader.readAsText(f);
+            }),
+        ),
+      );
+      parsed.push(...chunkResults);
+      if (i + PARSE_CHUNK < jsonFiles.length) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
     const sessions: { origName: string; json: ISession }[] = [];
     const others: { origName: string; json: any }[] = [];
     for (const p of parsed) {
