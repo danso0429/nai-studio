@@ -390,16 +390,41 @@ function broadcastQueueStatus() {
   });
 }
 const QUEUE_STATE_FILE = path.join(DATA_DIR, '.queue_state.json');
+function _queueSnapshot() {
+  return { queue: genQueue.slice(), stats: queueStats, savedAt: Date.now() };
+}
 function _writeQueueStateSync() {
   try {
-    const state = { queue: genQueue.slice(), stats: queueStats, savedAt: Date.now() };
-    fss.writeFileSync(QUEUE_STATE_FILE, JSON.stringify(state));
+    fss.writeFileSync(QUEUE_STATE_FILE, JSON.stringify(_queueSnapshot()));
   } catch {}
 }
+// audit H6 — 옛 makeDebouncedSaver는 writeFileSync로 큐 잡 수천개 + reference 이미지
+// base64 박힌 params면 매 save (1초 debounce) 마다 50+ MB JSON.stringify + sync write
+// 가 main thread 수백 ms 블록. save path는 async write로 분리, flush(SIGINT)만 sync 유지.
+let _queueSaveTimer = null;
+let _queueSavePromise = null;
+async function _writeQueueStateAsync() {
+  try {
+    await fs.writeFile(QUEUE_STATE_FILE, JSON.stringify(_queueSnapshot()));
+  } catch (e) {
+    console.error('[queue] save failed:', e.message);
+  }
+}
 // 1초 debounce: rapid enqueue/process 중 disk write 폭주 방지.
-const _queueSaver = makeDebouncedSaver(_writeQueueStateSync, 1000);
-function saveQueueState() { _queueSaver.save(); }
-function flushQueueState() { _queueSaver.flush(); }
+function saveQueueState() {
+  if (_queueSaveTimer) return;
+  _queueSaveTimer = setTimeout(() => {
+    _queueSaveTimer = null;
+    _queueSavePromise = _writeQueueStateAsync().finally(() => { _queueSavePromise = null; });
+  }, 1000);
+}
+function flushQueueState() {
+  if (_queueSaveTimer) {
+    clearTimeout(_queueSaveTimer);
+    _queueSaveTimer = null;
+  }
+  _writeQueueStateSync();
+}
 function loadQueueState() {
   try {
     const raw = fss.readFileSync(QUEUE_STATE_FILE, 'utf8');
