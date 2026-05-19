@@ -472,7 +472,20 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
 
   useEffect(() => {
     syncFromService();
-    const onChange = () => syncFromService();
+    // audit H24 — 옛: 매 progress/complete/error 이벤트마다 syncFromService 호출.
+    // 500 commit 시 ~2500 iteration + 3 Map clear-rebuild = iOS Safari 5-20ms/event.
+    // 한 프레임 안 동시 발생하는 5-10개 이벤트가 모두 sync 수행 → 60ms+ 한 프레임에.
+    // 새: rAF coalesce — 한 frame 내 다중 이벤트는 단 1회 sync로 합침. 모니터링
+    // refresh rate (60Hz)와 자연 동기화.
+    let rafScheduled = false;
+    const onChange = () => {
+      if (rafScheduled) return;
+      rafScheduled = true;
+      requestAnimationFrame(() => {
+        rafScheduled = false;
+        syncFromService();
+      });
+    };
     taskQueueService.addEventListener('start', onChange);
     taskQueueService.addEventListener('stop', onChange);
     taskQueueService.addEventListener('progress', onChange);
