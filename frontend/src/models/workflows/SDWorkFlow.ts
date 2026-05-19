@@ -615,9 +615,12 @@ export async function prepareMirrorCanvas(
   downscaled?: boolean;
 }> {
   const img = new Image();
+  // 15s timeout — malformed base64면 옛 코드는 영원히 hang해서 await하는 큐 commit이 dangling.
+  // onerror도 real Error로 reject(옛 코드는 Event 객체를 reject로 흘려서 stack 추적 어려움).
   await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve();
-    img.onerror = reject;
+    const t = setTimeout(() => reject(new Error('mirror image decode timeout')), 15_000);
+    img.onload = () => { clearTimeout(t); resolve(); };
+    img.onerror = () => { clearTimeout(t); reject(new Error('mirror image decode failed')); };
     img.src = 'data:image/png;base64,' + sourceBase64;
   });
   const srcW = img.naturalWidth;
@@ -687,10 +690,16 @@ export async function prepareMirrorCanvas(
   maskCtx.fillStyle = '#ffffff';
   maskCtx.fillRect(inpaintStart, 0, effectiveW, canvasHeight);
 
-  const canvasDataUrl = cvs.toDataURL('image/png');
-  const maskDataUrl = maskCvs.toDataURL('image/png');
-  const canvasBase64 = canvasDataUrl.replace(/^data:image\/png;base64,/, '');
-  const maskBase64 = maskDataUrl.replace(/^data:image\/png;base64,/, '');
+  // toDataURL은 main thread sync block (PNG encode ~100-600ms 모바일). toBlob은 async →
+  // main thread 양보. 두 canvas 직렬 + 인코딩 후 즉시 teardown(width=0)으로 백킹 메모리 해제.
+  const canvasBase64 = await canvasToBase64Png(cvs);
+  const maskBase64 = await canvasToBase64Png(maskCvs);
+  cvs.width = cvs.height = 0;
+  maskCvs.width = maskCvs.height = 0;
+  if (downscaled && effectiveImg !== img) {
+    (effectiveImg as HTMLCanvasElement).width = 0;
+    (effectiveImg as HTMLCanvasElement).height = 0;
+  }
 
   return {
     canvas: canvasBase64,
@@ -700,6 +709,27 @@ export async function prepareMirrorCanvas(
     cropX: inpaintStart,
     downscaled,
   };
+}
+
+function canvasToBase64Png(c: HTMLCanvasElement): Promise<string> {
+  return new Promise((resolve, reject) => {
+    c.toBlob(async (blob) => {
+      if (!blob) return reject(new Error('toBlob failed'));
+      try {
+        const buf = await blob.arrayBuffer();
+        const u8 = new Uint8Array(buf);
+        // chunked btoa — 단일 String.fromCharCode.apply에 큰 배열 넘기면 stack overflow.
+        let s = '';
+        const CHUNK = 0x8000;
+        for (let i = 0; i < u8.length; i += CHUNK) {
+          s += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK) as unknown as number[]);
+        }
+        resolve(btoa(s));
+      } catch (e) {
+        reject(e as Error);
+      }
+    }, 'image/png');
+  });
 }
 
 const SDMirrorPreset = SDInpaintPreset.clone();
