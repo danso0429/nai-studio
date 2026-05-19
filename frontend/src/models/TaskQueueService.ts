@@ -985,11 +985,13 @@ export class TaskQueueService extends EventTarget {
 
     this.dispatchProgress();
 
+    // items/localOutputs를 try 밖에 두는 이유: finally에서 length=0으로 closure ref 끊으려면
+    // 같은 scope여야 함 (try-block const는 finally에서 ReferenceError).
+    const items: Array<{ params: ImageGenInput; meta: QueueJobMeta }> = [];
+    const localOutputs: string[] = [];
     try {
       // prep N번. 같은 run 객체 전달 → cachedVibes/Refs 재사용 (같은 task의 N장은 vibes 동일).
       const run: TaskQueueRun = { stopped: false, delayCnt: 0 };
-      const items: Array<{ params: ImageGenInput; meta: QueueJobMeta }> = [];
-      const localOutputs: string[] = [];
       for (let i = 0; i < task.total; i++) {
         const { arg, outputFilePath } = await handler.prepGenInput(task, run);
         localOutputs.push(outputFilePath);
@@ -1029,6 +1031,11 @@ export class TaskQueueService extends EventTarget {
       }
       this.dispatchProgress();
     } finally {
+      // chain backlog에 잡힌 base64 vibe/reference items가 다음 batch 진행 동안 동시 retain.
+      // length=0으로 closure reference 즉시 끊기 (배열 자체는 본 함수 return 시점에 GC 대상이지만
+      // 한 단계 더 빨리 풀어줌 — 대량 vibe 큐에서 동시 보유량 줄여 모바일 OOM 위험 완화).
+      items.length = 0;
+      localOutputs.length = 0;
       // 성공/실패 무관하게 다음 슬롯 해제 — 한 scene 실패가 뒤 chain을 deadlock 시키지 않게.
       releaseMySlot();
     }
