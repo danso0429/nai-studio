@@ -422,11 +422,22 @@ export class ServerBackend extends Backend {
   async loadModel(_modelPath: string): Promise<void> {}
 
   async copyImageToClipboard(imagePath: string): Promise<void> {
+    // audit H20 — 옛 raw fetch는 signal/timeout 없음. 인터넷 hang 시 blob (~1-5 MB)이
+    // 네트워크 OS timeout (분 단위)까지 retain. 30초 defensive timeout으로 끊음.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
     try {
-      const res = await fetch(`${API_BASE}/api/fs/image?path=${encodeURIComponent(imagePath)}`);
+      const res = await fetch(
+        `${API_BASE}/api/fs/image?path=${encodeURIComponent(imagePath)}`,
+        { signal: controller.signal },
+      );
       const blob = await res.blob();
       await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
-    } catch (e) { console.error('Clipboard copy failed:', e); }
+    } catch (e) {
+      console.error('Clipboard copy failed:', e);
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   async spawnLocalAI(): Promise<void> {}
