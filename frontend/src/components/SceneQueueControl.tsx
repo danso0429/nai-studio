@@ -245,10 +245,14 @@ export const SceneCell = observer(
       return stats.total - stats.done;
     };
 
+    // audit H22 — 옛 패턴: 모든 SceneCell가 progress·cache-invalidated 이벤트에
+    // 무조건 rerender + 무조건 refreshImage. 200 scene × 1Hz progress = 200
+    // rerender/sec + 200 refetch/sec. 모바일 발열 주범.
+    // 새 패턴: (1) progress는 본 scene의 stats 변화 시에만 rerender (diff 가드).
+    // (2) cache-invalidated은 detail.path가 본 scene 디렉토리 안일 때만 refreshImage.
+    const lastStatsRef = useRef<{ total: number; done: number } | null>(null);
     useEffect(() => {
-      const onUpdate = () => {
-        rerender({});
-      };
+      const sceneOutputDir = imageService.getOutputDir(curSession!, scene);
       const refreshImage = async () => {
         try {
           const base64 = await getImage(scene);
@@ -258,10 +262,28 @@ export const SceneCell = observer(
         }
         rerender({});
       };
+      const onProgress = () => {
+        // diff 가드: 본 scene의 (total, done)이 그대로면 UI 변경 없음 → skip.
+        // 200 scene 중 매 progress tick에 실제 변하는 건 1-4 scene 정도라 ~98%
+        // rerender skip.
+        const stats = taskQueueService.statsTasksFromScene(curSession!, scene);
+        const last = lastStatsRef.current;
+        if (last && last.total === stats.total && last.done === stats.done) return;
+        lastStatsRef.current = { total: stats.total, done: stats.done };
+        rerender({});
+      };
+      const onCacheInvalidated = (e: any) => {
+        const path = e?.detail?.path;
+        // path detail이 본 scene의 outputDir 하위면 refetch. 다른 scene이나 vibe/ref면 skip.
+        if (path && typeof path === 'string' && !path.startsWith(sceneOutputDir + '/')) return;
+        refreshImage();
+      };
       refreshImage();
+      // 초기 stats snapshot
+      lastStatsRef.current = taskQueueService.statsTasksFromScene(curSession!, scene);
       gameService.addEventListener('updated', refreshImage);
-      taskQueueService.addEventListener('progress', onUpdate);
-      imageService.addEventListener('image-cache-invalidated', refreshImage);
+      taskQueueService.addEventListener('progress', onProgress);
+      imageService.addEventListener('image-cache-invalidated', onCacheInvalidated);
       const dispose = reaction(
         () => scene.mains.join(''),
         () => {
@@ -276,10 +298,10 @@ export const SceneCell = observer(
       );
       return () => {
         gameService.removeEventListener('updated', refreshImage);
-        taskQueueService.removeEventListener('progress', onUpdate);
+        taskQueueService.removeEventListener('progress', onProgress);
         imageService.removeEventListener(
           'image-cache-invalidated',
-          refreshImage,
+          onCacheInvalidated,
         );
         dispose();
         dispose2();
