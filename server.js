@@ -1036,12 +1036,12 @@ async function processQueue() {
       if (!nai.token) throw new Error('Not logged in');
 
       const config = await loadConfig();
-      const base64 = await nai.generateImage(job.params, config);
+      const buffer = await nai.generateImage(job.params, config);
 
       if (job.params.outputFilePath) {
         const outPath = resolvePath(job.params.outputFilePath);
         await fs.mkdir(path.dirname(outPath), { recursive: true });
-        await fs.writeFile(outPath, Buffer.from(base64, 'base64'));
+        await fs.writeFile(outPath, buffer);
         await prewarmThumbnails(outPath, job.params.outputFilePath, 'queue');
       }
 
@@ -1661,14 +1661,14 @@ app.post('/api/generate', async (req, res) => {
 
     // Load config for model version
     const config = await loadConfig();
-    const base64 = await nai.generateImage(params, config);
+    const buffer = await nai.generateImage(params, config);
     console.log(`[NAI Studio] Generate success: ${params.outputFilePath || 'no output path'}`);
 
     // Write the output file
     if (params.outputFilePath) {
       const outPath = resolvePath(params.outputFilePath);
       await fs.mkdir(path.dirname(outPath), { recursive: true });
-      await fs.writeFile(outPath, Buffer.from(base64, 'base64'));
+      await fs.writeFile(outPath, buffer);
       await prewarmThumbnails(outPath, params.outputFilePath, 'direct');
     }
 
@@ -1688,12 +1688,12 @@ app.post('/api/augment', async (req, res) => {
     if (!nai.token) return res.status(401).json({ error: 'Not logged in' });
 
     const params = req.body;
-    const base64 = await nai.augmentImage(params);
+    const buffer = await nai.augmentImage(params);
 
     if (params.outputFilePath) {
       const outPath = resolvePath(params.outputFilePath);
       await fs.mkdir(path.dirname(outPath), { recursive: true });
-      await fs.writeFile(outPath, Buffer.from(base64, 'base64'));
+      await fs.writeFile(outPath, buffer);
     }
 
     res.json({ ok: true });
