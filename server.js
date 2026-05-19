@@ -1148,7 +1148,10 @@ async function processQueue() {
         const outPath = resolvePath(job.params.outputFilePath);
         await fs.mkdir(path.dirname(outPath), { recursive: true });
         await fs.writeFile(outPath, buffer);
-        await prewarmThumbnails(outPath, job.params.outputFilePath, 'queue');
+        // audit M5: thumbnail 생성은 background 비동기로 — sharp resize 3 사이즈(200/400/500)
+        // serial ~300ms 블록이 다음 job 시작을 지연시킴. fire-and-forget으로 다음 job
+        // 즉시 진행. fastcache 누락은 클라 측 fetchImageSmall이 fallback resize 자동 처리.
+        prewarmThumbnails(outPath, job.params.outputFilePath, 'queue').catch(() => {});
       }
 
       broadcast('queue-job-complete', {
@@ -1783,7 +1786,9 @@ app.post('/api/generate', async (req, res) => {
       const outPath = resolvePath(params.outputFilePath);
       await fs.mkdir(path.dirname(outPath), { recursive: true });
       await fs.writeFile(outPath, buffer);
-      await prewarmThumbnails(outPath, params.outputFilePath, 'direct');
+      // audit M5 — direct generate path도 fire-and-forget. 응답 빨리 반환, thumbnail
+      // background에서 생성.
+      prewarmThumbnails(outPath, params.outputFilePath, 'direct').catch(() => {});
     }
 
     broadcast('image-changed', params.outputFilePath);
