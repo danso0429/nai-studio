@@ -787,6 +787,10 @@ export class TaskQueueService extends EventTarget {
       });
     });
     startVisibleInterval(() => {
+      // 게이트 — 큐가 idle이면 폴링 자체 skip. 모바일 발열·배터리 누수 차단 (P15 #18).
+      // mirroredTasks 비어있고 pause 상태도 아니면 server 측 변화 동기화할 게 없음.
+      // ws-reconnect 콜백은 별도로 등록돼 있어서, WS 끊긴 사이 task 새로 들어오면 그때 회복.
+      if (this.mirroredTasks.size === 0 && !this.mirrorPaused) return;
       this.restoreMirroredState().catch((e) => {
         console.warn('[TaskQueue] restoreMirroredState (polling) failed:', e);
       });
