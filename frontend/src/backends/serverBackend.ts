@@ -25,6 +25,10 @@ export function getImageURL(filePath: string): string {
 // 호출처가 timeout 옵션을 명시하면 그 값이 우선. signal을 직접 넘기면 호출처
 // 책임으로 위임 (timeout 미적용).
 const DEFAULT_API_TIMEOUT_MS = 60_000;
+// audit H18 — multi-MB base64 payload (vibe 박힌 queue submit / 이미지 read·write /
+// augment / encode-vibe / zip) 호출은 모바일 uplink에서 60초 default로 spurious abort.
+// 180초로 늘림. 작은 JSON GET은 default 60초 유지.
+const BINARY_API_TIMEOUT_MS = 180_000;
 
 async function api(
   path: string,
@@ -67,7 +71,7 @@ async function api(
   }
 }
 
-async function apiJSON(path: string, options?: RequestInit) {
+async function apiJSON(path: string, options?: RequestInit & { timeout?: number }) {
   return (await api(path, options)).json();
 }
 
@@ -152,14 +156,17 @@ export class ServerBackend extends Backend {
   async openWebPage(url: string): Promise<void> { window.open(url, '_blank'); }
 
   async generateImage(arg: ImageGenInput): Promise<void> {
-    // Submit to server queue — returns immediately, server processes in background
-    await api('/queue/add', { method: 'POST', body: JSON.stringify(arg) });
+    // Submit to server queue — returns immediately, server processes in background.
+    // body에 vibe base64 박혀 multi-MB일 수 있음 → 180s timeout (H18).
+    await api('/queue/add', { method: 'POST', body: JSON.stringify(arg), timeout: BINARY_API_TIMEOUT_MS });
   }
 
   async queueAddBatch(items: Array<{ params: ImageGenInput; meta?: QueueJobMeta }>): Promise<{ jobIds: string[]; rejected: number }> {
+    // batch는 jobs[]에 multiple vibe payload — 단일 submit보다 더 큼 (H18).
     const data = await apiJSON('/queue/add-batch', {
       method: 'POST',
       body: JSON.stringify({ jobs: items }),
+      timeout: BINARY_API_TIMEOUT_MS,
     });
     return { jobIds: data.jobIds || [], rejected: data.rejected || 0 };
   }
@@ -249,7 +256,8 @@ export class ServerBackend extends Backend {
   }
 
   async augmentImage(arg: ImageAugmentInput): Promise<void> {
-    await api('/augment', { method: 'POST', body: JSON.stringify(arg) });
+    // arg.image는 multi-MB base64 → 180s timeout (H18).
+    await api('/augment', { method: 'POST', body: JSON.stringify(arg), timeout: BINARY_API_TIMEOUT_MS });
   }
 
   async login(email: string, password: string): Promise<void> {
@@ -265,7 +273,8 @@ export class ServerBackend extends Backend {
   }
 
   async encodeVibeImage(arg: EncodeVibeImageInput): Promise<string> {
-    return (await apiJSON('/image/encode-vibe', { method: 'POST', body: JSON.stringify(arg) })).result;
+    // arg.image base64 multi-MB → 180s timeout (H18).
+    return (await apiJSON('/image/encode-vibe', { method: 'POST', body: JSON.stringify(arg), timeout: BINARY_API_TIMEOUT_MS })).result;
   }
 
   async showFile(arg: string): Promise<void> {
@@ -280,12 +289,14 @@ export class ServerBackend extends Backend {
   }
 
   async zipFiles(files: FileEntry[], outPath: string): Promise<{ skipped: string[] }> {
-    const data = await apiJSON('/fs/zip', { method: 'POST', body: JSON.stringify({ files, outPath }) });
+    // zip 생성은 N 파일 read + stream archive → 수분 가능 (H18).
+    const data = await apiJSON('/fs/zip', { method: 'POST', body: JSON.stringify({ files, outPath }), timeout: BINARY_API_TIMEOUT_MS });
     return { skipped: Array.isArray(data.skipped) ? data.skipped : [] };
   }
 
   async unzipFiles(tarPath: string, outPath: string): Promise<void> {
-    await api('/fs/unzip', { method: 'POST', body: JSON.stringify({ tarPath, outPath }) });
+    // unzip은 archive 안 파일 수에 비례 → 180s timeout (H18).
+    await api('/fs/unzip', { method: 'POST', body: JSON.stringify({ tarPath, outPath }), timeout: BINARY_API_TIMEOUT_MS });
   }
 
   async searchTags(word: string): Promise<any> { return apiJSON(`/tags/search?q=${encodeURIComponent(word)}`); }
@@ -340,10 +351,14 @@ export class ServerBackend extends Backend {
     await api('/fs/copy', { method: 'POST', body: JSON.stringify({ src, dest }) });
   }
 
-  async readDataFile(arg: string): Promise<string> { return (await apiJSON(`/fs/read-data?path=${encodeURIComponent(arg)}`)).content; }
+  async readDataFile(arg: string): Promise<string> {
+    // multi-MB base64 download → 180s timeout (H18).
+    return (await apiJSON(`/fs/read-data?path=${encodeURIComponent(arg)}`, { timeout: BINARY_API_TIMEOUT_MS })).content;
+  }
 
   async writeDataFile(filename: string, data: string): Promise<void> {
-    await api('/fs/write-data', { method: 'POST', body: JSON.stringify({ path: filename, data }) });
+    // multi-MB base64 upload → 180s timeout (H18).
+    await api('/fs/write-data', { method: 'POST', body: JSON.stringify({ path: filename, data }), timeout: BINARY_API_TIMEOUT_MS });
   }
 
   async writeDataFileAbsolute(absolutePath: string, data: string): Promise<void> {
