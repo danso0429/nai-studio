@@ -75,17 +75,37 @@ export class ServerBackend extends Backend {
   private ws: WebSocket | null = null;
   private eventHandlers: Map<string, Set<Function>> = new Map();
   private isFirstConnect: boolean = true;
+  // audit H17 — onclose 고정 3초 재시도라 서버 다운 시 폭주. exponential backoff
+  // + jitter + max 30s 캡 + online 이벤트 reset.
+  private reconnectAttempt: number = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     super();
     this.connectWebSocket();
+    // online 이벤트 시 backoff reset + 즉시 재연결 시도 — 모바일 백그라운드 복귀 또는
+    // wifi 재연결 시 ~30초까지 늘어났던 delay를 0으로 끌어내림.
+    window.addEventListener('online', () => {
+      this.reconnectAttempt = 0;
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+        this.connectWebSocket();
+      }
+    });
   }
 
   private connectWebSocket() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${location.host}${API_BASE}/ws`;
-    this.ws = new WebSocket(wsUrl);
-    this.ws.onopen = () => {
+    // audit H17 — 옛 this.ws.onclose/onerror closure는 `this.ws`를 호출 시점에 읽음.
+    // 재연결 후 stale handler가 firing되면 새 this.ws를 close시켜 reconnect loop 진입.
+    // local `ws` 변수로 closure 고정 + identity 가드로 차단.
+    const ws = new WebSocket(wsUrl);
+    this.ws = ws;
+    ws.onopen = () => {
+      if (this.ws !== ws) return; // stale
+      this.reconnectAttempt = 0;
       // 첫 연결은 skip (constructor에서 별도 init 호출). 재연결만 broadcast.
       if (this.isFirstConnect) {
         this.isFirstConnect = false;
@@ -94,15 +114,30 @@ export class ServerBackend extends Backend {
       const handlers = this.eventHandlers.get('ws-reconnect');
       if (handlers) handlers.forEach((h) => h({}));
     };
-    this.ws.onmessage = (event) => {
+    ws.onmessage = (event) => {
+      if (this.ws !== ws) return; // stale
       try {
         const msg = JSON.parse(event.data);
         const handlers = this.eventHandlers.get(msg.type);
         if (handlers) handlers.forEach((h) => h(msg.data));
       } catch (e) {}
     };
-    this.ws.onclose = () => { setTimeout(() => this.connectWebSocket(), 3000); };
-    this.ws.onerror = () => { this.ws?.close(); };
+    ws.onclose = () => {
+      if (this.ws !== ws) return; // stale (이미 다른 ws로 교체됨)
+      // exponential backoff: 500ms × 2^n, max 30s, ±10% jitter
+      const baseDelay = Math.min(30_000, 500 * 2 ** this.reconnectAttempt);
+      const jitter = (Math.random() - 0.5) * baseDelay * 0.2;
+      const delay = baseDelay + jitter;
+      this.reconnectAttempt++;
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.connectWebSocket();
+      }, delay);
+    };
+    ws.onerror = () => {
+      if (this.ws !== ws) return; // stale — 새 ws에 영향 X
+      ws.close();
+    };
   }
 
   private on(type: string, handler: Function): () => void {
