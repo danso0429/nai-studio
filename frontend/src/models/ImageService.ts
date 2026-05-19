@@ -67,31 +67,37 @@ export class ImageService extends EventTarget {
     this.encodedVibeExistsCache = new LRUCache(isMobile ? 32 : ENCODED_VIBE_CACHE_SIZE);
   }
 
-  private async acquireMutex(path: string) {
-    while (this.mutexes[path]) {
-      await this.mutexes[path];
-    }
-
-    let resolve: () => void = () => {};
-    this.mutexes[path] = new Promise((r) => (resolve = r));
-    (this.mutexes[path] as any).resolve = resolve;
-  }
-
-  private releaseMutex(path: string) {
-    const resolve = (this.mutexes[path] as any).resolve;
-    delete this.mutexes[path];
-    if (resolve) resolve();
+  // FIFO chain — 같은 path에 동시 acquire가 들어와도 set 순서대로 await 사슬이 이어져
+  // 정확히 한 caller만 critical section. 옛 acquireMutex는 while loop + 새 Promise를
+  // 통째로 mutexes[path]에 덮어써서, A와 B가 같은 microtask cycle에 진입하면 둘 다
+  // mutexes[path]==undefined 통과 → 둘 다 새 promise set → 마지막 set한 게 살아남고
+  // 직전 A의 resolve는 영원히 호출 안 됨 + 두 caller가 critical section 동시 진입.
+  // 새 패턴은 sync로 tail 갱신 후 prev await — race 차단.
+  private async acquireMutex(path: string): Promise<() => void> {
+    const prev = this.mutexes[path];
+    let resolve!: () => void;
+    const slot = new Promise<void>((r) => { resolve = r; });
+    this.mutexes[path] = slot;
+    if (prev) await prev;
+    return () => {
+      resolve();
+      // 자기가 마지막 tail이면 map entry 청소 — 새 acquire가 끼어들었으면 그 tail
+      // (다른 promise)이 들어있으니 그대로 둠 (대기자 chain이 그걸 보고 await).
+      if (this.mutexes[path] === slot) {
+        delete this.mutexes[path];
+      }
+    };
   }
 
   async renameImage(oldPath: string, newPath: string) {
+    const releaseOld = await this.acquireMutex(oldPath);
+    const releaseNew = await this.acquireMutex(newPath);
     try {
-      await this.acquireMutex(oldPath);
-      await this.acquireMutex(newPath);
       await backend.renameFile(oldPath, newPath);
       await this.onRenameFile(oldPath, newPath);
     } finally {
-      this.releaseMutex(newPath);
-      this.releaseMutex(oldPath);
+      releaseNew();
+      releaseOld();
     }
   }
 
@@ -107,12 +113,10 @@ export class ImageService extends EventTarget {
       oldPaths.push(this.getSmallImagePath(oldPath, imageSize));
       newPaths.push(this.getSmallImagePath(newPath, imageSize));
     }
-    for (const path of oldPaths) {
-      await this.acquireMutex(path);
-    }
-    for (const path of newPaths) {
-      await this.acquireMutex(path);
-    }
+    const oldReleases: Array<() => void> = [];
+    const newReleases: Array<() => void> = [];
+    for (const path of oldPaths) oldReleases.push(await this.acquireMutex(path));
+    for (const path of newPaths) newReleases.push(await this.acquireMutex(path));
     try {
       for (let i = 0; i < oldPaths.length; i++) {
         const oldPath = oldPaths[i];
@@ -137,12 +141,8 @@ export class ImageService extends EventTarget {
         }
       }
     } finally {
-      for (const path of oldPaths) {
-        this.releaseMutex(path);
-      }
-      for (const path of newPaths) {
-        this.releaseMutex(path);
-      }
+      for (const r of newReleases) r();
+      for (const r of oldReleases) r();
     }
   }
 
@@ -150,10 +150,11 @@ export class ImageService extends EventTarget {
     if (path.includes('fastcache')) {
       return;
     }
-    await this.acquireMutex(path);
+    const pathRelease = await this.acquireMutex(path);
+    const smallReleases: Array<() => void> = [];
     for (const imageSize of supportedImageSizes) {
       const smallPath = this.getSmallImagePath(path, imageSize);
-      await this.acquireMutex(smallPath);
+      smallReleases.push(await this.acquireMutex(smallPath));
     }
     try {
       this.cache.delete(path);
@@ -169,11 +170,8 @@ export class ImageService extends EventTarget {
         this.cache.delete(smallPath);
       }
     } finally {
-      for (const imageSize of supportedImageSizes) {
-        const smallPath = this.getSmallImagePath(path, imageSize);
-        this.releaseMutex(smallPath);
-      }
-      this.releaseMutex(path);
+      for (const r of smallReleases) r();
+      pathRelease();
     }
     this.dispatchEvent(
       new CustomEvent('image-cache-invalidated', { detail: { path } }),
@@ -219,7 +217,7 @@ export class ImageService extends EventTarget {
   }
 
   async fetchImage(path: string, holdMutex = true) {
-    if (holdMutex) await this.acquireMutex(path);
+    const release = holdMutex ? await this.acquireMutex(path) : null;
     try {
       if (this.cache.get(path)) {
         const res = this.cache.get(path);
@@ -235,7 +233,7 @@ export class ImageService extends EventTarget {
         return null;
       }
     } finally {
-      if (holdMutex) this.releaseMutex(path);
+      if (release) release();
     }
   }
 
@@ -244,7 +242,7 @@ export class ImageService extends EventTarget {
       return this.fetchImage(path);
     }
     const smallImagePath = this.getSmallImagePath(path, size);
-    await this.acquireMutex(smallImagePath);
+    const release = await this.acquireMutex(smallImagePath);
     try {
       // 캐시된 작은 이미지가 있는지 확인
       const resizedImageData = await this.fetchImage(smallImagePath, false);
@@ -271,7 +269,7 @@ export class ImageService extends EventTarget {
       // 리사이즈 실패 시 원본 이미지 반환
       return this.fetchImage(path, false);
     } finally {
-      this.releaseMutex(smallImagePath);
+      release();
     }
   }
 
