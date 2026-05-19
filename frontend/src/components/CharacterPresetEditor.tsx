@@ -53,8 +53,12 @@ const VibeImage = ({
 }) => {
   const [image, setImage] = useState<string | null>(null);
   useEffect(() => {
+    // audit H23 — path 빠른 전환 시 옛 fetch가 새 fetch 후에 resolve되어 stale data로
+    // 덮어쓰기 + 옛 base64 closure retain. cancelled flag 패턴 (BatchItemSelector 동일).
+    let cancelled = false;
     const fetchImage = async () => {
       const data = await imageService.fetchImageSmall(path, 400);
+      if (cancelled) return;
       setImage(data);
     };
     fetchImage();
@@ -65,6 +69,7 @@ const VibeImage = ({
     };
     imageService.addEventListener('image-cache-invalidated', handler);
     return () => {
+      cancelled = true;
       imageService.removeEventListener('image-cache-invalidated', handler);
     };
   }, [path]);
