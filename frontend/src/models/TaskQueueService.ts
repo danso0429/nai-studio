@@ -799,8 +799,13 @@ export class TaskQueueService extends EventTarget {
 
   addLog(level: TaskLog['level'], scene: string, message: string) {
     this.taskLogs.push({ timestamp: Date.now(), level, scene, message });
-    if (this.taskLogs.length > MAX_TASK_LOGS) {
-      this.taskLogs.splice(0, this.taskLogs.length - MAX_TASK_LOGS);
+    // audit H13 — 옛: splice(0, k)는 O(N). 1000 task 처리 + 매 task가 1~2 log 던지면
+    // 매 addLog마다 O(MAX) 복사 = O(N²) 누적. 429 retry storm 시 ms 단위 main thread
+    // 블록 + GC 압박.
+    // 새: 2× capacity 도달 시 slice(-MAX). MAX 번에 한 번 O(MAX) → amortized O(1) per add.
+    // MobX reactivity는 배열 재할당으로 트리거. consumer는 동일 ordering (insertion order).
+    if (this.taskLogs.length > MAX_TASK_LOGS * 2) {
+      this.taskLogs = this.taskLogs.slice(-MAX_TASK_LOGS);
     }
   }
 
