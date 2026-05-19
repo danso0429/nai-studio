@@ -1022,6 +1022,17 @@ async function ensureDiskSpace() {
   return false;
 }
 
+// audit H3 — processQueue retry catch에서 5s 통째 sleep하면 사용자 pause/stop이
+// 최대 5초 지연. 200ms 단위로 쪼개 pauseRequested 보면 즉시 빠져나옴. continue로
+// 위로 돌아가면 pause path가 잡아냄.
+async function interruptibleSleep(ms) {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    if (pauseRequested) return;
+    await new Promise(r => setTimeout(r, Math.min(200, ms - (Date.now() - start))));
+  }
+}
+
 async function processQueue() {
   if (queueProcessing) return;
   queueProcessing = true;
@@ -1113,7 +1124,7 @@ async function processQueue() {
         if (job._retries <= 10) {
           console.log(`[NAI Studio] Queue job ${job.jobId}: NAI rate limited, retry ${job._retries}/10 in 5s...`);
           recordQueueError(job.jobId, msg, true, job.meta);
-          await new Promise(r => setTimeout(r, 5000));
+          await interruptibleSleep(5000);
           continue;
         }
         console.error(`[NAI Studio] Queue job ${job.jobId}: max retries exceeded (429)`);
@@ -1122,7 +1133,7 @@ async function processQueue() {
         if (job._5xxRetries <= 10) {
           console.log(`[NAI Studio] Queue job ${job.jobId}: NAI ${fiveXxMatch[1]}, retry ${job._5xxRetries}/10 in 5s...`);
           recordQueueError(job.jobId, msg, true, job.meta);
-          await new Promise(r => setTimeout(r, 5000));
+          await interruptibleSleep(5000);
           continue;
         }
         console.error(`[NAI Studio] Queue job ${job.jobId}: max retries exceeded (5xx)`);
