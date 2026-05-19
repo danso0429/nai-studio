@@ -150,7 +150,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### High — `setInterval(processDriveRetryQueue, 5000)` never cleared; restart logic relies on whole process exit
+### High ✓ `86f16d1` — `setInterval(processDriveRetryQueue, 5000)` never cleared; restart logic relies on whole process exit
 - Location: `server.js:3165`, `lib/self-update.js:100-107` (`triggerPm2Restart`).
 - Category: Memory leaks (Category 2) + Resource lifecycle (Category 8).
 - Issue: A 5-second `setInterval` is started inside `loadDriveRetryQueue().then(...)` and never `clearInterval`'d. `SIGINT`/`SIGTERM` handlers call `process.exit(0)` synchronously so the timer would be GC'd at exit, but `triggerPm2Restart` uses `setTimeout(() => process.exit(0), 1000)` — during that 1-second window the interval can fire a new `processDriveRetryQueue()` tick that races with the pm2 restart.
@@ -168,7 +168,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### High — SIGINT/SIGTERM handlers do not flush `completedJobs`
+### High ✓ `86f16d1` — SIGINT/SIGTERM handlers do not flush `completedJobs`
 - Location: `server.js:3174-3187` (signal handlers); `server.js:340-341` (`saveCompletedJobs`).
 - Category: Resource lifecycle (Category 8) + Error handling (Category 5).
 - Issue: The signal handlers flush `queueState`, `timingHistory`, and `driveRetryQueue`, but not `completedJobs`. A debounced save can have an outstanding `_completedSaver.save()` (5s debounce) at SIGTERM time — those last-completed jobs vanish.
@@ -186,7 +186,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### High — `processQueue` retry loop on 429/5xx can starve the event loop for up to ~100 s
+### High ✓ `b26d7a7` — `processQueue` retry loop on 429/5xx can starve the event loop for up to ~100 s
 - Location: `server.js:1073-1107` (queue catch + retry).
 - Category: Async safety (Category 4) + Infinite growth (Category 9) + CPU hotspot (Category 3).
 - Issue: `await new Promise(r => setTimeout(r, 5000))` blocks the entire queue runner for 5 seconds × 10 retries × 2 categories = potentially 100 seconds of queue stall while other jobs cannot progress. New `/api/queue/add` requests keep being accepted (no back-pressure). `pauseRequested` is checked only after the retry sleep returns, so user-pause has up to 5s latency.
@@ -211,7 +211,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### High — Unbounded `Promise.all(items.map(async ...))` fan-out in `/api/fs/list-stats`, `/api/fs/delete-batch`, `/api/fs/move-batch`
+### High ✓ `f129602` — Unbounded `Promise.all(items.map(async ...))` fan-out in `/api/fs/list-stats`, `/api/fs/delete-batch`, `/api/fs/move-batch`
 - Location: `server.js:1732-1737`, `:1882-1889`, `:1895-1903`.
 - Category: CPU hotspot (Category 3) + Resource lifecycle (Category 8) + Memory pressure (Category 1).
 - Issue: `Promise.all(paths.map(async (p) => fs.unlink(...)))` spawns one outstanding syscall per path. For thousands of paths, this exhausts libuv's default thread pool (4 workers) and queues thousands of fs operations.
@@ -230,7 +230,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### High — Multiple synchronous `execSync` calls inside HTTP request paths (event loop block)
+### High ✓ `7bc397d` — Multiple synchronous `execSync` calls inside HTTP request paths (event loop block)
 - Location: `server.js:848-853` (`getDiskFreeGB` — called from `/api/queue/status` on every poll), `server.js:884-889` (`cleanupDirByPattern`), `server.js:921` (`diskCleanupStage4` `find`), `server.js:927-931` (`rclone lsjson` — 100 MB maxBuffer), `server.js:1501-1504` (`/api/queue/completed` `find` with 50 MB maxBuffer + 10s timeout), `server.js:1996-1997` (`checkRcloneAvailable` first call).
 - Category: Event loop starvation (Category 6) + CPU hotspot (Category 3) + Async safety (Category 4).
 - Issue: `execSync` blocks the entire event loop until the child exits. For `df` ~5 ms; for `find $DATA_DIR -mmin -240` over a populated `outs/` (tens of thousands of files), hundreds of ms to seconds. `/api/queue/status` is polled continuously by the queue UI.
@@ -255,7 +255,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### High — `JSON.parse`/`JSON.stringify` of unbounded-size queue state in hot path
+### High ✓ `9b18800` — `JSON.parse`/`JSON.stringify` of unbounded-size queue state in hot path
 - Location: `server.js:230` (`_writeTimingHistorySync`), `:337` (completedJobs), `:369` (queue state), `:514` (drive retry queue pretty-printed).
 - Category: Event loop starvation (Category 6) + Memory pressure (Category 1).
 - Issue: `fss.writeFileSync(file, JSON.stringify(...))` runs entirely on the main thread. For `genQueue` containing 5000 jobs each with vibe/character reference base64 images embedded in `params`, a single save can serialise 50+ MB of JSON synchronously every ~1 s while jobs are being added/processed.
@@ -274,7 +274,8 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### High — `processExportQueue` with default `EXPORT_CONCURRENCY=10` × in-memory zips can OOM
+### High ⊘ Q4 defer — `processExportQueue` with default `EXPORT_CONCURRENCY=10` × in-memory zips can OOM
+- **Status (P17, 2026-05-19)**: 본인 명시 spec (server.js:689 주석 "본인 요청: 동시 10개까지 2026-05-13") + C2 streaming archive (`59751c5`) 도입으로 in-memory zip 폭발 위험 완화. 변경 안 함.
 - Location: `server.js:678-751`.
 - Category: Memory pressure (Category 1) + CPU hotspot (Category 3).
 - Issue: 10 parallel export jobs each hold all source PNGs in JSZip buffers, run `sharp` resize, and generate `nodebuffer` archives. `sharp` itself uses libvips + its own thread pool. Combined peak heap can blow RSS sharply.
@@ -288,7 +289,8 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### High — `app.use(express.json({ limit: '100mb' }))` + unauthenticated endpoints accept 100 MB bodies
+### High ⊘ Q4 defer — `app.use(express.json({ limit: '100mb' }))` + unauthenticated endpoints accept 100 MB bodies
+- **Status (P17, 2026-05-19)**: tailnet 단일 사용자 환경 — 외부 노출 0건이라 이론적 위험. 변경 안 함.
 - Location: `server.js:1122` + all routes under `/api/fs/write-data`, `/api/generate`, `/api/queue/add`, `/api/queue/add-batch`.
 - Category: Security (Category 11) + Memory pressure (Category 1).
 - Issue: 100 MB body limit. None of the endpoints except `/api/auth/login*` use rate limiting. A single buggy client can hold 100 MB in memory per concurrent request.
@@ -303,7 +305,8 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### High — `nai.token` is process-global; concurrent calls share a single client and racing logins overwrite each other
+### High ⊘ Q4 defer — `nai.token` is process-global; concurrent calls share a single client and racing logins overwrite each other
+- **Status (P17, 2026-05-19)**: 단일 사용자 spec — concurrent login 시나리오 미발생. self-update gate도 Phase 15 ADMIN_TOKEN → nai.token pivot로 본인 명시 결정. 변경 안 함.
 - Location: `lib/nai-client.js:11-42`, `server.js:55`, `:1033-1036`, `:1213-1218`, `:1297-1316`, `:1630-1634`, `:1685-1688`.
 - Category: Async safety (Category 4) + Security (Category 11).
 - Issue: Mutable module-global client state with no synchronization. Self-update gate `if (!nai.token)` means anyone who can write `TOKEN.txt` can trigger self-update.
@@ -537,7 +540,7 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### High — `imageService.images` / `inpaints` keyed by `session.name` never GC'd across project deletes/renames
+### High ✓ `8f4038a` — `imageService.images` / `inpaints` keyed by `session.name` never GC'd across project deletes/renames
 - Location: `frontend/src/models/ImageService.ts:53-67, 312-363, 460-473`
 - Category: 9. Infinite Growth; 2. Memory Leak
 - Issue: No removal path when session deleted; `onRenameSession` only rewrites `cache` keys, not `images`/`inpaints`. Long-lived editors accumulate hundreds of stale keys.
@@ -555,7 +558,8 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### High — Four parallel mirror-state Maps desync on WS reconnect / 30s polling overlap
+### High ⊘ Q2 defer — Four parallel mirror-state Maps desync on WS reconnect / 30s polling overlap
+- **Status (P17, 2026-05-19)**: VERIFIED real bug — `_doRestoreMirroredState`가 `await backend.queueGetFullState()` 중 WS event 끼어들면 mutation 손실. 단 4 Map collapse refactor = caller 7곳 동시 변경 (handleMirroredComplete/handleMirroredError/addMirroredTask/restoreMirroredState/prioritizeTasks/removeAllTasks/removeTasksFromScene) + lockstep 1곳 누락 시 silent regression. Q2 (Cross-cutting/Refactor) 단독 commit + L3 통과 후 별도 phase에서 진행.
 - Location: `frontend/src/models/TaskQueueService.ts:738-756, 1034-1117, 1119-1218`
 - Category: 9. Infinite Growth; 4. Async Safety
 - Issue: `mirroredTasks` / `mirroredJobs` / `mirrorRunStartTimes` / `mirrorTaskSceneKeys` need lockstep updates under three concurrent code paths (WS event, addMirroredTask, restore). Single-flight gate only blocks concurrent restores, not WS complete events overlapping with `_doRestoreMirroredState`'s `mirroredTasks.clear()`. Lost progress increments, stuck UI counters. `mirrorRunStartTimes` not repopulated on restore → skewed ETAs after reconnect.
@@ -563,7 +567,8 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### High — `withTimeout` races but never aborts underlying `handleTask` work
+### High ⊘ Q4 defer (premise stale) — `withTimeout` races but never aborts underlying `handleTask` work
+- **Status (P17, 2026-05-19)**: SDStudio Remote는 Phase 9에서 서버 큐 도입 후 `generateImage = POST /queue/add` cheap ACK라 client-side 백그라운드 fetch에 multi-MB vibe stack 가정 stale. 또 runInternal은 serial while loop라 단일 in-flight. 실제 위험 ≈ 0. 변경 surface (TaskHandler interface + 3 구현체 + backend signature + fetch signal plumb) 큼 → defer. 본 case로 audit instructions Section 0 Architecture Pass 도입 결정 (`278bd61`).
 - Location: `frontend/src/models/TaskQueueService.ts:1386-1394, 1419`
 - Category: 4. Async Safety; 2. Memory Leak
 - Issue: `Promise.race` chooses first resolution, never cancels the loser. Stale `generateImage` flights stack — each holding multi-MB base64 vibes. Mobile Safari foreground tab budget is ~1.5GB.
@@ -580,7 +585,7 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### High — `taskLogs` ring buffer uses O(N) `splice` instead of O(1) rotation
+### High ✓ `c779f6e` — `taskLogs` ring buffer uses O(N) `splice` instead of O(1) rotation
 - Location: `frontend/src/models/TaskQueueService.ts:796-805`
 - Category: 3. CPU Hotspot; 9. Infinite Growth
 - Issue: `splice(0, k)` is O(N). Over a long batch (1000s of tasks), O(N²) total CPU. Error storms (429 retry × 100 tasks) → ms-scale main-thread blocking + GC pressure.
@@ -597,7 +602,8 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### High — `embedJSONInPNG` / `readJSONFromPNG` synchronously decode + re-encode full PNG base64 on main thread
+### High ⊘ Q4 partially-mitigated — `embedJSONInPNG` / `readJSONFromPNG` synchronously decode + re-encode full PNG base64 on main thread
+- **Status (P17, 2026-05-19)**: 다중파일 batch freeze는 H16 (`816fed8` handleFiles 4-chunk + yield)로 부분 흡수. 단일파일 50-150ms mobile hitch는 Web Worker 필요 → defer.
 - Location: `frontend/src/models/SessionService.ts:855-888`
 - Category: 6. Event Loop Starvation; 7. Large String/Binary
 - Issue: `Buffer.from(inputBase64, 'base64')` + `extractChunks` + `Buffer.from(encodeChunks(chunks)).toString('base64')`. For NAI 1024×1024 PNG, 5–15 ms desktop, 50–150 ms mobile Safari. Multi-file drop = ~1 s freeze.
@@ -605,13 +611,13 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### High — `pasteImagesFromClipboard` no rate limit; deletes-then-refreshes O(N) every image
+### High ✓ `34823bd` — `pasteImagesFromClipboard` no rate limit; deletes-then-refreshes O(N) every image
 - Location: `frontend/src/models/AppService.ts:507-525`
 - Issue: Serial loop, no per-copy timeout, single `refresh()` at end re-lists 500+ entries.
 
 ---
 
-### High — `handleFiles` parses N JSONs concurrently via `Promise.all`, each blocks main thread
+### High ✓ `816fed8` — `handleFiles` parses N JSONs concurrently via `Promise.all`, each blocks main thread
 - Location: `frontend/src/models/AppService.ts:754-811`
 - Issue: 20 concurrent `JSON.parse` of 50–500 KB project.json → ~50–500 ms freeze on bulk import.
 - Recommended fix: Chunk-parallelize CHUNK=4, yield between chunks.
@@ -803,7 +809,7 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### High — `ServerBackend` WebSocket reconnect: no backoff, no online-event reset, handler Map only grows
+### High ✓ `735e3bd` — `ServerBackend` WebSocket reconnect: no backoff, no online-event reset, handler Map only grows
 - Location: `frontend/src/backends/serverBackend.ts:74-112`
 - Category: 2 Memory Leak / 4 Async Safety / 9 Infinite Growth
 - Issue: Fixed 3-second retry; no max attempts; no jitter; no online/offline listener. Stale `onerror` closure can call `this.ws?.close()` on the *new* ws because closures reference `this.ws` not local var. `eventHandlers` Set only deleted via opt-in disposer.
@@ -828,7 +834,7 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### High — `apiJSON` callers don't propagate per-endpoint timeout; large reads + queue submits silently capped at 60s
+### High ✓ `61fb8c9` — `apiJSON` callers don't propagate per-endpoint timeout; large reads + queue submits silently capped at 60s
 - Location: `frontend/src/backends/serverBackend.ts:27-72`, `:279`, `:308`, `:352-354`
 - Category: 4 Async Safety / 5 Error Handling / 7 Large Binary
 - Issue: Single `DEFAULT_API_TIMEOUT_MS = 60_000` for all endpoints. Multi-MB image reads and queue base64 submits can spuriously abort on slow mobile uplinks.
@@ -857,7 +863,7 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### High — `copyImageToClipboard` / image fetch paths missing `AbortController`
+### High ✓ `9f6d68f` — `copyImageToClipboard` / image fetch paths missing `AbortController`
 - Location: `frontend/src/backends/serverBackend.ts:374-380`, `:11-22`
 - Category: 2 Memory Leak / 10 Browser-Specific
 - Issue: No signal, no timeout — hung fetch holds blob (1–5 MB) for whole network timeout.
@@ -865,7 +871,7 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### High — `SDImageGenHandler` synchronously decodes `preset.image`/`preset.mask` data URI base64 on main thread
+### High ✓ `46dafaa` — `SDImageGenHandler` synchronously decodes `preset.image`/`preset.mask` data URI base64 on main thread
 - Location: `frontend/src/models/workflows/SDWorkFlow.ts:403-440`
 - Category: 6 Event Loop / 7 Large Binary
 - Issue: `dataUriToBase64` `.split`/`.replace` on multi-MB strings — 30–150 ms hitches per i2i/inpaint task on mobile. Pattern repeats in `AugmentWorkFlow.ts:132-136, :255-263`.
@@ -992,7 +998,7 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ---
 
-### High — `SceneCell` per-card listener subscription multiplies by scene count (N × 5 listeners)
+### High ✓ `735a8e2` — `SceneCell` per-card listener subscription multiplies by scene count (N × 5 listeners)
 - Location: `frontend/src/components/SceneQueueControl.tsx:248-291`
 - Category: 2 (Memory Leak) + 3 (CPU)
 - Issue: Every visible `SceneCell` subscribes to `gameService:updated`, `taskQueueService:progress`, `imageService:image-cache-invalidated`, plus two MobX reactions. For 50–500 scenes, 5N listeners. Every `progress` event during generation → all `SceneCell`s rerender + refetch thumbnails (no path filter).
@@ -1022,7 +1028,7 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ---
 
-### High — `VibeImage` re-runs `fetchImageSmall` without cancellation guard during rapid path changes
+### High ✓ `f385274` — `VibeImage` re-runs `fetchImageSmall` without cancellation guard during rapid path changes
 - Location: `frontend/src/components/CharacterPresetEditor.tsx:54-70`
 - Category: 2 (Memory Leak) + 4 (Async Safety)
 - Issue: No `cancelled` flag — stale fetch resolves after new one and overwrites. Closure-retained base64 strings until GC.
@@ -1030,7 +1036,7 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ---
 
-### High — `TaskQueueList.syncFromService` rebuilds 3 Maps per event; O(commits) per progress tick
+### High ✓ `3a2058a` + `6583b04` — `TaskQueueList.syncFromService` rebuilds 3 Maps per event; O(commits) per progress tick
 - Location: `frontend/src/components/TaskQueueControl.tsx:310-471`
 - Category: 3 (CPU Hotspot) + 6 (Event Loop)
 - Issue: On every `start`/`stop`/`progress`/`complete`/`error`: iterate queue + mirroredTasks, clear+rebuild 3 Maps, iterate commits again for totals, iterate scenes/projects/folders. With 500+ commits + ~1 Hz progress events → 2500 iterations + Map allocations per event. iOS Safari: 5–20 ms per event.
@@ -1050,7 +1056,8 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ---
 
-### High — `useTournament` `useMemo([tick, scene, toURL])` re-derives podium sort per match click
+### High ⊘ Q4 defer (severity overstated) — `useTournament` `useMemo([tick, scene, toURL])` re-derives podium sort per match click
+- **Status (P17, 2026-05-19)**: audit "10ms per click on iOS Safari" 추정 과대 — 500 items simple comparator sort는 mobile에서 1-2ms 수준 예상. game-version 감지 인프라 필요 (현재 `tick` 통째 invalidation 패턴). measurement-first 권장 → defer.
 - Location: `frontend/src/components/tournament/useTournament.ts:190-237`
 - Category: 3 (CPU) + 4 (Async)
 - Issue: `[...game].sort(...)` runs even when only `round.curPlayer` changed. 500-image tournament: ~10ms per click on iOS Safari.
