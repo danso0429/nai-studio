@@ -1878,15 +1878,22 @@ app.get('/api/fs/list-stats', async (req, res) => {
 // Walk a directory up to `depth` levels deep, returning file paths (slash-joined,
 // relative to the base) and direct subdirectories. Hidden entries (starting with '.')
 // are excluded so internal markers like .trash / .folder don't leak.
+// audit M9 — 옛 walkDir는 node-count 캡 없음. 사용자가 거대한 디렉토리 마운트
+// (예: 외부 backup folder) 시 메모리 폭주 + HTTP 응답 무한 지연 위험. 50k 하드 캡
+// + truncated flag로 클라에 신호.
+const WALK_DIR_MAX_NODES = 50000;
 async function walkDir(basePath, depth) {
   const files = [];
   const dirs = [];
+  let truncated = false;
   async function walk(currentRel, currentDepth) {
+    if (truncated) return;
     let entries;
     try {
       entries = await fs.readdir(path.join(basePath, currentRel), { withFileTypes: true });
     } catch { return; }
     for (const entry of entries) {
+      if (truncated) return;
       if (entry.name.startsWith('.')) continue;
       const rel = currentRel ? currentRel + '/' + entry.name : entry.name;
       if (entry.isDirectory()) {
@@ -1897,10 +1904,14 @@ async function walkDir(basePath, depth) {
       } else if (entry.isFile()) {
         files.push(rel);
       }
+      if (files.length + dirs.length >= WALK_DIR_MAX_NODES) {
+        truncated = true;
+        return;
+      }
     }
   }
   await walk('', 0);
-  return { files, dirs };
+  return { files, dirs, truncated };
 }
 
 app.get('/api/fs/list-recursive', async (req, res) => {
@@ -3238,11 +3249,14 @@ app.get('/api/pieces/search', (req, res) => {
 });
 
 // ─── SPA fallback ───────────────────────────────────────────────────
+// audit M13 — 옛: 매 SPA fallback 요청마다 fss.existsSync sync I/O. 부팅 후 frontend
+// 빌드 상태는 변경 안 됨 (update.sh 거치면 pm2 restart라 새 프로세스에서 재평가).
+// 부팅 시 1번 평가 + 캐시.
+const _spaIndexPath = path.join(__dirname, 'public', 'index.html');
+const _spaIndexExists = fss.existsSync(_spaIndexPath);
 app.get('*', (req, res) => {
-  // Serve index.html for SPA routing
-  const indexPath = path.join(__dirname, 'public', 'index.html');
-  if (fss.existsSync(indexPath)) {
-    res.sendFile(indexPath);
+  if (_spaIndexExists) {
+    res.sendFile(_spaIndexPath);
   } else {
     res.status(404).send('Frontend not built. Run: cd frontend && npm run build');
   }
