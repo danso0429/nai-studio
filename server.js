@@ -380,14 +380,22 @@ const QUEUE_MAX_SIZE = 5000;
 const DISK_WARN_GB = 15;
 const DISK_CRIT_GB = 10;
 
+// audit M4 — 옛 broadcastQueueStatus는 매 호출 즉시 발화. 1 job lifecycle에서
+// (start/complete/error/saveQueueState 등) 5+ 호출 × N 클라이언트 = 큰 폭. 250ms
+// debounce로 한 burst 내 1번만 발화. 마지막 값 우선 (가장 최신 상태 반영).
+let _bcastQTimer = null;
 function broadcastQueueStatus() {
-  broadcast('queue-status', {
-    pending: genQueue.length,
-    processing: queueProcessing,
-    paused: queuePaused,
-    completed: queueStats.completed,
-    failed: queueStats.failed,
-  });
+  if (_bcastQTimer) return;
+  _bcastQTimer = setTimeout(() => {
+    _bcastQTimer = null;
+    broadcast('queue-status', {
+      pending: genQueue.length,
+      processing: queueProcessing,
+      paused: queuePaused,
+      completed: queueStats.completed,
+      failed: queueStats.failed,
+    });
+  }, 250);
 }
 const QUEUE_STATE_FILE = path.join(DATA_DIR, '.queue_state.json');
 function _queueSnapshot() {
