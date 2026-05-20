@@ -153,49 +153,60 @@ export function calcGapMatch(small: string, large: string) {
   const [largeN, largeMapping] = normalize(large);
   const m = smallN.length;
   const n = largeN.length;
-  const dp = Array.from({ length: m + 1 }, () =>
-    Array.from({ length: n + 1 }, () => [inf, inf]),
-  );
-  const backtrack: any = Array.from({ length: m + 1 }, () =>
-    Array.from({ length: n + 1 }, () => [null, null]),
-  );
+  // dp[i][j][k] → flat Int32Array (M+1)(N+1)2. 옛 nested Array.from은 keystroke마다
+  // (m+1)(n+1) array 객체 + 2 tuple alloc → 50 candidate 누적 시 MB 단위 GC churn.
+  // typed array는 1 buffer만 alloc, 인덱스 산술로 access. inf=1e9|0 sentinel.
+  const stride0 = (n + 1) * 2;
+  const idx = (i: number, j: number, k: number) => i * stride0 + j * 2 + k;
+  const dpSize = (m + 1) * stride0;
+  const dp = new Int32Array(dpSize).fill(inf);
+  // backtrack[i][j][k] = [prevI, prevJ, prevK] → 3 ints 묶음. sentinel -1.
+  const backtrack = new Int32Array(dpSize * 3).fill(-1);
+  const bIdx = (i: number, j: number, k: number) => idx(i, j, k) * 3;
 
-  dp[0][0][0] = 0;
+  dp[idx(0, 0, 0)] = 0;
 
   for (let i = 0; i <= m; i++) {
     for (let j = 0; j < n; j++) {
       if (i < m && smallN[i] === largeN[j]) {
-        if (dp[i][j][0] + 1 < dp[i + 1][j + 1][1]) {
-          dp[i + 1][j + 1][1] = dp[i][j][0] + 1;
-          backtrack[i + 1][j + 1][1] = [i, j, 0];
+        if (dp[idx(i, j, 0)] + 1 < dp[idx(i + 1, j + 1, 1)]) {
+          dp[idx(i + 1, j + 1, 1)] = dp[idx(i, j, 0)] + 1;
+          const bi = bIdx(i + 1, j + 1, 1);
+          backtrack[bi] = i; backtrack[bi + 1] = j; backtrack[bi + 2] = 0;
         }
-        if (dp[i][j][1] < dp[i + 1][j + 1][1]) {
-          dp[i + 1][j + 1][1] = dp[i][j][1];
-          backtrack[i + 1][j + 1][1] = [i, j, 1];
+        if (dp[idx(i, j, 1)] < dp[idx(i + 1, j + 1, 1)]) {
+          dp[idx(i + 1, j + 1, 1)] = dp[idx(i, j, 1)];
+          const bi = bIdx(i + 1, j + 1, 1);
+          backtrack[bi] = i; backtrack[bi + 1] = j; backtrack[bi + 2] = 1;
         }
       }
-      if (dp[i][j][0] < dp[i][j + 1][0]) {
-        dp[i][j + 1][0] = dp[i][j][0];
-        backtrack[i][j + 1][0] = [i, j, 0];
+      if (dp[idx(i, j, 0)] < dp[idx(i, j + 1, 0)]) {
+        dp[idx(i, j + 1, 0)] = dp[idx(i, j, 0)];
+        const bi = bIdx(i, j + 1, 0);
+        backtrack[bi] = i; backtrack[bi + 1] = j; backtrack[bi + 2] = 0;
       }
-      if (dp[i][j][1] < dp[i][j + 1][0]) {
-        dp[i][j + 1][0] = dp[i][j][1];
-        backtrack[i][j + 1][0] = [i, j, 1];
+      if (dp[idx(i, j, 1)] < dp[idx(i, j + 1, 0)]) {
+        dp[idx(i, j + 1, 0)] = dp[idx(i, j, 1)];
+        const bi = bIdx(i, j + 1, 0);
+        backtrack[bi] = i; backtrack[bi + 1] = j; backtrack[bi + 2] = 1;
       }
     }
   }
 
-  const result = Math.min(dp[m][n][0], dp[m][n][1]);
+  const result = Math.min(dp[idx(m, n, 0)], dp[idx(m, n, 1)]);
   if (result === inf) {
     return { result, path: [] };
   }
-  let path = [];
-  let i = m,
-    j = n,
-    k = dp[m][n][0] < dp[m][n][1] ? 0 : 1;
+  const path: any[] = [];
+  let i = m;
+  let j = n;
+  let k = dp[idx(m, n, 0)] < dp[idx(m, n, 1)] ? 0 : 1;
 
   while (i !== 0 || j !== 0) {
-    const [prevI, prevJ, prevK] = backtrack[i][j][k];
+    const bi = bIdx(i, j, k);
+    const prevI = backtrack[bi];
+    const prevJ = backtrack[bi + 1];
+    const prevK = backtrack[bi + 2];
     if (i - 1 === prevI && j - 1 === prevJ) {
       path.push(largeMapping[j - 1]);
     }

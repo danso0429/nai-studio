@@ -60,8 +60,26 @@ interface ThumbnailProps<T> {
 function ThumbnailInner<T>({ item, getImage, imageRevision, alt, size }: ThumbnailProps<T>): React.ReactElement {
   const [src, setSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [inView, setInView] = useState<boolean>(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // 200+ thumbnail mount 시 동시 fetch thundering-herd 회피 — viewport 진입 시점에만 fetch.
+  // 한 번 진입하면 disconnect (재진입 시 cached promise 재사용).
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setInView(true);
+        obs.disconnect();
+      }
+    }, { rootMargin: '200px' });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
+    if (!inView) return;
     let cancelled = false;
     setLoading(true);
     getImage(item)
@@ -77,12 +95,12 @@ function ThumbnailInner<T>({ item, getImage, imageRevision, alt, size }: Thumbna
     return () => {
       cancelled = true;
     };
-  }, [getImage, item, imageRevision]);
+  }, [getImage, item, imageRevision, inView]);
 
   const px = size ?? 80;
 
   return (
-    <div className="flex items-center justify-center" style={{ width: px, height: px }}>
+    <div ref={ref} className="flex items-center justify-center" style={{ width: px, height: px }}>
       {src ? (
         <img
           className="bg-checkboard w-auto h-auto"

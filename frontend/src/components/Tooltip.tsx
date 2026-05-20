@@ -131,6 +131,14 @@ const Tooltip = ({
     };
   }, []);
 
+  // 스크롤 시 트리거가 움직이면 portal 위치 stale → 즉시 hide. re-query rect보다 단순.
+  useEffect(() => {
+    if (!visible) return;
+    const onScroll = () => setVisible(false);
+    window.addEventListener('scroll', onScroll, { passive: true, capture: true });
+    return () => window.removeEventListener('scroll', onScroll, true);
+  }, [visible]);
+
   if (!content) return <>{children}</>;
 
   return (

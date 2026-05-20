@@ -546,15 +546,23 @@ const SceneCharacterPromptEditor = observer(({ scene }: SceneCharacterPromptEdit
   };
 
   const updateCharacter = (id: string, updates: Partial<CharacterPrompt>) => {
-    scene.sceneCharacterPrompts = (scene.sceneCharacterPrompts || []).map(c =>
-      c.id === id ? { ...c, ...updates } : c
-    );
+    // range input 60Hz tick에 array map + obj spread = ~300 alloc/sec → in-place mutation.
+    // MobX reaction은 obj property 단위 dirty mark로 reaction surface 축소.
+    runInAction(() => {
+      const arr = scene.sceneCharacterPrompts;
+      if (!arr) return;
+      const target = arr.find(c => c.id === id);
+      if (target) Object.assign(target, updates);
+    });
   };
 
   const toggleCharacter = (id: string) => {
-    scene.sceneCharacterPrompts = (scene.sceneCharacterPrompts || []).map(c =>
-      c.id === id ? { ...c, enabled: c.enabled === false ? true : false } : c
-    );
+    runInAction(() => {
+      const arr = scene.sceneCharacterPrompts;
+      if (!arr) return;
+      const target = arr.find(c => c.id === id);
+      if (target) target.enabled = target.enabled === false ? true : false;
+    });
   };
 
   const characters = scene.sceneCharacterPrompts || [];
