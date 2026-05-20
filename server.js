@@ -2340,6 +2340,76 @@ app.post('/api/project/delete-now', async (req, res) => {
   }
 });
 
+// 폴더 안 모든 프로젝트를 한 round-trip으로 영구 삭제. 옛 클라 측 deleteFolder가
+// N번 delete-now를 sequential 호출해서 모바일 느린 네트워크에서 일부만 처리되고
+// 끊기는 페인 (2026-05-20 <프로젝트> 폴더 22개 중 2개만 삭제 + 나머지 루트로 잔류). 서버에서
+// 한 번에 끝내면 클라 fetch 중단/abort 페인 없음. 폴더 dir 자체 + Drive projects/<folder>도 같이 정리.
+app.post('/api/project/delete-folder-now', async (req, res) => {
+  try {
+    const folder = sanitizeProjectName(req.body && req.body.folder);
+    if (!folder) return res.status(400).json({ ok: false, error: 'Invalid folder name' });
+
+    const folderDir = resolvePath('projects/' + folder);
+    const projectNames = new Set();
+    try {
+      const entries = await fs.readdir(folderDir, { withFileTypes: true });
+      for (const e of entries) {
+        if (!e.isFile()) continue;
+        if (!e.name.endsWith('.json') && !e.name.endsWith('.deleted')) continue;
+        const base = path.basename(e.name, path.extname(e.name));
+        if (base) projectNames.add(base);
+      }
+    } catch {
+      return res.status(404).json({ ok: false, error: 'Folder not found' });
+    }
+
+    // N 프로젝트 영구 삭제는 직렬화 — 각 호출이 이미 5개 PROJECT_SUB_DIRS를 병렬 처리하므로
+    // 추가 병렬화는 rclone purge 동시 호출 폭발만 키움.
+    const allDeleted = { local: [], drive: [] };
+    const allErrors = [];
+    const deletedProjects = [];
+    for (const name of projectNames) {
+      try {
+        const result = await permanentlyDeleteProjectFiles(name);
+        deletedProjects.push(name);
+        allDeleted.local.push(...result.deleted.local);
+        allDeleted.drive.push(...result.deleted.drive);
+        allErrors.push(...result.errors);
+      } catch (e) {
+        allErrors.push(`delete project "${name}": ${e.message}`);
+      }
+    }
+
+    // 폴더 dir 자체 삭제 (.keep 등 잔류 정리)
+    try {
+      await fs.rm(folderDir, { recursive: true, force: true });
+      allDeleted.local.push('projects/' + folder + '/');
+    } catch (e) {
+      allErrors.push('local rm folder: ' + e.message);
+    }
+
+    // Drive projects/<folder>/ purge — rclone 미가용 시 skip
+    let driveSkipped = false;
+    if (checkRcloneAvailable()) {
+      const remoteFolderPath = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/projects/${folder}`;
+      const r = await rcloneRun(['purge', remoteFolderPath, RCLONE_TRASH_BYPASS], 60000);
+      if (r.ok) {
+        allDeleted.drive.push('projects/' + folder + '/');
+      } else if (!isNotFoundError(r.stderr || r.stdout || r.error)) {
+        allErrors.push('drive purge projects/' + folder + ': ' + (r.stderr || r.error));
+      }
+    } else {
+      driveSkipped = true;
+    }
+
+    console.log(`[Project] delete-folder-now "${folder}": projects=${deletedProjects.length}, local=${allDeleted.local.length}, drive=${allDeleted.drive.length}, errors=${allErrors.length}`);
+    res.json({ ok: true, folder, deletedProjects, deleted: allDeleted, errors: allErrors, driveSkipped });
+  } catch (e) {
+    console.error('[Project] delete-folder-now error:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // cleanup-preview — 전체 정리 실행 전 미리보기. tmp/exports 파일 수+크기와
 // 로컬 Orphan(PROJECT_SUB_DIRS 중 살아있지 않은 프로젝트명 폴더) 재귀 크기 합산.
 // Drive는 rclone 호출 비용이 커서 제외 — "정리할 필요 있나" 빠른 판단용.

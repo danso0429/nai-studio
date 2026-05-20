@@ -104,7 +104,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
         { text: '💾 폴더 전체 백업 (이미지 포함, 복원 가능)', value: 'backup' },
         { text: '💾 폴더 전체 백업 (이미지 없이, 가볍게)', value: 'backup-light' },
         { text: '이름 변경', value: 'rename' },
-        { text: '삭제 (안의 프로젝트는 휴지통으로)', value: 'delete' },
+        { text: '삭제 (안의 프로젝트도 영구 삭제)', value: 'delete' },
       ],
     });
     if (action === 'export') {
@@ -144,7 +144,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
     } else if (action === 'delete') {
       const projectsInFolder = folderToProjects.get(folder) || [];
       const msg = projectsInFolder.length > 0
-        ? `폴더 "${folder}" 삭제 — 안의 프로젝트 ${projectsInFolder.length}개는 휴지통으로 이동돼요. 계속할까요?`
+        ? `폴더 "${folder}" 삭제 — 안의 프로젝트 ${projectsInFolder.length}개도 영구 삭제돼요 (복원 불가). 계속할까요?`
         : `빈 폴더 "${folder}"를 삭제할까요?`;
       appState.pushDialog({
         type: 'confirm',

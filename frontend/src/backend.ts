@@ -88,6 +88,14 @@ export interface DeleteProjectResult {
   driveSkipped: boolean;
 }
 
+export interface DeleteFolderResult {
+  folder: string;
+  deletedProjects: string[];
+  deleted: { local: string[]; drive: string[] };
+  errors: string[];
+  driveSkipped: boolean;
+}
+
 export interface CleanupOrphansStart {
   jobId: string;
   alreadyRunning: boolean;
@@ -198,6 +206,7 @@ export abstract class Backend {
   abstract onClose(callback: () => void): () => void;
   abstract onWsReconnect(callback: () => void): () => void;
   abstract deleteProjectNow(name: string): Promise<DeleteProjectResult>;
+  abstract deleteFolderNow(folder: string): Promise<DeleteFolderResult>;
   abstract cleanupOrphans(): Promise<CleanupOrphansStart>;
   abstract onCleanupOrphansStart(callback: (data: { jobId: string }) => void): () => void;
   abstract onCleanupOrphansProgress(callback: (data: CleanupOrphansProgress) => void): () => void;

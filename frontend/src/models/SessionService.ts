@@ -220,25 +220,37 @@ export class SessionService extends ResourceSyncService<Session> {
   }
 
   async deleteFolder(folderName: string): Promise<void> {
-    // 정책: 폴더는 영구 삭제. 안의 프로젝트들은 휴지통 경유 (개별 복원 가능).
-    // 주의: super.delete()는 같은 디렉토리에 .deleted suffix를 남김. 만약 폴더 안에서
-    // delete 후 폴더를 삭제하면 .deleted 파일도 같이 사라져 복원 불가능. 그래서 먼저
-    // 각 프로젝트의 .json을 루트로 옮긴 후 delete를 호출.
+    // 폴더 안 N 프로젝트 영구 삭제 + 폴더 dir + Drive까지 서버 한 호출로. 옛 N round-trip
+    // (rename → delete-now × N → deleteDir) 흐름은 모바일 느린 네트워크에서 중간에 abort
+    // 되면 일부만 처리되고 나머지가 루트로 잔류하던 페인 (2026-05-20).
     const projectsInFolder = this.resourceList.filter(n => this.folderMap[n] === folderName);
+    // 메모리 캐시 + 북마크 + 즐겨찾기 정리는 클라가 책임 — 서버가 모르는 정보.
+    let bmChanged = false;
+    let favChanged = false;
     for (const projName of projectsInFolder) {
-      const srcPath = this.projectFilePath(projName, folderName);
-      const destPath = this.projectFilePath(projName, null);
-      await backend.renameFile(srcPath, destPath);
-      this.folderMap[projName] = null;
+      if (this.favorites.has(projName)) {
+        this.favorites.delete(projName);
+        favChanged = true;
+      }
+      if (projName in this.bookmarkData.scenes) {
+        delete this.bookmarkData.scenes[projName];
+        bmChanged = true;
+      }
+      const imageKeys = Object.keys(this.bookmarkData.images).filter(k => k.startsWith(projName + ':'));
+      for (const k of imageKeys) {
+        delete this.bookmarkData.images[k];
+        bmChanged = true;
+      }
+      if (projName in this.resources) {
+        delete this.resources[projName];
+        this.disposes[projName]();
+        delete this.disposes[projName];
+      }
     }
-    // 이제 각 프로젝트를 휴지통으로 (.deleted suffix가 루트에 생김 → 복원 시 루트로)
-    for (const projName of projectsInFolder) {
-      await this.delete(projName);
-    }
-    // 폴더 디렉토리 자체 삭제 (잔류 .keep 등 청소)
-    try {
-      await backend.deleteDir(this.folderPath(folderName));
-    } catch {}
+    if (favChanged) await this.saveFavorites();
+    if (bmChanged) await this.saveBookmarks();
+    // 서버 batch — 로컬 파일/Drive 모두 영구 삭제 + 폴더 dir 자체 삭제.
+    await backend.deleteFolderNow(folderName);
     await this.update();
   }
 

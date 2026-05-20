@@ -1,6 +1,6 @@
 import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteProjectResult, DriveRetryStatus, FileEntry, FileStatEntry, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
+import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderResult, DeleteProjectResult, DriveRetryStatus, FileEntry, FileStatEntry, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -29,6 +29,9 @@ const DEFAULT_API_TIMEOUT_MS = 60_000;
 // augment / encode-vibe / zip) 호출은 모바일 uplink에서 60초 default로 spurious abort.
 // 180초로 늘림. 작은 JSON GET은 default 60초 유지.
 const BINARY_API_TIMEOUT_MS = 180_000;
+// 폴더 전체 영구 삭제 — N 프로젝트 × (로컬 5 sub-dir + Drive 5 purge + Drive lsf) 직렬 처리.
+// <프로젝트> 폴더(22 projects)면 ~5분 가능. 모바일 abort 회피용 넉넉히.
+const FOLDER_DELETE_TIMEOUT_MS = 600_000;
 
 async function api(
   path: string,
@@ -469,6 +472,10 @@ export class ServerBackend extends Backend {
 
   async deleteProjectNow(name: string): Promise<DeleteProjectResult> {
     return await apiJSON('/project/delete-now', { method: 'POST', body: JSON.stringify({ name }) });
+  }
+
+  async deleteFolderNow(folder: string): Promise<DeleteFolderResult> {
+    return await apiJSON('/project/delete-folder-now', { method: 'POST', body: JSON.stringify({ folder }), timeout: FOLDER_DELETE_TIMEOUT_MS });
   }
 
   async cleanupOrphans(): Promise<CleanupOrphansStart> {
