@@ -253,6 +253,51 @@
   .modal-btn:hover:not(:disabled) { filter: brightness(1.1); }
   .modal-btn-cancel { background: #2a2e36; color: #cbd5e1; border-color: #3a3e46; }
   .modal-btn-danger { background: #5a2d2d; color: #fca5a5; border-color: #7a3d3d; }
+
+  /* ─── 대기 트리 (folder → project → scene) ──────────────────────── */
+  .card.q-pending-card { cursor: pointer; }
+  .card.q-pending-card:hover { background: #20242a; }
+  .tree-panel { margin-bottom: 16px; background: #1a1d23; border-radius: 10px; padding: 8px 6px; }
+  .tree-empty { color: #6a6f78; font-size: 12px; padding: 8px 10px; text-align: center; }
+  .tree-row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; border-radius: 6px;
+    min-width: 0;
+  }
+  .tree-row.expandable { cursor: pointer; }
+  .tree-row.expandable:hover { background: #20242a; }
+  .tree-row .arrow {
+    flex: none; color: #6a6f78; width: 12px;
+    font-size: 10px; text-align: center;
+  }
+  .tree-row .icon { flex: none; font-size: 13px; }
+  .tree-row .name {
+    flex: 1; min-width: 0; font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tree-row .name.folder-name { font-weight: 500; color: #e6e8eb; }
+  .tree-row .name.project-name { color: #d8dce4; }
+  .tree-row .name.scene-name { color: #b8bdc7; }
+  .tree-row .count {
+    flex: none; color: #93c5fd; font-size: 11px;
+    background: #1f2530; padding: 2px 6px; border-radius: 999px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tree-row .cancel-x {
+    flex: none; background: transparent;
+    color: #f87171; border: 1px solid #5a2d2d;
+    width: 22px; height: 22px; border-radius: 5px;
+    font-size: 13px; line-height: 1; cursor: pointer;
+    font-family: inherit;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .tree-row .cancel-x:hover { background: #3a1d1d; filter: brightness(1.15); }
+  .tree-children-project { margin-left: 14px; }
+  .tree-children-scene { margin-left: 28px; }
+  .tree-divider {
+    height: 1px; background: #20242a;
+    margin: 2px 8px;
+  }
 </style>
 </head>
 <body>
@@ -285,6 +330,20 @@
       <div class="modal-actions">
         <button id="cleanup-cancel-btn" class="modal-btn modal-btn-cancel">취소</button>
         <button id="cleanup-confirm-btn" class="modal-btn modal-btn-danger">진행</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="qcancel-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+      <div class="modal-title">⚠️ 큐 취소 확인</div>
+      <div class="modal-body">
+        <div id="qcancel-modal-body"></div>
+        <div class="modal-warn">큐에서 영구 제거돼요. 진행할까요?</div>
+      </div>
+      <div class="modal-actions">
+        <button id="qcancel-cancel-btn" class="modal-btn modal-btn-cancel">취소</button>
+        <button id="qcancel-confirm-btn" class="modal-btn modal-btn-danger">큐 취소</button>
       </div>
     </div>
   </div>
@@ -449,6 +508,324 @@
       tickCompletedInflight = false;
     }
   }
+
+  // 대기 트리 inline 위젯 상태. "대기" 카드 클릭 시 토글.
+  // 펼침 상태에서만 /api/queue/full-state 호출 — 평시엔 main tick의 status만 사용해
+  // 트리 panel은 status의 'jobs.slice(0,20)' 한계 없이 모든 잡 노출 가능.
+  let showQueueTree = false;
+  let queueFullState = null;
+  let lastFullStateFetchAt = 0;
+  // full-state는 jobs 전체 + folders 매핑이라 크기 변동 큼. 3초 polling 부담 줄이려고
+  // 5초 주기 (펼침 상태일 때만 호출). pending count 변화는 main tick의 status에서 즉시 반영.
+  const FULLSTATE_INTERVAL_MS = 5000;
+  // 펼침 트리 노드 — render 시 발급된 stable key('node-{n}'). 본인이 직접 toggle.
+  const treeExpanded = new Set();
+  // render마다 새로 빌드되는 lookup — onclick handler가 폴더/프로젝트/씬 이름에 특수문자
+  // (따옴표, 역슬래시 등) 있어도 안전하게 jobIds + 메타 가져오게. HTML attribute escape 회피.
+  const treeNodeMap = new Map(); // key → { level, label, jobIds }
+  let tickFullStateInflight = false;
+  let lastTreePanelKey = '';
+
+  window.toggleQueueTree = () => {
+    showQueueTree = !showQueueTree;
+    if (showQueueTree) {
+      fetchFullState().then(() => {
+        lastFullStateFetchAt = Date.now();
+        tick();
+      });
+    } else {
+      tick();
+    }
+  };
+
+  window.toggleTreeNode = (key) => {
+    // toggleExpand는 폴더/프로젝트 expand 상태만 바꿈 — label 기반 키 사용
+    // (render마다 새 nodeId 발급되지만 expand 상태는 사용자 의도라 label 안정 키로 유지).
+    if (treeExpanded.has(key)) treeExpanded.delete(key);
+    else treeExpanded.add(key);
+    lastTreePanelKey = '';
+    renderQueueTreePanel();
+  };
+
+  // cancelTreeNode는 nodeId로 lookup (render-time map). render 사이 jobIds 변경돼도
+  // 가장 최근 snapshot 기준 cancel 의도라 정확.
+  window.cancelTreeByNodeId = (nodeId) => {
+    const info = treeNodeMap.get(nodeId);
+    if (!info) return;
+    cancelTreeNode(info.level, info.label, info.jobIds, info.count);
+  };
+
+  async function fetchFullState() {
+    if (tickFullStateInflight) return;
+    tickFullStateInflight = true;
+    try {
+      const r = await fetch(BASE + '/api/queue/full-state', { cache: 'no-store' });
+      if (r.ok) queueFullState = await r.json();
+    } catch {}
+    finally { tickFullStateInflight = false; }
+  }
+
+  // jobs[] + folders 매핑 → 폴더→프로젝트→씬 3단 트리. 폴더 정보 없는 프로젝트는
+  // NO_FOLDER_KEY로 묶음. 씬 식별은 outputFilePath 우선(outs/<project>/<scene>/file.png),
+  // 폴백으로 meta.sceneName. taskId가 같은 잡 묶음에서 jobIndex/jobTotal 가능.
+  const NO_FOLDER_KEY = '(폴더 없음)';
+  function jobProject(j) {
+    if (j.meta && j.meta.sceneKey) {
+      const sk = String(j.meta.sceneKey);
+      const slash = sk.indexOf('/');
+      return slash > 0 ? sk.substring(0, slash) : sk;
+    }
+    if (j.outputFilePath) {
+      const parts = String(j.outputFilePath).split('/');
+      if (parts[0] === 'outs' && parts.length > 1) return parts[1];
+    }
+    return '(unknown)';
+  }
+  function jobScene(j) {
+    if (j.meta && j.meta.sceneName) return j.meta.sceneName;
+    if (j.outputFilePath) {
+      const parts = String(j.outputFilePath).split('/');
+      if (parts[0] === 'outs' && parts.length >= 3) return parts[parts.length - 2];
+    }
+    return '(unknown)';
+  }
+  function buildQueueTree(jobs, folders) {
+    // folders: { [project]: folder|null }. 모르는 project는 NO_FOLDER_KEY로.
+    const tree = new Map(); // folderKey → { name, hasFolder, projects: Map }
+    for (const j of jobs) {
+      const project = jobProject(j);
+      const scene = jobScene(j);
+      const folder = folders && project in folders ? folders[project] : null;
+      const fKey = folder || NO_FOLDER_KEY;
+      let fNode = tree.get(fKey);
+      if (!fNode) {
+        fNode = {
+          name: fKey,
+          hasFolder: !!folder,
+          jobIds: [],
+          projects: new Map(),
+        };
+        tree.set(fKey, fNode);
+      }
+      fNode.jobIds.push(j.jobId);
+      let pNode = fNode.projects.get(project);
+      if (!pNode) {
+        pNode = { name: project, jobIds: [], scenes: new Map() };
+        fNode.projects.set(project, pNode);
+      }
+      pNode.jobIds.push(j.jobId);
+      let sNode = pNode.scenes.get(scene);
+      if (!sNode) {
+        sNode = { name: scene, jobIds: [] };
+        pNode.scenes.set(scene, sNode);
+      }
+      sNode.jobIds.push(j.jobId);
+    }
+    // 폴더 정렬: hasFolder 우선, name 사전순. 폴더 없음 묶음 마지막.
+    const folderList = Array.from(tree.values()).sort((a, b) => {
+      if (a.hasFolder !== b.hasFolder) return a.hasFolder ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    return folderList;
+  }
+
+  function renderQueueTreePanel() {
+    const panel = document.getElementById('q-tree-panel');
+    if (!panel) return;
+    if (!showQueueTree) {
+      if (lastTreePanelKey !== '') {
+        panel.innerHTML = '';
+        lastTreePanelKey = '';
+        treeNodeMap.clear();
+      }
+      return;
+    }
+    const data = queueFullState;
+    if (!data) {
+      const key = 'open:loading';
+      if (key === lastTreePanelKey) return;
+      lastTreePanelKey = key;
+      panel.innerHTML = '<div class="tree-panel"><div class="tree-empty">로딩 중…</div></div>';
+      return;
+    }
+    const jobs = data.jobs || [];
+    const folders = data.folders || {};
+    const expandedKey = Array.from(treeExpanded).sort().join('|');
+    const fp = 'open:' + jobs.length
+      + ':' + (jobs[0] && jobs[0].jobId)
+      + ':' + (jobs[jobs.length - 1] && jobs[jobs.length - 1].jobId)
+      + ':' + Object.keys(folders).length
+      + ':' + expandedKey;
+    if (fp === lastTreePanelKey) return;
+    lastTreePanelKey = fp;
+    if (jobs.length === 0) {
+      treeNodeMap.clear();
+      panel.innerHTML = '<div class="tree-panel"><div class="tree-empty">📭 대기 잡 없음</div></div>';
+      return;
+    }
+    treeNodeMap.clear();
+    let nodeCounter = 0;
+    const allocNodeId = (info) => {
+      const id = 'n' + (++nodeCounter);
+      treeNodeMap.set(id, info);
+      return id;
+    };
+    const folderNodes = buildQueueTree(jobs, folders);
+    const parts = [];
+    parts.push('<div class="tree-panel">');
+    folderNodes.forEach((folder, fIdx) => {
+      const fExpandKey = 'f:' + folder.name;
+      const fOpen = treeExpanded.has(fExpandKey);
+      const folderIcon = folder.hasFolder ? '📁' : '📂';
+      const fNodeId = allocNodeId({
+        level: 'folder',
+        label: folder.name,
+        jobIds: folder.jobIds.slice(),
+        count: folder.jobIds.length,
+      });
+      parts.push(
+        '<div class="tree-row expandable" data-expand-key="' + escapeHtml(fExpandKey) + '">'
+        + '<span class="arrow">' + (fOpen ? '▼' : '▶') + '</span>'
+        + '<span class="icon">' + folderIcon + '</span>'
+        + '<span class="name folder-name">' + escapeHtml(folder.name) + '</span>'
+        + '<span class="count">' + folder.jobIds.length + '</span>'
+        + '<button class="cancel-x" data-cancel-id="' + fNodeId + '" title="이 폴더 대기 잡 전부 취소">✕</button>'
+        + '</div>'
+      );
+      if (!fOpen) return;
+      const projList = Array.from(folder.projects.values())
+        .sort((a, b) => a.name.localeCompare(b.name));
+      projList.forEach((proj) => {
+        // HTML5는 attribute value의 U+0000을 U+FFFD로 강제 변환해서 set has/add 키 mismatch
+        // 발생 (폴더는 NUL 없어 영향 X, 프로젝트만 토글 깨짐). U+001F는 그대로 보존.
+        const pExpandKey = 'p:' + folder.name + '' + proj.name;
+        const pOpen = treeExpanded.has(pExpandKey);
+        const pNodeId = allocNodeId({
+          level: 'project',
+          label: folder.name + ' / ' + proj.name,
+          jobIds: proj.jobIds.slice(),
+          count: proj.jobIds.length,
+        });
+        parts.push(
+          '<div class="tree-children-project">'
+          + '<div class="tree-row expandable" data-expand-key="' + escapeHtml(pExpandKey) + '">'
+          + '<span class="arrow">' + (pOpen ? '▼' : '▶') + '</span>'
+          + '<span class="icon">🗂</span>'
+          + '<span class="name project-name">' + escapeHtml(proj.name) + '</span>'
+          + '<span class="count">' + proj.jobIds.length + '</span>'
+          + '<button class="cancel-x" data-cancel-id="' + pNodeId + '" title="이 프로젝트 대기 잡 전부 취소">✕</button>'
+          + '</div>'
+        );
+        if (pOpen) {
+          const sceneList = Array.from(proj.scenes.values())
+            .sort((a, b) => a.name.localeCompare(b.name));
+          sceneList.forEach((scene) => {
+            const sNodeId = allocNodeId({
+              level: 'scene',
+              label: folder.name + ' / ' + proj.name + ' / ' + scene.name,
+              jobIds: scene.jobIds.slice(),
+              count: scene.jobIds.length,
+            });
+            parts.push(
+              '<div class="tree-children-scene">'
+              + '<div class="tree-row">'
+              + '<span class="arrow"></span>'
+              + '<span class="icon">🎬</span>'
+              + '<span class="name scene-name">' + escapeHtml(scene.name) + '</span>'
+              + '<span class="count">' + scene.jobIds.length + '</span>'
+              + '<button class="cancel-x" data-cancel-id="' + sNodeId + '" title="이 씬 대기 잡 전부 취소">✕</button>'
+              + '</div>'
+              + '</div>'
+            );
+          });
+        }
+        parts.push('</div>');
+      });
+      if (fIdx < folderNodes.length - 1) parts.push('<div class="tree-divider"></div>');
+    });
+    parts.push('</div>');
+    panel.innerHTML = parts.join('');
+  }
+
+  // 트리 panel은 매 render마다 통째 교체되므로 delegated handler를 panel root에 한 번만
+  // 부착해서 hot path를 단순화. 폴더/프로젝트 row 클릭 → expand toggle, ✕ 클릭 → cancel.
+  document.addEventListener('click', (ev) => {
+    const target = ev.target;
+    if (!(target instanceof Element)) return;
+    const panel = document.getElementById('q-tree-panel');
+    if (!panel || !panel.contains(target)) return;
+    const cancelBtn = target.closest('.cancel-x[data-cancel-id]');
+    if (cancelBtn) {
+      ev.stopPropagation();
+      const id = cancelBtn.getAttribute('data-cancel-id');
+      if (id) window.cancelTreeByNodeId(id);
+      return;
+    }
+    const row = target.closest('.tree-row.expandable[data-expand-key]');
+    if (row) {
+      const key = row.getAttribute('data-expand-key');
+      if (key) window.toggleTreeNode(key);
+    }
+  });
+
+  // ─── 큐 cancel modal (씬/프로젝트/폴더 단위) ─────────────────────
+  // cancelTreeNode는 modal 띄우기만 함. confirm 클릭 시 실제 fetch.
+  // jobIds는 modal 띄울 시점 snapshot — 띄운 사이 큐 변동(완료/추가)은 서버 cancel-by-job-ids에서
+  // "현재 큐에 살아있는 jobId만 매칭" 정책이라 자동 안전.
+  const qcancelModal = document.getElementById('qcancel-modal');
+  const qcancelModalBody = document.getElementById('qcancel-modal-body');
+  const qcancelConfirmBtn = document.getElementById('qcancel-confirm-btn');
+  const qcancelCancelBtn = document.getElementById('qcancel-cancel-btn');
+  let qcancelPending = null; // { level, label, jobIds, count }
+
+  function cancelTreeNode(level, pathLabel, jobIds, count) {
+    qcancelPending = { level, label: pathLabel, jobIds: jobIds.slice(), count };
+    const levelLabel = level === 'folder' ? '폴더' : level === 'project' ? '프로젝트' : '씬';
+    qcancelModalBody.innerHTML = '<div style="font-size:13px; line-height:1.6;">'
+      + '<div><span style="color:#8a8f98;">대상:</span> ' + levelLabel + ' <strong>' + escapeHtml(pathLabel) + '</strong></div>'
+      + '<div><span style="color:#8a8f98;">대기 잡:</span> <strong style="color:#fbbf24;">' + count + '개</strong></div>'
+      + '</div>';
+    qcancelConfirmBtn.disabled = false;
+    qcancelCancelBtn.disabled = false;
+    qcancelConfirmBtn.textContent = '큐 취소';
+    qcancelModal.style.display = 'flex';
+  }
+
+  function closeQCancelModal() {
+    qcancelModal.style.display = 'none';
+    qcancelPending = null;
+  }
+  qcancelCancelBtn.addEventListener('click', closeQCancelModal);
+  qcancelModal.addEventListener('click', (ev) => {
+    if (ev.target === qcancelModal) closeQCancelModal();
+  });
+
+  qcancelConfirmBtn.addEventListener('click', async () => {
+    if (!qcancelPending) { closeQCancelModal(); return; }
+    const { jobIds } = qcancelPending;
+    qcancelConfirmBtn.disabled = true;
+    qcancelCancelBtn.disabled = true;
+    try {
+      const r = await fetch(BASE + '/api/queue/cancel-by-job-ids', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobIds }),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const result = await r.json();
+      qcancelModalBody.innerHTML = '<div style="color:#86efac;">✓ ' + (result.cancelled || 0) + '개 취소 완료.</div>';
+      // 즉시 full-state + main status 갱신 — 카운트/트리 빠른 반영
+      await fetchFullState();
+      lastTreePanelKey = '';
+      renderQueueTreePanel();
+      tick();
+      setTimeout(closeQCancelModal, 800);
+    } catch (e) {
+      qcancelModalBody.innerHTML = '<div style="color:#f87171;">✗ 취소 실패: ' + escapeHtml(e.message || String(e)) + '</div>';
+      qcancelConfirmBtn.disabled = false;
+      qcancelCancelBtn.disabled = false;
+    }
+  });
 
   // timing-history inline 위젯 상태. 평균(누적) card 클릭 시 토글.
   let showTimingHistory = false;
@@ -627,7 +1004,10 @@
       + '<div class="bar"><div id="q-bar" style="width:0%"></div></div>'
       + '</div>'
       + '<div class="grid">'
-      + '<div class="card"><div class="label">대기</div><div class="value" id="q-pending">0</div></div>'
+      + '<div class="card q-pending-card" onclick="window.toggleQueueTree()" title="클릭해서 대기 잡 폴더 트리 보기">'
+      + '<div class="label">대기 <span id="q-tree-arrow">▶</span></div>'
+      + '<div class="value" id="q-pending">0</div>'
+      + '</div>'
       + '<div class="card"><div class="label">완료 / 실패</div><div class="value"><span id="q-completed">0</span> <span class="muted">/</span> <span id="q-failed" class="muted">0</span></div></div>'
       + '<div class="card" style="cursor: pointer;" onclick="window.toggleTimingHistory()" title="클릭해서 시간대별 통계 보기">'
       + '<div class="label">평균 (누적) <span id="q-avg-arrow">▶</span></div>'
@@ -644,6 +1024,7 @@
       + '<div class="card"><div class="label">디스크 여유</div><div class="value" id="q-disk">-</div></div>'
       + '<div class="card"><div class="label">상태</div><div class="value" id="q-status">💤 idle</div></div>'
       + '</div>'
+      + '<div id="q-tree-panel"></div>'
       + '<div id="q-timing-panel"></div>'
       + '<div id="q-errors-panel"></div>';
   }
@@ -806,6 +1187,12 @@
         lastTimingFetchAt = Date.now();
         fetchTimingHistory();
       }
+      // 대기 트리 펼쳐있고 마지막 fetch가 5초 지났으면 갱신. status의 pending 카운트와
+      // 별개로 jobs 전체+folders를 가져옴 (jobs slice(0,20) 한계 안 받음).
+      if (showQueueTree && Date.now() - lastFullStateFetchAt >= FULLSTATE_INTERVAL_MS) {
+        lastFullStateFetchAt = Date.now();
+        fetchFullState().then(() => renderQueueTreePanel());
+      }
       if (!document.getElementById('q-done')) buildQueueShell();
 
       const total = (d.completed || 0) + (d.failed || 0) + (d.pending || 0);
@@ -841,6 +1228,7 @@
       }
 
       // 대기 / 완료 / 실패
+      setText('q-tree-arrow', showQueueTree ? '▼' : '▶');
       setText('q-pending', d.pending || 0);
       setText('q-completed', d.completed || 0);
       setText('q-failed', d.failed || 0);
@@ -893,6 +1281,7 @@
       // 상태
       setText('q-status', d.processing ? '🔄 처리 중' : (d.pending > 0 ? '⏸ 대기' : '💤 idle'));
 
+      renderQueueTreePanel();
       renderTimingPanel();
       renderErrorsPanel(d);
 
