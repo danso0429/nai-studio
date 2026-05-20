@@ -18,19 +18,21 @@
 | Frontend Components | 1 | 4 | 9 | 20 |
 | **Total** | **9** | **25** | **44** | **75** |
 
-### 처리 현황 (2026-05-20 기준)
+### 처리 현황 (2026-05-20 P18 batch 끝 기준)
 
 | Severity | Fix ✓ | Defer ⊘ | 미처리 | 진행률 |
 |---|---:|---:|---:|---:|
-| Critical | **9 / 9** | 0 | 0 | 100% |
-| High     | 17       | 7 (Q4) | 1   | 96% (defer 포함) |
-| Medium   | 9 (backend M1/M2/M3/M4/M5/M6/M7/M9/M13) | 0 | ~35 (M8/M10/M11/M12 + 모든 frontend Medium) | ~20% |
-| Low      | 0 | 0 | 75 | 0% |
+| Critical | **9 / 9** | 0 | 0 | **100%** |
+| High     | **18**   | 7 (Q4) | 0   | **100% (defer 포함)** |
+| Medium   | **18**   | 1 (M10) | ~25 | **43%** |
+| Low      | **13**   | 0 | ~62 | **17%** |
 
-- Critical: 모두 fix. 마킹 누락은 본 P18 turn에 일괄 보강.
-- High: P17 batch + L2.5 self-find으로 24/25 분류 (Q4 defer 사유는 각 entry 명시).
-- Medium: P17~P18에 backend 9건 fix. **남은 backend 4건(M8/M10/M11/M12)** + frontend Medium 대다수 미진행.
-- Low: 75건 전부 미진행. 다음 batch / dead-code cleanup pass에서 일괄 처리 후보.
+- **Critical**: 모두 fix. P17 본격 + P18 #5 마킹 보강.
+- **High**: P17 batch (17 fix + 7 Q4 defer) + P18 dead-code cleanup으로 H19 ✓ — 25/25 모두 분류.
+- **Medium**: P17 backend 9 + P18 backend 3 (M8/M11/M12) + Models 4 + Workflows 1 + Components 4 = 18 ✓. M10 (abs path leak) ⊘ defer (tailnet 단일 환경). 남은 ~25건: Models large refactor (LRU Blob URL / canvas convertToBlob / MobX 패턴 / IndexedDB), Workflows api retry + addTask await, Components BatchItemSelector IntersectionObserver / TournamentArena 등.
+- **Low**: P18에 13건 처리 (Backend L1/L3/L5/L8/L9/L11/L15/L19/L20 + Models gzip cap/image cap/regex iter/refreshDriveRetryStatus catch). 남은 ~62건: minor cleanup, by-design skip 다수, dead-code pass 후보.
+
+총 처리: **58 / 153 (38%)** + Q4 7 deferred (의도된 분류) + 1 ⊘ Medium defer = 66/153 분류됨 (43%).
 
 ### Cross-layer scoring (0–10, higher = worse)
 
@@ -405,9 +407,10 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### Medium — `searchTagsInDB` linear scan of ~100k tag DB per keystroke
+### Medium ✓ `5ab2326` — `searchTagsInDB` linear scan of ~100k tag DB per keystroke
 - Location: `lib/tag-search.js:52-66`.
 - Recommended fix: Prefix index (Trie or sorted array + binary search).
+- **P18 fix**: load 시점에 lowercased word 캐시 (`_w`) + sorted by `_w` + `_lowerBound` binary search. prefix lookup O(log N + matches). exact/lookupTag도 binary 활용. contains는 linear 유지하되 limit 20 도달 시 즉시 break + `_aliases` pre-cache.
 
 ---
 
@@ -417,21 +420,24 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### Medium — Error responses leak absolute paths via `e.message`
+### Medium ⊘ P18 defer — Error responses leak absolute paths via `e.message`
+- **Status (P18, 2026-05-20)**: tailnet 단일 사용자 환경 — abs path leak이 보안 위험 미미 + 본인이 디버깅 시 정확한 path 봐야 어떤 파일 문제인지 식별. 50+ 호출처 일괄 마이그레이션 비용 vs 효용 trade-off — 본 batch defer. 외부 노출 의사 있을 때 helper 도입 + hot path 점진 마이그레이션.
 - Location: 50+ `res.status(500).json({ error: e.message })` patterns throughout `server.js`.
 - Recommended fix: Log full error server-side, return `{ error: e.code || 'internal' }` to client.
 
 ---
 
-### Medium — `runSelfUpdate` uses `execSync` for git/npm/vite — server unresponsive ~45s during self-update
+### Medium ✓ `5ab2326` — `runSelfUpdate` uses `execSync` for git/npm/vite — server unresponsive ~45s during self-update
 - Location: `lib/self-update.js:24-95`.
 - Recommended fix: Use `child_process.spawn` with piped stdio; stream output in real time.
+- **P18 fix**: execSync → `util.promisify(exec)` (안전 swap, 옛 단계별 NDJSON 흐름 유지 + event loop block 제거). 다른 HTTP endpoint가 self-update 진행 중에도 응답 가능. spawn streaming은 더 큰 변경이라 P18은 safe-async-swap 선택.
 
 ---
 
-### Medium — `processDriveRetryQueue` snapshot consistency under concurrent enqueue
+### Medium ✓ `5ab2326` — `processDriveRetryQueue` snapshot consistency under concurrent enqueue
 - Location: `server.js:580-672`.
 - Recommended fix: Snapshot the queue at tick start.
+- **P18 fix**: `const snapshot = driveRetryQueue.slice()` 후 iteration — 처리 중 enqueueDriveRetry로 driveRetryQueue 변경돼도 본 tick은 snapshot 기준만. 새 entry는 다음 tick에 처리.
 
 ---
 
@@ -645,9 +651,10 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Medium — `runInternal` 429 retry sleeps 60s, ignores user pause/stop during the sleep
+### Medium ✓ `4b33ecd` — `runInternal` 429 retry sleeps 60s, ignores user pause/stop during the sleep
 - Location: `frontend/src/models/TaskQueueService.ts:1452-1460`
 - Recommended fix: Abortable sleep with `cur` state check.
+- **P18 fix**: 60_000ms를 500ms tick으로 쪼개 매 tick에 `cur.stopped` 체크 + break. stop/pause latency 60s → 500ms.
 
 ---
 
@@ -690,17 +697,19 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Medium — `ResourceSyncService.update` wipes all dirty flags after partial failures
+### Medium ✓ `4b33ecd` — `ResourceSyncService.update` wipes all dirty flags after partial failures
 - Location: `frontend/src/models/ResourceSyncService.ts:209-221`
 - Issue: `this.dirty = {}` at end loses dirty bits for failed writes; edge-case data loss.
 - Recommended fix: Clear dirty entry only on successful write.
+- **P18 fix**: per-entry try/catch — write 성공 시 `delete this.dirty[name]`, throw 시 dirty 유지 + log. 다음 update tick에서 자동 재시도.
 
 ---
 
-### Medium — `flushOnHide` writes every resource on every visibility hidden — even non-dirty
+### Medium ✓ `4b33ecd` — `flushOnHide` writes every resource on every visibility hidden — even non-dirty
 - Location: `frontend/src/models/ResourceSyncService.ts:61-79`
 - Issue: 30+ sessions × 50–500 KB each × multiple visibility flips per hour = bandwidth/CPU drain.
 - Recommended fix: Iterate `this.dirty` not `this.resources`.
+- **P18 fix**: `for (const name of Object.keys(this.dirty))` + `if (!(name in this.resources)) continue` — dirty 자원만 flush. writeFileKeepalive 64KB cap도 sendBeacon fallback (Workflows M) 페어로 함께.
 
 ---
 
@@ -711,14 +720,16 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Medium — `appState.exportPipelineJobs` 30-min `setTimeout` never cancelled on success
+### Medium ✓ `4b33ecd` — `appState.exportPipelineJobs` 30-min `setTimeout` never cancelled on success
 - Location: `frontend/src/models/AppService.ts:1803-1866`
 - Recommended fix: Track timer ID, `clearTimeout` in `tryFullCleanup`.
+- **P18 fix**: `timeoutId` 변수에 setTimeout handle 추적 + `cleanup()` 안에 `clearTimeout(timeoutId)`. export job 100개면 30분 timer 100개가 무조건 alive → closure에 jobId/items array 보유 leak 해소.
 
 ---
 
-### Medium — `syncExportToDrive` 15-min setTimeout never cleared
+### Medium ✓ `4b33ecd` — `syncExportToDrive` 15-min setTimeout never cleared
 - Location: `frontend/src/models/AppService.ts:111-136`
+- **P18 fix**: 위 exportPipelineJobs와 동일 패턴 — timeoutId 추적 + cleanup에 clearTimeout.
 
 ---
 
@@ -860,8 +871,9 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### High — `JSZip.loadAsync(Buffer.from(arrayBuffer))` doubles memory in browser NAI vendor
-- **Status (P17 verification, 2026-05-19)**: ☠ DEAD CODE — `NovelAiImageGenService` 클래스 frontend caller 0건 (`grep -rn NovelAiImageGenService frontend/src` 단일 결과 = 정의 줄). SDStudio Phase 9에서 서버 측 NAI client (`lib/nai-client.js`)로 이전 후 잔존물. Vite tree-shaking으로 빌드 결과물에도 안 들어감. 서버 측 `lib/nai-client.js:267,306`은 이미 `JSZip.loadAsync(buffer)`로 doubling 없음. **Fix 적용해도 production 효과 0** → 본인 결정 (2026-05-19): "일괄 dead-code cleanup 시 같이 폴더 삭제". 본 audit batch에서는 손 안 댐.
+### High ✓ `1ccf840` (dead-code 삭제) — `JSZip.loadAsync(Buffer.from(arrayBuffer))` doubles memory in browser NAI vendor
+- **Status (P17 verification)**: ☠ DEAD CODE — `NovelAiImageGenService` 클래스 frontend caller 0건. SDStudio Phase 9에서 서버 측 NAI client로 이전 후 잔존물.
+- **P18 cleanup (2026-05-20)**: 본인 결정 ("일괄 dead-code cleanup 시 같이 정리") 따라 본 P18 audit batch에서 `frontend/src/backends/genVendors/nai.ts` 통째 삭제 (`1ccf840`, 437 lines). 빈 `genVendors/` 디렉토리도 rmdir. 사전 verify: `grep -rn NovelAiImageGenService frontend/src` 0 caller. Vite tree-shaking으로 빌드 결과물에도 안 들어감 — 사용자 영향 0. fix issue 자체는 dead code라 무의미했지만 코드베이스 hygiene 차원에서 일괄 제거.
 - Location: `frontend/src/backends/genVendors/nai.ts:343-350`, `:403-410`
 - Category: 1 Memory Pressure / 7 Large Binary
 - Issue: arrayBuffer (1.4 MB) + Buffer copy (1.4 MB) + JSZip internal (1.4 MB) + base64 (1.9 MB) ≈ 6 MB simultaneous per 1024² PNG.
@@ -929,10 +941,11 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### Medium — `writeFileKeepalive` silently drops failures past 64 KB browser keepalive cap
+### Medium ✓ `bbc2d9b` — `writeFileKeepalive` silently drops failures past 64 KB browser keepalive cap
 - Location: `frontend/src/backends/serverBackend.ts:285-302`
 - Issue: `keepalive: true` has 64 KB total per page lifecycle. Last-second state save can be lost on tab unload.
 - Recommended fix: Track cumulative bytes, fallback to `navigator.sendBeacon`.
+- **P18 fix**: fetch keepalive 실패 (catch) 또는 fetch 생성 자체 throw (body 크기 초과) 시 `navigator.sendBeacon(url, Blob([body]))` 폴백. ResourceSync flushOnHide dirty-only(Models M)와 페어로 last-second save 보존.
 
 ---
 
@@ -1086,16 +1099,18 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ---
 
-### Medium — `FloatViewProvider` re-binds `keydown` listener on every `views` change with stale closure
+### Medium ✓ `bbc2d9b` — `FloatViewProvider` re-binds `keydown` listener on every `views` change with stale closure
 - Location: `frontend/src/components/FloatView.tsx:66-77`
 - Recommended fix: Ref pattern + bind once with `[]`.
+- **P18 fix**: `viewsRef = useRef(views)` + 매 render에 ref.current 동기화. handleEscape는 ref.current 참조 — useEffect deps `[]`로 한 번 bind.
 
 ---
 
-### Medium — `FloatView` module-level `viewId` monotonic counter never resets
+### Medium ✓ `bbc2d9b` — `FloatView` module-level `viewId` monotonic counter never resets
 - Location: `frontend/src/components/FloatView.tsx:125-130`
 - Issue: Used as `zIndex` — past 32-bit threshold browsers bail to slow path.
 - Recommended fix: Reset to 0 when `views.length === 0`.
+- **P18 fix**: `unregisterView`에서 setViews 콜백 안 `if (next.length === 0) viewId = 0` — 모든 view 닫힌 시점에 counter reset.
 
 ---
 
@@ -1119,9 +1134,10 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ---
 
-### Medium — `SlotEditor` mutates `scene.slots` outside `runInAction`
+### Medium ✓ `bbc2d9b` — `SlotEditor` mutates `scene.slots` outside `runInAction`
 - Location: `frontend/src/components/SceneEditor.tsx:748-757`
 - Recommended fix: Wrap in `runInAction`.
+- **P18 fix**: useEffect 안 piece.id 채움을 `runInAction(() => { ... })`로 wrap. MobX strict warning 해소 + reaction batching.
 
 ---
 
@@ -1131,9 +1147,10 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ---
 
-### Medium — `ConfirmWindow` window keydown re-binds on every `appState.dialogs` mutation
+### Medium ✓ `bbc2d9b` — `ConfirmWindow` window keydown re-binds on every `appState.dialogs` mutation
 - Location: `frontend/src/components/ConfirmWindow.tsx:50-62`
 - Recommended fix: Ref pattern + bind once with `[]`.
+- **P18 fix**: `handlerRef`/`curDialogRef` 추가 + 매 render에 동기화. Enter handler는 ref.current 참조 — useEffect deps `[]`로 한 번 bind.
 
 ---
 
