@@ -56,13 +56,13 @@ audit-instructions Section 0 룰. 후속 per-pattern claim은 이 fence를 refer
 | Frontend Components | 1 | 4 | 9 | 20 |
 | **Total** | **9** | **25** | **44** | **77** |
 
-### 처리 현황 (2026-05-20 P18 sub-section 13 Q4 batch 1 끝 기준)
+### 처리 현황 (2026-05-20 P18 sub-section 14 L713 LRU cap 감소 끝 기준)
 
 | Severity | Fix ✓ | Defer ⊘ | 미처리 | 진행률 |
 |---|---:|---:|---:|---:|
 | Critical | **9 / 9** | 0 | 0 | **100%** |
 | High     | **18**   | 7 (Q4) | 0   | **100% (defer 포함)** |
-| Medium   | **26**   | 13 (Q4/claim invalid/사용자 페인 미확인) | ~5 | **73%** |
+| Medium   | **27**   | 13 (Q4/claim invalid/사용자 페인 미확인) | ~4 | **76%** |
 | Low      | **25**   | ~40 (Q4/by-design/cosmetic) | ~12 | **46%** |
 
 **P18 sub-13 Q4 batch 1 (commit `a1bfdde`)**: Localized 4 fix — TournamentArena JSX prefetch / cropMirrorResultFromDataUri toBlob async / addTask Promise + 6 호출처 await + try/catch + toast / api() retry option default. dedicated turn 예약 (L713 LRU Blob URL — 호출처 ~20 정독 필요) + 사용자 페인 미확인 defer (L707 gatherExportItems 9MB / L956 on* consumer cleanup) + claim invalid (L962 WorkFlowService cache — fresh instance design 의도) 모두 rationale 보강. Medium 진행률 63% → 73%.
@@ -715,10 +715,11 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Medium ⊘ Q4 (dedicated turn 예약) — `imageService.fetchImage` LRU stores raw base64 strings (MBs each, UTF-16 doubled)
-- Location: `frontend/src/models/ImageService.ts:65, 221-240`
+### Medium ✓ — `imageService.fetchImage` LRU stores data URI strings (MBs each, UTF-16 doubled)
+- Location: `frontend/src/models/ImageService.ts:10-17, 65-67`
 - Issue: Desktop 256 × 1.3 MB ≈ 333 MB; mobile 64 × 1.3 MB ≈ 83 MB. JS strings are UTF-16 → 2× → 666 MB / 166 MB. Pushes mobile Safari into tab-budget territory.
-- **P18 sub-13 defer rationale**: 호출처 ~20곳 (ResultViewer, SceneQueueControl, PreSetEditor, SceneEditor, CharacterPresetEditor, AppContextMenu, AppService, legacy.ts 등). base64 raw string 가정으로 작성 — Blob URL 인터페이스 전환 시 매 호출처 정독·재작성 필요. 회귀 표면 매우 큼. 본인 모바일 Safari 메모리 페인 직접 보고 없는 상태 — dedicated batch 가치 큼 (회귀 격리 위해). 다음 turn 예약.
+- **P18 sub-14 fix (LRU cap 감소 옵션)**: `IMAGE_CACHE_SIZE` 256→96, mobile 64→24. `ENCODED_VIBE_CACHE_SIZE` 128→64, mobile 32→16. 메모리 ~70% 절감 (desktop 666MB→250MB, mobile 166MB→62MB). 호출처 무변경, 인터페이스 그대로. 사용자 페인 발생 시 fetchImageBlobURL 점진 마이그레이션 escalation 후보.
+- **Audit claim 정정**: 옛 issue는 "raw base64 strings"라고 표현했지만 실제 서버 응답은 `data:${mime};base64,XXX` data URI (server.js:2004). 메모리 계산은 동일 (1.3MB + 30 byte data URI prefix).
 - Recommended fix: Cache `URL.createObjectURL(Blob)` strings; revoke on LRU eviction.
 - Patch example:
   ```ts
