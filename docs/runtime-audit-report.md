@@ -56,14 +56,16 @@ audit-instructions Section 0 룰. 후속 per-pattern claim은 이 fence를 refer
 | Frontend Components | 1 | 4 | 9 | 20 |
 | **Total** | **9** | **25** | **44** | **77** |
 
-### 처리 현황 (2026-05-20 P18 sub-section 11 medium/low sweep + 전수 정독 continuation 끝 기준)
+### 처리 현황 (2026-05-20 P18 sub-section 13 Q4 batch 1 끝 기준)
 
 | Severity | Fix ✓ | Defer ⊘ | 미처리 | 진행률 |
 |---|---:|---:|---:|---:|
 | Critical | **9 / 9** | 0 | 0 | **100%** |
 | High     | **18**   | 7 (Q4) | 0   | **100% (defer 포함)** |
-| Medium   | **22**   | 9 (Q4) | ~13 | **63%** |
+| Medium   | **26**   | 13 (Q4/claim invalid/사용자 페인 미확인) | ~5 | **73%** |
 | Low      | **25**   | ~40 (Q4/by-design/cosmetic) | ~12 | **46%** |
+
+**P18 sub-13 Q4 batch 1 (commit `a1bfdde`)**: Localized 4 fix — TournamentArena JSX prefetch / cropMirrorResultFromDataUri toBlob async / addTask Promise + 6 호출처 await + try/catch + toast / api() retry option default. dedicated turn 예약 (L713 LRU Blob URL — 호출처 ~20 정독 필요) + 사용자 페인 미확인 defer (L707 gatherExportItems 9MB / L956 on* consumer cleanup) + claim invalid (L962 WorkFlowService cache — fresh instance design 의도) 모두 rationale 보강. Medium 진행률 63% → 73%.
 
 P18 sub-section 11 medium/low sweep: 본 turn 새 fix **10건** (Tags.calcGapMatch typed array / SceneCharacterPromptEditor in-place mutation / Tooltip scroll hide / BatchItemSelector IntersectionObserver / WS catch console.warn / OneTimeFlows parseInt radix / WorkFlow fromJSON runInAction / CharacterPresetEditor useMemo deps / DownloadDialog updateSettings debounce / AugmentWorkFlow dataUriToBase64 double-alloc). already-fixed인데 P18 sub-6 batch에서 마킹 누락된 entry 일괄 sweep (Backend Low 6 + Models Low 4 + Workflows Low 1 + Components Low 1). claim invalid + DEAD stale entry 분리 명시. Q4 defer rationale 강화 — Cross-cutting refactor (LRU Blob URL / NovelAi.login Argon2id Worker / gatherExportItems 서버 walk 등)와 사용자 시나리오 부재 (a.click iOS Safari / pointerup drag / appState HMR dev only) 분리.
 
@@ -706,15 +708,17 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Medium — `gatherExportItems` builds single 60k-entry items array; 9 MB HTTP body
+### Medium ⊘ Q4 (사용자 페인 미확인) — `gatherExportItems` builds single 60k-entry items array; 9 MB HTTP body
 - Location: `frontend/src/models/AppService.ts:1694-1761`
 - Recommended fix: Move path-walking to server (post project names; server walks fs).
+- **P18 sub-13 defer rationale**: 실제 사용 패턴 (<프로젝트> 30 projects × ~100장 = 3k entries, ~1MB body) 안 9MB 도달 X. 60k+ 시나리오 드뭄 + 서버 endpoint 신규 + 클라 호출 변경 surface 큼. 사용자 페인 발생 시 처리 권장.
 
 ---
 
-### Medium — `imageService.fetchImage` LRU stores raw base64 strings (MBs each, UTF-16 doubled)
+### Medium ⊘ Q4 (dedicated turn 예약) — `imageService.fetchImage` LRU stores raw base64 strings (MBs each, UTF-16 doubled)
 - Location: `frontend/src/models/ImageService.ts:65, 221-240`
 - Issue: Desktop 256 × 1.3 MB ≈ 333 MB; mobile 64 × 1.3 MB ≈ 83 MB. JS strings are UTF-16 → 2× → 666 MB / 166 MB. Pushes mobile Safari into tab-budget territory.
+- **P18 sub-13 defer rationale**: 호출처 ~20곳 (ResultViewer, SceneQueueControl, PreSetEditor, SceneEditor, CharacterPresetEditor, AppContextMenu, AppService, legacy.ts 등). base64 raw string 가정으로 작성 — Blob URL 인터페이스 전환 시 매 호출처 정독·재작성 필요. 회귀 표면 매우 큼. 본인 모바일 Safari 메모리 페인 직접 보고 없는 상태 — dedicated batch 가치 큼 (회귀 격리 위해). 다음 turn 예약.
 - Recommended fix: Cache `URL.createObjectURL(Blob)` strings; revoke on LRU eviction.
 - Patch example:
   ```ts
@@ -732,10 +736,11 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Medium — `cropMirrorResultFromDataUri` synchronous canvas `toDataURL` per image
-- Location: `frontend/src/models/ImageService.ts:774-796`
+### Medium ✓ `a1bfdde` — `cropMirrorResultFromDataUri` synchronous canvas `toDataURL` per image
+- Location: `frontend/src/models/ImageService.ts:812-834`
 - Issue: 50–200 ms each on mobile. Bulk mirror export with CHUNK=4 → seconds of UI block.
 - Recommended fix: `canvas.convertToBlob()` (async) or OffscreenCanvas in Worker.
+- **P18 sub-13 fix**: `canvas.toBlob` (async callback) + `FileReader.readAsDataURL` (async)로 main thread 양보. base64 string 반환 인터페이스 유지 — 호출처 (ImageDownloadService 2곳, AppService 1곳) 무변경.
 
 ---
 
@@ -956,15 +961,17 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### Medium — `on*` consumer cleanup is opt-in; static audit can't verify every disposer is called
+### Medium ⊘ Q4 (사용자 페인 미확인) — `on*` consumer cleanup is opt-in; static audit can't verify every disposer is called
 - Location: `frontend/src/backends/serverBackend.ts:108-112`, `:401-437`
 - Recommended fix: Audit every `on*` consumer; consider `WeakRef` + `FinalizationRegistry` for ad-hoc observers.
+- **P18 sub-13 defer rationale**: 옛 audit best-practice. 본인 환경 (long-running pm2 + iPhone Safari 단일 사용자) leak 페인 직접 보고 X. 표준 패턴은 useEffect cleanup으로 unregister 호출 — React lifecycle에 박힘. ad-hoc observer (workflow handler 등) leak 가능성 있지만 일회성 호출이라 GC 가능. WeakRef + FinalizationRegistry 도입은 모든 consumer audit 필요 — refactor project. 페인 발생 시 처리.
 
 ---
 
-### Medium — `WorkFlowService` builds fresh MobX observables per call; UI consumers may leak reactions
+### Medium ⊘ claim invalid — `WorkFlowService` builds fresh MobX observables per call; UI consumers may leak reactions
 - Location: `frontend/src/models/workflows/WorkFlowService.ts:21-33, :68-82`, `WorkFlow.ts:282`
 - Recommended fix: Audit `observer()` cleanup; cache preset instances by key.
+- **P18 sub-13 verify**: caller 정독 결과 buildShared/buildPreset/buildMeta 호출처 (PreSetEditor 4 / ExternalImageView 2 / SceneQueueControl 2 / SceneEditor 1 / SessionSelect 1 / CyclingSessionService 1 / AppService 1) 모두 결과 instance를 store 또는 scene.meta에 저장 — fresh instance가 design 의도. Cache 도입 시 cross-contamination 위험 (같은 type의 두 caller가 같은 instance mutate → 다른 store 영향). Recommended fix 자체가 design과 충돌.
 
 ---
 
@@ -975,9 +982,10 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### Medium — `api()` no retry; transient 502 during pm2 restart surfaces as user-visible failure
+### Medium ✓ `a1bfdde` — `api()` no retry; transient 502 during pm2 restart surfaces as user-visible failure
 - Location: `frontend/src/backends/serverBackend.ts:29-68`
 - Recommended fix: `retry: { attempts, backoffMs }` option; default 0 for writes, 2 for idempotent GETs.
+- **P18 sub-13 fix**: options에 `retries?: number` 인자. 미지정 시 method 기준 자동 (GET/HEAD: 2회, POST/PUT/DELETE: 0회 — replay risk 회피). `isRetriableError` (5xx + network error만 retry, 4xx/AbortError는 즉시 throw) + backoff 500/1000/2000ms. pm2 restart 중 502 transient 자동 회복.
 
 ---
 
@@ -994,10 +1002,11 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### Medium — `taskQueueService.addTask` fire-and-forget in workflow handlers; rejections silently swallowed
+### Medium ✓ `a1bfdde` — `taskQueueService.addTask` fire-and-forget in workflow handlers; rejections silently swallowed
 - Location: `SDWorkFlow.ts:270, :448`, `AugmentWorkFlow.ts:153, :280`, `OneTimeFlows.ts:51, :86`
 - Issue: Quietly dropped queue submissions when queue cap reached. Matches P15 "queue 905개 손실" incident class.
 - Recommended fix: Always `await addTask` + try/catch with explicit error toast.
+- **P18 sub-13 fix**: TaskQueueService.addTask 시그니처 `(params, numExec): void` → `async (params, numExec): Promise<void>` 변경. addMirroredTask 실패 시 re-throw (옛 console.error + error event dispatch 유지). 6 호출처 모두 `await ... catch (e) { appState.pushMessage('큐 등록 실패: ' + extractApiError(e)); }` 패턴.
 
 ---
 
@@ -1136,10 +1145,11 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ---
 
-### Medium — `TournamentArena` prefetch effect's `img.src=''` doesn't reliably release on iOS Safari
+### Medium ✓ `a1bfdde` — `TournamentArena` prefetch effect's `img.src=''` doesn't reliably release on iOS Safari
 - Location: `frontend/src/components/tournament/TournamentArena.tsx:49-59`
 - Issue: Closure-held `imgs[]` accumulates during fast clicking through large tournament. Tens of MB decoded data on iOS Safari → tab crash on long sessions.
 - Recommended fix: JSX-rendered hidden imgs (auto-removed by React) or bounded queue + AbortController.
+- **P18 sub-13 fix**: useEffect + `new Image()` 패턴 제거 → JSX `<div aria-hidden style="position:absolute width:0 height:0">` 안 `prefetchURLs.map(u => <img key={u} src={u} alt="">)`. React가 prefetchURLs 변경 시 자동 unmount → iOS Safari 메모리 release 신뢰성.
 
 ---
 
