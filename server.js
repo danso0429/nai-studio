@@ -63,6 +63,8 @@ let wss;
 const WS_MAX_BUFFER = 1 * 1024 * 1024;
 function broadcast(type, data) {
   if (!wss) return;
+  // L1: 클라이언트 0명이면 JSON.stringify 비용 skip. queue 풀가동 + 클라 0 환경에서 누적 큼.
+  if (wss.clients.size === 0) return;
   const msg = JSON.stringify({ type, data });
   wss.clients.forEach(client => {
     if (client.readyState !== WebSocket.OPEN) return;
@@ -660,8 +662,11 @@ async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
   let skipped = 0;
   try {
     const now = Date.now();
+    // M12: snapshot at tick start. 처리 중 enqueueDriveRetry로 driveRetryQueue가 변경돼도
+    // 본 tick은 snapshot 기준으로만 진행 → 새 entry는 다음 tick에 처리. iteration race 회피.
+    const snapshot = driveRetryQueue.slice();
     const workEntries = [];
-    for (const entry of driveRetryQueue) {
+    for (const entry of snapshot) {
       if (entry.status === 'failed') {
         skipped++;
         continue;
@@ -1306,7 +1311,8 @@ app.get('/api/config', async (req, res) => {
 
 app.post('/api/config', async (req, res) => {
   try {
-    await fs.writeFile(CONFIG_PATH, JSON.stringify(req.body, null, 2));
+    // L15: atomicWriteFile로 partial write 회피 (config 손상 시 부팅 실패).
+    await atomicWriteFile(CONFIG_PATH, JSON.stringify(req.body, null, 2));
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3262,6 +3268,14 @@ app.get('*', (req, res) => {
   }
 });
 
+// L19: Express default error handler safety net. 거의 모든 endpoint는 자체 try/catch지만
+// 누락 시 (또는 sync throw) Express가 default HTML 응답 — 클라 디버깅 어려움. 일관된 JSON 응답으로.
+app.use((err, req, res, next) => {
+  console.error('[express] unhandled error:', err && (err.stack || err.message || err));
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: err?.code || 'internal' });
+});
+
 // ─── Start server ───────────────────────────────────────────────────
 async function start() {
   await ensureDirs();
@@ -3347,6 +3361,18 @@ process.on('SIGTERM', () => {
   console.log('[NAI Studio] SIGTERM received, flushing queue state...');
   shutdownCleanup();
   process.exit(0);
+});
+
+// L20: process-level safety net. async throw / await reject without catch는 Node 15+에서 default crash.
+// pm2가 자동 재시작하지만 그 직전에 flushQueueState 1회 시도 + 로그 남김으로 디버깅 cue.
+process.on('uncaughtException', (err) => {
+  console.error('[NAI Studio] uncaughtException:', err && (err.stack || err.message || err));
+  try { shutdownCleanup(); } catch {}
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  // Crash는 안 시킴 — log + 운영 중 누락 처리 발견 cue. 본인 디버깅 시 [NAI Studio] log grep.
+  console.error('[NAI Studio] unhandledRejection:', reason && (reason.stack || reason.message || reason));
 });
 
 start().catch(console.error);
