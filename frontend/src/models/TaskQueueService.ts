@@ -921,10 +921,14 @@ export class TaskQueueService extends EventTarget {
     this.dispatchProgress();
   }
 
-  // Promise<void> 반환 — caller가 await + try/catch로 명시적 인지 가능.
-  // 옛 fire-and-forget은 console.error + error event dispatch만 — 큐 UI 패널 안 보고
-  // 있으면 인지 X. P15 큐 905개 손실 incident class 회피용 (audit L994).
-  async addTask(params: TaskParam, numExec: number): Promise<void> {
+  // sync void 반환 — caller 즉시 return + addMirroredTask는 background.
+  // sync block(line 968-997)의 stats += task.total + dispatchProgress는 동기적으로
+  // 즉시 fire이라 UI 카운터 instant 점프 보존. prep + queueAddBatch는 background.
+  // a1bfdde에서 async + await로 바꿨는데 caller(queueWorkflow / addAllToQueue chunk)가
+  // prep + queueAddBatch 끝까지 대기하는 부작용으로 "모두 예약추가" 로딩 회귀.
+  // P15(큐 등록 실패 사용자 인지) fix는 'error' event dispatch는 그대로 유지 + App
+  // 레벨 글로벌 listener에서 toast (TaskQueueControl unmount된 상태도 toast 보장).
+  addTask(params: TaskParam, numExec: number): void {
     const task: Task = {
       id: v4(),
       cls: -1,
@@ -936,17 +940,14 @@ export class TaskQueueService extends EventTarget {
     const handler = this.handlers[task.cls];
     // gen/inpaint/i2i = server-mirror로. 클라 닫혀도 서버가 진행.
     if (handler instanceof GenerateImageTaskHandler) {
-      try {
-        await this.addMirroredTask(task);
-      } catch (e: any) {
+      this.addMirroredTask(task).catch((e: any) => {
         console.error('[TaskQueue] addMirroredTask failed:', e);
         this.dispatchEvent(
           new CustomEvent('error', {
             detail: { error: e?.message || String(e), task },
           }),
         );
-        throw e;  // caller가 toast 등 명시 처리
-      }
+      });
       return;
     }
     // 그 외 (augment, remove-bg) 는 기존 클라 큐
@@ -1554,28 +1555,21 @@ export const queueWorkflow = async (
     shared,
   );
   const scene_ = scene as Scene;
-  // 옛 sync fire-and-forget 행동을 Promise.all로 복원 — addTask가 a1bfdde에서
-  // async + await로 바뀌면서 이 for loop가 직렬화되어 한 씬당 stats += samples가
-  // prompts.length 번 점진 점프 (씬 카운터 1개씩 올라가는 페인). def.handler 내부
-  // try/catch + toast는 그대로 유지 — Promise.all이라도 throw 안 함.
-  // queueAddBatch 순서는 addBatchChain이 보장.
-  await Promise.all(
-    prompts.map((p, i) =>
-      def.handler(
-        session,
-        scene,
-        p.prompt,
-        characterPrompts[i],
-        preset,
-        shared,
-        samples,
-        scene_.meta.get(type),
-        undefined,
-        undefined,
-        p.uc,
-      ),
-    ),
-  );
+  for (let i = 0; i < prompts.length; i++) {
+    await def.handler(
+      session,
+      scene,
+      prompts[i].prompt,
+      characterPrompts[i],
+      preset,
+      shared,
+      samples,
+      scene_.meta.get(type),
+      undefined,
+      undefined,
+      prompts[i].uc,
+    );
+  }
 };
 
 export const queueI2IWorkflow = async (

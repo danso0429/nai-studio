@@ -244,12 +244,20 @@ export const App = observer(() => {
         text: '네트워크 변경을 감지하고 작업을 중단했습니다. 잦은 네트워크 변경은 계정 공유로 취급되어 밴의 위험이 있습니다. 이를 무시하고 싶으면 환경설정에서 "IP 체크 끄기"를 켜주세요.',
       });
     };
+    // 큐 등록/처리 실패 글로벌 toast — TaskQueueControl 패널 unmount된 상태도 인지 보장
+    // (P15 큐 905개 incident class). addTask는 fire-and-forget이라 caller에 throw 안 함.
+    const handleQueueError = (e: any) => {
+      const msg = e?.detail?.error;
+      if (msg) appState.pushMessage(`큐 등록 실패: ${msg}`);
+    };
     taskQueueService.addEventListener('ip-check-fail', handleIPCheckFail);
+    taskQueueService.addEventListener('error', handleQueueError);
     return () => {
       removeDownloadProgressListener();
       removeImageChangedListener();
       removeZipProgressListener();
       taskQueueService.removeEventListener('ip-check-fail', handleIPCheckFail);
+      taskQueueService.removeEventListener('error', handleQueueError);
     };
   }, [appState.curSession]);
 
