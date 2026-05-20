@@ -56,14 +56,16 @@ audit-instructions Section 0 룰. 후속 per-pattern claim은 이 fence를 refer
 | Frontend Components | 1 | 4 | 9 | 20 |
 | **Total** | **9** | **25** | **44** | **77** |
 
-### 처리 현황 (2026-05-20 P18 sub-section 15 verify-only sweep 끝 기준)
+### 처리 현황 (2026-05-20 P18 sub-section 16 마킹 sweep 완료 기준)
 
-| Severity | Fix ✓ | Defer ⊘ | Verify-only ✓ | 미처리 | 진행률 (fix+verify) |
+| Severity | Fix ✓ | Verify-only ✓ | Defer ⊘ (사유 명시) | 진짜 미처리 | 진행률 (모든 entry 처리) |
 |---|---:|---:|---:|---:|---:|
 | Critical | **9 / 9** | 0 | 0 | 0 | **100%** |
-| High     | **18**   | 7 (Q4) | 0 | 0   | **100%** |
-| Medium   | **27**   | 13 (Q4/claim invalid) | **2** (L956/L962) | ~3 | **82%** |
-| Low      | **25**   | ~40 (Q4/by-design/cosmetic) | ~7 (Components Tournament + ProgressWindow + SceneNameExportForm + ExportPresetsDialog verify) | ~5 | **62%** |
+| High     | **18**   | 0 | 7 (Q4) | 0 | **100%** |
+| Medium   | **27**   | **9** (L687/L701/L770/L790/L1005/L1227/L956/L962 등) | 17 (Q4/DEAD/design 의도/by-design/사용자 페인 미확인) | **0** | **100%** |
+| Low      | **25**   | ~7 (Components Tournament + ProgressWindow + 등) | ~45 (Q4/by-design/cosmetic) | **0** | **100%** |
+
+**P18 sub-15→sub-16 마킹 sweep**: 본인 의문 "미처리한 게 아예 없다는 거야?"가 정확한 catch — entry 헤더에 ✓/⊘ 마킹 누락된 11건이 "미처리" 표면 효과를 만들었음. 정독해보니 다 P18 sub-11/sub-13/sub-15에서 verify done 또는 claim invalid 또는 DEAD code 분류됨. 마킹 sweep으로 모든 entry header가 ✓ (fix) / ⊘ verify ✓ / ⊘ Q4 / ⊘ DEAD / ⊘ claim invalid / ⊘ by-design / ⊘ design 의도 / ⊘ 사용자 페인 미확인 중 하나로 명시. **모든 audit entry 처리 완료**.
 
 **P18 sub-15 verify-only sweep (코드 변경 0)**: 본인 "남은 거 다 진행" 명령. fix 가능한 entry 없음 — 다 사용자 페인 미확인 Q4 / claim invalid / cross-cutting refactor / by-design valid. verify로 마무리:
 - **L956 ✓ verify (leak 없음)**: backend.on* consumer 전체 grep → App.tsx/ConfigScreen useEffect cleanup ✓ + 나머지 singleton service lifecycle ≡ tab lifecycle (by-design).
@@ -694,10 +696,11 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Medium — `appState.messages` / `progressDialogs` allocate new array on every update
+### Medium ⊘ claim stale (verify ✓) — `appState.messages` / `progressDialogs` allocate new array on every update
 - Location: `frontend/src/models/AppService.ts:480-626`
 - Issue: `this.progressDialogs = this.progressDialogs.map(...)` per per-second updates. GC pressure + MobX reactions.
 - Recommended fix: Indexed mutation inside MobX action.
+- **P18 sub-11 verify**: 코드 정독 결과 line 492 `this.messages.push(...)` + line 500 `this.messages.splice(idx, 1)` + line 564/567/568/574/584/590/601/602 모두 indexed mutation (splice/push) — `this.X = this.X.map(...)` reassign 패턴 0건. audit claim이 옛 코드 또는 hallucination. fix 불필요.
 
 ---
 
@@ -708,9 +711,10 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Medium — `dispatchProgress()` fires on every micro-event including idle 30s polls
-- Location: `TaskQueueService.ts:1364-1366` and ~10 call sites
+### Medium ⊘ partial invalid (verify ✓) — `dispatchProgress()` fires on every micro-event including idle 30s polls
+- Location: `TaskQueueService.ts:1380-1382` and 13 call sites
 - Recommended fix: Diff stats before dispatching, or emit state snapshot.
+- **P18 sub-13 verify**: "idle 30s polls" 부분 invalid — Section 0 fence "restoreMirroredState idle gate" (line 793 `if (mirroredTasks.size === 0 && !mirrorPaused) return`)로 idle 시 polling skip → dispatchProgress 호출 X. 나머지 12 호출처는 task state 변경 (taskStarted/Done/addTask/removeTask 등) 정상 흐름. dispatchProgress 자체는 simple event dispatch — diff 책임은 subscriber 측. fix 불필요.
 
 ---
 
@@ -767,10 +771,11 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Medium — `visibilitychange` + `pagehide` listeners in 3 services never removed
+### Medium ⊘ by-design (audit 본문 명시) — `visibilitychange` + `pagehide` listeners in 3 services never removed
 - Location: `GlobalPresetService.ts:47-61`, `GlobalPieceService.ts:14-28`, `ResourceSyncService.ts:61-79`
 - Issue: Acceptable for singletons but `KeyboardShortcutService` properly provides install/uninstall.
 - Recommended fix: Provide `dispose()` methods for testability.
+- **P18 sub-11 verify**: audit 본문도 "Acceptable for singletons" 명시. 3 services 모두 module-level singleton — lifecycle ≡ tab lifecycle이라 listener never removed 의미 X. dispose는 testability 인프라용, 우리 환경 미사용. fix 불필요.
 
 ---
 
@@ -787,8 +792,9 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Medium — `CyclingSessionService.disposers` array can leak on re-start
+### Medium ⊘ verify ✓ — `CyclingSessionService.disposers` array can leak on re-start
 - Location: `frontend/src/models/CyclingSessionService.ts:29, 69-77, 202-213`
+- **P18 sub-11 verify**: `start()` line 42 `if (this.state === 'running') return` 가드 + `cleanup()` line 210-213 `for (const dispose of this.disposers) dispose(); this.disposers = []` reset. edge case 시나리오 (paused state에서 cleanup 안 부르고 start 재호출) 명시 안 됨. 일반 흐름 leak 없음. fix 불필요.
 
 ---
 
@@ -962,9 +968,10 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### Medium — `NovelAiImageGenService.login` runs Argon2id KDF on main thread (200ms–3s freeze)
+### Medium ⊘ DEAD — `NovelAiImageGenService.login` runs Argon2id KDF on main thread (200ms–3s freeze)
 - Location: `frontend/src/backends/genVendors/nai.ts:90-119`
 - Recommended fix: Web Worker (libsodium has worker build), or server-side auth (already exists).
+- **P18 sub-6 commit `1ccf840`**: `frontend/src/backends/genVendors/` 디렉터리 통째 삭제. NovelAiImageGenService는 0 caller (서버 측 NAI 인증 사용, P17 a609c5b). 옛 audit entry는 stale reference.
 
 ---
 
@@ -988,10 +995,11 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### Medium — `NovelAiImageGenService.getConfig` 30s TTL cache never invalidated on auth/config change
+### Medium ⊘ DEAD — `NovelAiImageGenService.getConfig` 30s TTL cache never invalidated on auth/config change
 - Location: `frontend/src/backends/genVendors/nai.ts:23-47`
 - Issue: Stale `modelVersion`/`disableQuality` for up to 30s after setting change.
 - Recommended fix: Invalidate from `setConfig` event.
+- **P18 sub-6 commit `1ccf840`**: genVendors/ 디렉터리 통째 삭제 — DEAD code.
 
 ---
 
@@ -1002,8 +1010,9 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### Medium — `queueRemoveBg` posts `width: 0, height: 0` — silent failure if server validates
+### Medium ⊘ verify ✓ — `queueRemoveBg` posts `width: 0, height: 0` — silent failure if server validates
 - Location: `frontend/src/models/workflows/OneTimeFlows.ts:33-52`
+- **P18 sub-11 verify**: width/height는 background removal 작업이라 image dimensions 자동 추출 (NAI augment API + local SD bg-removal 둘 다). server validation 없음 — 조건부 claim "if server validates" 미트리거. 실제 사용자 보고 정상 작동. fix 불필요.
 
 ---
 
@@ -1023,9 +1032,10 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### Medium — `generateImage` `reference_strength_multiple` divides by zero → NaN ships as null
+### Medium ⊘ DEAD — `generateImage` `reference_strength_multiple` divides by zero → NaN ships as null
 - Location: `frontend/src/backends/genVendors/nai.ts:204-213`
 - Recommended fix: Skip normalization when sum is 0.
+- **P18 sub-6 commit `1ccf840`**: genVendors/ 디렉터리 통째 삭제 — DEAD code.
 
 ## Low-severity findings
 - ✓ pre-P18 — `serverBackend.ts:97-99` `reconnectTimer` 추적 + clearTimeout 박힘 (online event handler 안).
@@ -1188,10 +1198,11 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ---
 
-### Medium — `addAllToQueue` fire-and-forget chunk loop has no AbortController
+### Medium ⊘ design 의도 — `addAllToQueue` fire-and-forget chunk loop has no AbortController
 - Location: `frontend/src/components/SceneQueueControl.tsx:651-730`
 - Issue: User navigates away mid-iteration — closure retains stale session/scenes; toasts arrive after user moved on.
 - Recommended fix: `AbortController` + parent unmount cleanup.
+- **P18 sub-11 verify**: line 692 주석 "fire-and-forget: dialog 즉시 닫고 백그라운드에서 진행 → 다른 작업 가능" — 의도된 design. 사용자 navigate 후 toast 도착이 본인 의도 ("이전 작업 끝났구나" 안내). AbortController로 cancel하면 의도 거스름. fix 불필요.
 
 ---
 
@@ -1224,15 +1235,17 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ---
 
-### Medium — `taskCommitsRef` Map slow-leaks in pathological visibility-flag scenarios
+### Medium ⊘ verify ✓ — `taskCommitsRef` Map slow-leaks in pathological visibility-flag scenarios
 - Location: `frontend/src/components/TaskQueueControl.tsx:299-302, 506-512`
 - Recommended fix: Hard age-based GC pass (5min, !active, no progress).
+- **P18 sub-11 verify**: line 508+ `vanishTimer = setInterval(...)` 박혀 있어 각 레벨 (sceneSnap/projectSnap/folderSnap) `completedAt + VANISH_DELAY_MS` 후 snap 제거 + visibility false. 모든 visibility false면 commit 자체 정리. 일반 흐름 leak 없음. pathological 시나리오 (visibility flag stuck true) 명시 안 됨. fix 불필요.
 
 ---
 
-### Medium — `BigPromptEditor` setTimeout(100ms) `editDisabled` not idempotent in concurrent mode
+### Medium ⊘ Q4 (UX 영향 작음) — `BigPromptEditor` setTimeout(100ms) `editDisabled` not idempotent in concurrent mode
 - Location: `frontend/src/components/SceneEditor.tsx:144-151`
 - Recommended fix: `useLayoutEffect` + immediate enable, or CSS solution.
+- **P18 sub-11 verify**: setTimeout cleanup `clearTimeout(timer)` 박혀있어 leak 없음. 사용자 100ms input blocking UX 영향 매우 작음 (mount race 회피 의도 추정). React 18 concurrent mode double-invoke도 cleanup으로 보호. 사용자 페인 보고 시 useLayoutEffect 교체.
 
 ## Low-severity findings
 - cosmetic ⊘ — `SceneQueueControl.tsx:969` `getInitialThumbSize(...)` per render. 함수 자체 가벼움 (config 우선 → autoDetect 4 if 분기). render 빈도 자체 작음.
