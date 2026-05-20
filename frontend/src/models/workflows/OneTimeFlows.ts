@@ -118,7 +118,7 @@ const getColorizeInput = async (session: Session) => {
     type: 'input-confirm',
   });
   if (prompt == null) return null;
-  return { prompt, weaken: parseInt(defry) };
+  return { prompt, weaken: parseInt(defry, 10) };
 };
 
 const queueColorize = async (
@@ -165,7 +165,7 @@ const getEmotionInput = async (session: Session) => {
     type: 'input-confirm',
   });
   if (prompt == null) return null;
-  return { emotion, prompt, weaken: parseInt(defry) };
+  return { emotion, prompt, weaken: parseInt(defry, 10) };
 };
 
 const queueEmotion = async (

@@ -54,9 +54,13 @@ export const DownloadDialog = observer(
     );
     const [isDownloading, setIsDownloading] = useState(false);
 
-    // 설정 변경 시 서비스에 반영
+    // 설정 변경 시 서비스에 반영 — prefix/suffix 텍스트 input 매 keystroke 디스크 write 부담
+    // 회피 (P18 #11 audit). 300ms debounce — 빠른 연속 입력은 마지막 1번만 persist.
     useEffect(() => {
-      imageDownloadService.updateSettings(settings);
+      const t = setTimeout(() => {
+        imageDownloadService.updateSettings(settings);
+      }, 300);
+      return () => clearTimeout(t);
     }, [settings]);
 
     // 파일명 미리보기 생성

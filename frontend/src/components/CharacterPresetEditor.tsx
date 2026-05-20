@@ -121,7 +121,14 @@ const CardImage = observer(({
       return imageService.getVibeImagePath(curSession, preset.vibes[0].path);
     }
     return null;
-  }, [curSession, preset.representativeImage, preset.characterReferences.length, preset.vibes.length]);
+  }, [
+    curSession,
+    preset.representativeImage,
+    preset.characterReferences.length,
+    preset.characterReferences[0]?.path,
+    preset.vibes.length,
+    preset.vibes[0]?.path,
+  ]);
 
   if (imagePath) {
     return <VibeImage path={imagePath} className={className} />;

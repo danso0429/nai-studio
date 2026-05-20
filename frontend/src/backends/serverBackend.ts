@@ -127,7 +127,10 @@ export class ServerBackend extends Backend {
         const msg = JSON.parse(event.data);
         const handlers = this.eventHandlers.get(msg.type);
         if (handlers) handlers.forEach((h) => h(msg.data));
-      } catch (e) {}
+      } catch (e) {
+        // malformed frame 디버깅 visibility — silent swallow는 server 측 버그 발견 어렵게 함.
+        console.warn('[WS] malformed message dropped:', e);
+      }
     };
     ws.onclose = () => {
       if (this.ws !== ws) return; // stale (이미 다른 ws로 교체됨)

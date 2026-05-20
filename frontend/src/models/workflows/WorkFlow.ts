@@ -1,4 +1,4 @@
-import { makeAutoObservable } from 'mobx';
+import { makeAutoObservable, runInAction } from 'mobx';
 import {
   CharacterPrompt,
   GenericScene,
@@ -291,18 +291,21 @@ function materializeWFObj(type: string, vars: WFVar[]) {
   }
 
   obj.fromJSON = (json: any) => {
-    Object.keys(params).forEach((key) => {
-      if (params[key].type === 'vibeSet') {
-        obj[key] = (json[key] || [])
-          .filter((x: any) => x && x.path)
-          .map((x: any) => VibeItem.fromJSON(x));
-      } else if (params[key].type === 'characterReferences') {
-        obj[key] = (json[key] || [])
-          .filter((x: any) => x && x.path)
-          .map((x: any) => ReferenceItem.fromJSON(x));
-      } else {
-        obj[key] = json[key];
-      }
+    // N keys × observable mutation = N reaction. runInAction batch로 1 reaction.
+    runInAction(() => {
+      Object.keys(params).forEach((key) => {
+        if (params[key].type === 'vibeSet') {
+          obj[key] = (json[key] || [])
+            .filter((x: any) => x && x.path)
+            .map((x: any) => VibeItem.fromJSON(x));
+        } else if (params[key].type === 'characterReferences') {
+          obj[key] = (json[key] || [])
+            .filter((x: any) => x && x.path)
+            .map((x: any) => ReferenceItem.fromJSON(x));
+        } else {
+          obj[key] = json[key];
+        }
+      });
     });
   };
 
