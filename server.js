@@ -1565,7 +1565,32 @@ app.get('/api/queue/status', async (req, res) => {
 });
 
 // 페이지 로드/새로고침 시 클라가 큐 상태 복원용. params는 무거우니 메타데이터만.
-app.get('/api/queue/full-state', (req, res) => {
+// queue.html 폴더 트리용으로 project→folder 매핑(folders)도 함께 반환. projects/
+// 디렉토리 ~12 entries라 walkDir(depth=1) 부담 작음. 캐시 안 하고 매번 새로 빌드.
+app.get('/api/queue/full-state', async (req, res) => {
+  let folders = {};
+  try {
+    const projectsDir = path.join(DATA_DIR, 'projects');
+    const walk = await walkDir(projectsDir, 1);
+    for (const f of walk.files) {
+      if (!f.endsWith('.json')) continue;
+      const slash = f.indexOf('/');
+      let project;
+      let folder;
+      if (slash >= 0) {
+        folder = f.substring(0, slash);
+        project = f.substring(slash + 1, f.length - 5);
+      } else {
+        folder = null;
+        project = f.substring(0, f.length - 5);
+      }
+      // 동명 충돌 시 첫 발견 유지 (frontend ResourceSyncService와 동일 정책)
+      if (project in folders) continue;
+      folders[project] = folder;
+    }
+  } catch (e) {
+    console.warn('[full-state] folder map walk failed:', e.message);
+  }
   res.json({
     pending: genQueue.length,
     processing: queueProcessing,
@@ -1577,6 +1602,7 @@ app.get('/api/queue/full-state', (req, res) => {
       outputFilePath: j.params && j.params.outputFilePath,
       priority: !!j.priority,
     })),
+    folders,
   });
 });
 
@@ -1717,6 +1743,26 @@ app.post('/api/queue/cancel-by-task-ids', (req, res) => {
   for (let i = genQueue.length - 1; i >= 0; i--) {
     const tid = genQueue[i].meta && genQueue[i].meta.taskId;
     if (tid && taskIds.has(tid)) {
+      genQueue.splice(i, 1);
+    }
+  }
+  const cancelled = before - genQueue.length;
+  broadcastQueueStatus();
+  saveQueueState();
+  res.json({ ok: true, cancelled });
+});
+
+// 특정 jobId 배열로 cancel. queue.html 트리에서 폴더/프로젝트/씬 단위로 jobIds를
+// 모아 batch로 보낼 때 사용. taskId 기반보다 정확 (같은 taskId 안 부분 cancel 가능).
+// 처리 중인 헤드 잡(genQueue[0])은 보호 X — 본인이 명시적으로 해당 jobId 골랐으면
+// 의도로 간주. 그래도 in-flight 잡은 NAI API 호출이 이미 떠난 상태일 수 있어 큐에서만
+// 제거되고 응답은 도착 후 polluteOutput으로 폐기될 가능성 있음. 캘린더 cancel과 동일 동작.
+app.post('/api/queue/cancel-by-job-ids', (req, res) => {
+  const jobIds = new Set(req.body.jobIds || []);
+  if (jobIds.size === 0) return res.json({ ok: true, cancelled: 0 });
+  const before = genQueue.length;
+  for (let i = genQueue.length - 1; i >= 0; i--) {
+    if (jobIds.has(genQueue[i].jobId)) {
       genQueue.splice(i, 1);
     }
   }
