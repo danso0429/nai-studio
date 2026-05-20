@@ -8,6 +8,37 @@
 
 ---
 
+## Architecture Summary (Section 0 — fences for per-pattern reference)
+
+audit-instructions Section 0 룰. 후속 per-pattern claim은 이 fence를 reference해야 하고, 모순되면 confidence 강제 Low 또는 폐기.
+
+**Backend (server.js + lib/):**
+- `processQueue` (server.js:1111-1232) — `if (queueProcessing) return` 가드 + `while (genQueue.length > 0)` 단일 loop. **동시 NAI 호출은 항상 1**. 외부 trigger는 setImmediate. 따라서 "큐 stacking" / "동시 N 호출" 주장은 architecture-invalid.
+- `processExportQueue` (server.js:782-812) — `EXPORT_CONCURRENCY=10` env-override 워커풀 + `while (exportWorkers < N)`. 최대 N개 export job 동시. 대용량 zip이면 합산 OOM risk (Q4 defer 등록됨).
+- `processDriveRetryQueue` — setInterval 5s (server.js:3336) + setImmediate trigger (server.js:938). 내부 own 가드.
+- `broadcastQueueStatus` (server.js:392-408) — 250ms setTimeout debounce. WS fan-out N clients × 1 메시지/250ms.
+- `completedJobs` — `COMPLETED_JOBS_MAX` cap (server.js:1192 shift) + retention filter (server.js:367). 영구 leak 차단.
+- `selfUpdateInProgress` 락 (server.js:34, 1341) — 동시 self-update 차단. 단일 트리거 보장.
+- NAI 호출 (lib/nai-client.js) — `nodebuffer` 변환 (P17 base64 round-trip 제거). per-request, retry 내장.
+
+**Frontend (React + MobX + Vite):**
+- `ImageService.acquireMutex` (ImageService.ts:76-89) — per-path FIFO chain (`prev` await + release token). 같은 path 동시 caller 직렬화. 따라서 같은 이미지 race-load 주장은 invalid.
+- `TaskQueueService.restoreMirroredState` (TaskQueueService.ts:1138+) — single-flight (진행 중이면 같은 promise 반환). 트리거 3곳: 생성자 (775) + WS reconnect (785) + 30s 폴링 (793). idle 게이트 `mirroredTasks.size === 0 && !mirrorPaused` → idle 탭은 polling skip.
+- `backend.generateImage` = **submit-and-return** (POST `/queue/add` ACK). 클라 "큐 stacking" 주장은 concurrent POST upload 수로만 카운트, 서버 NAI job 수 아님.
+- MobX `@action`/`runInAction` — store mutation batching. observable.array는 push/splice/index-replace 모두 reaction 트리거 (전체 reassign 불필요).
+- ImageService LRU (ImageService.ts:17, 65) — desktop 256 / mobile 64 cap. 기본 base64 string 보관 — Medium fix 권장 (Blob URL로 이동).
+
+**DEAD / 폐기:**
+- `frontend/src/backends/genVendors/*` — P18 commit `1cca840`에서 NovelAiImageGenService 삭제. 디렉토리 빈 상태. 옛 audit 항목 중 이 경로 reference는 stale.
+
+**자주 잘못 잡히는 패턴 (위 fence와 충돌하면 폐기):**
+- "concurrent NAI" — processQueue 단일 loop fence (1).
+- "race-load same image" — acquireMutex FIFO fence (9).
+- "restoreMirroredState 30s 폴링 leak" — idle gate fence (10).
+- "client retains heavy payload across stale flights" — submit-and-return fence (11).
+
+---
+
 ## Executive summary
 
 | Layer | Critical | High | Medium | Low |

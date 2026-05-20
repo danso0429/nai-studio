@@ -215,21 +215,75 @@ NEVER:
 - Skip the "output the diff" requirement when an agent applies any change.
 
 ────────────────────────
-# 5. Parent (Claude session) Responsibilities
+# 5. Result Processing Protocol (S1–S5)
 
-After agent returns, the parent (you) MUST:
+After an agent returns, follow these steps in order. Skipping S1 is the #1
+cause of drift — the rules slip out of working memory by the time the agent
+reply arrives (often many minutes after spawn, deep into the conversation).
 
-1. Read agent's structured output. If it doesn't match the requested schema,
-   treat it as a hallucination signal — don't try to parse around it.
-2. Spot-check at minimum:
-   - 1 verbatim quote (re-Read file:line)
-   - 1 grep count (re-run grep)
-   - 1 deferred/dead claim (re-verify)
-3. Apply fixes yourself OR delegate to a fix-specific Bash command. Never
-   trust agent's claim that "I applied the fix" without git diff verification.
-4. Note in JOURNAL when agent batch was used — useful pattern data for
-   future sessions ("we tried 10-claim verify with Explore agent, 2 stale,
-   8 accurate, spot-check caught both").
+## S1 — Instructions re-read (MANDATORY, every time)
+
+Re-read this document + the relevant memories before touching agent output:
+- [[feedback_catalog_readthrough_hallucination]] — 5 hallucination guard rules.
+- [[feedback_agent_usage_safety]] — pre-spawn + spot-check + fix-application rules.
+- [[feedback_no_guess_from_partial_output]] — small output exhaustive check.
+
+Why mandatory and not "you already read it once this session": agent reply
+arrives long after spawn. The Section 3 anti-hallucination patterns and
+Section 4 permission rules need to be loaded fresh — not recalled from a
+faded earlier turn. The cost is ~30s; the cost of skipping is accepting a
+stale claim into the report.
+
+## S2 — Schema compliance check (first gate)
+
+- Read agent output file/message.
+- If schema mismatch (missing required fields, wrong field format, extra
+  prose preamble, freeform paragraphs where structured items expected):
+  treat as hallucination signal → **DISCARD batch entirely**. Do NOT try
+  to parse around it.
+- Schema mismatch alone is sufficient to discard. The agent demonstrated
+  inability to follow the most explicit instruction; per-finding accuracy
+  is unlikely to be better.
+
+## S3 — Spot-check (minimum 5 cases per batch)
+
+- **First finding**: verbatim quote re-Read at asserted file:line.
+- **Middle finding** (random): verbatim quote re-Read + grep count re-run.
+- **Last finding**: verbatim quote re-Read at asserted location.
+  (Section 3 "Drift on multi-claim batches" — later claims drift toward
+  generic. Spot-check the LAST, not just the first.)
+- **1+ DEAD claim**: re-grep to confirm 0 callers (or whatever DEAD
+  predicate was asserted).
+- **1+ "duplicate / already-tracked" claim**: re-verify it really IS a
+  duplicate, not a misclassified new finding hidden under the duplicate
+  label.
+
+Tally rule: **3+ spot-check failures → DISCARD whole batch**, log root
+cause in S5 journal note, then redo manually or with narrower scope. Do
+not cherry-pick "the parts that looked OK" from a failed batch — drift
+contaminates the whole output.
+
+## S4 — Integration of passing batch
+
+- Merge surviving findings into the relevant report (e.g.
+  `docs/runtime-audit-report.md` for the runtime audit).
+- Entries marked "Already-tracked ✓" by the agent: **SKIP** — don't
+  double-record. (But verify the duplicate match in S3 first.)
+- New findings: insert into the proper severity section + update the
+  Executive summary count table.
+- **Fixes are applied BY YOU, not by the agent.** Never trust an agent's
+  claim that "I applied the fix" without re-running `git diff` and
+  reading the change yourself.
+
+## S5 — Closeout + journal note
+
+- Recompute Top 5 / Quick wins if surviving findings shifted them.
+- Identify next batch candidate (Q1 first per audit-instructions quadrant
+  rule).
+- JOURNAL note: agent batch stats — **N found / N passed S3 / N discarded
+  / stale ratio / which categories the agent hallucinated most**. This is
+  pattern data for future audit passes — over time you learn which
+  subsystems / claim types this agent fleet handles well vs poorly.
 
 ────────────────────────
 # 6. Common Anti-patterns Seen In This Repo
