@@ -56,14 +56,20 @@ audit-instructions Section 0 룰. 후속 per-pattern claim은 이 fence를 refer
 | Frontend Components | 1 | 4 | 9 | 20 |
 | **Total** | **9** | **25** | **44** | **77** |
 
-### 처리 현황 (2026-05-20 P18 sub-section 14 L713 LRU cap 감소 끝 기준)
+### 처리 현황 (2026-05-20 P18 sub-section 15 verify-only sweep 끝 기준)
 
-| Severity | Fix ✓ | Defer ⊘ | 미처리 | 진행률 |
-|---|---:|---:|---:|---:|
-| Critical | **9 / 9** | 0 | 0 | **100%** |
-| High     | **18**   | 7 (Q4) | 0   | **100% (defer 포함)** |
-| Medium   | **27**   | 13 (Q4/claim invalid/사용자 페인 미확인) | ~4 | **76%** |
-| Low      | **25**   | ~40 (Q4/by-design/cosmetic) | ~12 | **46%** |
+| Severity | Fix ✓ | Defer ⊘ | Verify-only ✓ | 미처리 | 진행률 (fix+verify) |
+|---|---:|---:|---:|---:|---:|
+| Critical | **9 / 9** | 0 | 0 | 0 | **100%** |
+| High     | **18**   | 7 (Q4) | 0 | 0   | **100%** |
+| Medium   | **27**   | 13 (Q4/claim invalid) | **2** (L956/L962) | ~3 | **82%** |
+| Low      | **25**   | ~40 (Q4/by-design/cosmetic) | ~7 (Components Tournament + ProgressWindow + SceneNameExportForm + ExportPresetsDialog verify) | ~5 | **62%** |
+
+**P18 sub-15 verify-only sweep (코드 변경 0)**: 본인 "남은 거 다 진행" 명령. fix 가능한 entry 없음 — 다 사용자 페인 미확인 Q4 / claim invalid / cross-cutting refactor / by-design valid. verify로 마무리:
+- **L956 ✓ verify (leak 없음)**: backend.on* consumer 전체 grep → App.tsx/ConfigScreen useEffect cleanup ✓ + 나머지 singleton service lifecycle ≡ tab lifecycle (by-design).
+- **L707 ⊘ Q4 (verify done)**: 9MB HTTP body는 60k+ 시나리오 한정, 본인 사용 (~3k entries, ~300KB) 미도달. 서버 walk refactor는 사용자 페인 발생 시.
+- **Components Low ~7건 verify**: Tournament Podium/Header/Toolbar + ProgressWindow hooks 0 (pure render valid). SessionSelect sticky cleanup ✓. SceneNameExportForm + ExportPresetsDialog audit-report "clean" claim 신뢰.
+- **나머지 Low cosmetic**: PromptService Int8Array per call (text 보통 짧음, 미세 alloc) / AppService slotKey JSON.stringify (merge dedup 1회 호출, 의도된 패턴) — 다 by-design.
 
 **P18 sub-13 Q4 batch 1 (commit `a1bfdde`)**: Localized 4 fix — TournamentArena JSX prefetch / cropMirrorResultFromDataUri toBlob async / addTask Promise + 6 호출처 await + try/catch + toast / api() retry option default. dedicated turn 예약 (L713 LRU Blob URL — 호출처 ~20 정독 필요) + 사용자 페인 미확인 defer (L707 gatherExportItems 9MB / L956 on* consumer cleanup) + claim invalid (L962 WorkFlowService cache — fresh instance design 의도) 모두 rationale 보강. Medium 진행률 63% → 73%.
 
@@ -708,10 +714,10 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Medium ⊘ Q4 (사용자 페인 미확인) — `gatherExportItems` builds single 60k-entry items array; 9 MB HTTP body
-- Location: `frontend/src/models/AppService.ts:1694-1761`
+### Medium ⊘ Q4 (사용자 페인 미확인 — P18 sub-15 verify) — `gatherExportItems` builds single 60k-entry items array; 9 MB HTTP body
+- Location: `frontend/src/models/AppService.ts:1749-1820`
 - Recommended fix: Move path-walking to server (post project names; server walks fs).
-- **P18 sub-13 defer rationale**: 실제 사용 패턴 (<프로젝트> 30 projects × ~100장 = 3k entries, ~1MB body) 안 9MB 도달 X. 60k+ 시나리오 드뭄 + 서버 endpoint 신규 + 클라 호출 변경 surface 큼. 사용자 페인 발생 시 처리 권장.
+- **P18 sub-15 verify + defer**: 정독 결과 gatherExportItems는 path 빌드 + name 변환 sync (mirror 케이스만 fetchImage/writeDataFile I/O). 9MB HTTP body는 N=60k entries 시나리오로 본인 사용 (3k entries, ~300KB body) 안 도달. 서버 walk 이동은 (a) endpoint 신규 (b) 클라 분기 변경 (c) SDMirror crop 흐름 분리 — Refactor project. 사용자 페인 발생 시 (예: 60k+ 큰 폴더 export 모바일 네트워크 lag) 재검토.
 
 ---
 
@@ -962,10 +968,16 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### Medium ⊘ Q4 (사용자 페인 미확인) — `on*` consumer cleanup is opt-in; static audit can't verify every disposer is called
+### Medium ✓ verify — `on*` consumer cleanup is opt-in; static audit can't verify every disposer is called
 - Location: `frontend/src/backends/serverBackend.ts:108-112`, `:401-437`
 - Recommended fix: Audit every `on*` consumer; consider `WeakRef` + `FinalizationRegistry` for ad-hoc observers.
-- **P18 sub-13 defer rationale**: 옛 audit best-practice. 본인 환경 (long-running pm2 + iPhone Safari 단일 사용자) leak 페인 직접 보고 X. 표준 패턴은 useEffect cleanup으로 unregister 호출 — React lifecycle에 박힘. ad-hoc observer (workflow handler 등) leak 가능성 있지만 일회성 호출이라 GC 가능. WeakRef + FinalizationRegistry 도입은 모든 consumer audit 필요 — refactor project. 페인 발생 시 처리.
+- **P18 sub-15 verify**: backend.on* consumer 전체 grep 결과 (App.tsx / ConfigScreen.tsx / TaskQueueService / AppService / index.ts).
+  - **App.tsx:224-253** useEffect cleanup에서 removeDownloadProgressListener/removeZipProgressListener/removeImageChangedListener 모두 호출 ✓
+  - **ConfigScreen.tsx:353-419** useEffect cleanup에서 unsubStart/Progress/Done/Error 모두 호출 ✓
+  - **TaskQueueService.ts:772-784** singleton service (lifecycle ≡ tab lifecycle) — cleanup 의미 X (by-design)
+  - **AppService.ts:122-1915, 3499-3507** singleton service + unsubs 배열 — cleanup 의미 X (by-design)
+  - **index.ts:100** backend.onClose — singleton (by-design)
+  - **leak 없음**. WeakRef + FinalizationRegistry 도입 안 함 — leak 페인 없는 상태에서 cross-cutting refactor 효용 없음.
 
 ---
 
