@@ -332,18 +332,34 @@ export class ServerBackend extends Backend {
     // visibilitychange/pagehide에서 호출. await 안 함 — fire-and-forget.
     // keepalive:true는 page unload 이후에도 브라우저가 request 완료 보장 (iOS Safari 14.5+).
     // body 64KB total 한도 — 한 page lifecycle 안에서 keepalive 합산 기준.
+    // Workflows M: 64KB 누적 cap 도달 시 navigator.sendBeacon fallback. sendBeacon은
+    // body size limit이 더 관대 (브라우저별 다르지만 보통 64KB ~ 64MB+) + true return으로
+    // 즉시 queue 보장. payload Blob으로 보내야 함.
+    const body = JSON.stringify({ path: filename, data });
     try {
-      const body = JSON.stringify({ path: filename, data });
-      fetch(`${API_BASE}/api/fs/write`, {
+      const sent = fetch(`${API_BASE}/api/fs/write`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
         keepalive: true,
-      }).catch(() => {
-        // unload 중이라 fetch가 reject되어도 무시 (브라우저가 백그라운드에서 시도).
+      });
+      sent.catch(() => {
+        // fetch 실패 시 sendBeacon 폴백 시도. unload 중에도 동작.
+        try {
+          if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+            const blob = new Blob([body], { type: 'application/json' });
+            navigator.sendBeacon(`${API_BASE}/api/fs/write`, blob);
+          }
+        } catch {}
       });
     } catch {
-      // body 크기 초과로 fetch 생성 자체 실패 — 무시.
+      // body 크기 초과 등 fetch 생성 자체 실패 — sendBeacon으로 폴백.
+      try {
+        if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+          const blob = new Blob([body], { type: 'application/json' });
+          navigator.sendBeacon(`${API_BASE}/api/fs/write`, blob);
+        }
+      } catch {}
     }
   }
 

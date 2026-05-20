@@ -48,6 +48,7 @@ import {
 } from '../models/types';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
+import { runInAction } from 'mobx';
 
 interface Props {
   scene: Scene;
@@ -746,13 +747,17 @@ const SceneCharacterPromptEditor = observer(({ scene }: SceneCharacterPromptEdit
 
 export const SlotEditor = observer(({ scene }: SlotEditorProps) => {
   useEffect(() => {
-    for (const slot of scene.slots) {
-      for (const piece of slot) {
-        if (!piece.id) {
-          piece.id = uuidv4();
+    // Components M: MobX observable mutate은 runInAction 안에서. 옛 코드는 reaction마다
+    // 개별 dispatch — strict mode warning + 비최적. 한 action으로 batching.
+    runInAction(() => {
+      for (const slot of scene.slots) {
+        for (const piece of slot) {
+          if (!piece.id) {
+            piece.id = uuidv4();
+          }
         }
       }
-    }
+    });
   }, [scene]);
 
   // 조각이 enabled일 때만 한 조합에 포함. piece.enabled가 undefined면 기본 enabled로 간주

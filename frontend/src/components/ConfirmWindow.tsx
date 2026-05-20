@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DropdownSelect } from './UtilComponents';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
@@ -47,19 +47,27 @@ const ConfirmWindow = observer(() => {
   };
 
   const curDialog = appState.dialogs[appState.dialogs.length - 1];
+  // Components M: ref pattern으로 listener 한 번 bind. 옛 코드는 deps[inputValue/checkedItems/
+  // appState.dialogs]에 의존해 매 mutation에 re-bind — Enter 처리 마이크로 latency 증가 +
+  // strict mode 두 번 mount 시 race.
+  const handlerRef = useRef<() => void>(handleConfirm);
+  handlerRef.current = handleConfirm;
+  const curDialogRef = useRef(curDialog);
+  curDialogRef.current = curDialog;
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Enter') {
-        if (curDialog?.type === 'textarea-confirm') return;
-        if (curDialog) e.preventDefault();
-        handleConfirm();
+        const cur = curDialogRef.current;
+        if (cur?.type === 'textarea-confirm') return;
+        if (cur) e.preventDefault();
+        handlerRef.current();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [inputValue, checkedItems, appState.dialogs]);
+  }, []);
 
   return (
     <>
