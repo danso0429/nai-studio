@@ -2153,8 +2153,14 @@ function checkRcloneAvailable() {
 // 호출처는 ['purge', remotePath, RCLONE_TRASH_BYPASS] 식으로 첫 element 빼고
 // 'rclone ' 토큰. stderr/stdout 모두 캡처라 옛 `2>&1` 리다이렉트 불필요.
 function rcloneRun(args, timeoutMs) {
+  // --tpslimit 10: Google Drive API ~10 req/s 한도 안에서 자동 throttle. 동시 N개
+  // rclone child process가 같은 remote에 호출해도 rclone 자체가 token 공유 X라
+  // process 단위로 throttle. concurrency 3에서 peak ~30 req/s지만 일반적인 단일
+  // 사용자 한도(soft 10/s, burst 30 OK) 안 (P18 #7 <프로젝트> 폴더 30 projects 19분 35초
+  // → 튜닝).
+  const fullArgs = [...args, '--tpslimit', '10'];
   return new Promise((resolve) => {
-    execFile('rclone', args, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile('rclone', fullArgs, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
       resolve({
         ok: !err,
         stdout: stdout ? stdout.toString() : '',
@@ -2363,20 +2369,33 @@ app.post('/api/project/delete-folder-now', async (req, res) => {
       return res.status(404).json({ ok: false, error: 'Folder not found' });
     }
 
-    // N 프로젝트 영구 삭제는 직렬화 — 각 호출이 이미 5개 PROJECT_SUB_DIRS를 병렬 처리하므로
-    // 추가 병렬화는 rclone purge 동시 호출 폭발만 키움.
+    // N 프로젝트 chunk 병렬 (concurrency 3). 각 호출이 이미 5개 PROJECT_SUB_DIRS 병렬
+    // 처리라 peak rclone child ~15개 — rcloneRun에 --tpslimit 10 적용돼 Drive API
+    // throttle 안전. 옛 직렬은 30 projects에 19분 35초였음 (P18 #7 <프로젝트> 폴더).
     const allDeleted = { local: [], drive: [] };
     const allErrors = [];
     const deletedProjects = [];
-    for (const name of projectNames) {
-      try {
-        const result = await permanentlyDeleteProjectFiles(name);
-        deletedProjects.push(name);
-        allDeleted.local.push(...result.deleted.local);
-        allDeleted.drive.push(...result.deleted.drive);
-        allErrors.push(...result.errors);
-      } catch (e) {
-        allErrors.push(`delete project "${name}": ${e.message}`);
+    const CONCURRENCY = 3;
+    const namesArray = Array.from(projectNames);
+    for (let i = 0; i < namesArray.length; i += CONCURRENCY) {
+      const chunk = namesArray.slice(i, i + CONCURRENCY);
+      const chunkResults = await Promise.all(chunk.map(async (name) => {
+        try {
+          const result = await permanentlyDeleteProjectFiles(name);
+          return { name, result };
+        } catch (e) {
+          return { name, error: e.message };
+        }
+      }));
+      for (const r of chunkResults) {
+        if (r.error) {
+          allErrors.push(`delete project "${r.name}": ${r.error}`);
+        } else {
+          deletedProjects.push(r.name);
+          allDeleted.local.push(...r.result.deleted.local);
+          allDeleted.drive.push(...r.result.deleted.drive);
+          allErrors.push(...r.result.errors);
+        }
       }
     }
 
