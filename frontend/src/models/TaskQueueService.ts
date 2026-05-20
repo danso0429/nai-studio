@@ -1554,21 +1554,28 @@ export const queueWorkflow = async (
     shared,
   );
   const scene_ = scene as Scene;
-  for (let i = 0; i < prompts.length; i++) {
-    await def.handler(
-      session,
-      scene,
-      prompts[i].prompt,
-      characterPrompts[i],
-      preset,
-      shared,
-      samples,
-      scene_.meta.get(type),
-      undefined,
-      undefined,
-      prompts[i].uc,
-    );
-  }
+  // 옛 sync fire-and-forget 행동을 Promise.all로 복원 — addTask가 a1bfdde에서
+  // async + await로 바뀌면서 이 for loop가 직렬화되어 한 씬당 stats += samples가
+  // prompts.length 번 점진 점프 (씬 카운터 1개씩 올라가는 페인). def.handler 내부
+  // try/catch + toast는 그대로 유지 — Promise.all이라도 throw 안 함.
+  // queueAddBatch 순서는 addBatchChain이 보장.
+  await Promise.all(
+    prompts.map((p, i) =>
+      def.handler(
+        session,
+        scene,
+        p.prompt,
+        characterPrompts[i],
+        preset,
+        shared,
+        samples,
+        scene_.meta.get(type),
+        undefined,
+        undefined,
+        p.uc,
+      ),
+    ),
+  );
 };
 
 export const queueI2IWorkflow = async (
