@@ -36,3 +36,9 @@ public/build-info.json
 
 # Phase 핸드오프 / 작업 메모 (LLM이 생성한 작업용 문서, public repo에 노출 X)
 PHASE*_HANDOFF.md
+
+# 개발자 개인 노트 / 메타 (public repo에 노출 X — 2026-05-20 history sanitize 후 영구 제외)
+CLAUDE.md
+JOURNAL.md
+.code-review/
+docs/heat-diagnosis/
