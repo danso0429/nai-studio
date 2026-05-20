@@ -20,6 +20,8 @@ audit-instructions Section 0 룰. 후속 per-pattern claim은 이 fence를 refer
 - `completedJobs` — `COMPLETED_JOBS_MAX` cap (server.js:1192 shift) + retention filter (server.js:367). 영구 leak 차단.
 - `selfUpdateInProgress` 락 (server.js:34, 1341) — 동시 self-update 차단. 단일 트리거 보장.
 - NAI 호출 (lib/nai-client.js) — `nodebuffer` 변환 (P17 base64 round-trip 제거). per-request, retry 내장.
+- **`/api/project/delete-folder-now`** (server.js:2378+, P18 #8) — N projects를 `CONCURRENCY=3` chunk 병렬 처리. 각 호출 안에서 `permanentlyDeleteProjectFiles`가 5 PROJECT_SUB_DIRS Promise.all 병렬 → peak rclone child ~15. 동시 같은 folder 호출 가드 없음 (드문 시나리오라 미적용 — L-NEW4 fence reference).
+- **`rcloneRun`** (server.js:2201, P18 #8) — 모든 rclone child에 `--tpslimit 10` default 추가. **per-process throttle (token 공유 X)**. concurrency N × tpslimit 10 = peak ~10N req/s Drive API. Drive default soft 10/s + burst 허용으로 N=3 chunk × 5 sub-dir = peak 150 req/s까지 안전 (실측 P18 <프로젝트> 30 projects 정상 완료). 더 큰 concurrency 도입 시엔 합산 burst를 fence 재검토.
 
 **Frontend (React + MobX + Vite):**
 - `ImageService.acquireMutex` (ImageService.ts:76-89) — per-path FIFO chain (`prev` await + release token). 같은 path 동시 caller 직렬화. 따라서 같은 이미지 race-load 주장은 invalid.
@@ -27,6 +29,8 @@ audit-instructions Section 0 룰. 후속 per-pattern claim은 이 fence를 refer
 - `backend.generateImage` = **submit-and-return** (POST `/queue/add` ACK). 클라 "큐 stacking" 주장은 concurrent POST upload 수로만 카운트, 서버 NAI job 수 아님.
 - MobX `@action`/`runInAction` — store mutation batching. observable.array는 push/splice/index-replace 모두 reaction 트리거 (전체 reassign 불필요).
 - ImageService LRU (ImageService.ts:17, 65) — desktop 256 / mobile 64 cap. 기본 base64 string 보관 — Medium fix 권장 (Blob URL로 이동).
+- **`ZipService.activeOutPaths`** (frontend/src/models/index.ts:43, P18 #7) — outPath 단위 `Set<string>` lock. `zipFiles` 진입 시 `has(outPath)` → throw, add → finally delete. **같은 outPath만 중복 차단, 서로 다른 폴더는 병렬 OK**. 옛 `isZipping` 전역 boolean 폐기. 호출처 외부 가드 `isPathZipping(path)` 두 곳 (AppService.projectExportDeep/folderExportDeep) + `zipFiles` 자체 throw 두 곳 (SessionService.exportSessionDeep/exportFolderDeep). "전역 zip lock" 주장은 architecture-invalid.
+- **`ImageDownloadService.downloadSingleImage` Drive 분기** (ImageDownloadService.ts:233-265, P18 #7) — Drive 가용 시 `getUniqueFilename('exports', baseFilename, 'png')` 호출 → exports/ 내 unique 이름 (`e.png`/`e_1.png`/...) → writeDataFile + sync-exports 큐 등록. 브라우저 fallback (Drive 미가용) 분기는 OS가 `(1).png` 처리. "단일 다운로드 덮어쓰기" 주장은 fence-mitigated이지만 TOCTOU race는 잔류 (L-NEW1).
 
 **DEAD / 폐기:**
 - `frontend/src/backends/genVendors/*` — P18 commit `1cca840`에서 NovelAiImageGenService 삭제. 디렉토리 빈 상태. 옛 audit 항목 중 이 경로 reference는 stale.
@@ -36,6 +40,9 @@ audit-instructions Section 0 룰. 후속 per-pattern claim은 이 fence를 refer
 - "race-load same image" — acquireMutex FIFO fence (9).
 - "restoreMirroredState 30s 폴링 leak" — idle gate fence (10).
 - "client retains heavy payload across stale flights" — submit-and-return fence (11).
+- "전역 zip lock으로 N 폴더 동시 백업 불가" — `ZipService.activeOutPaths` fence (15).
+- "단일 다운로드가 Drive 덮어씀" — `getUniqueFilename` fence (16). 단 TOCTOU race는 L-NEW1로 별도 등록.
+- "rclone Drive API rate limit overshoot" — `--tpslimit 10` per-process fence (8). concurrency N × 10 = peak 합산이 Drive soft 10/s 넘으면 fence 재검토.
 
 ---
 
@@ -44,19 +51,21 @@ audit-instructions Section 0 룰. 후속 per-pattern claim은 이 fence를 refer
 | Layer | Critical | High | Medium | Low |
 |---|---:|---:|---:|---:|
 | Backend (`server.js` + `lib/`) | 3 | 9 | 13 | 22 |
-| Frontend Models | 3 | 7 | 14 | 20 |
+| Frontend Models | 3 | 7 | 14 | 22 |
 | Frontend Workflows + Backends | 2 | 5 | 8 | 13 |
 | Frontend Components | 1 | 4 | 9 | 20 |
-| **Total** | **9** | **25** | **44** | **75** |
+| **Total** | **9** | **25** | **44** | **77** |
 
-### 처리 현황 (2026-05-20 P18 batch 끝 기준)
+### 처리 현황 (2026-05-20 P18 sub-section 9 audit re-review 끝 기준)
 
 | Severity | Fix ✓ | Defer ⊘ | 미처리 | 진행률 |
 |---|---:|---:|---:|---:|
 | Critical | **9 / 9** | 0 | 0 | **100%** |
 | High     | **18**   | 7 (Q4) | 0   | **100% (defer 포함)** |
 | Medium   | **18**   | 1 (M10) | ~25 | **43%** |
-| Low      | **13**   | 0 | ~62 | **17%** |
+| Low      | **13**   | 2 (L-NEW1, L-NEW2) | ~62 | **17%** |
+
+P18 sub-section 9 audit re-review: 본 turn 새 코드 5개 fix (다운로드 unique + ZipService outPath + delete-folder-now batch + chunk 병렬 + rcloneRun tpslimit) + 호출 경로 정독 → Section 0 fence 갱신 (frontend `ZipService.activeOutPaths` / `downloadSingleImage` getUniqueFilename / backend `delete-folder-now` chunk concurrency 3 / `rcloneRun --tpslimit 10` per-process). 새 Low 발견 2건 (L-NEW1 getUniqueFilename TOCTOU / L-NEW2 deleteFolder fetch abort inconsistency) Q4 defer. L-NEW3 (tpslimit per-process 합산 burst) + L-NEW4 (동시 같은 folder 호출 race)는 Section 0 fence reference로 흡수.
 
 - **Critical**: 모두 fix. P17 본격 + P18 #5 마킹 보강.
 - **High**: P17 batch (17 fix + 7 Q4 defer) + P18 dead-code cleanup으로 H19 ✓ — 25/25 모두 분류.
@@ -794,6 +803,8 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 - `CyclingSessionService.ts:69-77` MobX reaction not wrapped in `runInAction`.
 - `TaskQueueService.ts:1303-1308` `calculateCost` iterator allocates per iteration.
 - `TaskQueueService.ts:1396-1490` `runInternal` outer loop bounded only by queue emptiness; 40 retries × 60s sleep = 40 min hang.
+- **L-NEW1** ⊘ Q4 defer — `ImageDownloadService.ts:53-73` `getUniqueFilename` TOCTOU race. (P18 audit re-review) Caller A `existFile('e.png')=false` → return 'e.png'. 동시 Caller B `existFile('e.png')=false` → return 'e.png' (A의 write 이전). 둘 다 같은 'e.png'에 `writeDataFile` → 첫 파일 덮어씀 + sync-exports 큐가 같은 path 두 번 등록 → Drive에 1개만 잔류. 일괄 흐름(`downloadMultipleImages`:360)에도 같은 패턴. 단일 사용자 손가락 동시 입력 시나리오 드뭄 (실측 P18 <프로젝트> 30 projects 정상). Q4: 서버 측 atomic 이름 할당 endpoint(예: `POST /api/fs/reserve-name`)로 해결 — cross-cutting (`backend.ts` abstract + serverBackend + ImageDownloadService 두 곳) + 효용/비용 균형 미흡. fence reference: Section 0 "`getUniqueFilename` fence" 박힘.
+- **L-NEW2** ⊘ Q4 defer — `SessionService.ts:223-251` `deleteFolder` fetch abort 시 inconsistency. (P18 audit re-review) 흐름: favorites 정리 → bookmark 정리 → `saveFavorites`/`saveBookmarks` (둘 다 await) → `backend.deleteFolderNow` (5분 timeout, abort 가능) → `update()`. fetch abort 시 favorites/bookmark는 commit돼 있고 서버 작업은 미완 → 다음 `update()`까지 클라가 "삭제됨"으로 보지만 디스크엔 잔류. 서버는 abort돼도 끝까지 진행하니 다음 `update()`(또는 사용자가 refresh)에서 자연 정상화 (단발성). Q4: fetch abort path 분리 + 사후 reconcile + favorites/bookmark rollback hooks 비용 대비 사용자 인지 가능성 작음 (UI 새로고침 한 번으로 해결).
 
 ## Models section scores (0–10, higher = worse risk)
 - Memory leak risk: **7**
