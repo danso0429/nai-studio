@@ -147,6 +147,9 @@ export abstract class ResourceSyncService<
   async rename(oldName: string, newName: string) {
     if (!(oldName in this.resources)) throw new Error('Resource not found');
     if (newName in this.resources) throw new Error('Resource already exists');
+    // srcPath는 folderMap 갱신 *전*에 캡처 — getPath가 oldName의 폴더값을 봐서
+    // 폴더 안 path를 만들어야 backend.renameFile src가 올바름.
+    const srcPath = this.getPath(oldName);
     this.resources[newName] = this.resources[oldName];
     delete this.resources[oldName];
     this.disposes[newName] = this.disposes[oldName];
@@ -155,7 +158,12 @@ export abstract class ResourceSyncService<
       this.dirty[newName] = this.dirty[oldName];
       delete this.dirty[oldName];
     }
-    await backend.renameFile(this.getPath(oldName), this.getPath(newName));
+    // 폴더 정보 이전 — 누락 시 폴더 안 프로젝트가 rename 후 루트로 튀어나감.
+    if (oldName in this.folderMap) {
+      this.folderMap[newName] = this.folderMap[oldName];
+      delete this.folderMap[oldName];
+    }
+    await backend.renameFile(srcPath, this.getPath(newName));
     await this.update();
   }
 
