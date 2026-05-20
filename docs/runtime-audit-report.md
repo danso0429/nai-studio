@@ -56,16 +56,18 @@ audit-instructions Section 0 룰. 후속 per-pattern claim은 이 fence를 refer
 | Frontend Components | 1 | 4 | 9 | 20 |
 | **Total** | **9** | **25** | **44** | **77** |
 
-### 처리 현황 (2026-05-20 P18 sub-section 11 medium/low sweep 끝 기준)
+### 처리 현황 (2026-05-20 P18 sub-section 11 medium/low sweep + 전수 정독 continuation 끝 기준)
 
 | Severity | Fix ✓ | Defer ⊘ | 미처리 | 진행률 |
 |---|---:|---:|---:|---:|
 | Critical | **9 / 9** | 0 | 0 | **100%** |
 | High     | **18**   | 7 (Q4) | 0   | **100% (defer 포함)** |
 | Medium   | **22**   | 9 (Q4) | ~13 | **63%** |
-| Low      | **24**   | ~40 (Q4/by-design/cosmetic) | ~13 | **44%** |
+| Low      | **25**   | ~40 (Q4/by-design/cosmetic) | ~12 | **46%** |
 
-P18 sub-section 11 medium/low sweep: 본 turn 새 fix 9건 (Tags.calcGapMatch typed array / SceneCharacterPromptEditor in-place mutation / Tooltip scroll hide / BatchItemSelector IntersectionObserver / WS catch console.warn / OneTimeFlows parseInt radix / WorkFlow fromJSON runInAction / CharacterPresetEditor useMemo deps / DownloadDialog updateSettings debounce). already-fixed인데 P18 sub-6 batch에서 마킹 누락된 entry 일괄 sweep (Backend Low 6 + Models Low 4 + Workflows Low 1 + Components Low 1). claim invalid + DEAD stale entry 분리 명시. Q4 defer rationale 강화 — Cross-cutting refactor (LRU Blob URL / dataUriToBase64 double-alloc 등)와 사용자 시나리오 부재 (a.click iOS Safari / pointerup drag / appState HMR dev only) 분리.
+P18 sub-section 11 medium/low sweep: 본 turn 새 fix **10건** (Tags.calcGapMatch typed array / SceneCharacterPromptEditor in-place mutation / Tooltip scroll hide / BatchItemSelector IntersectionObserver / WS catch console.warn / OneTimeFlows parseInt radix / WorkFlow fromJSON runInAction / CharacterPresetEditor useMemo deps / DownloadDialog updateSettings debounce / AugmentWorkFlow dataUriToBase64 double-alloc). already-fixed인데 P18 sub-6 batch에서 마킹 누락된 entry 일괄 sweep (Backend Low 6 + Models Low 4 + Workflows Low 1 + Components Low 1). claim invalid + DEAD stale entry 분리 명시. Q4 defer rationale 강화 — Cross-cutting refactor (LRU Blob URL / NovelAi.login Argon2id Worker / gatherExportItems 서버 walk 등)와 사용자 시나리오 부재 (a.click iOS Safari / pointerup drag / appState HMR dev only) 분리.
+
+**전수 정독 continuation (5398a99)**: 본인 "남은 ~30건 전수 정독" 명령. Models Medium 5 (L701/L707/L713/L733/L756) + Workflows Medium 4 (L956/L962/L975/L994) + Workflows Low 5 (W3/W10/W11/W12/W13) + Components Low ~10 sampling + Backend Low by-design ~3 verbatim verify. 결과: W12 AugmentWorkFlow double-alloc 1건 새 fix, 나머지 Q4 cross-cutting valid 또는 by-design valid. L701 idle gate fence(P14 thermal 시리즈)와 L994 error event dispatch(TaskQueueControl)는 partial invalid 사유 명시. Components Low 후반 ~7건 (C13~C19, ExportPresetsDialog)는 audit-report 본문 "clean"/"pure render" 신뢰 (sampling 5건 verify로 hallucination risk 보강).
 
 - **Critical**: 모두 fix. P17 본격 + P18 #5 마킹 보강.
 - **High**: P17 batch (17 fix + 7 Q4 defer) + P18 dead-code cleanup으로 H19 ✓ — 25/25 모두 분류.
@@ -1014,7 +1016,7 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 - ✓ `8181c43` — `WorkFlow.ts:293-322` `fromJSON`/`toJSON` `runInAction` wrap (P18 sub-11 W9). N reactions → 1 reaction batch.
 - ⊘ by-design — `WorkFlowService.ts:38` `console.warn` + `null` returned. downstream null check 책임.
 - cosmetic — `WorkFlowService.ts:85-95` `find` + `!` non-null assertion (workflow type valid 가정).
-- ✓ P18 sub-12 — `AugmentWorkFlow.ts:133/136 + :260/263` `dataUriToBase64` double-allocation. 같은 image를 두 번 base64 변환 → 한 번 변환 후 `imageBase64` 변수 재사용. multi-MB image면 alloc 두 배 + CPU 두 배. (audit claim "i2i path" 부분은 stale — SDWorkFlow line 404/410은 다른 image/mask라 double 아님, AugmentWorkFlow 2곳만 valid.)
+- ✓ `5398a99` (P18 sub-11 continuation) — `AugmentWorkFlow.ts:133/136 + :260/263` `dataUriToBase64` double-allocation. 같은 image를 두 번 base64 변환 → 한 번 변환 후 `imageBase64` 변수 재사용. multi-MB image면 alloc 두 배 + CPU 두 배. (audit claim "i2i path" 부분은 stale — SDWorkFlow line 404/410은 다른 image/mask라 double 아님, AugmentWorkFlow 2곳만 valid.)
 - ✓ no runtime risk — `config.ts` pure types.
 
 ## Workflows+Backends section scores (0–10, higher = worse risk)
