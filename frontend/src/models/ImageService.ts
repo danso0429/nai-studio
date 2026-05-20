@@ -7,8 +7,13 @@ export const supportedImageSizes = [200, 400, 500];
 const imageDirList = ['outs', 'inpaints'];
 const maskDirList = ['inpaint_masks', 'inpaint_orgs'];
 
-const IMAGE_CACHE_SIZE = 256;
-const ENCODED_VIBE_CACHE_SIZE = 128;
+// audit L713 (P18 sub-14): LRU value가 data URI string (1.3MB image × UTF-16 2× ≈
+// 2.6MB JS heap per entry). 옛 desktop 256 × 2.6MB ≈ 666MB, mobile 64 × 2.6MB ≈ 166MB
+// 누적이 long session 메모리 압박 + 모바일 Safari tab budget. cap 60% 감소로 메모리
+// ~70% 절감. cache miss 증가는 사용자 페인 발생 시 fetchImageBlobURL 점진 마이그레이션으로
+// escalation (옛 LRU constant는 git blame으로 history 확인 가능).
+const IMAGE_CACHE_SIZE = 96;
+const ENCODED_VIBE_CACHE_SIZE = 64;
 
 const naturalSort = (a: string, b: string) => {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
@@ -62,9 +67,9 @@ export class ImageService extends EventTarget {
     super();
     this.images = {};
     this.inpaints = {};
-    this.cache = new LRUCache(isMobile ? 64 : IMAGE_CACHE_SIZE);
+    this.cache = new LRUCache(isMobile ? 24 : IMAGE_CACHE_SIZE);
     this.mutexes = {};
-    this.encodedVibeExistsCache = new LRUCache(isMobile ? 32 : ENCODED_VIBE_CACHE_SIZE);
+    this.encodedVibeExistsCache = new LRUCache(isMobile ? 16 : ENCODED_VIBE_CACHE_SIZE);
   }
 
   // FIFO chain — 같은 path에 동시 acquire가 들어와도 set 순서대로 await 사슬이 이어져
