@@ -826,7 +826,18 @@ export function cropMirrorResultFromDataUri(dataUri: string, mirrorCropX?: numbe
       canvas.height = h;
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(img, cropX, 0, cropW, h, 0, 0, cropW, h);
-      resolve(canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, ''));
+      // toBlob (async) + FileReader.readAsDataURL (async)로 main thread 양보.
+      // 옛 toDataURL은 sync 50-200ms 블록 — bulk mirror export(CHUNK=4)면 누적 수초 UI freeze.
+      canvas.toBlob((blob) => {
+        if (!blob) { reject(new Error('toBlob returned null')); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUriResult = reader.result as string;
+          resolve(dataUriResult.replace(/^data:image\/png;base64,/, ''));
+        };
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      }, 'image/png');
     };
     img.onerror = reject;
     img.src = dataUri;

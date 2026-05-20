@@ -1,6 +1,8 @@
 import { imageService, taskQueueService, workFlowService } from '..';
 import { getImageDimensions } from '../../components/BrushTool';
 import { dataUriToBase64 } from '../ImageService';
+import { appState } from '../AppService';
+import { extractApiError } from '../util';
 import { createSDPrompts, createSDCharacterPrompts } from '../PromptService';
 import { TaskParam } from '../TaskQueueService';
 import {
@@ -152,7 +154,11 @@ const AugmentGenHandler = async (
     outputPath: imageService.getOutputDir(session, scene),
     onComplete: onComplete,
   };
-  taskQueueService.addTask(param, samples);
+  try {
+    await taskQueueService.addTask(param, samples);
+  } catch (e: any) {
+    appState.pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
+  }
 };
 
 const AugmentGenCreatePrompts = async (
@@ -281,7 +287,11 @@ const AugmentHandler = async (
     outputPath: imageService.getOutputDir(session, scene),
     onComplete: onComplete,
   };
-  taskQueueService.addTask(param, samples);
+  try {
+    await taskQueueService.addTask(param, samples);
+  } catch (e: any) {
+    appState.pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
+  }
 };
 
 export const AugmentDef = new WFDefBuilder('Augment')

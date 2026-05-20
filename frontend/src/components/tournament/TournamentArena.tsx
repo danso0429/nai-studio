@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback } from 'react';
 import { useContextMenu } from 'react-contexify';
 import { ContextMenuType } from '../../models/types';
 import { TournamentActions } from './useTournament';
@@ -42,24 +42,27 @@ const TournamentArena = React.memo(
       [show, outputDir],
     );
 
-    // 다음 매치들 이미지 JS preload — `new Image()` src= 이 browser HTTP cache 채움.
-    // 기존 `<link rel="preload">` in body는 브라우저별 동작 비표준이라 신뢰성 낮았음
-    // (link은 head용). JS Image()는 즉시 fetch 시작 + 일관 동작. cache hit 시 `<img>`
-    // mount 시 깜박임 없음.
-    useEffect(() => {
-      const imgs: HTMLImageElement[] = [];
-      for (const u of prefetchURLs) {
-        const img = new Image();
-        img.src = u;
-        imgs.push(img);
-      }
-      return () => {
-        for (const img of imgs) img.src = '';
-      };
-    }, [prefetchURLs.join('|')]);
+    // 다음 매치들 이미지 prefetch — JSX hidden imgs로. React가 prefetchURLs 변경 시
+    // 자동 unmount → iOS Safari 메모리 release 신뢰성 (옛 `new Image() + img.src=''`
+    // cleanup은 iOS Safari에서 detached img 메모리 release 안 하는 audit L1137 페인).
+    // `<img>` mount는 browser HTTP cache 채움 + 다음 매치 표시 빈 화면 없음.
 
     return (
       <div className="flex-1 w-full overflow-hidden">
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            width: 0,
+            height: 0,
+            overflow: 'hidden',
+            pointerEvents: 'none',
+          }}
+        >
+          {prefetchURLs.map((u) => (
+            <img key={u} src={u} alt="" />
+          ))}
+        </div>
         <div className="flex h-full w-full overflow-hidden flex-col md:flex-row">
           <ArenaSide
             url={arenaURLs[0]}

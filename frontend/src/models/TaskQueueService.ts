@@ -921,7 +921,10 @@ export class TaskQueueService extends EventTarget {
     this.dispatchProgress();
   }
 
-  addTask(params: TaskParam, numExec: number) {
+  // Promise<void> 반환 — caller가 await + try/catch로 명시적 인지 가능.
+  // 옛 fire-and-forget은 console.error + error event dispatch만 — 큐 UI 패널 안 보고
+  // 있으면 인지 X. P15 큐 905개 손실 incident class 회피용 (audit L994).
+  async addTask(params: TaskParam, numExec: number): Promise<void> {
     const task: Task = {
       id: v4(),
       cls: -1,
@@ -933,14 +936,17 @@ export class TaskQueueService extends EventTarget {
     const handler = this.handlers[task.cls];
     // gen/inpaint/i2i = server-mirror로. 클라 닫혀도 서버가 진행.
     if (handler instanceof GenerateImageTaskHandler) {
-      this.addMirroredTask(task).catch((e) => {
+      try {
+        await this.addMirroredTask(task);
+      } catch (e: any) {
         console.error('[TaskQueue] addMirroredTask failed:', e);
         this.dispatchEvent(
           new CustomEvent('error', {
             detail: { error: e?.message || String(e), task },
           }),
         );
-      });
+        throw e;  // caller가 toast 등 명시 처리
+      }
       return;
     }
     // 그 외 (augment, remove-bg) 는 기존 클라 큐

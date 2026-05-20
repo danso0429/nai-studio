@@ -13,6 +13,7 @@ import {
 import { getImageDimensions } from '../../components/BrushTool';
 import { appState } from '../AppService';
 import { dataUriToBase64 } from '../ImageService';
+import { extractApiError } from '../util';
 import { queueI2IWorkflow, TaskParam } from '../TaskQueueService';
 import { AugmentJob, GenericScene, SDAbstractJob, Session } from '../types';
 import { emotions } from './AugmentWorkFlow';
@@ -48,7 +49,11 @@ export const queueRemoveBg = async (
     scene,
     onComplete,
   };
-  taskQueueService.addTask(params, 1);
+  try {
+    await taskQueueService.addTask(params, 1);
+  } catch (e: any) {
+    appState.pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
+  }
 };
 
 const queueAugment = async (
@@ -83,7 +88,11 @@ const queueAugment = async (
     onComplete,
   };
   const samples = appState.samples;
-  taskQueueService.addTask(params, samples);
+  try {
+    await taskQueueService.addTask(params, samples);
+  } catch (e: any) {
+    appState.pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
+  }
 };
 
 const createQueueAugment = (method: AugmentMethod) => {

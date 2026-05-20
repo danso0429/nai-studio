@@ -33,6 +33,8 @@ import {
 import { imageService, promptService, taskQueueService, workFlowService } from '..';
 import { TaskParam } from '../TaskQueueService';
 import { dataUriToBase64 } from '../ImageService';
+import { appState } from '../AppService';
+import { extractApiError } from '../util';
 
 const SDImageGenPreset = new WFVarBuilder()
   .addIntVar('cfgRescale', 0, 1, 0.01, 0)
@@ -267,7 +269,13 @@ const SDImageGenHandler = async (
     outputPath: imageService.getOutputDir(session, scene),
     onComplete: onComplete,
   };
-  taskQueueService.addTask(param, samples);
+  // 큐 등록 실패 시 toast로 명시 — 옛 fire-and-forget은 console.error + error event
+  // dispatch만이라 큐 UI 안 보고 있으면 인지 X (P15 큐 905개 incident class).
+  try {
+    await taskQueueService.addTask(param, samples);
+  } catch (e: any) {
+    appState.pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
+  }
 };
 
 const SDCreatePrompt = async (
@@ -445,7 +453,11 @@ const createSDI2IHandler = (type: string) => {
       outputPath: imageService.getOutputDir(session, scene),
       onComplete: onComplete,
     };
-    taskQueueService.addTask(param, samples);
+    try {
+      await taskQueueService.addTask(param, samples);
+    } catch (e: any) {
+      appState.pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
+    }
   };
   return handler;
 };

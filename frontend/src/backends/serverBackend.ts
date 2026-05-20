@@ -33,45 +33,79 @@ const BINARY_API_TIMEOUT_MS = 180_000;
 // <프로젝트> 폴더(22 projects)면 ~5분 가능. 모바일 abort 회피용 넉넉히.
 const FOLDER_DELETE_TIMEOUT_MS = 600_000;
 
+// retry: idempotent GET/HEAD에 default 2회. POST/PUT/DELETE는 default 0
+// (replay risk 회피). caller가 명시 retries 값 주면 그대로. pm2 restart 중 502
+// transient 자동 회복 (P18 audit L975).
+const IDEMPOTENT_RETRY_BACKOFF_MS = [500, 1000, 2000];
+
+function isRetriableError(e: any): boolean {
+  if (e?.name === 'AbortError') return false; // timeout은 retry 안 함
+  const msg = String(e?.message || '');
+  // HTTP 5xx
+  const m = msg.match(/^API error (\d+):/);
+  if (m && parseInt(m[1], 10) >= 500) return true;
+  // network error (fetch reject) — TypeError 'Failed to fetch' / 'NetworkError' 등
+  if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('network')) return true;
+  return false;
+}
+
 async function api(
   path: string,
-  options?: RequestInit & { timeout?: number },
+  options?: RequestInit & { timeout?: number; retries?: number },
 ) {
   const {
     timeout = DEFAULT_API_TIMEOUT_MS,
+    retries: retriesOption,
     signal: callerSignal,
     headers,
+    method = 'GET',
     ...rest
   } = options ?? {};
-  let signal: AbortSignal | undefined = callerSignal ?? undefined;
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  if (!signal) {
-    const controller = new AbortController();
-    signal = controller.signal;
-    timeoutId = setTimeout(() => controller.abort(), timeout);
-  }
-  try {
-    const res = await fetch(`${API_BASE}/api${path}`, {
-      ...rest,
-      signal,
-      headers: {
-        'Content-Type': 'application/json',
-        ...headers,
-      },
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`API error ${res.status}: ${text}`);
+  const isIdempotent = method === 'GET' || method === 'HEAD';
+  const retries = retriesOption !== undefined ? retriesOption : (isIdempotent ? 2 : 0);
+
+  let lastError: any;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    let signal: AbortSignal | undefined = callerSignal ?? undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    if (!signal) {
+      const controller = new AbortController();
+      signal = controller.signal;
+      timeoutId = setTimeout(() => controller.abort(), timeout);
     }
-    return res;
-  } catch (e: any) {
-    if (e?.name === 'AbortError' && timeoutId !== undefined) {
-      throw new Error(`API timeout (${timeout}ms): ${path}`);
+    try {
+      const res = await fetch(`${API_BASE}/api${path}`, {
+        ...rest,
+        method,
+        signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`API error ${res.status}: ${text}`);
+      }
+      return res;
+    } catch (e: any) {
+      if (e?.name === 'AbortError' && timeoutId !== undefined) {
+        lastError = new Error(`API timeout (${timeout}ms): ${path}`);
+      } else {
+        lastError = e;
+      }
+      // 마지막 시도면 throw, 아니고 retriable이면 backoff 후 재시도
+      if (attempt < retries && isRetriableError(lastError)) {
+        const delay = IDEMPOTENT_RETRY_BACKOFF_MS[Math.min(attempt, IDEMPOTENT_RETRY_BACKOFF_MS.length - 1)];
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw lastError;
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
-    throw e;
-  } finally {
-    if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
+  throw lastError;
 }
 
 async function apiJSON(path: string, options?: RequestInit & { timeout?: number }) {
