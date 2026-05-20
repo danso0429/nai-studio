@@ -56,16 +56,16 @@ audit-instructions Section 0 룰. 후속 per-pattern claim은 이 fence를 refer
 | Frontend Components | 1 | 4 | 9 | 20 |
 | **Total** | **9** | **25** | **44** | **77** |
 
-### 처리 현황 (2026-05-20 P18 sub-section 9 audit re-review 끝 기준)
+### 처리 현황 (2026-05-20 P18 sub-section 11 medium/low sweep 끝 기준)
 
 | Severity | Fix ✓ | Defer ⊘ | 미처리 | 진행률 |
 |---|---:|---:|---:|---:|
 | Critical | **9 / 9** | 0 | 0 | **100%** |
 | High     | **18**   | 7 (Q4) | 0   | **100% (defer 포함)** |
-| Medium   | **18**   | 1 (M10) | ~25 | **43%** |
-| Low      | **13**   | 2 (L-NEW1, L-NEW2) | ~62 | **17%** |
+| Medium   | **22**   | 9 (Q4) | ~13 | **63%** |
+| Low      | **24**   | ~40 (Q4/by-design/cosmetic) | ~13 | **44%** |
 
-P18 sub-section 9 audit re-review: 본 turn 새 코드 5개 fix (다운로드 unique + ZipService outPath + delete-folder-now batch + chunk 병렬 + rcloneRun tpslimit) + 호출 경로 정독 → Section 0 fence 갱신 (frontend `ZipService.activeOutPaths` / `downloadSingleImage` getUniqueFilename / backend `delete-folder-now` chunk concurrency 3 / `rcloneRun --tpslimit 10` per-process). 새 Low 발견 2건 (L-NEW1 getUniqueFilename TOCTOU / L-NEW2 deleteFolder fetch abort inconsistency) Q4 defer. L-NEW3 (tpslimit per-process 합산 burst) + L-NEW4 (동시 같은 folder 호출 race)는 Section 0 fence reference로 흡수.
+P18 sub-section 11 medium/low sweep: 본 turn 새 fix 9건 (Tags.calcGapMatch typed array / SceneCharacterPromptEditor in-place mutation / Tooltip scroll hide / BatchItemSelector IntersectionObserver / WS catch console.warn / OneTimeFlows parseInt radix / WorkFlow fromJSON runInAction / CharacterPresetEditor useMemo deps / DownloadDialog updateSettings debounce). already-fixed인데 P18 sub-6 batch에서 마킹 누락된 entry 일괄 sweep (Backend Low 6 + Models Low 4 + Workflows Low 1 + Components Low 1). claim invalid + DEAD stale entry 분리 명시. Q4 defer rationale 강화 — Cross-cutting refactor (LRU Blob URL / dataUriToBase64 double-alloc 등)와 사용자 시나리오 부재 (a.click iOS Safari / pointerup drag / appState HMR dev only) 분리.
 
 - **Critical**: 모두 fix. P17 본격 + P18 #5 마킹 보강.
 - **High**: P17 batch (17 fix + 7 Q4 defer) + P18 dead-code cleanup으로 H19 ✓ — 25/25 모두 분류.
@@ -486,21 +486,21 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 - Recommended fix: Check once at boot, cache the result.
 
 ## Low-severity / stylistic findings
-- `server.js:62-64` `broadcast` could short-circuit when `wss.clients.size === 0`.
+- ✓ `5ab2326` — `server.js:67` `broadcast` short-circuits `wss.clients.size === 0`. (P18 sub-6 already-fixed, marking 누락분 P18 sub-11에서 sweep.)
 - `server.js:106-122` `makeDebouncedSaver.save()` ignores additional calls during debounce window — by design.
-- `server.js:850` `execSync('df ...| tail -1')` uses shell pipeline; `execFile('df', ...)` removes one shell.
-- `server.js:1502` `find -mmin -240` recomputed every request without caching.
-- `server.js:1659` `JSON.stringify(logParams, null, 2)` always paid when logging.
+- ✓ pre-P18 — `server.js:949` `getDiskFreeGB` uses `execFileP('df', ['--output=avail', '/home'])` (shell pipeline 제거됨).
+- ⊘ stale — `find -mmin -240` 코드는 현재 0건 (grep "find -mmin" empty). 옛 audit 작성 시점 코드 제거됨.
+- ✓ pre-P18 — `server.js:1816` `if (process.env.DEBUG_GENERATE_LOG === 'true')` 가드 박힘. 일반 배포에선 0 cost (P13 5/15 보안 감사 후 박힘).
 - `server.js:2655` Hard-coded `db.csv` excluded from backup — file is large but acceptable.
-- `server.js:2667-2681` `walkAndAdd` in `/api/backup/full` reads each file fully into memory before adding.
-- `lib/nai-client.js:248` `clearTimeout` only on success path; on body-read failure, timeout may briefly leak.
-- `lib/nai-client.js:38-42` `login` throws strings inline.
-- `lib/nai-client.js:267, :303, :329` All three methods do `Buffer.from(await res.arrayBuffer())` — see Critical above.
-- `lib/self-update.js:101-106` `triggerPm2Restart` exits without graceful flush.
-- `lib/tag-search.js:9` `tagDB` module-global mutable.
-- `reconcile_image_map.js` uses sync I/O throughout — OK as one-shot script.
-- `ecosystem.config.js` uses `exec_mode: 'fork'` single-instance — correct.
-- `server.js:1196-1197` `/api/config` writes pretty-printed JSON without `atomicWriteFile`.
+- ⊘ Q4 — `server.js:2667-2681` `walkAndAdd` in `/api/backup/full` reads each file fully into memory before adding. Cross-cutting (streaming refactor + tar lib 의존).
+- ✓ `5ab2326` — `lib/nai-client.js:247-274` try/finally로 clearTimeout 보장 (L8 P18 sub-6).
+- ✓ pre-P18 — `lib/nai-client.js:38-42` `throw new Error('Login failed: ...')` Error 객체 throw (옛 string throw 패턴 fix됨).
+- ✓ `74f7466` — `lib/nai-client.js:267, :303, :329` `Buffer.from(await res.arrayBuffer())` Critical 처리됨 (P17).
+- ⊘ Q4 — `lib/self-update.js:101-106` `triggerPm2Restart` graceful flush. 단일 사용자 환경 + pm2 자체 종료가 빠름 → graceful 비용 대비 효용 작음.
+- by-design — `lib/tag-search.js:9` `tagDB` module-global mutable (singleton).
+- by-design — `reconcile_image_map.js` sync I/O (one-shot script).
+- by-design correct — `ecosystem.config.js` `exec_mode: 'fork'` single-instance.
+- ✓ `5ab2326` — `server.js:1314-1315` `/api/config` uses `atomicWriteFile` (L15 P18 sub-6).
 - `server.js:1791-1797` `/api/fs/read` reads file as utf-8 unconditionally.
 - `server.js:1863-1875` `/api/fs/delete`/`delete-dir` accept any path under DATA_DIR.
 - `server.js:3120-3142` `verifyClient` v3 ws signature — verify version compat.
@@ -778,30 +778,31 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Medium — `Tags.calcGapMatch` DP allocates O(M×N×2) 2D tuple array per call
+### Medium ✓ `9b39ac5` — `Tags.calcGapMatch` DP allocates O(M×N×2) 2D tuple array per call
 - Location: `frontend/src/models/Tags.ts:151-209`
 - Issue: ~25 KB per call × 50 candidates per keystroke ≈ 1.25 MB/keystroke allocation churn.
 - Recommended fix: Typed arrays (`Int32Array(m*n*2)`) with flat indexing.
+- **P18 sub-11 fix**: dp + backtrack 둘 다 Int32Array flat. `idx(i,j,k) = i*stride0 + j*2 + k` 산술 인덱싱. inf=1e9|0 sentinel, backtrack -1 sentinel. 알고리즘 동일.
 
 ## Low-severity findings
-- `AppService.ts:484, 495` `pushMessage` uses uuid v4 but only needs strings; `Math.random().toString(36)` cheaper.
-- `AppService.ts:2728-2735` `slotKey` JSON.stringify per slot during merge dedup.
-- `PromptService.ts:117-138` no max-iteration guard on `pieceRegex.exec`.
-- `PromptService.ts:566-608` `highlightPrompt` `Int8Array(text.length)` per call.
-- `PromptService.ts:268-305` `dfsPrompts` recursion depth = `scene.slots.length`; malicious JSON could explode combinations.
-- `types.ts:556-601` `Session.fromJSON` builds many Maps without streaming.
-- `SessionService.ts:798-845` `importDefaultPresets` races 3 fetches without per-fetch timeout.
-- `GameService.ts:36-48` `onImageUpdated` rebuilds output list per session of single image update.
-- `util.ts:144-164` `decompressGzip` accumulates Uint8Array chunks without cap (gzip bomb).
-- `util.ts:175-241` `extractMetadataFromAlpha` `ctx.getImageData(0, 0, w, h)` no size check; 4096² = 64 MB pixel buffer.
-- `TaskQueueService.ts:746-749` `addBatchChain` tail never reset to `Promise.resolve()` after quiescent.
-- `ResourceSyncService.ts:241-246` `while (this.running)` loop — `this.running` never set false; no graceful shutdown.
-- `ImageService.ts:629-666` `onAddImage`/`onAddInPaint` concat O(N²) on batch adds.
-- `AppService.ts:3402` `appState` module-level singleton; HMR may accumulate duplicates.
-- `AppService.ts:3413-3415` `refreshDriveRetryStatus().then(...)` no `.catch`.
-- `AppService.ts:3428-3451` `queueMicrotask` WS handler registration safe but no unregister path.
-- `CyclingSessionService.ts:69-77` MobX reaction not wrapped in `runInAction`.
-- `TaskQueueService.ts:1303-1308` `calculateCost` iterator allocates per iteration.
+- cosmetic ⊘ — `AppService.ts:484, 495` `pushMessage` uses uuid v4 (충돌 가능성 매우 낮음, Math.random 대안 효용 미미).
+- ⊘ Q4 — `AppService.ts:2728-2735` `slotKey` JSON.stringify per slot during merge dedup (Cross-cutting key 인터페이스 변경).
+- ✓ `4b33ecd` — `PromptService.ts:117-138` `pieceRegex.exec` max-iteration 10k cap (P18 sub-6 "regex iter 10k cap").
+- cosmetic ⊘ — `PromptService.ts:566-608` `highlightPrompt` `Int8Array(text.length)` per call (text 보통 짧음, alloc 미미).
+- ⊘ Q4 — `PromptService.ts:268-305` `dfsPrompts` malicious JSON combinatorial explode (cap 추가는 가능하지만 사용자 입력 정상 가정, 보안 layer는 신뢰 영역).
+- ⊘ Q4 — `types.ts:556-601` `Session.fromJSON` builds many Maps without streaming. 큰 세션은 진입 시점에만 1회, 사용자 페인 보고 없음.
+- ⊘ defer — `SessionService.ts:798-845` `importDefaultPresets` per-fetch timeout. P13 cascade fix(`6502424`)로 dummy/import 분리 — 실패해도 cascade 안 됨.
+- ⊘ Q4 — `GameService.ts:36-48` `onImageUpdated` rebuild. 호출 빈도 작음.
+- ✓ `4b33ecd` — `util.ts:144-164` `decompressGzip` 64MB cap (P18 sub-6 "util.ts gzip 64MB cap").
+- ✓ `4b33ecd` — `util.ts:175-241` `extractMetadataFromAlpha` 4096² cap (P18 sub-6 "image 4096² cap").
+- ⊘ claim invalid — `TaskQueueService.ts:746-749` `addBatchChain` single-slot chain pattern, settled promise GC 후 chain 누적 없음. quiescent 시 reset 불필요.
+- ⊘ Q4 — `ResourceSyncService.ts:241-246` `while (this.running)` graceful shutdown. 단일 사용자 환경 graceful shutdown 미사용.
+- ⊘ claim invalid — `ImageService.ts:629-666` `onAddImage`/`onAddInPaint`는 단일 path 호출 (batch X). audit claim "batch adds O(N²)" 시나리오 부재.
+- ⊘ dev only — `AppService.ts:3402` `appState` module-level singleton HMR 누적은 dev mode only.
+- ✓ `4b33ecd` — `AppService.ts:3413-3415` `refreshDriveRetryStatus().then(...).catch(...)` (P18 sub-6 "refreshDriveRetryStatus boot catch").
+- ⊘ by-design — `AppService.ts:3428-3451` `queueMicrotask` WS handler singleton (lifecycle ≡ tab lifecycle).
+- ⊘ claim invalid — `CyclingSessionService.ts:69-77` MobX `reaction()` callback은 자동 batch 안에서 실행. runInAction 명시 불필요.
+- ⊘ V8 optimization — `TaskQueueService.ts:1303-1308` `for (const task of this.queue)` array iterator는 V8 inline + alloc 거의 없음, measurable impact 없음.
 - `TaskQueueService.ts:1396-1490` `runInternal` outer loop bounded only by queue emptiness; 40 retries × 60s sleep = 40 min hang.
 - **L-NEW1** ⊘ Q4 defer — `ImageDownloadService.ts:53-73` `getUniqueFilename` TOCTOU race. (P18 audit re-review) Caller A `existFile('e.png')=false` → return 'e.png'. 동시 Caller B `existFile('e.png')=false` → return 'e.png' (A의 write 이전). 둘 다 같은 'e.png'에 `writeDataFile` → 첫 파일 덮어씀 + sync-exports 큐가 같은 path 두 번 등록 → Drive에 1개만 잔류. 일괄 흐름(`downloadMultipleImages`:360)에도 같은 패턴. 단일 사용자 손가락 동시 입력 시나리오 드뭄 (실측 P18 <프로젝트> 30 projects 정상). Q4: 서버 측 atomic 이름 할당 endpoint(예: `POST /api/fs/reserve-name`)로 해결 — cross-cutting (`backend.ts` abstract + serverBackend + ImageDownloadService 두 곳) + 효용/비용 균형 미흡. fence reference: Section 0 "`getUniqueFilename` fence" 박힘.
 - **L-NEW2** ⊘ Q4 defer — `SessionService.ts:223-251` `deleteFolder` fetch abort 시 inconsistency. (P18 audit re-review) 흐름: favorites 정리 → bookmark 정리 → `saveFavorites`/`saveBookmarks` (둘 다 await) → `backend.deleteFolderNow` (5분 timeout, abort 가능) → `update()`. fetch abort 시 favorites/bookmark는 commit돼 있고 서버 작업은 미완 → 다음 `update()`까지 클라가 "삭제됨"으로 보지만 디스크엔 잔류. 서버는 abort돼도 끝까지 진행하니 다음 `update()`(또는 사용자가 refresh)에서 자연 정상화 (단발성). Q4: fetch abort path 분리 + 사후 reconcile + favorites/bookmark rollback hooks 비용 대비 사용자 인지 가능성 작음 (UI 새로고침 한 번으로 해결).
@@ -1003,19 +1004,18 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 - Recommended fix: Skip normalization when sum is 0.
 
 ## Low-severity findings
-- `serverBackend.ts:104` reconnect `setTimeout` handle never tracked.
-- `serverBackend.ts:97-102` `JSON.parse(event.data)` empty `catch {}` swallows malformed frames silently.
-- `serverBackend.ts:241-245` `copyToDownloads` uses `a.click()` without DOM attach; Safari quirks.
-- `SDWorkFlow.ts:202-209` `toPARR(cp.prompt).map(parseWord)` recomputed per handler.
-- `SDWorkFlow.ts:705` `SDMirrorPreset = SDInpaintPreset.clone()` — cosmetic note.
-- `nai.ts:80-84` `Math.random()` for seeds — non-cryptographic, intended.
-- `nai.ts:115, :362-368` typo "reponse"; naked `await reponse.json()` may throw confusing parse error.
-- `OneTimeFlows.ts:121, :168` `parseInt` without radix.
-- `WorkFlow.ts:293-322` `fromJSON`/`toJSON` mutate observables outside `action()`.
-- `WorkFlowService.ts:38` `console.warn` on unknown workflow + `null` returned; downstream may not null-check.
-- `WorkFlowService.ts:85-95` `find` + `!` non-null assertion.
-- `AugmentWorkFlow.ts:132-136` same dataUriToBase64 double-allocation as i2i path.
-- `config.ts` — pure types, no runtime risk.
+- ✓ pre-P18 — `serverBackend.ts:97-99` `reconnectTimer` 추적 + clearTimeout 박힘 (online event handler 안).
+- ✓ `8181c43` — `serverBackend.ts:130` WS onmessage catch에 `console.warn` 추가 (P18 sub-11 W2). malformed frame 디버깅 visibility.
+- ⊘ Q4 — `serverBackend.ts:287-292` `copyToDownloads` `a.click()` without DOM attach. iOS Safari 본인 실측 정상 (Drive sync fallback path, 실제 사용 빈도 작음).
+- ⊘ Q4 — `SDWorkFlow.ts:202-209` `toPARR(cp.prompt).map(parseWord)` recomputed per handler. WeakMap memoize 도입 surface 큼.
+- cosmetic — `SDWorkFlow.ts:705` `SDMirrorPreset = SDInpaintPreset.clone()`.
+- ⊘ DEAD — `genVendors/nai.ts` 전체 삭제됨 (P18 sub-6 commit `1ccf840`). 옛 entries (seeds Math.random / typo reponse / divide-by-zero) 모두 stale reference.
+- ✓ `8181c43` — `OneTimeFlows.ts:121, :168` `parseInt(defry, 10)` radix 명시 (P18 sub-11 W8).
+- ✓ `8181c43` — `WorkFlow.ts:293-322` `fromJSON`/`toJSON` `runInAction` wrap (P18 sub-11 W9). N reactions → 1 reaction batch.
+- ⊘ by-design — `WorkFlowService.ts:38` `console.warn` + `null` returned. downstream null check 책임.
+- cosmetic — `WorkFlowService.ts:85-95` `find` + `!` non-null assertion (workflow type valid 가정).
+- ⊘ Q4 — `AugmentWorkFlow.ts:132-136` `dataUriToBase64` double-allocation. Cross-cutting (i2i path 통합 변경).
+- ✓ no runtime risk — `config.ts` pure types.
 
 ## Workflows+Backends section scores (0–10, higher = worse risk)
 - Memory leak risk: **5**
@@ -1156,9 +1156,10 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ---
 
-### Medium — `BatchItemSelector.Thumbnail` thundering-herd fetch on 200+ scene list
+### Medium ✓ `9b39ac5` — `BatchItemSelector.Thumbnail` thundering-herd fetch on 200+ scene list
 - Location: `frontend/src/components/BatchItemSelector.tsx:64-80`
 - Recommended fix: `IntersectionObserver` viewport-aware fetch.
+- **P18 sub-11 fix**: ref + IntersectionObserver(rootMargin 200px) — 진입 시점에만 fetch 시작, 진입 후 disconnect (cached promise는 재사용). 200+ item list mount 시 동시 fetch 회피.
 
 ---
 
@@ -1169,10 +1170,11 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ---
 
-### Medium — `SceneCharacterPromptEditor.updateCharacter` map+spread per slider tick
+### Medium ✓ `9b39ac5` — `SceneCharacterPromptEditor.updateCharacter` map+spread per slider tick
 - Location: `frontend/src/components/SceneEditor.tsx:547-557`
 - Issue: Range inputs fire 60Hz; full array + object copies → ~300 allocations/sec during slider drag.
 - Recommended fix: MobX in-place mutation (`Object.assign(target, updates)`).
+- **P18 sub-11 fix**: updateCharacter + toggleCharacter 둘 다 `runInAction(() => { ... Object.assign(target, updates) })` 패턴. SlotEditor P18 sub-6 fix(`bbc2d9b`)와 동일 결.
 
 ---
 
@@ -1183,9 +1185,10 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ---
 
-### Medium — `Tooltip` portal position doesn't update on scroll
+### Medium ✓ `9b39ac5` — `Tooltip` portal position doesn't update on scroll
 - Location: `frontend/src/components/Tooltip.tsx:29-52`
 - Recommended fix: Close tooltip on scroll, or re-query rect on scroll/resize.
+- **P18 sub-11 fix**: visible=true 동안만 window scroll listener 부착, scroll 발생 시 즉시 setVisible(false). rect re-query보다 단순.
 
 ---
 
@@ -1207,24 +1210,24 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 - Recommended fix: `useLayoutEffect` + immediate enable, or CSS solution.
 
 ## Low-severity findings
-- `SceneQueueControl.tsx:947` `getInitialThumbSize` called per render outside useMemo.
-- `SceneQueueControl.tsx:1437-1450` `document.createElement('input')` for file picker never removed; GC-safe.
-- `CharacterPresetEditor.tsx:829-834` ObjectURL revoked synchronously — OK.
-- `CharacterPresetEditor.tsx:104-119` `imagePath` useMemo deps include `length` only, not first item path.
-- `TournamentArena.tsx:59` `prefetchURLs.join('|')` dep — eslint-bypass.
-- `BatchItemSelector.tsx:247-252` `ResizeObserver` correctly disconnected.
-- `Tooltip.tsx:117-125` `setTimeout` cleared in `hide`.
-- `ResizableSplitter.tsx:20-39` `mousemove`/`mouseup` listeners; release outside window leaks. Consider `pointerup` + `lostpointercapture`.
-- `useTournament.ts:76-114` `cancelled` flag correct.
-- `useLongPress.ts:55-69` timer cleanup correct.
-- `DownloadDialog.tsx:58-60` `useEffect([settings])` per keystroke — could debounce.
-- `AppContextMenu.tsx` pure rendering. Clean.
-- `SessionSelect.tsx:46-72` sticky toast handled correctly.
-- `SceneNameExportForm.tsx` clean.
-- `ProgressWindow.tsx` pure render.
-- `FloatView.tsx:127-145` `useRef(++viewId)` — see medium issue above.
-- `TournamentPodium.tsx`, `TournamentHeader.tsx`, `TournamentToolbar.tsx` `React.memo` clean.
-- `ExportPresetsDialog.tsx` clean; spread-update OK for non-hot path.
+- cosmetic ⊘ — `SceneQueueControl.tsx:969` `getInitialThumbSize(...)` per render. 함수 자체 가벼움 (config 우선 → autoDetect 4 if 분기). render 빈도 자체 작음.
+- ✓ GC-safe — `SceneQueueControl.tsx:1437-1450` file picker input not attached, GC됨.
+- ✓ OK — `CharacterPresetEditor.tsx:829-834` ObjectURL revoke sync.
+- ✓ `8181c43` — `CharacterPresetEditor.tsx:124` useMemo deps에 `[0]?.path` 추가 (P18 sub-11 C4). length만 보던 deps 갱신.
+- cosmetic — `TournamentArena.tsx:59` `prefetchURLs.join('|')` dep eslint-bypass (array reference unstable이라 string deduplication).
+- ✓ OK — `BatchItemSelector.tsx:247-252` `ResizeObserver` disconnect.
+- ✓ OK — `Tooltip.tsx:117-125` `setTimeout` cleared in `hide`.
+- ⊘ Q4 — `ResizableSplitter.tsx:20-39` `mousemove`/`mouseup` listener leak outside window. drag 시나리오 드뭄, `pointerup` migration value 작음.
+- ✓ OK — `useTournament.ts:76-114` `cancelled` flag.
+- ✓ OK — `useLongPress.ts:55-69` timer cleanup.
+- ✓ `8181c43` — `DownloadDialog.tsx:58-66` settings useEffect 300ms debounce (P18 sub-11 C12). prefix/suffix keystroke 디스크 write 부담 회피.
+- ✓ clean — `AppContextMenu.tsx`.
+- ✓ OK — `SessionSelect.tsx:46-72` sticky toast.
+- ✓ clean — `SceneNameExportForm.tsx`.
+- ✓ clean — `ProgressWindow.tsx`.
+- ✓ `bbc2d9b` — `FloatView.tsx:127-145` `viewId` counter reset 박힘 (P18 sub-6 Medium fix).
+- ✓ clean — `TournamentPodium.tsx`, `TournamentHeader.tsx`, `TournamentToolbar.tsx`.
+- ✓ OK — `ExportPresetsDialog.tsx` non-hot path spread.
 
 ## Components section scores (0–10, higher = worse risk)
 - Memory leak risk: **5**
