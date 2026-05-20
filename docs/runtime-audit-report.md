@@ -18,6 +18,20 @@
 | Frontend Components | 1 | 4 | 9 | 20 |
 | **Total** | **9** | **25** | **44** | **75** |
 
+### 처리 현황 (2026-05-20 기준)
+
+| Severity | Fix ✓ | Defer ⊘ | 미처리 | 진행률 |
+|---|---:|---:|---:|---:|
+| Critical | **9 / 9** | 0 | 0 | 100% |
+| High     | 17       | 7 (Q4) | 1   | 96% (defer 포함) |
+| Medium   | 9 (backend M1/M2/M3/M4/M5/M6/M7/M9/M13) | 0 | ~35 (M8/M10/M11/M12 + 모든 frontend Medium) | ~20% |
+| Low      | 0 | 0 | 75 | 0% |
+
+- Critical: 모두 fix. 마킹 누락은 본 P18 turn에 일괄 보강.
+- High: P17 batch + L2.5 self-find으로 24/25 분류 (Q4 defer 사유는 각 entry 명시).
+- Medium: P17~P18에 backend 9건 fix. **남은 backend 4건(M8/M10/M11/M12)** + frontend Medium 대다수 미진행.
+- Low: 75건 전부 미진행. 다음 batch / dead-code cleanup pass에서 일괄 처리 후보.
+
 ### Cross-layer scoring (0–10, higher = worse)
 
 | Dimension | Score | Reasoning |
@@ -64,7 +78,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ## Issues (sorted by severity, then category)
 
-### Critical — Unbounded `Buffer.from(base64)` decoding inside NAI client + queue: per-job ~2–8 MB sustained heap pressure
+### Critical ✓ `74f7466` — Unbounded `Buffer.from(base64)` decoding inside NAI client + queue: per-job ~2–8 MB sustained heap pressure
 - Location: `lib/nai-client.js:266-270` (`generateImage`), `:302-306` (`augmentImage`), `:329-330` (`encodeVibeImage`); `server.js:1044`, `:1671`, `:1696` (call sites converting base64 → Buffer).
 - Category: Memory pressure / Heap overflow risk (Category 1) + Large string/binary (Category 7).
 - Issue: Each generated image goes through `res.arrayBuffer()` → `Buffer.from(arrayBuffer)` → `JSZip.loadAsync(buffer)` → `zip.file(...).async('base64')` → returned to caller as a base64 string, then `Buffer.from(base64, 'base64')` → `fs.writeFile`. For a 2 MB PNG that materialises simultaneously: (1) arrayBuffer ~2 MB, (2) Buffer copy ~2 MB, (3) JSZip in-memory ~2 MB + decompressed ~2 MB, (4) base64 string ~2.7 MB, (5) decoded Buffer ~2 MB. Five copies of the image are live until the request returns. With `EXPORT_CONCURRENCY=10` and the queue running, peak resident set can easily reach 100+ MB just for in-flight image conversions on a 24 GB host.
@@ -89,7 +103,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### Critical — `/api/backup/full` and `/api/fs/zip` build the entire archive in memory (potential multi-GB allocations)
+### Critical ✓ `59751c5` — `/api/backup/full` and `/api/fs/zip` build the entire archive in memory (potential multi-GB allocations)
 - Location: `server.js:2657-2716` (`/api/backup/full`), `server.js:2932-2961` (`/api/fs/zip`), `server.js:821` (`runExportJob` final zip).
 - Category: Memory pressure (Category 1) + Large string/binary (Category 7).
 - Issue: `/api/fs/zip` and `runExportJob` call `zip.generateAsync({ type: 'nodebuffer' })`, which materialises the whole archive as a single Buffer before `fs.writeFile`. The export pipeline also reads every source file with `await fs.readFile(sourceFile)` into a Buffer and stuffs them all into the JSZip instance before generating — so memory ≈ Σ(file sizes) + final archive Buffer (~2×). For project export jobs that touch hundreds of generated PNGs (~2 MB each), this routinely allocates 500 MB – 2 GB on a 24 GB host. `/api/backup/full` does stream the output (`generateNodeStream`), but still loads every source file into memory (`fs.readFile`) before adding to the zip, so peak heap ≈ total backup size.
@@ -119,7 +133,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### Critical — `wss.clients.forEach(client.send(JSON.stringify(...)))` produces a serialised payload per client and never tracks back-pressure
+### Critical ✓ `59751c5` — `wss.clients.forEach(client.send(JSON.stringify(...)))` produces a serialised payload per client and never tracks back-pressure
 - Location: `server.js:59-65` (`broadcast`), used at very high frequency from `setExportProgress` (`server.js:688-696`), `prewarmThumbnails`-adjacent paths, and per-job `broadcastQueueStatus()` in the queue loop.
 - Category: Memory leaks (Category 2) + Async safety (Category 4) + Resource lifecycle (Category 8).
 - Issue: (a) JSON serialised once per call (good), but the same string is sent via `client.send(msg)` to every connected client without checking `client.bufferedAmount`. If a stale tab/phone with a poor link can't drain, ws will buffer payloads in memory until the socket finally errors out — for a connected-but-asleep iPhone (Safari background) this is observed to take several minutes. With queue running ~5 broadcasts per job × hundreds of jobs/hour, the per-client buffer can grow to MBs before disconnect cleanup. (b) No `ws.on('error', ...)` handler is attached, only `'close'` — an error event without a listener throws as 'unhandledError' on the EventEmitter and can crash the process in some ws versions.
@@ -316,7 +330,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### Medium — `setImmediate(() => processQueue())` burst storm + unhandled rejection if runner throws synchronously
+### Medium ✓ `30b2181` — `setImmediate(() => processQueue())` burst storm + unhandled rejection if runner throws synchronously
 - Location: `server.js:993-1112` + callers `:1358`, `:1377`, `:1622`, `:3150`.
 - Category: Async safety (Category 4).
 - Issue: Multiple `setImmediate(() => processQueue())` queued per tick; only one wins the re-entry guard. Outer caller doesn't `.catch`, so a sync throw before the first await crashes the process.
@@ -328,21 +342,21 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### Medium — `reconcileImageMap` outer file loop never yields; boot-time linear scan
+### Medium ✓ `a8980e5` — `reconcileImageMap` outer file loop never yields; boot-time linear scan
 - Location: `server.js:403-477`.
 - Issue: Boot-time job; can extend to seconds with very large project counts.
 - Recommended fix: `await new Promise(r => setImmediate(r))` at top of outer loop.
 
 ---
 
-### Medium — `/api/queue/completed` sync `find` + `execSync` with 50 MB maxBuffer
+### Medium ✓ `7bc397d` — `/api/queue/completed` sync `find` + `execSync` with 50 MB maxBuffer
 - Location: `server.js:1500-1543`.
 - Issue: Multi-second event-loop block on installs with many output files.
 - Recommended fix: `execFile` async + cache the result for 30–60 seconds.
 
 ---
 
-### Medium — `wss.clients.forEach` broadcast: rate-limit `broadcastQueueStatus`
+### Medium ✓ `ed1c7d1` — `wss.clients.forEach` broadcast: rate-limit `broadcastQueueStatus`
 - Location: `server.js:59-65`.
 - Issue: ~5 broadcasts/job × hundreds of jobs/hour × N clients.
 - Recommended fix: Debounce to ~250 ms minimum interval.
@@ -357,7 +371,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### Medium — `prewarmThumbnails` runs serially in queue worker, blocks next job ~300 ms
+### Medium ✓ `e97bb6e` — `prewarmThumbnails` runs serially in queue worker, blocks next job ~300 ms
 - Location: `server.js:134-147`, called from `:1045` and `:1672`.
 - Recommended fix: Fire-and-forget.
 - Patch example:
@@ -367,7 +381,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### Medium — `timingHistory.shift()` while loop is O(n²) when many entries drop at once
+### Medium ✓ `ea47e5f` — `timingHistory.shift()` while loop is O(n²) when many entries drop at once
 - Location: `server.js:171-173`, `:202-215`.
 - Recommended fix: `splice(0, dropCount)` once.
 - Patch example:
@@ -385,7 +399,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### Medium — `lib/version-check.js` no negative cache on failure → GitHub hammered on flaky network
+### Medium ✓ `4be7d13` — `lib/version-check.js` no negative cache on failure → GitHub hammered on flaky network
 - Location: `lib/version-check.js:21-50`.
 - Recommended fix: Update `fetchedAt` even on failure; add single-flight via `_pendingFetch` Promise.
 
@@ -397,7 +411,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### Medium — `walkDir` recursive readdir has no node-count cap
+### Medium ✓ `eb6c645` — `walkDir` recursive readdir has no node-count cap
 - Location: `server.js:1755-1778`.
 - Recommended fix: Cap at e.g. 50000 entries + truncated flag.
 
@@ -421,7 +435,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 
 ---
 
-### Medium — `app.get('*', ...)` SPA fallback uses sync `fss.existsSync` per request
+### Medium ✓ `eb6c645` — `app.get('*', ...)` SPA fallback uses sync `fss.existsSync` per request
 - Location: `server.js:3100-3108`.
 - Recommended fix: Check once at boot, cache the result.
 
@@ -467,7 +481,7 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ## Issues (sorted by severity, then category)
 
-### Critical — `mutexes` map never drains on contention; promise + resolver leaks until each path's last caller
+### Critical ✓ `74cd2ef` — `mutexes` map never drains on contention; promise + resolver leaks until each path's last caller
 - Location: `frontend/src/models/ImageService.ts:70-84` (`acquireMutex`/`releaseMutex`), used by `fetchImage`, `fetchImageSmall`, `renameImage`, `invalidateCache`, `onRenameFile`
 - Category: 2. Memory Leak (also 4. Async Safety)
 - Issue: `acquireMutex` does `while (this.mutexes[path]) await this.mutexes[path];` then unconditionally **overwrites** `this.mutexes[path]` with a new Promise. When N callers contend, every `await` resolves on the same promise — they all wake up simultaneously and race to overwrite. Only one wins; the others see the slot, await again on the *new* promise. There is no try/finally discipline in some callers — if any callback inside the critical section throws synchronously before `releaseMutex` runs, `this.mutexes[path]` is leaked forever and every future `fetchImage(path)` hangs indefinitely.
@@ -496,7 +510,7 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Critical — `restoreMirroredState` 30s polling never stops + reconnect handler permanently retained
+### Critical ✓ `dee035a` — `restoreMirroredState` 30s polling never stops + reconnect handler permanently retained
 - Location: `frontend/src/models/TaskQueueService.ts:758-794` (constructor)
 - Category: 2. Memory Leak; 4. Async Safety; 9. Infinite Growth
 - Issue: Constructor (runs once at module load) installs `backend.onQueueJobComplete`/`onQueueJobError` callbacks capturing `this`, `backend.onWsReconnect(() => restoreMirroredState())`, and `startVisibleInterval(() => restoreMirroredState(), 30000)`. None disposed. `startVisibleInterval` return value (stop fn) discarded. The 30s HTTP round-trip continues forever including during long idle, walking `mirroredTasks.entries()` and rebuilding stats. Single-flight gate dedups concurrent calls, not periodic firing.
@@ -515,7 +529,7 @@ Browser (mobile Safari iOS 18+ and desktop Chrome) running React + MobX stores i
 
 ---
 
-### Critical — `addBatchChain` promise chain retains every batch's closure (and base64 payloads) until drained
+### Critical ✓ `738829c` — `addBatchChain` promise chain retains every batch's closure (and base64 payloads) until drained
 - Location: `frontend/src/models/TaskQueueService.ts:749, 978-1031`
 - Category: 2. Memory Leak
 - Issue: Each new `addMirroredTask` references the prior `addBatchChain` in its closure. While the promise eventually resolves, the chain itself isn't broken — every queued batch's `items: Array<{params, meta}>` (containing base64 vibes/references in `arg`) is captured by the closure until `releaseMySlot` runs. Under backlog of 100 queued batches, 100 batches' worth of base64 image strings retained in memory simultaneously.
@@ -759,7 +773,7 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ## Issues (sorted by severity, then category)
 
-### Critical — Mirror canvas not released; `toDataURL('image/png')` runs twice synchronously on main thread
+### Critical ✓ `8cf4163` — Mirror canvas not released; `toDataURL('image/png')` runs twice synchronously on main thread
 - Location: `frontend/src/models/workflows/SDWorkFlow.ts:617-703` (`prepareMirrorCanvas`)
 - Category: 6 Event Loop Starvation / 7 Large String / 2 Memory Leak
 - Issue: Creates two `HTMLCanvasElement`s, calls `cvs.toDataURL('image/png')` and `maskCvs.toDataURL('image/png')` synchronously. At NAI free pixel limit, each is a multi-hundred-millisecond main-thread block. Canvases and `Image`/temp canvas remain reachable until function return; two base64 strings (1–3 MB each) returned and held by caller.
@@ -792,7 +806,7 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 
 ---
 
-### Critical — `prepareMirrorCanvas` `img.onerror` has no timeout, no real Error
+### Critical ✓ `8cf4163` — `prepareMirrorCanvas` `img.onerror` has no timeout, no real Error
 - Location: `frontend/src/models/workflows/SDWorkFlow.ts:617-622`
 - Category: 4 Async Safety / 5 Error Handling
 - Issue: `img.onload = () => resolve(); img.onerror = reject;` — malformed base64 hangs the Promise forever, freezing the mirror handler and dangling the awaiting MobX queue commit.
@@ -968,7 +982,7 @@ React 18 + Vite 5 + MobX (observer HOC) + react-dnd + react-contexify, built for
 
 ## Issues (sorted by severity, then category)
 
-### Critical — Missing dependency array on `useEffect` causes infinite subscribe/unsubscribe churn each render
+### Critical ✓ `ecb4660` — Missing dependency array on `useEffect` causes infinite subscribe/unsubscribe churn each render
 - Location: `frontend/src/components/SceneEditor.tsx:127-139` (`BigPromptEditor`)
 - Category: 10 (Environment-Specific) + 3 (CPU Hotspot)
 - Issue: `useEffect` registers `start`/`stop`/`progress` listeners on `taskQueueService` but is missing its dep array — block ends with `});` instead of `}, []);`. The effect calls `rerender({})` on `progress`, which re-runs cleanup + re-runs subscription. Combined with `progress` event firing once per task tick during generation, this creates a self-reinforcing addEventListener/removeEventListener storm.
