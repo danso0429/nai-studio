@@ -647,7 +647,9 @@ export class SessionService extends ResourceSyncService<Session> {
     return { imported, renamed, skipped, folder: requestedFolder };
   }
 
-  async importSessionShallow(session: ISession, name: string) {
+  // folder 인자: import 직후 그 폴더로 이동. null = 루트 (기존 default).
+  // 옛 import는 항상 루트 — curSession이 폴더에 있어도 새 프로젝트는 폴더없음으로 가던 페인 (P18).
+  async importSessionShallow(session: ISession, name: string, folder?: string | null) {
     if (name in this.resources) {
       throw new Error('Resource already exists');
     }
@@ -688,6 +690,14 @@ export class SessionService extends ResourceSyncService<Session> {
     }
 
     await this.createFrom(name, session);
+    if (folder) {
+      try {
+        await this.moveToFolder(name, folder);
+      } catch (e) {
+        // 폴더가 사라진 edge case — silent skip, 루트에 잔류 (사용자가 메뉴로 이동 가능).
+        console.warn('[importSessionShallow] moveToFolder skipped:', e);
+      }
+    }
   }
 
   async importSessionDeep(

@@ -972,6 +972,10 @@ export class AppState {
       }
       defaultNames.push(name);
     }
+    // 단일 임포트와 같은 룰 — curSession 폴더가 있으면 그 폴더로 자동 (P18).
+    const targetFolder = this.curSession
+      ? sessionService.getFolderOf(this.curSession.name)
+      : null;
     this.multiImportRequest = {
       items: sessions.map((s, i) => ({
         origName: s.origName,
@@ -988,7 +992,7 @@ export class AppState {
         let lastNewSession: Session | undefined;
         for (let i = 0; i < sessions.length; i++) {
           try {
-            await sessionService.importSessionShallow(sessions[i].json, names[i]);
+            await sessionService.importSessionShallow(sessions[i].json, names[i], targetFolder);
             lastNewSession = (await sessionService.get(names[i])) || undefined;
           } catch (e: any) {
             console.warn('[multiImport] import failed for', names[i], e);
@@ -1036,6 +1040,11 @@ export class AppState {
     if (name.endsWith('.json')) {
       name = name.slice(0, -5);
     }
+      // curSession이 폴더에 있으면 새 임포트도 같은 폴더로. 옛 흐름은 항상 루트라
+      // "폴더없음" 으로 떨어지던 페인 (P18). curSession 없으면 null = 루트.
+      const targetFolder = this.curSession
+        ? sessionService.getFolderOf(this.curSession.name)
+        : null;
       const handleAddSession = async (json: any) => {
         const importCool = async () => {
           const sess = await sessionService.get(json.name);
@@ -1045,6 +1054,7 @@ export class AppState {
               await sessionService.importSessionShallow(
                 json as ISession,
                 json.name,
+                targetFolder,
               );
               const newSession = (await sessionService.get(json.name))!;
               this.curSession = newSession;
@@ -1066,6 +1076,7 @@ export class AppState {
                   await sessionService.importSessionShallow(
                     json as ISession,
                     value,
+                    targetFolder,
                   );
                   const newSession = (await sessionService.get(value))!;
                   this.curSession = newSession;
