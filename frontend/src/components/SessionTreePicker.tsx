@@ -53,15 +53,19 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
       rootProjects.push(name);
     }
   }
+  // 한글 + 숫자 혼합 자연 정렬. 옛 `localeCompare(b)` 기본 옵션은 일부 환경(특히 iOS Safari
+  // 한국어 로케일 미스매치)에서 한글/숫자 정렬이 약함. ImageService naturalSort와 일관.
+  const naturalCmp = (a: string, b: string) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
   const sortFn = (a: string, b: string) => {
     const af = sessionService.isFavorite(a);
     const bf = sessionService.isFavorite(b);
     if (af !== bf) return af ? -1 : 1;
-    return a.localeCompare(b);
+    return naturalCmp(a, b);
   };
   rootProjects.sort(sortFn);
   for (const arr of folderToProjects.values()) arr.sort(sortFn);
-  const sortedFolders = [...folderList].sort((a, b) => a.localeCompare(b));
+  const sortedFolders = [...folderList].sort(naturalCmp);
 
   const toggleFolder = (folder: string) => {
     setExpandedFolders(prev => {
