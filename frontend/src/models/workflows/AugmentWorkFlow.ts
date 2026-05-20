@@ -130,10 +130,12 @@ const AugmentGenHandler = async (
     meta = workFlowService.buildMeta('AugmentGen');
   }
   const image = (await imageService.fetchVibeImage(session, shared.image))!;
-  const { width, height } = await getImageDimensions(dataUriToBase64(image));
+  // 같은 image를 두 번 base64 변환하던 옛 코드 — multi-MB image면 alloc 두 배 + CPU 두 배.
+  const imageBase64 = dataUriToBase64(image);
+  const { width, height } = await getImageDimensions(imageBase64);
   const job: AugmentJob = {
     type: 'augment',
-    image: dataUriToBase64(image),
+    image: imageBase64,
     method: shared.method,
     emotion: meta.emotion,
     weaken: shared.weaken,
@@ -257,10 +259,12 @@ const AugmentHandler = async (
     type: 'text',
     text: preset.prompt,
   };
-  const { width, height } = await getImageDimensions(dataUriToBase64(image));
+  // 같은 image를 두 번 base64 변환하던 옛 코드 — multi-MB image면 alloc 두 배.
+  const imageBase64 = dataUriToBase64(image);
+  const { width, height } = await getImageDimensions(imageBase64);
   const job: AugmentJob = {
     type: 'augment',
-    image: dataUriToBase64(image),
+    image: imageBase64,
     method: preset.method,
     emotion: preset.emotion,
     weaken: preset.weaken,

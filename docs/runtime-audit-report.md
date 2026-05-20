@@ -1014,7 +1014,7 @@ Browser (Vite + React + MobX). Long-lived tab — single ServerBackend singleton
 - ✓ `8181c43` — `WorkFlow.ts:293-322` `fromJSON`/`toJSON` `runInAction` wrap (P18 sub-11 W9). N reactions → 1 reaction batch.
 - ⊘ by-design — `WorkFlowService.ts:38` `console.warn` + `null` returned. downstream null check 책임.
 - cosmetic — `WorkFlowService.ts:85-95` `find` + `!` non-null assertion (workflow type valid 가정).
-- ⊘ Q4 — `AugmentWorkFlow.ts:132-136` `dataUriToBase64` double-allocation. Cross-cutting (i2i path 통합 변경).
+- ✓ P18 sub-12 — `AugmentWorkFlow.ts:133/136 + :260/263` `dataUriToBase64` double-allocation. 같은 image를 두 번 base64 변환 → 한 번 변환 후 `imageBase64` 변수 재사용. multi-MB image면 alloc 두 배 + CPU 두 배. (audit claim "i2i path" 부분은 stale — SDWorkFlow line 404/410은 다른 image/mask라 double 아님, AugmentWorkFlow 2곳만 valid.)
 - ✓ no runtime risk — `config.ts` pure types.
 
 ## Workflows+Backends section scores (0–10, higher = worse risk)
