@@ -38,18 +38,23 @@ export function getInitialThumbSize(configValue: number | undefined): number {
 }
 
 export class ZipService extends EventTarget {
-  isZipping: boolean;
-  constructor() {
-    super();
-    this.isZipping = false;
+  // 진행 중인 outPath 집합. 전역 boolean 1개로 막던 시절엔 폴더 N개 동시 내보내기 불가 →
+  // outPath 단위 중복만 차단해서 서로 다른 폴더는 병렬로 진행 (2026-05-20).
+  private activeOutPaths: Set<string> = new Set();
+
+  isPathZipping(outPath: string): boolean {
+    return this.activeOutPaths.has(outPath);
   }
 
   async zipFiles(files: FileEntry[], outPath: string): Promise<{ skipped: string[] }> {
-    this.isZipping = true;
+    if (this.activeOutPaths.has(outPath)) {
+      throw new Error('Already zipping: ' + outPath);
+    }
+    this.activeOutPaths.add(outPath);
     try {
       return await backend.zipFiles(files, outPath);
     } finally {
-      this.isZipping = false;
+      this.activeOutPaths.delete(outPath);
     }
   }
 }

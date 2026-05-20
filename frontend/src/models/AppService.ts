@@ -554,25 +554,24 @@ export class AppState {
     });
   }
 
+  // Models M: indexed mutation으로 변경 — 옛 코드는 매 update에 새 array allocate (per-second
+  // updates에서 GC pressure + MobX reactions 매 reference 변경에 fan-out). splice/push는
+  // MobX observable.array가 잘 감지하면서 array reference 안정 → reaction은 변경 entry만.
   // 기존 단일 슬롯 API. id 'legacy' 한 자리만 점유. 호환 유지용.
   setProgressDialog(dialog: Omit<ProgressDialog, 'id' | 'status'> | undefined) {
+    const idx = this.progressDialogs.findIndex((p) => p.id === 'legacy');
     if (dialog === undefined) {
-      this.progressDialogs = this.progressDialogs.filter((p) => p.id !== 'legacy');
+      if (idx >= 0) this.progressDialogs.splice(idx, 1);
     } else {
-      const others = this.progressDialogs.filter((p) => p.id !== 'legacy');
-      this.progressDialogs = [
-        ...others,
-        { ...dialog, id: 'legacy', status: 'active' },
-      ];
+      const newEntry: ProgressDialog = { ...dialog, id: 'legacy', status: 'active' };
+      if (idx >= 0) this.progressDialogs.splice(idx, 1, newEntry);
+      else this.progressDialogs.push(newEntry);
     }
   }
 
   pushProgressDialog(text: string, total: number = 1): string {
     const id = 'pd-' + Math.random().toString(36).slice(2, 10);
-    this.progressDialogs = [
-      ...this.progressDialogs,
-      { id, text, done: 0, total, status: 'active' },
-    ];
+    this.progressDialogs.push({ id, text, done: 0, total, status: 'active' });
     return id;
   }
 
@@ -580,13 +579,15 @@ export class AppState {
     id: string,
     partial: Partial<Omit<ProgressDialog, 'id'>>,
   ) {
-    this.progressDialogs = this.progressDialogs.map((p) =>
-      p.id === id ? { ...p, ...partial } : p,
-    );
+    const idx = this.progressDialogs.findIndex((p) => p.id === id);
+    if (idx >= 0) {
+      this.progressDialogs.splice(idx, 1, { ...this.progressDialogs[idx], ...partial });
+    }
   }
 
   removeProgressDialog(id: string) {
-    this.progressDialogs = this.progressDialogs.filter((p) => p.id !== id);
+    const idx = this.progressDialogs.findIndex((p) => p.id === id);
+    if (idx >= 0) this.progressDialogs.splice(idx, 1);
   }
 
   finishProgressDialog(
@@ -595,11 +596,15 @@ export class AppState {
     success: boolean,
     autoDismissMs: number = TOAST_DISMISS_SHORT_MS,
   ) {
-    this.progressDialogs = this.progressDialogs.map((p) =>
-      p.id === id
-        ? { ...p, text: finalText, done: p.total, status: success ? 'success' : 'error' }
-        : p,
-    );
+    const idx = this.progressDialogs.findIndex((p) => p.id === id);
+    if (idx >= 0) {
+      this.progressDialogs.splice(idx, 1, {
+        ...this.progressDialogs[idx],
+        text: finalText,
+        done: this.progressDialogs[idx].total,
+        status: success ? 'success' : 'error',
+      });
+    }
     if (autoDismissMs > 0) {
       setTimeout(() => this.removeProgressDialog(id), autoDismissMs);
     }
@@ -1296,8 +1301,8 @@ export class AppState {
   async projectExportDeep() {
     if (!appState.curSession) return;
     const path = 'exports/' + appState.curSession.name + '.tar';
-    if (zipService.isZipping) {
-      appState.pushMessage('이미 내보내기 작업이 진행중입니다.');
+    if (zipService.isPathZipping(path)) {
+      appState.pushMessage('이 프로젝트는 이미 내보내기 중입니다.');
       return;
     }
     const pid = appState.pushProgressDialog('프로젝트 백업 압축 중..', 1);
@@ -1325,13 +1330,13 @@ export class AppState {
   // Drive 가용시 exports/backups/{folder}.tar로 정리(서버 화이트리스트) → Drive backups/ 폴더로 자동.
   // Drive 미가용시 exports/{folder}.tar로 두고 브라우저 자동 다운로드 (이미지 내보내기와 같은 패턴).
   @action
-  async folderExportDeep(folderName: string, projectNames: string[]) {
+  async folderExportDeep(
+    folderName: string,
+    projectNames: string[],
+    includeImages: boolean = true,
+  ) {
     if (projectNames.length === 0) {
       appState.pushMessage('빈 폴더예요');
-      return;
-    }
-    if (zipService.isZipping) {
-      appState.pushMessage('이미 내보내기 작업이 진행중입니다.');
       return;
     }
     // refresh 1번도 안 돈 상태에서 빠른 클릭하면 잘못된 Drive 분기 → 클릭 직전 강제 갱신.
@@ -1339,11 +1344,20 @@ export class AppState {
     await appState.refreshDriveRetryStatus();
     // 명시적 false만 다운로드 fallback. null/undefined는 Drive 가용으로 가정 (낙관적, refresh 실패 케이스).
     const driveAvailable = appState.driveRetryStatus?.driveAvailable !== false;
+    // 이미지 미포함 백업은 파일명 suffix로 구분 → 같은 폴더의 이미지 포함/미포함 백업이 공존 가능.
+    const nameSuffix = includeImages ? '' : '_json';
     const path = driveAvailable
-      ? 'exports/backups/' + folderName + '.tar'
-      : 'exports/' + folderName + '.tar';
+      ? 'exports/backups/' + folderName + nameSuffix + '.tar'
+      : 'exports/' + folderName + nameSuffix + '.tar';
+    if (zipService.isPathZipping(path)) {
+      appState.pushMessage(`'${folderName}' 폴더는 이미 내보내기 중입니다.`);
+      return;
+    }
+    const progressLabel = includeImages
+      ? `'${folderName}' 백업 압축 중...`
+      : `'${folderName}' 백업 압축 중 (이미지 제외)...`;
     const pid = appState.pushProgressDialog(
-      `'${folderName}' 백업 압축 중...`,
+      progressLabel,
       projectNames.length + 1,
     );
     try {
@@ -1354,6 +1368,7 @@ export class AppState {
         (text, done, total) => {
           appState.updateProgressDialog(pid, { text, done, total });
         },
+        includeImages,
       );
     } catch (e: any) {
       appState.finishProgressDialog(

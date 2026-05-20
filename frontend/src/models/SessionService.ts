@@ -426,9 +426,7 @@ export class SessionService extends ResourceSyncService<Session> {
       });
     }
     entries.push({ path: projFile, name: 'project.json' });
-    if (zipService.isZipping) {
-      throw new Error('Already zipping');
-    }
+    // zipFiles 자체가 outPath 중복을 throw로 막음 — 외부 사전 체크 제거 (서로 다른 outPath는 병렬 OK).
     await zipService.zipFiles(entries, outPath);
   }
 
@@ -445,6 +443,7 @@ export class SessionService extends ResourceSyncService<Session> {
     projectNames: string[],
     outPath: string,
     onProgress?: (text: string, done: number, total: number) => void,
+    includeImages: boolean = true,
   ) {
     const emptyResult = { files: [] as string[], dirs: [] as string[] };
     const ignoreError = async (
@@ -459,35 +458,38 @@ export class SessionService extends ResourceSyncService<Session> {
 
     // 한 프로젝트의 모든 미디어 파일을 6번 병렬 listFilesRecursive로 수집.
     // outs/inpaints는 nested (depth=1), inpaint_orgs/inpaint_masks/vibes/references는 flat (depth=0).
+    // includeImages=false면 6개 디렉터리 list 자체를 skip → project.json만 tar로 묶음 (가벼운 백업).
     const collectProjectEntries = async (name: string): Promise<FileEntry[]> => {
-      const [outs, inpaints, inpaintOrgs, inpaintMasks, vibes, references] = await Promise.all([
-        ignoreError(backend.listFilesRecursive('outs/' + name, 1)),
-        ignoreError(backend.listFilesRecursive('inpaints/' + name, 1)),
-        ignoreError(backend.listFilesRecursive('inpaint_orgs/' + name, 0)),
-        ignoreError(backend.listFilesRecursive('inpaint_masks/' + name, 0)),
-        ignoreError(backend.listFilesRecursive('vibes/' + name, 0)),
-        ignoreError(backend.listFilesRecursive('references/' + name, 0)),
-      ]);
       const items: FileEntry[] = [];
-      const pushSrc = (
-        srcRoot: string,
-        tarRoot: string,
-        relList: string[],
-      ) => {
-        for (const rel of relList) {
-          if (!rel.endsWith('.png')) continue;
-          items.push({
-            path: srcRoot + '/' + rel,
-            name: tarRoot + '/' + rel,
-          });
-        }
-      };
-      pushSrc('outs/' + name, name + '/outs', outs.files);
-      pushSrc('inpaints/' + name, name + '/inpaints', inpaints.files);
-      pushSrc('inpaint_orgs/' + name, name + '/inpaint_orgs', inpaintOrgs.files);
-      pushSrc('inpaint_masks/' + name, name + '/inpaint_masks', inpaintMasks.files);
-      pushSrc('vibes/' + name, name + '/vibes', vibes.files);
-      pushSrc('references/' + name, name + '/references', references.files);
+      if (includeImages) {
+        const [outs, inpaints, inpaintOrgs, inpaintMasks, vibes, references] = await Promise.all([
+          ignoreError(backend.listFilesRecursive('outs/' + name, 1)),
+          ignoreError(backend.listFilesRecursive('inpaints/' + name, 1)),
+          ignoreError(backend.listFilesRecursive('inpaint_orgs/' + name, 0)),
+          ignoreError(backend.listFilesRecursive('inpaint_masks/' + name, 0)),
+          ignoreError(backend.listFilesRecursive('vibes/' + name, 0)),
+          ignoreError(backend.listFilesRecursive('references/' + name, 0)),
+        ]);
+        const pushSrc = (
+          srcRoot: string,
+          tarRoot: string,
+          relList: string[],
+        ) => {
+          for (const rel of relList) {
+            if (!rel.endsWith('.png')) continue;
+            items.push({
+              path: srcRoot + '/' + rel,
+              name: tarRoot + '/' + rel,
+            });
+          }
+        };
+        pushSrc('outs/' + name, name + '/outs', outs.files);
+        pushSrc('inpaints/' + name, name + '/inpaints', inpaints.files);
+        pushSrc('inpaint_orgs/' + name, name + '/inpaint_orgs', inpaintOrgs.files);
+        pushSrc('inpaint_masks/' + name, name + '/inpaint_masks', inpaintMasks.files);
+        pushSrc('vibes/' + name, name + '/vibes', vibes.files);
+        pushSrc('references/' + name, name + '/references', references.files);
+      }
       // 프로젝트 .json은 폴더 안에 있으면 projects/{folder}/{name}.json. getPath()로 해결.
       items.push({ path: this.getPath(name), name: name + '/project.json' });
       return items;
@@ -517,9 +519,7 @@ export class SessionService extends ResourceSyncService<Session> {
     await backend.writeFile(markerPath, JSON.stringify(marker));
     entries.push({ path: markerPath, name: 'folder-backup.json' });
 
-    if (zipService.isZipping) {
-      throw new Error('Already zipping');
-    }
+    // zipFiles가 outPath 단위 중복을 throw로 막음 — 외부 사전 체크 제거 (서로 다른 폴더는 병렬 OK).
     onProgress?.('아카이브 압축 중...', total, total + 1);
     try {
       await zipService.zipFiles(entries, outPath);
