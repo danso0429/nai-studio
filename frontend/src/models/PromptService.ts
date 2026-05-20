@@ -116,7 +116,11 @@ export class PromptService extends EventTarget {
 
     for (const text of prompts) {
       let match;
+      // Models L: max iter guard — pieceRegex global flag stale / lastIndex 미진행 시 무한 loop.
+      // 1만 회는 정상 prompt scenario 훨씬 넘는 안전 cap.
+      let iters = 0;
       while ((match = pieceRegex.exec(text)) !== null) {
+        if (++iters > 10000) { console.warn('[checkMissingPieces] regex iter cap hit'); break; }
         const inner = match[1];
         const parts = inner.split('.');
         if (parts.length !== 2) continue;

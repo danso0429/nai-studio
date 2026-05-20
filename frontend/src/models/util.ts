@@ -141,6 +141,9 @@ export async function extractExifFromBase64(base64: string) {
 
 const STEALTH_MAGIC = 'stealth_pngcomp';
 
+// Models L: gzip bomb cap — 사용자 입력 PNG의 alpha LSB에 무한 압축비 페이로드 가능.
+// 64MB 도달 시 abort. 정상 stealth-pngcomp metadata는 ~수 KB ~ 수십 KB.
+const GZIP_DECOMPRESS_MAX = 64 * 1024 * 1024;
 async function decompressGzip(data: Uint8Array): Promise<Uint8Array> {
   const stream = new DecompressionStream('gzip');
   const writer = stream.writable.getWriter();
@@ -148,12 +151,16 @@ async function decompressGzip(data: Uint8Array): Promise<Uint8Array> {
   writer.close();
   const reader = stream.readable.getReader();
   const chunks: Uint8Array[] = [];
+  let totalLength = 0;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
+    totalLength += value.length;
+    if (totalLength > GZIP_DECOMPRESS_MAX) {
+      throw new Error(`gzip decompressed size exceeds ${GZIP_DECOMPRESS_MAX} bytes (bomb)`);
+    }
     chunks.push(value);
   }
-  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
   const result = new Uint8Array(totalLength);
   let offset = 0;
   for (const chunk of chunks) {
@@ -172,11 +179,18 @@ function loadImageFromBase64(base64: string): Promise<HTMLImageElement> {
   });
 }
 
+// Models L: 이미지 크기 cap — 4096² = 67MB pixel buffer는 모바일 Safari OOM 위험.
+// 정상 NAI 이미지는 ~1024×1024 (4MB), 최대 사용자 케이스도 2048² (16MB)에서 끊음.
+const EXTRACT_METADATA_MAX_PIXELS = 4096 * 4096;
 export async function extractMetadataFromAlpha(
   base64: string,
 ): Promise<any | undefined> {
   try {
     const img = await loadImageFromBase64(base64);
+    if (img.width * img.height > EXTRACT_METADATA_MAX_PIXELS) {
+      console.warn(`[extractMetadataFromAlpha] image too large (${img.width}×${img.height}), skip`);
+      return undefined;
+    }
     const canvas = document.createElement('canvas');
     canvas.width = img.width;
     canvas.height = img.height;

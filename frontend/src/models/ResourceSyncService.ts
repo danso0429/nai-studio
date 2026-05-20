@@ -59,9 +59,13 @@ export abstract class ResourceSyncService<
     // 마지막 편집이 디스크 도달 못 하는 race window 해소. 본인 페인 2026-05-16: 편집 직후
     // sdstudio 닫으면 원래 프로젝트 default로 회귀 (이미지엔 in-memory state 박혀있음).
     if (typeof document !== 'undefined') {
+      // Models M: flushOnHide는 dirty 자원만 flush. 옛 코드는 모든 resources를 fetch keepalive로
+      // 보내서 30+ session × 50-500KB가 visibility flip마다 굳어짐 → bandwidth/CPU drain.
+      // 또 writeFileKeepalive는 64KB 누적 cap이라 의미 있는 항목만 흘려야 cap 안 새어 나감.
       const flushOnHide = () => {
         if (document.visibilityState !== 'hidden') return;
-        for (const name of Object.keys(this.resources)) {
+        for (const name of Object.keys(this.dirty)) {
+          if (!(name in this.resources)) continue;
           const rc = this.resources[name];
           if (!rc) continue;
           try {
@@ -207,14 +211,27 @@ export abstract class ResourceSyncService<
   }
 
   async update() {
-    for (const name of Object.keys(this.dirty)) {
-      if (!(name in this.resources)) continue;
+    // Models M: dirty entry는 write 성공한 것만 clear. 옛 코드는 마지막에 `this.dirty = {}`로
+    // 전체 wipe — write 실패한 entry도 같이 잃어버려 다음 update까지 누락. edge-case data loss.
+    const names = Object.keys(this.dirty);
+    for (const name of names) {
+      if (!(name in this.resources)) {
+        delete this.dirty[name];
+        continue;
+      }
       const l = this.getFast(name);
       if (l) {
-        await backend.writeFile(this.getPath(name), JSON.stringify(l.toJSON()));
+        try {
+          await backend.writeFile(this.getPath(name), JSON.stringify(l.toJSON()));
+          delete this.dirty[name];
+        } catch (e) {
+          // dirty 유지 — 다음 update에서 재시도. log만.
+          console.warn('[ResourceSync] write failed, retain dirty:', name, e);
+        }
+      } else {
+        delete this.dirty[name];
       }
     }
-    this.dirty = {};
     this.resourceList = await this.getList();
     this.saveCache();
     this.dispatchEvent(new CustomEvent('listupdated', {}));

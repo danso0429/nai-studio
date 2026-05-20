@@ -1473,7 +1473,13 @@ export class TaskQueueService extends EventTarget {
                 detail: { error: '요청 제한 (429) - 60초 대기 후 재시도', task: task },
               }),
             );
-            await sleep(60 * 1000);
+            // Models M: abortable 60s sleep — 500ms tick으로 cur.stopped 체크. 옛 코드는
+            // 사용자 stop/pause를 60초 후에야 인지. server M1 (interruptibleSleep) 패턴과 결.
+            const sleepStart = Date.now();
+            while (Date.now() - sleepStart < 60_000) {
+              if (cur.stopped) break;
+              await sleep(Math.min(500, 60_000 - (Date.now() - sleepStart)));
+            }
           } else {
             this.addLog('error', sceneName, `${e.message} [${i + 1}/${numTries}]`);
             this.dispatchEvent(

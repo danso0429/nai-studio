@@ -110,8 +110,14 @@ async function syncExportToDrive(opts: {
 
   if (queued) {
     // WS terminal 이벤트 구독. 첫 매칭 또는 15분 timeout 후 자동 unsubscribe.
+    // Models M: timeout handle 추적 + 성공/실패 시점 clearTimeout — 옛 코드는 15분 timeout이
+    // 무조건 살아 있어 메모리 leak (drive 작업 100개면 100개 timer 누적).
     const unsubs: Array<() => void> = [];
-    const cleanup = () => unsubs.forEach((u) => u());
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const cleanup = () => {
+      unsubs.forEach((u) => u());
+      if (timeoutId != null) { clearTimeout(timeoutId); timeoutId = null; }
+    };
     let done = false;
     unsubs.push(backend.onDriveSyncComplete((data) => {
       if (done || data.requestedPath !== jobPath) return;
@@ -132,7 +138,7 @@ async function syncExportToDrive(opts: {
       appState.pushMessage(`✗ Drive 업로드 최종 실패: ${data.fileName} (${data.error})`);
       appState.refreshDriveRetryStatus();
     }));
-    setTimeout(() => { if (!done) { done = true; cleanup(); } }, 15 * 60 * 1000);
+    timeoutId = setTimeout(() => { if (!done) { done = true; cleanup(); } }, 15 * 60 * 1000);
   }
 
   return queued;
@@ -1824,7 +1830,13 @@ export class AppState {
     };
 
     const unsubs: Array<() => void> = [];
-    const cleanup = () => unsubs.forEach((u) => u());
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const cleanup = () => {
+      unsubs.forEach((u) => u());
+      // Models M: 30분 timeout handle 추적 + 성공 시 clearTimeout. 옛 코드는 export job 100개면
+      // 30분짜리 timer 100개가 무조건 alive — closure에 jobId/items array 보유 leak.
+      if (timeoutId != null) { clearTimeout(timeoutId); timeoutId = null; }
+    };
     let exportTerminal = false;
     let driveTerminal = false;
     const tryFullCleanup = () => {
@@ -1885,7 +1897,7 @@ export class AppState {
       appState.refreshDriveRetryStatus();
       tryFullCleanup();
     }));
-    setTimeout(cleanup, 30 * 60 * 1000);
+    timeoutId = setTimeout(cleanup, 30 * 60 * 1000);
     return jobId;
   }
 
@@ -3435,6 +3447,9 @@ function ensureDrivePolling() {
 }
 appState.refreshDriveRetryStatus().then(() => {
   if (appState.driveRetryStatus?.driveAvailable) ensureDrivePolling();
+}).catch((e) => {
+  // Models L: 부팅 시 Drive 상태 확인 실패해도 앱 자체는 동작해야 함. 로그만 남기고 폴링 미설정.
+  console.warn('[boot] refreshDriveRetryStatus failed:', e);
 });
 
 // 서버 큐 평균 ETA 폴링: 부팅 시 1회 + 15s 주기 (큐 처리 도중 추세 반영).
