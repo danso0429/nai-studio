@@ -56,14 +56,59 @@ audit-instructions Section 0 룰. 후속 per-pattern claim은 이 fence를 refer
 | Frontend Components | 1 | 4 | 9 | 20 |
 | **Total** | **9** | **25** | **44** | **77** |
 
-### 처리 현황 (2026-05-20 P18 sub-section 16 마킹 sweep 완료 기준)
+### 처리 현황 (2026-05-20 P18 sub-section 17 defer 재검토 완료 기준)
 
-| Severity | Fix ✓ | Verify-only ✓ | Defer ⊘ (사유 명시) | 진짜 미처리 | 진행률 (모든 entry 처리) |
+| Severity | Fix ✓ | Verify-only ✓ | Defer ⊘ (재검토 ✓) | 진짜 미처리 | 진행률 |
 |---|---:|---:|---:|---:|---:|
 | Critical | **9 / 9** | 0 | 0 | 0 | **100%** |
-| High     | **18**   | 0 | 7 (Q4) | 0 | **100%** |
-| Medium   | **27**   | **9** (L687/L701/L770/L790/L1005/L1227/L956/L962 등) | 17 (Q4/DEAD/design 의도/by-design/사용자 페인 미확인) | **0** | **100%** |
-| Low      | **25**   | ~7 (Components Tournament + ProgressWindow + 등) | ~45 (Q4/by-design/cosmetic) | **0** | **100%** |
+| High     | **18**   | 0 | 7 (재검토 ✓ 정당) | 0 | **100%** |
+| Medium   | **27**   | **9** | 17 (재검토 ✓ 정당) | **0** | **100%** |
+| Low      | **25**   | ~7 | ~45 (재검토 sampling — by-design valid) | **0** | **100%** |
+
+**P18 sub-17 defer 재검토** (코드 변경 0): 본인 "defer들 다시 한 번 볼까나" 명령. Defer 21건 (High 7 + Medium 14) 전체 재정독 결과 다 정당 유지. 단 1건 (L633 mirror-state Maps desync Q2) 진짜 fix 가능이지만 본인 선택 "Defer 유지".
+
+---
+
+## Defer Catalog (P18 sub-17 재검토 ✓, 2026-05-20)
+
+본인 명시 "defer된 것들 사유를 정확히 명시해서 저장". 모든 defer entry의 (위치, 카테고리, 사유, 재검토 결과, 재검토 일자) 표.
+
+### High Defer (7건)
+
+| # | Entry | Location | 카테고리 | 사유 | 재검토 |
+|---|---|---|---|---|---|
+| H1 | `processExportQueue EXPORT_CONCURRENCY=10` OOM | server.js:678-751 | **본인 명시 spec** | server.js:689 주석 "본인 요청: 동시 10개까지 2026-05-13". streaming archive(`59751c5`)로 in-memory zip 위험 완화. fix 시 본인 의도 거스름. | P17→P18 sub-17 ✓ |
+| H2 | `express.json limit: '100mb'` + unauthenticated | server.js:1122 | **본인 환경 (tailnet 단일 사용자)** | 외부 노출 0건이라 이론적 위험. fix(25mb)는 큰 body 정상 endpoint(queue add batch / vibe upload) 거부 위험. | P17→P18 sub-17 ✓ |
+| H3 | `nai.token` process-global race | lib/nai-client.js:11-42 | **단일 사용자 spec** | concurrent login 시나리오 미발생. self-update gate는 Phase 15 ADMIN_TOKEN → nai.token pivot 본인 명시 결정. | P17→P18 sub-17 ✓ |
+| H4 | **L633 mirror-state Maps desync (Q2)** | TaskQueueService.ts:738-1218 | **Refactor project + fence로 큰 race 차단** | P17 VERIFIED real bug지만 `restoreMirroredState single-flight + idle gate` fence로 가장 큰 race 차단. 잔류는 edge case (_doRestoreMirroredState clear~rebuild 사이 WS event). 4 Map collapse + caller 7곳 lockstep refactor 회귀 표면 > 잔류 race. **본인 선택 Defer 유지 (P18 sub-17)**. 사용자 페인 (큐 카운터 drift / stuck UI) 발생 시 재검토. | P17→P18 sub-17 ✓ |
+| H5 | `withTimeout` no abort — `handleTask` stale flights | TaskQueueService.ts:1386-1394 | **Premise stale** | Phase 9 서버 큐 도입 후 `generateImage = POST /queue/add` cheap ACK. client-side 백그라운드 fetch에 multi-MB vibe stack 가정 stale. runInternal serial while loop라 단일 in-flight. 실제 위험 ≈ 0. 변경 surface (TaskHandler interface + 3 구현체 + backend signature + fetch signal plumb) 큼. | P17→P18 sub-17 ✓ |
+| H6 | `embedJSONInPNG/readJSONFromPNG` sync decode/encode | SessionService.ts:855-888 | **Web Worker Refactor project** | 다중파일 batch freeze는 H16 (`816fed8` handleFiles 4-chunk + yield)로 부분 흡수. 단일파일 50-150ms 모바일 hitch는 Web Worker 인프라 신규 — Refactor project. | P17→P18 sub-17 ✓ |
+| H7 | `useTournament useMemo([tick, scene, toURL])` podium re-sort | useTournament.ts:190-237 | **Severity overstated + measurement-first** | audit "10ms per click" 추정. 500 items simple comparator sort는 모바일 1-2ms 수준 예상. game-version 감지 인프라 필요. 실측 없는 estimation으로 fix 정당화 약함. | P17→P18 sub-17 ✓ |
+
+### Medium Defer (14건)
+
+| # | Entry | Location | 카테고리 | 사유 | 재검토 |
+|---|---|---|---|---|---|
+| M1 | `Error responses leak absolute paths` | server.js (50+ patterns) | **본인 환경 trade-off** | tailnet 단일 사용자 + 외부 노출 0 + 본인 디버깅에 정확한 path 봐야 식별. 50+ 호출처 일괄 마이그레이션 비용 vs 효용 trade-off. | P18 sub-6→sub-17 ✓ |
+| M2 | `appState.messages/progressDialogs map reassign` | AppService.ts:480-626 | **claim stale (verify ✓)** | 코드 정독 결과 line 492/500/564/567/568/574/584/590/601/602 다 `splice/push` indexed mutation. `this.X = this.X.map(...)` reassign 패턴 0건. audit claim hallucination 또는 옛 코드. | P18 sub-11→sub-17 ✓ |
+| M3 | `dispatchProgress micro-event idle 30s polls` | TaskQueueService.ts:1380-1382 | **partial invalid (verify ✓)** | "idle 30s polls" 부분 invalid — Section 0 fence "restoreMirroredState idle gate" (line 793)로 idle 시 polling skip → dispatchProgress 호출 X. 나머지 12 호출처는 task state 변경 정상 흐름. simple event dispatch, diff 책임은 subscriber 측. | P18 sub-13→sub-17 ✓ |
+| M4 | `gatherExportItems 60k 9MB body` | AppService.ts:1749-1820 | **사용자 페인 미확인** | 9MB는 60k+ entries 시나리오 한정. 본인 사용 (<프로젝트> 30 projects × 100 = 3k entries, ~300KB body) 미도달. 서버 walk refactor는 (a) endpoint 신규 (b) 클라 분기 변경 (c) SDMirror crop 흐름 분리 — Refactor project. | P18 sub-15→sub-17 ✓ |
+| M5 | `visibilitychange + pagehide listeners` 3 services | 3 services | **by-design singleton (audit 본문도 명시)** | audit 본문 "Acceptable for singletons" 명시. 3 services 모두 module-level singleton — lifecycle ≡ tab lifecycle, listener never removed 의미 X. dispose는 testability 인프라용, 우리 환경 미사용. | P18 sub-11→sub-17 ✓ |
+| M6 | `CyclingSessionService.disposers` leak on re-start | CyclingSessionService.ts:29,69-77,202-213 | **verify ✓ (guard 박힘)** | `start()` line 42 `if (this.state === 'running') return` 가드 + `cleanup()` line 210-213 `disposers = []` reset. edge case 시나리오 (paused state에서 cleanup 없이 start 재호출) 명시 안 됨. 일반 흐름 leak 없음. | P18 sub-11→sub-17 ✓ |
+| M7 | `NovelAiImageGenService.login` Argon2id | genVendors/nai.ts | **DEAD** | P18 commit `1ccf840`로 genVendors/ 통째 삭제. NovelAiImageGenService 0 caller (서버 측 NAI 인증 사용, P17 `a609c5b`). | P18 sub-6→sub-17 ✓ |
+| M8 | `WorkFlowService` builds fresh observables per call | WorkFlowService.ts:21-33,68-82 | **claim invalid (design 의도)** | caller 정독 결과 buildShared/buildPreset/buildMeta 호출처 (PreSetEditor 4 / ExternalImageView 2 / SceneQueueControl 2 / SceneEditor 1 / SessionSelect 1 / CyclingSessionService 1 / AppService 1) 모두 결과 instance를 store 또는 scene.meta에 저장 — fresh instance가 design 의도. Cache 도입 시 cross-contamination 위험. | P18 sub-13→sub-17 ✓ |
+| M9 | `NovelAiImageGenService.getConfig` 30s TTL cache | genVendors/nai.ts | **DEAD** | P18 commit `1ccf840`로 삭제됨. | P18 sub-6→sub-17 ✓ |
+| M10 | `queueRemoveBg width:0 height:0` silent failure | OneTimeFlows.ts:33-52 | **verify ✓ (조건부 claim 미트리거)** | width/height는 bg removal 작업이라 dimensions 자동 추출 (NAI augment API + local SD bg-removal 둘 다). server validation 없음 → 조건부 claim "if server validates" 미트리거. 실제 사용자 정상 작동 보고. | P18 sub-11→sub-17 ✓ |
+| M11 | `generateImage reference_strength_multiple` divide by zero | genVendors/nai.ts | **DEAD** | P18 commit `1ccf840`로 삭제됨. | P18 sub-6→sub-17 ✓ |
+| M12 | `addAllToQueue fire-and-forget chunk loop` no AbortController | SceneQueueControl.tsx:651-730 | **design 의도** | line 692 주석 "fire-and-forget: dialog 즉시 닫고 백그라운드에서 진행 → 다른 작업 가능". 사용자 navigate 후 toast 도착이 본인 의도 ("이전 작업 끝났구나" 안내). AbortController로 cancel하면 의도 거스름. | P18 sub-11→sub-17 ✓ |
+| M13 | `taskCommitsRef Map slow-leaks` pathological scenarios | TaskQueueControl.tsx:299-302,506-512 | **verify ✓ (vanish timer 박힘)** | line 508+ `vanishTimer = setInterval(...)` 박혀 있어 각 레벨 (sceneSnap/projectSnap/folderSnap) `completedAt + VANISH_DELAY_MS` 후 snap 제거 + visibility false. 모든 visibility false면 commit 정리. 일반 흐름 leak 없음. pathological 시나리오 (visibility flag stuck true) 명시 안 됨. | P18 sub-11→sub-17 ✓ |
+| M14 | `BigPromptEditor setTimeout 100ms editDisabled` | SceneEditor.tsx:144-151 | **Q4 UX 영향 작음** | setTimeout cleanup `clearTimeout(timer)` 박혀있어 leak 없음. 100ms input blocking UX 영향 매우 작음 (mount race 회피 의도 추정). React 18 concurrent mode double-invoke도 cleanup으로 보호. | P18 sub-11→sub-17 ✓ |
+
+### Low Defer (~45건, by-design/cosmetic 다수)
+
+요약: by-design singleton 패턴 / cosmetic preference (uuid v4 vs Math.random) / V8 optimization 자동 처리 (iterator alloc inline) / 사용자 페인 미확인 (PromptService Int8Array per call, AppService slotKey JSON.stringify) / claim invalid (addBatchChain settled promise GC) / Cross-cutting refactor (walkAndAdd full memory backup) / 환경 제약 (rclone child process timeout, self-update graceful flush). 자세히는 각 layer "Low-severity findings" 섹션 bullet 안 ✓/⊘ 마킹 + 사유 명시 박힘.
+
+---
 
 **P18 sub-15→sub-16 마킹 sweep**: 본인 의문 "미처리한 게 아예 없다는 거야?"가 정확한 catch — entry 헤더에 ✓/⊘ 마킹 누락된 11건이 "미처리" 표면 효과를 만들었음. 정독해보니 다 P18 sub-11/sub-13/sub-15에서 verify done 또는 claim invalid 또는 DEAD code 분류됨. 마킹 sweep으로 모든 entry header가 ✓ (fix) / ⊘ verify ✓ / ⊘ Q4 / ⊘ DEAD / ⊘ claim invalid / ⊘ by-design / ⊘ design 의도 / ⊘ 사용자 페인 미확인 중 하나로 명시. **모든 audit entry 처리 완료**.
 
