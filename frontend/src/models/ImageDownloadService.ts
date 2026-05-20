@@ -225,12 +225,19 @@ export class ImageDownloadService {
             // Drive 업로드는 중복 회피용 timestamp 항상 권장. settings 덮어쓰기 X.
             includeTimestamp: this.settings.includeTimestamp,
           });
-      const downloadName = `${baseFilename}.png`;
 
       await appState.refreshDriveRetryStatus();
       const driveAvailable = appState.driveRetryStatus?.driveAvailable !== false;
 
       if (driveAvailable) {
+        // 같은 씬의 N장을 연속 다운로드해도 Drive에 모두 남도록 exports/ 내 unique 이름 부여.
+        // baseFilename 그대로면 두 번째 클릭이 첫 번째 파일을 덮어쓰고 rclone copy도 같은 경로 →
+        // Drive에 마지막 1장만 남는 페인 (2026-05-20).
+        const downloadName = await getUniqueFilename(
+          'exports',
+          baseFilename,
+          'png',
+        );
         // exports/{filename}.png에 쓰고 sync-exports 큐 등록 (Drive backup 폴더로 업로드).
         const exportPath = 'exports/' + downloadName;
         const imageData = await imageService.fetchImage(imagePath);
@@ -258,9 +265,11 @@ export class ImageDownloadService {
         }
       }
 
-      // Drive 미가용 또는 큐 등록 실패 → 브라우저 직접 다운로드. customFilename 살리려 a.download 활용.
-      await backend.copyToDownloads(imagePath, downloadName);
-      appState.pushMessage(`다운로드 시작: ${downloadName}`);
+      // Drive 미가용 → 브라우저 직접 다운로드. customFilename 살리려 a.download 활용.
+      // 브라우저는 OS가 동일 이름 충돌을 `(1).png` 형태로 알아서 처리.
+      const fallbackName = `${baseFilename}.png`;
+      await backend.copyToDownloads(imagePath, fallbackName);
+      appState.pushMessage(`다운로드 시작: ${fallbackName}`);
       return true;
     } catch (e: any) {
       console.error('Failed to download image:', e);
