@@ -1,6 +1,6 @@
 {
-  "version": "1.7.0",
+  "version": "1.7.1",
   "sdstudioBase": "4.8.0",
-  "released": "2026-05-17",
-  "notes": "stable. v1.6.1 → v1.7.0 minor. 자동 업데이트 시스템 박음. 새 버전 알림 알약 클릭 → '지금 업데이트' → 단계별 progress bar → 새로고침. SSH 접속 불필요, iPhone에서도 한 클릭. (1) Server: POST /api/self-update endpoint (lib/self-update.js). NAI 로그인 상태(nai.token 존재)로 인증 — 별도 admin token 입력 없음. 동시 두 번 트리거 차단 락. NDJSON 스트림 (Content-Type: application/x-ndjson + X-Accel-Buffering: no) 으로 단계별 진행 보고: checking → pulling → installing → installing-frontend → building → writing-buildinfo → restarting. dirty working tree 가드 (update.sh와 동일 정책). 마지막 단계 후 detached spawn pm2 restart + 1초 process.exit — pm2가 새 인스턴스로 갈아끼움. (2) Client: BuildInfo UpdateModal 자동 흐름. idle (현재 버전 + 최신 버전 + notes + '지금 업데이트' / '나중에') → running (단계별 progress bar, backdrop 클릭 차단) → done ('새로고침' 버튼 → location.reload) → error (다시 시도 / 닫기). HTTP 401 분기 → 'NAI 로그인 필요' 안내. waitForServerRestart 3초 sleep + 60초 동안 2초 간격 build-info 폴링. (3) 설계: PocketRisu(NDJSON 스트림 + 락 vs disconnect 분리 + dismissed-version localStorage) 패턴 차용 + 우리 환경 단순화: git pull로 release artifact 대체 (Phase 1/2 backup 트랜잭션 → git이 알아서) / pm2 restart로 자기 자신 프로세스 교체 (detached spawn 불필요) / GitHub raw version.json 직접 (Cloudflare Worker 없이) / NAI 로그인 검증 (별도 JWT 인증 안 박음)."
+  "released": "2026-05-21",
+  "notes": "patch. v1.7.0 → v1.7.1. WS path strip fix. WebSocketServer를 noServer 모드 + server 'upgrade' handler로 전환해 URL_PREFIX strip을 WS upgrade 경로에도 적용. 본인 main은 Tailscale serve `--set-path=/nainai` path strip에 의존이라 기존 `path:'/ws'` 박힌 채로도 정상 동작했지만, path strip 안 하는 reverse proxy 환경(lxc proxy / 직접 포트 노출 / Cloudflare Tunnel 등)에선 WS 끊김 → 폴링 30초 fallback으로만 동작 → 실시간 업데이트(썸네일/알약/큐 카운터) 지연. fix로 모든 reverse proxy 환경 cover. Origin verification은 noServer 모드에서 verifyClient option이 무시되므로 upgrade handler에서 직접 (cross-origin 차단 보존). 본인 dogfood 측정에서 표면화 (LXC fresh ubuntu:24.04 + lxc proxy device로 plain HTTP 접속)."
 }

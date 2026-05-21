@@ -9,6 +9,93 @@
 
 ---
 
+## v1.7.1 (2026-05-21)
+
+patch. v1.7.0 → v1.7.1 (84 commit). **WS path strip fix가 직접 동기**, 그 외 v1.7.0 이후 4일간 P17/P18 audit batch + 잡 fix 누적.
+
+### 직접 동기 — WS path strip fix
+- **fix(ws)** (`a277046`): `WebSocketServer`를 `noServer` 모드 + `server 'upgrade'` handler로 전환해 `URL_PREFIX` strip을 WS upgrade 경로에도 적용. 본인 main은 Tailscale serve `--set-path=/nainai` path strip에 의존이라 정상 동작이었지만, **path strip 안 하는 reverse proxy 환경(lxc proxy / 직접 포트 노출 / Cloudflare Tunnel / nginx without `proxy_pass /`)에선 WS 끊김 → 폴링 30초 fallback → 실시간 업데이트(썸네일/알약/큐 카운터) 지연**. fix로 모든 reverse proxy 환경 cover. Origin verification은 `noServer` 모드에서 `verifyClient` option이 무시되므로 upgrade handler에서 직접 (cross-origin 차단 보존). 본인 dogfood 측정 (LXC fresh ubuntu:24.04 + lxc proxy device로 plain HTTP 접속)에서 표면화.
+
+### 큐 / 작업 흐름
+- **fix(queue)** (`57ef13d`): `addTask` sync void 회귀 + App 글로벌 `error` listener — 예약 추가 instant 복원. `db51f76` `addTask async + await` 회귀로 "모두 예약추가" 로딩 페인 → caller 즉시 return + `addMirroredTask` background, sync block (`stats += task.total` + `dispatchProgress`) 즉시 fire라 UI 카운터 instant 점프 보존.
+- **fix(queue)** (`0266133`): `queueWorkflow Promise.all` → 옛 `for await` 회귀. 씬 카운터 점진 회귀 fix.
+- **fix(queue.html)** (`a2bd1e7`): BASE strip regex `.html` optional — `/queue` alias 접속 시 API 404 fix.
+- **fix(queue)** (`18d23ea`, `ec10fcc`, `0db4b86`): 카운터 commit-based 재설계 + add↔restore race + rejection 시 `originalTotal` 보정 — restore race로 분모/분자 오류 차단.
+- **fix(queue-list)** (`dfdc762`): cancel ≠ complete 분리 — false-positive "X/X 완료" 차단.
+- **feat(queue.html)** (`b2a184d`, `267a827`): '대기' 카드 클릭 → 폴더/프로젝트/씬 3단 트리 + 단위별 취소. `/api/queue/full-state`에 folders 매핑 + `/api/queue/cancel-by-job-ids`.
+
+### 폴더 / 백업 / 다운로드
+- **fix(rename)** (`36965b7`): 폴더 안 프로젝트 rename 시 폴더 유지.
+- **feat(tree-picker)** (`c017572`): 폴더 안 프로젝트 + 폴더명 자연 정렬 (한글/숫자/알파벳).
+- **fix(import)** (`c826c42`): 프로젝트 불러오기 시 `curSession` 폴더로 자동 배정.
+- **feat(backup)** (`990b73b`): 폴더 동시 백업 + 이미지 미포함 옵션.
+- **fix(folder-delete)** (`5997eda`, `4bbc0f7`): 폴더 영구 삭제 batch API — 모바일 abort로 일부만 삭제되던 페인. chunk 병렬 + `rclone --tpslimit 10` Drive 처리 시간 단축.
+- **fix(download)** (`074f2da`): 단일 다운로드 unique filename — Drive 덮어쓰기 차단.
+
+### Perf — audit 11 카테고리 batch (P17 Critical 9건 + P18 High 18 + Medium/Low ~80건)
+
+#### Server (backend)
+- **perf(server)** (`9f9ab8b`): `walkDir` 50k node cap + SPA fallback `existsSync` 부팅 캐시 (M9+M13).
+- **perf(server)** (`c8ac165`): `timingHistory` shift loop → splice once O(n²) → O(n) (M6).
+- **perf(server)** (`8a03242`): `prewarmThumbnails` fire-and-forget — 다음 job 즉시 시작 (M5).
+- **perf(server)** (`d405295`): `broadcastQueueStatus` 250ms debounce (M4).
+- **perf(server)** (`1d9a277`): `reconcileImageMap` 매 file loop top에 `setImmediate` yield (M2).
+- **fix(server)** (`6e203d9`): `processQueue` 호출처 `.catch` wrap — sync throw unhandled rejection 차단 (M1).
+- **perf(server)** (`1b668e3`): queue state save async write — main thread 블록 회피.
+- **perf(server)** (`d835e9e`): `getDiskFreeGB` 5s cache + `/api/queue/completed` find async.
+- **perf(server)** (`04eb8c6`): fs batch endpoints — `chunkedMap` 16-concurrency.
+- **perf(server)** (`ef1ee12`): `processQueue` 429/5xx retry — `interruptibleSleep`로 pause latency 5s → 200ms.
+- **fix(server)** (`2cc6e40`): SIGINT/SIGTERM shutdown cleanup — driveRetry interval + completedJobs flush.
+- **fix(server)** (`c2c30bc`): WS broadcast back-pressure (C3) + zip streaming archive (C2).
+- **perf+fix(backend)** (`b97cc2b`): Medium 4 + Low 5 batch.
+
+#### Frontend Models / Services
+- **fix(image-service)** (`7ce2f6a`): mutex broken FIFO 재설계 — race-free chain + release token.
+- **fix(image-service)** (`8e347c2`): session delete/rename 시 images/inpaints map GC (H10).
+- **perf(image-service)** (`e52e824`): `dataUriToBase64` split → `indexOf+slice` — 10-100× 가속 (H21).
+- **perf(task-queue)** (`1104d64`): `taskLogs` splice O(N) → amortized O(1) — 2× capacity slice (H13).
+- **fix(vibe-image)** (`0269569`): `fetchImageSmall` cancellation guard — stale resolve overwrite 차단 (H23).
+- **perf+fix(models)** (`ad8ccc7`): Medium 4 + Low 4 batch.
+- **perf(audit-l713)** (`750949f`): LRU cap 감소 — `IMAGE_CACHE_SIZE` 256→96, mobile 64→24.
+
+#### Frontend Components / Workflows
+- **perf(scene-cell)** (`c2fd8a0`): progress diff + cache-invalidated path filter (H22).
+- **perf(task-queue-control)** (`c0d1ed0`, `c12d5bc`): `syncFromService` rAF coalesce — 한 frame 다중 이벤트 1회 합침 (H24) + rAF cancel on unmount.
+- **perf(app-service)** (`1e7d554`, `e70aeb4`): `pasteImagesFromClipboard` 4-chunk 병렬 (H15) + `handleFiles` JSON.parse 4-chunk 병렬 + yield (H16).
+- **fix(server-backend)** (`b0242a1`, `082469e`, `c49b6ac`): WS reconnect backoff + identity 가드 + online reset (H17) + heavy endpoint 60s → 180s (H18) + `copyImageToClipboard` AbortController + 30s timeout (H20).
+- **perf+fix(workflows+components)** (`094e74e`): Medium batch.
+- **perf+fix(audit-low)** (`4a77f4a`): `AugmentWorkFlow` `dataUriToBase64` double-allocation (P18 sub-12).
+- **perf+fix(audit-low)** (`1e39a51`): Workflows/Components Low 5건 quick win cherry-pick.
+- **perf(audit-medium)** (`ba5fdbf`): Models/Components Medium 4건 — typed array + viewport + in-place + scroll.
+- **perf+fix(audit-q4)** (`db51f76`): Localized 4건 — `TournamentArena` JSX / `cropMirror` async / `addTask` await / api retry.
+- **perf(queue)** (`637e416`): idle 시 30s 폴링 skip — `mirroredTasks.size > 0 || mirrorPaused` 게이트.
+- **perf(workflow)** (`cefc3e0`): `prepareMirrorCanvas` `toBlob` async + img timeout + canvas teardown.
+- **perf(queue-batch)** (`1594973`): `addMirroredTask` items/localOutputs closure 즉시 풀기.
+- **perf(nai)** (`b35a922`): `generateImage`/`augmentImage` base64 round-trip 제거.
+
+### 기타 UX / Fix
+- **fix(version-check)** (`304e973`): negative cache + single-flight (M7).
+- **fix(theme)** (`3a26333`): portal 자식 다크모드 적용 — `documentElement`에 `dark` 토글.
+- **fix(viewer)** (`a899490`): 삭제 후 stale `selectedIndex` → split throw 차단.
+- **perf(scene)** (`6d4ee53`): `BigPromptEditor` `useEffect` deps `[]` 추가.
+- **ui(image-selector)** (`8a9a325`): 셀 구조를 `ImageGallery` 패턴에 정합.
+
+### Docs / Architecture
+- **docs(agent-rules)** (`98b5698`): S1-S5 protocol + audit Section 0 architecture fences.
+- **docs(audit)** (`b470f22`): runtime audit 11카테고리 instructions + 첫 report 도입.
+- **docs(audit)** (`fb0a635`): Section 0 Architecture Pass + Verification/Surface 필드 + 사분면.
+- **chore(dead-code)** (`091cc7e`): `frontend/src/backends/genVendors/nai.ts` (`NovelAiImageGenService`) 삭제.
+- **docs(README)** (`780d091`, `b37f3cd`): 자동 업데이트 인증/위협 모델 명시 보강 + v1.7.0 누락된 docs 보완 (CHANGELOG entry + SDStudio 비교 표 + 용어 통일).
+- **chore(gitignore)** (`2a947f7`): dev notes (CLAUDE/JOURNAL/.code-review/heat-diagnosis) gitignore 추가.
+
+### dogfood 검증
+- LXC fresh ubuntu:24.04 컨테이너 + lxc proxy device(host:6249 → 컨테이너:6247)로 plain HTTP 접속 시뮬. README Step 1-5 실측 — Step 1 (Node.js 설치) 50초 / Step 2 (git clone + setup.sh) 26초 / Step 4 (pm2 start) 11초. 막힘 0건. setup.sh `$(pwd)` 동적 path OK, README 흐름 정확.
+- WS path mismatch가 직접 발견. fix 후 host에서 `/ws` + `/nainai/ws` 둘 다 101 OK + `/foo/ws` reject ✓.
+- L2.5 audit 11 카테고리 발견 0건. L3 게이트 통과 (main + dogfood 양쪽 회귀 X).
+- 잔여 발견 (alpha 단계 secondary): plain HTTP 환경에서 큐 추가 클릭 → UI 반영 1~1.5초 지연. 원인 가설(HTTPS+HTTP/2 vs HTTP/1.1 connection-per-request, Service Worker plain HTTP fail path). README "Step 6 Tailscale serve 권장" 안내로 체공.
+
+---
+
 ## v1.7.0 (2026-05-17)
 
 stable. v1.6.1 → v1.7.0 minor. **자동 업데이트 시스템**. SSH 접속 없이 UI 한 클릭으로 업데이트. PocketRisu 패턴 차용 + 우리 환경 단순화.
