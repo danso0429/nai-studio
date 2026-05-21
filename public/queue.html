@@ -1128,11 +1128,9 @@
         + '</div>'
       );
     }
-    // 제작자 baseline 비교 카드 — 본인 환경 누적 적을 때 expected duration 참고용.
+    // 제작자 baseline — 신규 설치 사용자 참고용 정적 데이터. 본인 데이터와 별개 표시, 비교 X.
     if (baselineStatsData && baselineStatsData.buckets) {
       const bs = baselineStatsData;
-      const myAvg = timingHistoryData && timingHistoryData.stats ? timingHistoryData.stats.allTimeAvgMs : 0;
-      const myCount = timingHistoryData && timingHistoryData.stats ? timingHistoryData.stats.allTimeCount : 0;
       const chartW = 600, chartH = 80, topPad = 14, bottomPad = 16, gap = 4;
       const barW = (chartW - gap * (bs.buckets.length - 1)) / bs.buckets.length;
       const maxAvg = Math.max(...bs.buckets.map(b => b.avgMs), 1);
@@ -1160,24 +1158,13 @@
           + '</rect>' + valueText + hourText + '</g>';
       }).join('');
       const totalSvgH = topPad + chartH + bottomPad;
-      // 본인 평균 vs baseline 평균 비교 한 줄
-      let compareText;
-      if (myCount === 0) {
-        compareText = '본인 누적 0건 — baseline 참고. 본인이 생성 시작하면 본인 데이터도 누적됩니다.';
-      } else {
-        const diff = myAvg - bs.allTimeAvgMs;
-        const diffSec = (diff / 1000).toFixed(2);
-        const sign = diff > 0 ? '+' : '';
-        compareText = '본인 평균 ' + (myAvg/1000).toFixed(2) + '초 (' + myCount.toLocaleString() + '건) vs baseline ' + (bs.allTimeAvgMs/1000).toFixed(2) + '초 → 차이 ' + sign + diffSec + '초';
-      }
       parts.push(
         '<div class="card full" style="margin-top:8px;">'
-        + '<div class="label">📊 참고 baseline — 제작자 환경 ' + bs.allTimeCount.toLocaleString() + '건 누적 (snapshot ' + bs.snapshotDate + ')</div>'
+        + '<div class="label">📊 참고 baseline — 제작자 환경 ' + bs.allTimeCount.toLocaleString() + '건 누적, 평균 ' + (bs.allTimeAvgMs/1000).toFixed(2) + '초 (snapshot ' + bs.snapshotDate + ')</div>'
         + '<svg viewBox="0 0 ' + chartW + ' ' + totalSvgH + '" preserveAspectRatio="none" style="width:100%; height:140px; margin:8px 0; background:#1a1d23; border-radius:4px;">'
         + baselineBars
         + '</svg>'
-        + '<div class="small" style="color:#c4b5fd; margin-bottom:4px;">' + compareText + '</div>'
-        + '<div class="small muted">보라색 = baseline (제작자 평균) · ' + (bs.note || '') + '</div>'
+        + '<div class="small muted">' + (bs.note || '') + '</div>'
         + '</div>'
       );
     }
