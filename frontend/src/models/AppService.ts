@@ -3516,25 +3516,23 @@ export class AppState {
    * (다른 디바이스에서 삭제했거나 프로젝트 닫힌 사이 정리됐을 때) residual data
    * (vibes/refs/prompts) clear + appliedCharacterPreset unset. 토스트는 안 띄움 —
    * 사용자가 능동적으로 해제한 게 아니라 일관성 회복이라 알림 가치 X.
-   * upstream SDStudio v4.8.1 patch port — fork는 appliedCharacterPreset 단일 observable
-   * 이라 upstream의 _appliedPresetName per-shared 정리 대신 한 번에 처리.
+   * upstream SDStudio v4.8.1 patch port. 모든 presetShareds 순회 — 사용자가 EASY
+   * 워크플로우에서 프리셋 적용 → SD로 전환 → orphan 발생 시 EASY shared residue가
+   * 다음 EASY 진입 시 표면화되는 케이스도 cover.
    */
   @action
   cleanupOrphanedPresetApplication() {
     if (!this.curSession || !this.appliedCharacterPreset) return;
     if (this.curSession.hasCharacterPreset(this.appliedCharacterPreset)) return;
-    // 적용된 프리셋이 삭제된 상태 — residual clear (clearAppliedCharacterPreset과 동일 로직, 토스트만 생략).
-    const workflowType = this.curSession.selectedWorkflow?.workflowType;
-    if (workflowType) {
-      const shared = this.curSession.presetShareds.get(workflowType);
-      if (shared) {
-        shared.vibes = [];
-        shared.characterReferences = [];
-        if (workflowType === 'SDImageGenEasy') {
-          shared.characterPrompt = '';
-          shared.backgroundPrompt = '';
-          shared.uc = '';
-        }
+    // 적용된 프리셋이 삭제된 상태 — 모든 워크플로우 shared의 residual 일괄 clear.
+    for (const [workflowType, shared] of this.curSession.presetShareds) {
+      if (!shared) continue;
+      shared.vibes = [];
+      shared.characterReferences = [];
+      if (workflowType === 'SDImageGenEasy') {
+        shared.characterPrompt = '';
+        shared.backgroundPrompt = '';
+        shared.uc = '';
       }
     }
     this.appliedCharacterPreset = undefined;
