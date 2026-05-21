@@ -617,7 +617,13 @@ const OtherTab = ({
             className="text-sky-500 hover:text-sky-400 cursor-pointer"
             onClick={() => backend.openWebPage('https://github.com/danso0429/nai-studio')}
           >
-            GitHub — danso0429/nai-studio
+            GitHub — danso0429/nai-studio (본 fork, 서버 이식)
+          </a>
+          <a
+            className="text-sky-500 hover:text-sky-400 cursor-pointer"
+            onClick={() => backend.openWebPage('https://github.com/Dd154663/SDStudio')}
+          >
+            SDStudio 데스크톱 — Dd154663/SDStudio (Electron)
           </a>
           <a
             className="text-sky-500 hover:text-sky-400 cursor-pointer"
