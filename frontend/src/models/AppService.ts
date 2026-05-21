@@ -181,6 +181,12 @@ export class AppState {
   @observable accessor driveRetryStatus: DriveRetryStatus | null = null;
   @observable accessor driveRetryModalOpen: boolean = false;
 
+  // 백그라운드 진행 중인 다중 내보내기에 포함된 프로젝트 이름. projectExportMulti가
+  // 시작/iteration-끝에서 add/delete. deleteProjectBackground / projectRename이 사전
+  // 체크해서 race 차단 (export 중 디스크 파일 삭제/이동되면 vibe fetch 실패 + Drive
+  // sync 큐 거부 등 일관성 깨짐). 씬 수정은 toJSON 스냅샷-safe라 차단 안 함.
+  @observable accessor exportingProjects: Set<string> = new Set();
+
   // 여러 프로젝트 한 번에 임포트(드래그 ≥2 JSON) 시 새 프로젝트 이름 입력 다이얼로그 상태.
   // MultiImportNameDialog가 observer로 읽어 렌더. null이면 다이얼로그 닫힘.
   @observable accessor multiImportRequest: {
@@ -417,12 +423,21 @@ export class AppState {
       this.pushMessage(`프로젝트 "${name}"${josaIGa(name)} 이미 삭제 중이에요.`);
       return;
     }
+    if (this.exportingProjects.has(name)) {
+      this.pushMessage(`프로젝트 "${name}"${josaIGa(name)} 백그라운드 내보내기 중이에요. 끝난 뒤 다시 시도해주세요.`);
+      return;
+    }
     this.pushDialog({
       type: 'confirm',
       text: `"${name}" 프로젝트를 영구 삭제합니다. 로컬과 Google Drive의 모든 데이터(outs/inpaints/vibes/inpaint_masks/inpaint_orgs/exports)가 함께 지워지며 되돌릴 수 없습니다. 진행할까요?`,
       callback: async () => {
         if (sessionService.deletingProjects.has(name)) {
           this.pushMessage(`프로젝트 "${name}"${josaIGa(name)} 이미 삭제 중이에요.`);
+          return;
+        }
+        // dialog 띄운 사이 export 시작될 수도 있어 callback에서도 재검사.
+        if (this.exportingProjects.has(name)) {
+          this.pushMessage(`프로젝트 "${name}"${josaIGa(name)} 백그라운드 내보내기 중이에요. 끝난 뒤 다시 시도해주세요.`);
           return;
         }
         sessionService.deletingProjects.add(name);
@@ -1390,6 +1405,10 @@ export class AppState {
       names.length,
     );
 
+    // 락 등록 — delete/rename에서 사전 체크. 한 iteration 끝나면 그 이름만 해제해
+    // 다른 이름 작업 풀어줌. 전체 끝나면 빈 Set.
+    for (const n of names) appState.exportingProjects.add(n);
+
     let succeeded = 0;
     let completed = 0;
     const failedNames: string[] = [];
@@ -1433,6 +1452,7 @@ export class AppState {
         console.warn(`[projectExportMulti] ${name} failed:`, e);
       } finally {
         completed++;
+        appState.exportingProjects.delete(name);
         appState.updateProgressDialog(pid, {
           done: completed,
           text: `내보내는 중... ${completed}/${names.length}`,
@@ -1764,6 +1784,11 @@ export class AppState {
       return;
     }
     if (appState.blockIfBusy()) return;
+    const curName = appState.curSession.name;
+    if (appState.exportingProjects.has(curName)) {
+      appState.pushMessage(`프로젝트 "${curName}"${josaIGa(curName)} 백그라운드 내보내기 중이에요. 끝난 뒤 다시 시도해주세요.`);
+      return;
+    }
     appState.pushDialog({
       type: 'input-confirm',
       text: '새로운 프로젝트 이름을 입력해주세요',
@@ -1774,6 +1799,11 @@ export class AppState {
           return;
         }
         const oldName = appState.curSession!.name;
+        // dialog 띄운 사이 같은 프로젝트가 export 큐에 들어갔을 수도. callback 재검사.
+        if (appState.exportingProjects.has(oldName)) {
+          appState.pushMessage(`프로젝트 "${oldName}"${josaIGa(oldName)} 백그라운드 내보내기 중이에요. 끝난 뒤 다시 시도해주세요.`);
+          return;
+        }
         await imageService.onRenameSession(oldName, inputValue);
         await sessionService.rename(oldName, inputValue);
         appState.curSession!.name = inputValue;
