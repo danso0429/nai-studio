@@ -9,6 +9,26 @@
 
 ---
 
+## v1.7.2 (2026-05-21)
+
+patch. v1.7.1 → v1.7.2. v1.7.1 LXC dogfood 후속 sanitize sweep. 기능/안정성 변경 없음 — fresh install 안내 정확성 + push leak surface 차단 위주.
+
+### Docs / Install 안내 정확화
+- **docs(install)** (`1508ed2`): `~/nai-studio-2` → `~/nai-studio` (README 업데이트 안내 / update.sh / cleanup_old_files.sh cron 주석 / CHANGELOG v1.5.0 entry). 본인 dev 디렉터리명이 박혀있어 public 기본 설치 경로(`git clone .../nai-studio`)와 충돌하던 안내 페인 fix. README rclone 섹션: `RCLONE_REMOTE` 기본값 (옛 `gdrivemain` 박힘) → '미설정' 사실수정, opt-in 모드 노트 + `rclone config` wizard 단계별 안내(10단계) + `.env.local` 박는 법 + `rclone lsd` 검증 명령. `.env.example`에 `RCLONE_REMOTE`/`RCLONE_REMOTE_BASE` 주석 추가 (default opt-out 명시). CHANGELOG v1.5.0-preview.4 entry 옛 본인 reference 사후 sanitize.
+
+### UI Link 정정
+- **fix(links)** (`eb2af22`): 업데이트 알림 모달(`App.tsx`) + Config '기타' 탭(`ConfigScreen.tsx`)의 GitHub 링크 3곳이 옛 원본 `Dd154663/SDStudio`를 가리키던 잔재 → `danso0429/nai-studio` 본인 fork로 정정. v1.7.1 dogfood UI 동선에서 발견.
+
+### Security / Leak Surface
+- **fix(self-update)** (`048d401`): `runStep` 에러 응답에서 `projectDir` abs path 마스킹 (`<project>` 치환). `sanitizeStderrPaths` 헬퍼 신설 — git/npm/vite stderr·stdout·`e.message`에 박힌 deployee install abs path leak 차단. 자동 업데이트 UI 모달에 그대로 표시되던 경로 leak 방지. 다른 abs path(예: `/etc/...`)는 그대로라 디버깅 가치 유지. 겸 옛 인라인 코멘트의 risuai-nodeonly 절대경로 인용을 'GitHub에서 찾을 수 있음' 형식으로 sanitize.
+- **chore(gitignore)** (`d5ffa5d`): TLS cert/키 가드 (`*.crt` / `*.key` / `*.pem`) — Tailscale `tailscale cert <host>` 산출물이 working tree에 잔존 시 실수 commit으로 hostname leak. P18 #22 sanitize 사고 패턴의 *push 직전 차단* 보강. 겸 잡 bak 패턴 (`*-bak` / `*.preview-bak` / `.audit-pass-*/`).
+- **chore(assets)** (`db6507c`): `defaultassets/{anime,round,sharpRound}.png` non-image chunk(tEXt/iTXt/eXIf metadata) 스트립. IDAT(픽셀 데이터) 3 파일 모두 비교 검증 — byte 단위 완전 동일, 차이는 ~180B씩 metadata만. 본인 카메라/편집 도구 fingerprint 사전 제거. `frontend/styles/ixy.png` (868KB) grep 결과 reference 0건 — 잔재 삭제.
+
+### Build
+- **build** (`eacfc72`): `eb2af22` + `db6507c` 합본 vite build. content-addressable hash라 reproducible — index/anime/round/sharpRound hash 4종 갱신.
+
+---
+
 ## v1.7.1 (2026-05-21)
 
 patch. v1.7.0 → v1.7.1 (84 commit). **WS path strip fix가 직접 동기**, 그 외 v1.7.0 이후 4일간 P17/P18 audit batch + 잡 fix 누적.

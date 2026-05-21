@@ -1,6 +1,6 @@
 {
-  "version": "1.7.1",
+  "version": "1.7.2",
   "sdstudioBase": "4.8.0",
   "released": "2026-05-21",
-  "notes": "patch. v1.7.0 → v1.7.1. WS path strip fix. WebSocketServer를 noServer 모드 + server 'upgrade' handler로 전환해 URL_PREFIX strip을 WS upgrade 경로에도 적용. 본인 main은 Tailscale serve `--set-path=/nainai` path strip에 의존이라 기존 `path:'/ws'` 박힌 채로도 정상 동작했지만, path strip 안 하는 reverse proxy 환경(lxc proxy / 직접 포트 노출 / Cloudflare Tunnel 등)에선 WS 끊김 → 폴링 30초 fallback으로만 동작 → 실시간 업데이트(썸네일/알약/큐 카운터) 지연. fix로 모든 reverse proxy 환경 cover. Origin verification은 noServer 모드에서 verifyClient option이 무시되므로 upgrade handler에서 직접 (cross-origin 차단 보존). 본인 dogfood 측정에서 표면화 (LXC fresh ubuntu:24.04 + lxc proxy device로 plain HTTP 접속)."
+  "notes": "patch. v1.7.1 → v1.7.2. v1.7.1 LXC dogfood (fresh ubuntu:24.04 + lxc proxy plain HTTP) 후속 sanitize sweep — fresh install 시점에 표면화된 안내문 path 정규화 + rclone 본문 정확화 + UI GitHub 링크 본인 fork 정정 + self-update stderr abs path 마스킹 + TLS cert gitignore 가드 + default assets metadata 스트립 + frontend/styles/ixy.png 잔재 삭제. 기능/안정성 변경 없음 — fresh install 안내 정확성 + push leak surface 차단 위주."
 }
