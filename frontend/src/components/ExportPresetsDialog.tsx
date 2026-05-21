@@ -139,7 +139,13 @@ interface PresetRowProps {
 const PresetRow = ({ preset, onApply, onEdit, onDelete }: PresetRowProps) => {
   const summary: string[] = [];
   summary.push(preset.imageSelection === 'fav' ? '즐겨찾기' : '전체');
-  summary.push(preset.fileNameFormat === 'prefix' && preset.prefixName ? `${preset.prefixName}.씬.번호` : '씬.번호');
+  summary.push(
+    preset.fileNameFormat === 'prefix' && preset.prefixName
+      ? `${preset.prefixName}.씬.번호`
+      : preset.fileNameFormat === 'prefix_ask'
+      ? '(입력).씬.번호'
+      : '씬.번호',
+  );
   summary.push(optimizeLabel[preset.optimize]);
   if (preset.optimize !== 'original' && preset.imageSize) summary.push(`${preset.imageSize}px`);
   if (preset.separator && preset.separator !== '.') summary.push(`구분자 "${preset.separator}"`);
@@ -220,10 +226,11 @@ export const PresetForm = ({ preset, onChange, onSave, onCancel, hideName, saveL
         <select
           className="w-full p-1.5 border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-sm"
           value={preset.fileNameFormat}
-          onChange={(e) => onChange({ ...preset, fileNameFormat: e.target.value as 'normal' | 'prefix' })}
+          onChange={(e) => onChange({ ...preset, fileNameFormat: e.target.value as 'normal' | 'prefix' | 'prefix_ask' })}
         >
           <option value="normal">(씬이름).(번호)</option>
           <option value="prefix">(캐릭터).(씬이름).(번호)</option>
+          <option value="prefix_ask">(캐릭터).(씬이름).(번호) — 이름 직접 입력</option>
         </select>
       </div>
 

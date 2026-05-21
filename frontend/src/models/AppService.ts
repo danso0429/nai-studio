@@ -65,8 +65,8 @@ export interface ExportPreset {
   id: string;
   name: string;
   imageSelection: 'fav' | 'all'; // 즐겨찾기만 / 모두
-  fileNameFormat: 'normal' | 'prefix'; // (씬).(번호) / (캐릭터).(씬).(번호)
-  prefixName: string; // prefix 형식일 때 캐릭터 이름. normal이면 빈 string.
+  fileNameFormat: 'normal' | 'prefix' | 'prefix_ask'; // (씬).(번호) / (캐릭터).(씬).(번호) / (캐릭터 직접입력).(씬).(번호)
+  prefixName: string; // prefix 형식일 때 캐릭터 이름. normal/prefix_ask면 빈 string.
   optimize: 'original' | 'lossy' | 'lossless' | 'avif';
   imageSize: number; // optimize !== 'original'일 때만 사용
   separator: string; // 파일명 구분자 (기본 '.')
@@ -359,6 +359,30 @@ export class AppState {
   openExportPresetsDialog(type: 'scene' | 'inpaint') {
     this.exportPresetsDialogType = type;
     this.exportPresetsDialogOpen = true;
+  }
+
+  // ExportPreset의 fileNameFormat을 실제 file-name prefix로 해결.
+  // - 'normal': '' 반환
+  // - 'prefix': prefixName + separator 반환 (prefixName 빈 string이면 '')
+  // - 'prefix_ask': 사용자에게 input-confirm dialog로 캐릭터 이름 입력 받음. cancel 시 undefined.
+  // upstream SDStudio v4.8.2 patch port — 4개 export flow site에서 동일 로직 재사용.
+  async resolveExportPrefix(
+    format: 'normal' | 'prefix' | 'prefix_ask' | undefined,
+    prefixName: string,
+    separator: string,
+  ): Promise<string | undefined> {
+    if (format === 'prefix' && prefixName) {
+      return prefixName + separator;
+    }
+    if (format === 'prefix_ask') {
+      const input = await this.pushDialogAsync({
+        type: 'input-confirm',
+        text: '캐릭터 이름을 입력해주세요',
+      });
+      if (!input) return undefined;
+      return input + separator;
+    }
+    return '';
   }
 
   // 프롬프트조각 에디터 오버레이
@@ -1813,9 +1837,12 @@ export class AppState {
     };
     // 프리셋이 주어지면 다이얼로그 chain skip — 옵션 직접 사용해 즉시 실행.
     if (preset) {
-      const prefix = preset.fileNameFormat === 'prefix' && preset.prefixName
-        ? preset.prefixName + preset.separator
-        : '';
+      const prefix = await appState.resolveExportPrefix(
+        preset.fileNameFormat,
+        preset.prefixName,
+        preset.separator || '.',
+      );
+      if (prefix === undefined) return; // prefix_ask 다이얼로그 cancel
       await exportImpl(
         prefix,
         preset.imageSelection === 'fav',
@@ -1861,9 +1888,12 @@ export class AppState {
       imageSelection: menu === 'fav' ? 'fav' : 'all',
     });
     if (!opts) return;
-    const prefix = opts.fileNameFormat === 'prefix' && opts.prefixName
-      ? opts.prefixName + opts.separator
-      : '';
+    const prefix = await appState.resolveExportPrefix(
+      opts.fileNameFormat,
+      opts.prefixName,
+      opts.separator || '.',
+    );
+    if (prefix === undefined) return;
     await exportImpl(
       prefix,
       opts.imageSelection === 'fav',
@@ -2098,9 +2128,8 @@ export class AppState {
     const imageSize = preset.imageSize;
     const separator = preset.separator || '.';
     const charsToReplace = new Set(preset.charsToReplace || []);
-    const prefix = preset.fileNameFormat === 'prefix' && preset.prefixName
-      ? preset.prefixName + separator
-      : '';
+    const prefix = await appState.resolveExportPrefix(preset.fileNameFormat, preset.prefixName, separator);
+    if (prefix === undefined) return;
 
     const total = projectNames.length;
     const pid = appState.pushProgressDialog(
@@ -2216,9 +2245,8 @@ export class AppState {
     const imageSize = preset.imageSize;
     const separator = preset.separator || '.';
     const charsToReplace = new Set(preset.charsToReplace || []);
-    const prefix = preset.fileNameFormat === 'prefix' && preset.prefixName
-      ? preset.prefixName + separator
-      : '';
+    const prefix = await appState.resolveExportPrefix(preset.fileNameFormat, preset.prefixName, separator);
+    if (prefix === undefined) return;
 
     const pid = appState.pushProgressDialog(
       `'${projectName}' path 수집 중...`,
@@ -3481,6 +3509,35 @@ export class AppState {
     
     this.appliedCharacterPreset = undefined;
     this.pushMessage('캐릭터 프리셋이 해제되었습니다');
+  }
+
+  /**
+   * 프로젝트 로드 시 호출. 적용 중으로 추적되는 프리셋이 실제로는 삭제된 상태면
+   * (다른 디바이스에서 삭제했거나 프로젝트 닫힌 사이 정리됐을 때) residual data
+   * (vibes/refs/prompts) clear + appliedCharacterPreset unset. 토스트는 안 띄움 —
+   * 사용자가 능동적으로 해제한 게 아니라 일관성 회복이라 알림 가치 X.
+   * upstream SDStudio v4.8.1 patch port — fork는 appliedCharacterPreset 단일 observable
+   * 이라 upstream의 _appliedPresetName per-shared 정리 대신 한 번에 처리.
+   */
+  @action
+  cleanupOrphanedPresetApplication() {
+    if (!this.curSession || !this.appliedCharacterPreset) return;
+    if (this.curSession.hasCharacterPreset(this.appliedCharacterPreset)) return;
+    // 적용된 프리셋이 삭제된 상태 — residual clear (clearAppliedCharacterPreset과 동일 로직, 토스트만 생략).
+    const workflowType = this.curSession.selectedWorkflow?.workflowType;
+    if (workflowType) {
+      const shared = this.curSession.presetShareds.get(workflowType);
+      if (shared) {
+        shared.vibes = [];
+        shared.characterReferences = [];
+        if (workflowType === 'SDImageGenEasy') {
+          shared.characterPrompt = '';
+          shared.backgroundPrompt = '';
+          shared.uc = '';
+        }
+      }
+    }
+    this.appliedCharacterPreset = undefined;
   }
 
   /**

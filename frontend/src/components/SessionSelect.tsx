@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import SessionTreePicker from './SessionTreePicker';
 import { FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaRegBookmark } from 'react-icons/fa';
 import Tooltip from './Tooltip';
-import { sessionService, imageService, workFlowService } from '../models';
+import { sessionService, imageService, workFlowService, isMobile } from '../models';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { CharacterPresetFloatEditor } from './CharacterPresetEditor';
@@ -101,36 +101,22 @@ const SessionSelect = observer(() => {
             
             // MobX runInAction으로 모든 변경사항을 한 번에 적용
             runInAction(() => {
-              // 프리셋 값 적용
-              // 바이브 트랜스퍼 적용
-              if (preset.vibes && preset.vibes.length > 0) {
-                shared.vibes = preset.vibes.map((v: VibeItem) => VibeItem.fromJSON(v.toJSON()));
-              }
-              
-              // 캐릭터 레퍼런스 적용
-              if (preset.characterReferences && preset.characterReferences.length > 0) {
-                shared.characterReferences = preset.characterReferences.map((r: ReferenceItem) => ReferenceItem.fromJSON(r.toJSON()));
-              }
-              
-              // SDImageGenEasy의 경우 characterPrompt와 backgroundPrompt 필드 적용
+              // 이전 프리셋 데이터를 먼저 초기화한 뒤 새 프리셋 적용 —
+              // 옛 conditional set은 새 프리셋이 빈 vibes/refs/prompts일 때 잔류했음.
+              // upstream SDStudio v4.8.2 patch port.
+              shared.vibes = preset.vibes && preset.vibes.length > 0
+                ? preset.vibes.map((v: VibeItem) => VibeItem.fromJSON(v.toJSON()))
+                : [];
+              shared.characterReferences = preset.characterReferences && preset.characterReferences.length > 0
+                ? preset.characterReferences.map((r: ReferenceItem) => ReferenceItem.fromJSON(r.toJSON()))
+                : [];
+
               if (workflowType === 'SDImageGenEasy') {
-                // 캐릭터 관련 태그 적용
-                if (preset.characterPrompt) {
-                  shared.characterPrompt = preset.characterPrompt;
-                }
-                
-                // 배경 관련 태그 적용
-                if (preset.backgroundPrompt) {
-                  shared.backgroundPrompt = preset.backgroundPrompt;
-                }
-                
-                // 태그 밴 리스트 적용
-                if (preset.characterUC) {
-                  shared.uc = preset.characterUC;
-                }
+                shared.characterPrompt = preset.characterPrompt || '';
+                shared.backgroundPrompt = preset.backgroundPrompt || '';
+                shared.uc = preset.characterUC || '';
               }
-              
-              // 적용된 프리셋 이름 저장
+
               appState.setAppliedCharacterPreset(preset.name);
             });
             
@@ -172,12 +158,32 @@ const SessionSelect = observer(() => {
       <button className={`icon-button nback-sky mx-1`} onClick={addSession}>
         <FaPlus size={18} />
       </button>
-      <Tooltip content="캐릭터 프리셋 관리">
+      <Tooltip content={appState.appliedCharacterPreset ? `프리셋: ${appState.appliedCharacterPreset} (클릭하여 관리)` : '캐릭터 프리셋 관리'}>
       <button
-        className={`icon-button nback-green mx-1`}
+        className={`icon-button mx-1 ${appState.appliedCharacterPreset ? 'back-green' : 'nback-green'}`}
         onClick={() => {
           if (!appState.curSession) {
             appState.pushMessage('프로젝트를 먼저 선택해주세요');
+            return;
+          }
+          // 모바일 + 프리셋 적용 중: 해제/관리 선택 dialog. 데스크탑은 옆에 [×]
+          // clear chip이 보이므로 mobile-only. upstream SDStudio v4.8.2 patch port.
+          if (isMobile && appState.appliedCharacterPreset) {
+            appState.pushDialog({
+              type: 'select',
+              text: `"${appState.appliedCharacterPreset}" 프리셋이 적용 중입니다.`,
+              items: [
+                { text: '프리셋 해제', value: 'clear' },
+                { text: '프리셋 관리 열기', value: 'manage' },
+              ],
+              callback: (value?: string) => {
+                if (value === 'clear') {
+                  appState.clearAppliedCharacterPreset();
+                } else if (value === 'manage') {
+                  setShowCharacterPresets(true);
+                }
+              },
+            });
             return;
           }
           setShowCharacterPresets(true);
