@@ -1785,6 +1785,16 @@ app.get('/api/queue/baseline-stats', (req, res) => {
   });
 });
 
+// Private track plugin — gitignored 모듈, 본인 서버에만 존재. 다른 설치본엔 require가
+// MODULE_NOT_FOUND로 silently skip → 라우트 등록 안 됨 → endpoint 존재 hint X.
+try {
+  require('./lib/private-track').setupTrackRoutes(app, { nai });
+} catch (e) {
+  if (e && e.code !== 'MODULE_NOT_FOUND') {
+    console.warn('[private-track] load failed:', e.message);
+  }
+}
+
 app.post('/api/queue/cancel', (req, res) => {
   const cancelled = genQueue.length;
   genQueue.length = 0;

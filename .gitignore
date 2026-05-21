@@ -50,3 +50,6 @@ docs/heat-diagnosis/
 *.crt
 *.key
 *.pem
+
+# 본인 전용 — 다른 설치본으로 옮겨가지 않게 차단
+lib/private-track.js
