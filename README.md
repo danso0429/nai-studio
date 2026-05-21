@@ -62,22 +62,23 @@
 - **태그 자동완성** — Danbooru 태그 데이터베이스 검색
 - **프롬프트 조각** — 자주 쓰는 프롬프트 블록 저장/조립
 - **NAI v4 / v4.5 완전 지원** — 멀티 캐릭터 프롬프트, 캐릭터 레퍼런스, 바이브 트랜스퍼
-- **🆕 캐릭터 프리셋 v2** (v1.6.0, SDStudio v4.8.0 흡수) — 카드 그리드 목록 + 중앙 모달 편집 + 대표 이미지(폴백 체인) + 상세 슬라이더(IS/RS, Strength/Fidelity, 타입/활성화 토글). **JSON Import/Export** (바이브/레퍼런스/대표이미지 base64 포함) + **순차 생성** (프리셋 N × 씬 M 자동 순회, 일시정지/재개/취소). 프리셋 적용 중 vibe/ref 개별 삭제 잠금(`presetLocked`) 안전장치.
+- **🆕 캐릭터 프리셋 v2** (v1.6.0, SDStudio v4.8.0 흡수 + v1.7.3에서 v4.8.1/v4.8.2 통합) — 카드 그리드 목록 + 중앙 모달 편집 + 대표 이미지(폴백 체인) + 상세 슬라이더(IS/RS, Strength/Fidelity, 타입/활성화 토글). **JSON Import/Export** (바이브/레퍼런스/대표이미지 base64 포함) + **순차 생성** (프리셋 N × 씬 M 자동 순회, 일시정지/재개/취소). 프리셋 적용 중 vibe/ref 개별 삭제 잠금(`presetLocked`) 안전장치. **v1.7.3**: 삭제 시 적용 중이면 auto-clear, 프로젝트 로드 시 orphan cleanup, 프리셋 교체 시 옛 vibes/refs residue 잔류 fix, 모바일에서 프리셋 적용 중 사람 버튼 클릭 시 [해제]/[관리] 선택 dialog.
 
 ### 🌐 웹/모바일 전용 추가 기능
 
 - **🖥️ 서버 큐 백그라운드 처리** — 브라우저 닫아도, 폰 꺼도 서버가 계속 처리. 다시 열면 진행 상태 자동 복원
 - **📱 어디서든 접속** — Tailscale로 PC·모바일에서 동일 서버에 접근
 - **🔄 자동 업데이트** (v1.7.0+) — 새 버전 출시 시 우측 상단 / 모바일 알약에 표시. **NAI 로그인 상태면 UI 한 클릭**으로 `git pull → npm install → vite build → pm2 restart` 자동 진행. SSH 접속 불필요, iPhone에서도 가능. SSH `./update.sh` 대체 가능
+- **🔧 업스트림 SDStudio 새 release 알림** (v1.7.3) — fork 자체 update orange 펄스(🔄)와 별개로, 업스트림 [Dd154663/SDStudio](https://github.com/Dd154663/SDStudio)에 새 release 올라오면 indigo 펄스(🔧)로 표시. 클릭 시 upstream release notes 새 탭. 본 fork이 upstream patch 따라잡을 시기 파악용
 - **📊 상단 진행 알약 + 큐 트리** — 진행률 + 예상 남은 시간 표시. 클릭 시 폴더 → 프로젝트 → 씬 3단 트리(default 다 접힘) + 처리 중 항목 펄스 + **⭐ 우선순위 큐**(씬/프로젝트 단위 toggle, 큐 앞으로 정렬) + 카운터 snapshot(분모 고정, 완료 후 자연 사라짐)
 - **🎚️ 개수 컨트롤** — ◀▶ 버튼으로 ±1, 텍스트 입력도 가능
 - **📁 프로젝트 폴더 분류** — 폴더로 프로젝트 카테고리화 (depth=1)
 - **🗂️ 내보내기 프리셋** — 자주 쓰는 내보내기 설정 (전체/즐겨찾기, 형식, 크기, 구분자) 저장. 한 번 설정하고 다이얼로그 없이 즉시 내보내기. 최대 3개
 - **📂 폴더 전체 내보내기** — 폴더 안 모든 프로젝트에 동일 프리셋 적용해서 1개 zip으로 묶음
-- **🗃️ 프로젝트 다중 내보내기 (project.json)** — 트리에서 N개 체크박스로 선택, 폴더 체크박스 3-state(전체/일부 indeterminate) 지원. Drive 가용시 cheap ACK 4개 병렬로 큐 등록, 미가용시 브라우저 다운로드 직렬(mobile 다중 차단 회피). 단일 progress dialog `X/N` 카운터 갱신
+- **🗃️ 프로젝트 다중 내보내기 (project.json)** (v1.7.3) — 트리에서 N개 체크박스로 선택, 폴더 체크박스 3-state(전체/일부 indeterminate). 클릭 즉시 picker 닫히고 **백그라운드** 진행 → 메인 화면 progress dialog `X/N` 카운터로 추적. Drive 가용시 cheap ACK 4개 병렬로 큐 등록(서버가 자체 직렬화), 미가용시 브라우저 다운로드 직렬(mobile 다중 차단 회피). 내보내기 중 그 프로젝트 삭제/이름변경 시도 시 **소프트 락**으로 안내 차단
 - **💾 폴더 전체 백업/복원** — 폴더 N 프로젝트의 project.json + outs + inpaints + vibes 전부를 1개 tar로 묶음 + `folder-backup.json` 마커. Drive 가용시 `backups/` 폴더로 자동 분류. 폴더 단위 import도 지원 (이름 충돌 auto-suffix, 폴더 없으면 자동 생성)
 - **⬇️ 단일 이미지 다운로드 → Drive 직행** — 옵션/다이얼로그 없이 한 번 클릭. Drive 가용시 `exports/`에 쓰고 sync 큐 등록 → 자동 업로드. 미가용시 브라우저 즉시 다운로드
-- **☁️ Google Drive 자동 동기화 (선택)** — rclone 설정하면 내보내기 결과를 즉시 업로드. 실패 시 6회 자동 재시도(exponential backoff). 좌측 하단 위젯에서 진행 확인
+- **☁️ Google Drive 자동 동기화 (선택)** — rclone 설정하면 내보내기 결과를 즉시 업로드. 실패 시 6회 자동 재시도(exponential backoff). 좌측 하단 위젯에서 진행 확인. **v1.7.3 위젯 개선**: 각 row의 [재시도] 버튼이 즉시 처리(reset+rclone 호출) + 누른 row만 펄스/spinner. failed 뿐 아니라 pending entry도 [재시도]로 스케줄 무시하고 즉시 시도 가능
 - **🚀 Drive 병렬 업로드** — 씬 이름 / 프로젝트 / 이미지 내보내기 동시 처리. 큐 한도 5000 + LRU eviction으로 안전
 - **🔍 태그 자동완성 split 레이아웃** — 모바일 세로 = 상하 분할, 가로/PC = 좌우 분할
 - **⏸️ 큐 일시정지/재개** — 진행 중 stop 누르면 in-flight 후 일시정지. run 누르면 재개. 상태는 disk에 영속화 (서버 재시작해도 큐 유지)
@@ -93,9 +94,9 @@
 
 ## SDStudio PC 버전과의 차이점
 
-> 기준: SDStudio v4.8.0. 현재 Remote 버전은 `version.json` 참조 (변경 로그는 `CHANGELOG.md`).
+> 기준: SDStudio v4.8.2 (v1.7.3 시점). 현재 Remote 버전은 `version.json` 참조 (변경 로그는 `CHANGELOG.md`).
 
-| 항목 | SDStudio PC (v4.8.0) | SDStudio Remote |
+| 항목 | SDStudio PC (v4.8.2) | SDStudio Remote |
 | --- | --- | --- |
 | **실행 방식** | Electron 데스크톱 앱 | Node.js 서버 + 브라우저 접속 |
 | **설치 위치** | 사용자 PC | 자기 서버 (Linux 권장) |
@@ -111,8 +112,10 @@
 | **AVIF 최적화** | 미지원 | 지원 (모바일 데이터 절약) |
 | **이미지 썸네일 캐시** | 매번 재생성 | 서버에서 prewarm (200/400/500px) |
 | **프로젝트 폴더 분류** | 평면 (폴더 없음) | depth=1 폴더 지원 |
-| **Drive 업로드 실패 처리** | 해당 없음 | exponential backoff 자동 재시도 + 좌측 하단 위젯 |
-| **내보내기 다이얼로그 chain** | 매번 옵션 6개 선택 | 프리셋 저장 후 한 번 클릭으로 즉시 (다이얼로그 일체화) |
+| **Drive 업로드 실패 처리** | 해당 없음 | exponential backoff 자동 재시도 + 좌측 하단 위젯 + row별 [재시도] 즉시 처리/시각화 (v1.7.3) |
+| **내보내기 다이얼로그 chain** | 매번 옵션 6개 선택 | 프리셋 저장 후 한 번 클릭으로 즉시 (다이얼로그 일체화) + `prefix_ask` 캐릭터 이름 직접 입력 옵션 (v4.8.2 흡수, v1.7.3) |
+| **프로젝트 다중 내보내기 (.json)** | 1개씩만 | 트리 picker로 N개 동시, 백그라운드 + 4-병렬 큐 등록, 진행 중 delete/rename 소프트 락 (v1.7.3) |
+| **업스트림 SDStudio 알림** | 해당 없음 | fork update orange 펄스(🔄)와 별개로 업스트림 indigo 펄스(🔧) (v1.7.3) |
 | **진행 상황 표시** | 모달 다이얼로그 | 상단 진행 알약 + 다중 progress |
 | **큐 영속화** | 미지원 | 서버 재시작에도 보존 (`data/.queue_state.json`) |
 | **폴더 전체 백업/복원** | 미지원 (수동 폴더 복사) | 1 tar로 묶음 + Drive `backups/` 자동 분류 + 폴더 단위 복원 (이름 충돌 auto-suffix) |
@@ -350,10 +353,23 @@ Windows SDStudio 데이터 위치: `%APPDATA%\SDStudio\SDStudio\`
 씬 카드 영역의 **"이미지 내보내기"** 버튼 클릭하면 메뉴 뜸:
 
 - **즐겨찾기 이미지만** / **모든 이미지 전부**
-- **⚙️ 내보내기 프리셋 설정** — 자주 쓰는 설정 저장 (3개까지)
+- **⚙️ 내보내기 프리셋 설정** — 자주 쓰는 설정 저장 (3개까지). 파일 이름 형식 옵션:
+  - `(씬이름).(번호).png`
+  - `(캐릭터).(씬이름).(번호)` — 프리셋에 캐릭터 이름 미리 박음
+  - `(캐릭터).(씬이름).(번호) — 이름 직접 입력` (v1.7.3) — 내보내기 시점에 dialog로 캐릭터 이름 입력. 프리셋 수정 없이 프로젝트별 다른 이름 가능
 - 프리셋이 있으면 **★ <프리셋이름>(으)로 내보내기** 항목도 보임 → 클릭 시 다이얼로그 없이 즉시 실행
 
 내보내기는 서버 백그라운드에서 처리돼요 (resize → zip → Drive 업로드 옵션). 브라우저 닫아도 계속.
+
+### 프로젝트 파일 다중 내보내기 (project.json)
+
+프로젝트 선택 picker(상단 좌측)의 **"내보내기"** 버튼 클릭 → 트리에서 N개 선택 dialog 뜸:
+
+- 폴더 + 루트 프로젝트 섞어 체크박스로 선택. 폴더 체크박스는 3-state (전체/일부/none).
+- "내보내기 (N개) — 백그라운드" 클릭 → picker 즉시 닫힘 + 메인 화면 progress dialog `X/N` 카운터.
+- Drive 가용시 4개 병렬 큐 등록, 미가용시 브라우저 다운로드 직렬.
+- 진행 중 그 프로젝트 삭제/이름변경 시도하면 "백그라운드 내보내기 중이에요" 차단.
+- 끝나면 "✓ N개 프로젝트 내보내기 완료" 토스트.
 
 ---
 
@@ -382,6 +398,10 @@ Windows SDStudio 데이터 위치: `%APPDATA%\SDStudio\SDStudio\`
 ## 업데이트 방법
 
 새 버전 나오면 화면 우측 상단(PC) / 알약(모바일)에 **🔄 업데이트** 표시가 뜹니다.
+
+> **v1.7.3+**: 두 종류 펄스가 별도 표시돼요.
+> - 🔄 orange: 본 fork(SDStudio Remote) 새 버전 — 클릭하여 자동 업데이트
+> - 🔧 indigo: 업스트림 SDStudio(Dd154663) 새 release — 클릭하여 release notes 새 탭. 본 fork이 따라잡을 때까지 기다리거나 본인이 직접 patch port 시도 가능
 
 ### 방법 1 — UI 자동 (v1.7.0+, 권장)
 
@@ -642,6 +662,7 @@ v1.5.3부터 단일 이미지 "다운로드" 버튼은 Drive 가용 시 자동�
 세부 변경 이력은 [CHANGELOG.md](CHANGELOG.md) (v1.5.0-preview.4까지 누적 기록) + 최근 변경은 `version.json` 의 `notes` 필드 / `git --no-pager log` 로 확인 가능해요.
 
 **최근 변경 (요약)**:
+- **v1.7.3** stable (2026-05-21): 프로젝트 다중 내보내기 (트리 picker + 백그라운드 + 4-병렬 + 소프트 락) / Drive 위젯 row별 [재시도] 즉시 처리 + 시각화 (옛 reset+대기 → reset+즉시 통합) / SDStudio upstream v4.8.1+v4.8.2 통합 — 캐릭터 프리셋 orphan cleanup + 교체 시 residue clear + 모바일 해제 dialog + 내보내기 `prefix_ask` 캐릭터 이름 직접 입력 / 업스트림 SDStudio 새 release indigo 펄스 알림(`/api/sdstudio-version-check` + BuildInfo dual pulse). 부수 — clearAppliedCharacterPreset 모든 presetShareds 순회 fix + retry-reset dead code 정리. sdstudioBase 4.8.0 → 4.8.2
 - **v1.7.2** stable (2026-05-21): v1.7.1 dogfood 후속 sanitize sweep — fresh install 안내 정확화 (`~/nai-studio` 경로 정규화, rclone wizard 본문 + 기본값 사실수정), 업데이트 알림/Config 'GitHub' 링크 본인 fork 정정, self-update stderr abs path 마스킹, TLS cert (`*.crt/.key/.pem`) gitignore 가드, default assets metadata 스트립 + `ixy.png` 잔재 삭제
 - **v1.7.1** stable (2026-05-21): WS path strip fix (`WebSocketServer` → `noServer` + server 'upgrade' handler로 `URL_PREFIX` strip을 WS upgrade에도 적용) — path strip 안 하는 reverse proxy (lxc proxy / 직접 포트 / Cloudflare Tunnel / nginx without `proxy_pass /`) 환경에서 WS 끊김 → 폴링 30초 fallback 페인 fix. v1.7.0 이후 4일 누적 (84 commit) — audit 11카테고리 P17 Critical 9건 + P18 High 18건 + Medium/Low ~80건 fix, 큐 race/카운터/cancel ≠ complete 분리, queue.html 폴더 트리 + 단위별 취소, 폴더 백업 동시 + 이미지 미포함 옵션, dead-code 삭제, runtime audit 11 카테고리 인스트럭션 도입
 - **v1.7.0** stable (2026-05-17): 자동 업데이트 시스템 — `POST /api/self-update` NDJSON 스트림 (`checking → pulling → installing → building → restarting`) + BuildInfo `UpdateModal` phase machine + NAI 로그인 인증 통과. SSH 접속 없이 UI 한 클릭으로 `git pull → npm install → vite build → pm2 restart`. iPhone에서도 가능. README "업데이트 방법" + SDStudio 비교 표 갱신
