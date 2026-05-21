@@ -1,6 +1,6 @@
 {
   "version": "1.7.2",
-  "sdstudioBase": "4.8.0",
+  "sdstudioBase": "4.8.2",
   "released": "2026-05-21",
   "notes": "patch. v1.7.1 → v1.7.2. v1.7.1 LXC dogfood (fresh ubuntu:24.04 + lxc proxy plain HTTP) 후속 sanitize sweep — fresh install 시점에 표면화된 안내문 path 정규화 + rclone 본문 정확화 + UI GitHub 링크 본인 fork 정정 + self-update stderr abs path 마스킹 + TLS cert gitignore 가드 + default assets metadata 스트립 + frontend/styles/ixy.png 잔재 삭제. 기능/안정성 변경 없음 — fresh install 안내 정확성 + push leak surface 차단 위주."
 }

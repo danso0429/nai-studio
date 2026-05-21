@@ -14,6 +14,16 @@ interface VersionInfo {
   sdstudioBase?: string | null;
 }
 
+// 업스트림 SDStudio(Dd154663) 최신 release 체크 응답.
+interface SdstudioVersionInfo {
+  current: string | null;
+  latest: string | null;
+  updateAvailable: boolean;
+  htmlUrl?: string | null;
+  publishedAt?: string | null;
+  body?: string | null;
+}
+
 interface BuildInfo {
   version: string;
   sdstudioBase: string;
@@ -25,6 +35,7 @@ const API = apiUrl('/api');
 
 let _cachedBuildInfo: BuildInfo | null = null;
 let _cachedVersionInfo: VersionInfo | null = null;
+let _cachedSdstudioInfo: SdstudioVersionInfo | null = null;
 
 async function fetchBuildInfo(): Promise<BuildInfo | null> {
   if (_cachedBuildInfo) return _cachedBuildInfo;
@@ -49,6 +60,17 @@ async function fetchVersionCheck(): Promise<VersionInfo | null> {
   }
 }
 
+async function fetchSdstudioVersionCheck(): Promise<SdstudioVersionInfo | null> {
+  try {
+    const r = await fetch(`${API}/sdstudio-version-check`);
+    if (!r.ok) return null;
+    _cachedSdstudioInfo = await r.json();
+    return _cachedSdstudioInfo;
+  } catch {
+    return null;
+  }
+}
+
 interface BuildInfoBadgeProps {
   variant: 'desktop' | 'mobile';
 }
@@ -56,20 +78,24 @@ interface BuildInfoBadgeProps {
 export const BuildInfoBadge = ({ variant }: BuildInfoBadgeProps) => {
   const [buildInfo, setBuildInfo] = useState<BuildInfo | null>(_cachedBuildInfo);
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(_cachedVersionInfo);
+  const [sdstudioInfo, setSdstudioInfo] = useState<SdstudioVersionInfo | null>(_cachedSdstudioInfo);
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
     fetchBuildInfo().then(setBuildInfo);
     fetchVersionCheck().then(setVersionInfo);
-    // 30분마다 재확인 (visibility 게이트 — 백그라운드 시 timer 정지)
+    fetchSdstudioVersionCheck().then(setSdstudioInfo);
+    // 30분마다 재확인 (visibility 게이트 — 백그라운드 시 timer 정지). fork/upstream 같은 주기.
     return startVisibleInterval(() => {
       fetchVersionCheck().then(setVersionInfo);
+      fetchSdstudioVersionCheck().then(setSdstudioInfo);
     }, 30 * 60 * 1000);
   }, []);
 
   if (!buildInfo) return null;
 
   const updateAvailable = versionInfo?.updateAvailable === true;
+  const sdstudioUpdateAvailable = sdstudioInfo?.updateAvailable === true;
 
   if (variant === 'desktop') {
     // TobBar에 들어가는 인라인 형태 (기존 텍스트 자리 대체)
@@ -85,6 +111,15 @@ export const BuildInfoBadge = ({ variant }: BuildInfoBadgeProps) => {
               title="GitHub 저장소 열기"
             >
               SDStudio v{buildInfo.sdstudioBase} | Remote v{buildInfo.version}
+            </button>
+          )}
+          {sdstudioUpdateAvailable && (
+            <button
+              onClick={() => backend.openWebPage(sdstudioInfo?.htmlUrl || 'https://github.com/Dd154663/SDStudio/releases')}
+              className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-indigo-500 text-white hover:bg-indigo-600 cursor-pointer animate-pulse"
+              title={`업스트림 SDStudio 신버전 v${sdstudioInfo?.latest} — 클릭하여 release notes 열기`}
+            >
+              🔧 SD v{sdstudioInfo?.latest}
             </button>
           )}
           {updateAvailable && (
@@ -110,29 +145,41 @@ export const BuildInfoBadge = ({ variant }: BuildInfoBadgeProps) => {
     );
   }
 
-  // mobile variant: 알약 모양, 두 줄 (SDStudio / Remote)
+  // mobile variant: 알약 모양, 두 줄 (SDStudio / Remote). 업스트림 SD 업데이트 가능시
+  // SD 줄에 indigo 펄스(자체 알약 옆에 작은 dot). fork 업데이트는 기존 orange 펄스 유지.
   return (
     <>
-      <button
-        onClick={() => {
-          if (updateAvailable) {
-            setShowModal(true);
-          } else {
-            backend.openWebPage(GITHUB_REPO_URL);
-          }
-        }}
-        className={`flex flex-col items-center justify-center px-2 py-0.5 rounded-full text-[9px] leading-tight font-medium select-none cursor-pointer ${
-          updateAvailable
-            ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 animate-pulse'
-            : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
-        }`}
-        title={updateAvailable ? `업데이트 v${versionInfo?.latest} 사용 가능` : 'GitHub 저장소 열기'}
-      >
-        <span className="opacity-70">SD v{buildInfo.sdstudioBase}</span>
-        <span className="font-semibold">
-          {updateAvailable ? `🔄 v${versionInfo?.latest}` : `v${buildInfo.version}`}
-        </span>
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => {
+            if (updateAvailable) {
+              setShowModal(true);
+            } else {
+              backend.openWebPage(GITHUB_REPO_URL);
+            }
+          }}
+          className={`flex flex-col items-center justify-center px-2 py-0.5 rounded-full text-[9px] leading-tight font-medium select-none cursor-pointer ${
+            updateAvailable
+              ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 animate-pulse'
+              : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+          }`}
+          title={updateAvailable ? `업데이트 v${versionInfo?.latest} 사용 가능` : 'GitHub 저장소 열기'}
+        >
+          <span className="opacity-70">SD v{buildInfo.sdstudioBase}</span>
+          <span className="font-semibold">
+            {updateAvailable ? `🔄 v${versionInfo?.latest}` : `v${buildInfo.version}`}
+          </span>
+        </button>
+        {sdstudioUpdateAvailable && (
+          <button
+            onClick={() => backend.openWebPage(sdstudioInfo?.htmlUrl || 'https://github.com/Dd154663/SDStudio/releases')}
+            className="px-1.5 py-0.5 rounded-full text-[9px] bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 animate-pulse font-medium select-none cursor-pointer"
+            title={`업스트림 SDStudio 신버전 v${sdstudioInfo?.latest}`}
+          >
+            🔧
+          </button>
+        )}
+      </div>
       {showModal && versionInfo && (
         <UpdateModal
           current={buildInfo.version}

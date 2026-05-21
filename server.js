@@ -13,6 +13,7 @@ const execFileP = promisify(execFile);
 const { NaiClient } = require('./lib/nai-client');
 const tagSearch = require('./lib/tag-search');
 const versionCheck = require('./lib/version-check');
+const sdstudioVersionCheck = require('./lib/sdstudio-version-check');
 const selfUpdate = require('./lib/self-update');
 
 // .env.local 자동 로드 (Node 20.6+ 네이티브). 첫 install에서 `node server.js`만으로
@@ -1327,6 +1328,17 @@ app.post('/api/config', async (req, res) => {
 app.get('/api/version-check', async (req, res) => {
   try {
     res.json(await versionCheck.checkVersion({ projectDir: __dirname }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 업스트림 SDStudio(Dd154663) latest version 체크. version.json sdstudioBase와 비교.
+// GitHub releases API + 60분 cache (업스트림 자주 X). 응답: { current, latest, updateAvailable, htmlUrl, publishedAt, body }.
+app.get('/api/sdstudio-version-check', async (req, res) => {
+  try {
+    const v = JSON.parse(await fs.readFile(path.join(__dirname, 'version.json'), 'utf8'));
+    res.json(await sdstudioVersionCheck.checkSdstudioVersion({ currentBase: v.sdstudioBase }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
