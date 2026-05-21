@@ -229,6 +229,19 @@ let timingStats = {
 };
 const TIMING_STATS_FILE = path.join(DATA_DIR, '.queue_timing_stats.json');
 
+// 제작자 환경의 timing aggregate. lib/baseline-timing-stats.json은 scripts/refresh-baseline-timing.js로
+// 갱신. 신규 설치 사용자가 본인 환경 누적 시작 전에 참고할 expected duration 표시용.
+// 사용자별 실제 누적은 별도 (data/.queue_timing_stats.json). baseline은 read-only, 사용자 데이터에 절대 mix X.
+let baselineTimingStats = null;
+try {
+  const baselineRaw = fss.readFileSync(path.join(__dirname, 'lib', 'baseline-timing-stats.json'), 'utf8');
+  baselineTimingStats = JSON.parse(baselineRaw);
+  console.log('[NAI Studio] Loaded baseline timing: count=' + baselineTimingStats.allTime.count + ' (snapshot ' + baselineTimingStats.snapshotDate + ')');
+} catch (e) {
+  // 옛 install이나 lib/ 누락 환경 — baseline 없이도 정상 동작.
+  console.log('[NAI Studio] baseline-timing-stats.json 없음 — 참고 통계 표시 skip');
+}
+
 function pruneTimingHistory() {
   // audit M6 — 옛: shift() loop은 매번 O(N) 배열 재할당. N개 drop = O(N²).
   // 새: linear scan으로 drop 끝 index 찾고 splice 한 번 = O(N).
@@ -1742,6 +1755,33 @@ app.get('/api/queue/timing-history', (req, res) => {
         ? Math.round(timingStats.allTime.totalMs / timingStats.allTime.count)
         : 0,
     },
+  });
+});
+
+// 제작자 환경 baseline timing stats. queue.html이 fetch해서 본인 누적 옆에 참고용 표시.
+// 인증/CORS 제약 없음 — aggregate 익명 통계라 노출 위험 0. baseline 누락 시 404.
+app.get('/api/queue/baseline-stats', (req, res) => {
+  if (!baselineTimingStats) {
+    return res.status(404).json({ error: 'baseline not available' });
+  }
+  const bucketHours = baselineTimingStats.bucketHours || 1;
+  const buckets = baselineTimingStats.buckets.map((b, i) => ({
+    index: i,
+    hourStart: i * bucketHours,
+    hourEnd: (i + 1) * bucketHours,
+    count: b.count,
+    avgMs: b.count > 0 ? Math.round(b.totalMs / b.count) : 0,
+  }));
+  res.json({
+    snapshotDate: baselineTimingStats.snapshotDate,
+    tz: baselineTimingStats.tz,
+    bucketHours,
+    buckets,
+    allTimeCount: baselineTimingStats.allTime.count,
+    allTimeAvgMs: baselineTimingStats.allTime.count > 0
+      ? Math.round(baselineTimingStats.allTime.totalMs / baselineTimingStats.allTime.count)
+      : 0,
+    note: baselineTimingStats.note,
   });
 });
 

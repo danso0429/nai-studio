@@ -856,6 +856,20 @@
     } catch {}
   }
 
+  // 제작자 baseline. 페이지 로드 시 1회 fetch 후 캐시 (snapshot이라 재호출 가치 X).
+  // null이면 endpoint 404 또는 fetch 실패 — 표시 skip.
+  let baselineStatsData = null;
+  let baselineFetched = false;
+  async function fetchBaselineStats() {
+    if (baselineFetched) return;
+    baselineFetched = true;
+    try {
+      const r = await fetch(BASE + '/api/queue/baseline-stats', { cache: 'force-cache' });
+      if (r.ok) baselineStatsData = await r.json();
+    } catch {}
+  }
+  fetchBaselineStats();
+
   function fmtRelative(target) {
     if (!target) return '-';
     const ms = target - Date.now();
@@ -1111,6 +1125,59 @@
         + bucketBars
         + '</svg>'
         + '<div class="small muted">노란색 = 현재 시간대 (KST) · 막대 위 숫자 = 평균 소요시간</div>'
+        + '</div>'
+      );
+    }
+    // 제작자 baseline 비교 카드 — 본인 환경 누적 적을 때 expected duration 참고용.
+    if (baselineStatsData && baselineStatsData.buckets) {
+      const bs = baselineStatsData;
+      const myAvg = timingHistoryData && timingHistoryData.stats ? timingHistoryData.stats.allTimeAvgMs : 0;
+      const myCount = timingHistoryData && timingHistoryData.stats ? timingHistoryData.stats.allTimeCount : 0;
+      const chartW = 600, chartH = 80, topPad = 14, bottomPad = 16, gap = 4;
+      const barW = (chartW - gap * (bs.buckets.length - 1)) / bs.buckets.length;
+      const maxAvg = Math.max(...bs.buckets.map(b => b.avgMs), 1);
+      const fmtShort = (ms) => {
+        if (!ms || ms < 0) return '-';
+        const s2 = ms / 1000;
+        if (s2 < 60) return s2.toFixed(1) + '초';
+        return Math.floor(s2 / 60) + 'm';
+      };
+      const baselineBars = bs.buckets.map((b, i) => {
+        const x = i * (barW + gap);
+        const h = b.avgMs > 0 ? (b.avgMs / maxAvg) * chartH : 0;
+        const fill = b.count > 0 ? '#a78bfa' : '#2a2e36'; // indigo for baseline (vs blue for user)
+        const opacity = b.count > 0 ? 0.7 : 0.3;
+        const hourStart = String(i * (bs.bucketHours || 1)).padStart(2, '0');
+        const avgLabel = b.avgMs > 0 ? fmtShort(b.avgMs) : '-';
+        const countLabel = b.count > 0 ? b.count.toLocaleString() + '건' : '없음';
+        const valueText = b.avgMs > 0
+          ? '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (topPad + chartH - h - 3).toFixed(1) + '" text-anchor="middle" font-size="9" fill="#c0c4cc">' + avgLabel + '</text>'
+          : '';
+        const hourText = '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (topPad + chartH + 11) + '" text-anchor="middle" font-size="9" fill="#6a6f78">' + hourStart + '</text>';
+        return '<g>'
+          + '<rect x="' + x.toFixed(1) + '" y="' + (topPad + chartH - h).toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" fill="' + fill + '" opacity="' + opacity + '">'
+          + '<title>' + hourStart + ':00 · ' + countLabel + ' · 평균 ' + fmtDur(b.avgMs) + '</title>'
+          + '</rect>' + valueText + hourText + '</g>';
+      }).join('');
+      const totalSvgH = topPad + chartH + bottomPad;
+      // 본인 평균 vs baseline 평균 비교 한 줄
+      let compareText;
+      if (myCount === 0) {
+        compareText = '본인 누적 0건 — baseline 참고. 본인이 생성 시작하면 본인 데이터도 누적됩니다.';
+      } else {
+        const diff = myAvg - bs.allTimeAvgMs;
+        const diffSec = (diff / 1000).toFixed(2);
+        const sign = diff > 0 ? '+' : '';
+        compareText = '본인 평균 ' + (myAvg/1000).toFixed(2) + '초 (' + myCount.toLocaleString() + '건) vs baseline ' + (bs.allTimeAvgMs/1000).toFixed(2) + '초 → 차이 ' + sign + diffSec + '초';
+      }
+      parts.push(
+        '<div class="card full" style="margin-top:8px;">'
+        + '<div class="label">📊 참고 baseline — 제작자 환경 ' + bs.allTimeCount.toLocaleString() + '건 누적 (snapshot ' + bs.snapshotDate + ')</div>'
+        + '<svg viewBox="0 0 ' + chartW + ' ' + totalSvgH + '" preserveAspectRatio="none" style="width:100%; height:140px; margin:8px 0; background:#1a1d23; border-radius:4px;">'
+        + baselineBars
+        + '</svg>'
+        + '<div class="small" style="color:#c4b5fd; margin-bottom:4px;">' + compareText + '</div>'
+        + '<div class="small muted">보라색 = baseline (제작자 평균) · ' + (bs.note || '') + '</div>'
         + '</div>'
       );
     }
