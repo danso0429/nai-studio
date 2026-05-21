@@ -1321,6 +1321,103 @@ export class AppState {
     });
   }
 
+  // N개 프로젝트의 JSON을 내보내기. ProjectExportPickerDialog가 호출.
+  // - curSession이면 살아있는 instance, 아니면 sessionService.get(name)으로 로드
+  //   (folder-aware path + migrate + fillEmptyPresetVars + 캐싱까지 일괄).
+  // - exportSessionShallow 변환 적용 (vibes 비움, inpaints 비움, 대표이미지 base64 inline).
+  // - Drive 가용시 cheap ACK 호출 4개 병렬 (서버 driveRetryQueue가 server-side 직렬 처리).
+  //   배치 모드라 개별 WS 완료 토스트는 생략 — Drive 위젯에서 진행 확인.
+  // - Drive 미가용시 브라우저 다운로드 직렬 (mobile 다중 자동 click 차단 회피).
+  // - 단일 progress dialog로 done/total 갱신. N개 dialog 누적 회피.
+  @action
+  async projectExportMulti(names: string[]) {
+    if (names.length === 0) return;
+    await appState.refreshDriveRetryStatus();
+    const driveAvailable = appState.driveRetryStatus?.driveAvailable !== false;
+
+    if (!driveAvailable && names.length > 1) {
+      appState.pushMessage(
+        `Drive 미가용 — ${names.length}개 파일 순차 다운로드해요. 모바일 브라우저는 일부 차단할 수 있어요.`,
+      );
+    }
+
+    const pid = appState.pushProgressDialog(
+      `내보내는 중... 0/${names.length}`,
+      names.length,
+    );
+
+    let succeeded = 0;
+    let completed = 0;
+    const failedNames: string[] = [];
+
+    const exportOne = async (name: string) => {
+      try {
+        let session: Session;
+        if (this.curSession?.name === name) {
+          session = this.curSession;
+        } else {
+          const loaded = await sessionService.get(name);
+          if (!loaded) throw new Error('프로젝트 로드 실패');
+          session = loaded;
+        }
+        const proj = await sessionService.exportSessionShallow(session);
+        const filePath = 'exports/' + name + '.json';
+        await backend.writeFile(filePath, JSON.stringify(proj));
+
+        if (driveAvailable) {
+          const r = await fetch(apiUrl('/api/fs/sync-exports'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: filePath }),
+          });
+          const data = await r.json();
+          if (!(data.ok && data.queued)) {
+            throw new Error(data.error || 'Drive 큐 등록 거부');
+          }
+        } else {
+          const url = apiUrl('/api/fs/raw?path=' + encodeURIComponent(filePath));
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = name + '.json';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        }
+        succeeded++;
+      } catch (e: any) {
+        failedNames.push(name);
+        console.warn(`[projectExportMulti] ${name} failed:`, e);
+      } finally {
+        completed++;
+        appState.updateProgressDialog(pid, {
+          done: completed,
+          text: `내보내는 중... ${completed}/${names.length}`,
+        });
+      }
+    };
+
+    const EXPORT_PARALLEL = driveAvailable ? 4 : 1;
+    for (let i = 0; i < names.length; i += EXPORT_PARALLEL) {
+      const chunk = names.slice(i, i + EXPORT_PARALLEL);
+      await Promise.all(chunk.map(exportOne));
+    }
+
+    const success = failedNames.length === 0;
+    let summary: string;
+    if (success) {
+      const tail = driveAvailable
+        ? '(Drive 업로드 큐 등록 — 위젯에서 진행 확인)'
+        : '(브라우저 다운로드 트리거)';
+      summary = `✓ ${succeeded}개 프로젝트 내보내기 완료 ${tail}`;
+    } else {
+      const sample = failedNames.slice(0, 3).join(', ');
+      const more = failedNames.length > 3 ? ` 외 ${failedNames.length - 3}건` : '';
+      summary = `${succeeded}개 성공 / ${failedNames.length}개 실패: ${sample}${more}`;
+    }
+    appState.finishProgressDialog(pid, summary, success);
+    appState.refreshDriveRetryStatus();
+  }
+
   @action
   async projectExportDeep() {
     if (!appState.curSession) return;

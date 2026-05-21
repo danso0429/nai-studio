@@ -8,6 +8,7 @@ import {
 import { sessionService } from '../models';
 import { appState } from '../models/AppService';
 import { josaRo } from '../models/util';
+import ProjectExportPickerDialog from './ProjectExportPickerDialog';
 
 interface Props {
   selectedName?: string;
@@ -16,6 +17,7 @@ interface Props {
 
 const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
   const [open, setOpen] = useState(false);
+  const [exportPickerOpen, setExportPickerOpen] = useState(false);
   const [, setVersion] = useState(0); // listupdated 강제 rerender
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
@@ -217,6 +219,10 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
         {displayName}
       </button>
 
+      {exportPickerOpen && (
+        <ProjectExportPickerDialog onClose={() => setExportPickerOpen(false)} />
+      )}
+
       {open && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
@@ -251,8 +257,8 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
               <button
                 type="button"
                 className="px-1 py-1.5 text-xs rounded bg-sky-100 dark:bg-sky-900 hover:bg-sky-200 dark:hover:bg-sky-800 flex items-center justify-center gap-1 min-w-0"
-                onClick={() => { setOpen(false); appState.projectExportShallow(); }}
-                title="프로젝트 파일 내보내기 (이미지 미포함)"
+                onClick={() => { setOpen(false); setExportPickerOpen(true); }}
+                title="프로젝트 파일 내보내기 (트리에서 N개 선택)"
               >
                 <FaUpload size={11} className="flex-shrink-0" />
                 <span className="truncate">내보내기</span>

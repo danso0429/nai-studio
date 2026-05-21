@@ -74,6 +74,7 @@
 - **📁 프로젝트 폴더 분류** — 폴더로 프로젝트 카테고리화 (depth=1)
 - **🗂️ 내보내기 프리셋** — 자주 쓰는 내보내기 설정 (전체/즐겨찾기, 형식, 크기, 구분자) 저장. 한 번 설정하고 다이얼로그 없이 즉시 내보내기. 최대 3개
 - **📂 폴더 전체 내보내기** — 폴더 안 모든 프로젝트에 동일 프리셋 적용해서 1개 zip으로 묶음
+- **🗃️ 프로젝트 다중 내보내기 (project.json)** — 트리에서 N개 체크박스로 선택, 폴더 체크박스 3-state(전체/일부 indeterminate) 지원. Drive 가용시 cheap ACK 4개 병렬로 큐 등록, 미가용시 브라우저 다운로드 직렬(mobile 다중 차단 회피). 단일 progress dialog `X/N` 카운터 갱신
 - **💾 폴더 전체 백업/복원** — 폴더 N 프로젝트의 project.json + outs + inpaints + vibes 전부를 1개 tar로 묶음 + `folder-backup.json` 마커. Drive 가용시 `backups/` 폴더로 자동 분류. 폴더 단위 import도 지원 (이름 충돌 auto-suffix, 폴더 없으면 자동 생성)
 - **⬇️ 단일 이미지 다운로드 → Drive 직행** — 옵션/다이얼로그 없이 한 번 클릭. Drive 가용시 `exports/`에 쓰고 sync 큐 등록 → 자동 업로드. 미가용시 브라우저 즉시 다운로드
 - **☁️ Google Drive 자동 동기화 (선택)** — rclone 설정하면 내보내기 결과를 즉시 업로드. 실패 시 6회 자동 재시도(exponential backoff). 좌측 하단 위젯에서 진행 확인
