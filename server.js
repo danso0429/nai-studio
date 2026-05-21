@@ -654,7 +654,7 @@ let driveRetryProcessing = false;
 // 너무 높이면 NW 대역폭/rclone 토큰 race 위험. env로 오버라이드 가능.
 const DRIVE_RETRY_CONCURRENCY = Math.max(1, parseInt(process.env.DRIVE_RETRY_CONCURRENCY) || 3);
 
-async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
+async function processDriveRetryQueue({ ignoreSchedule = false, targetLocalPath = null } = {}) {
   if (driveRetryProcessing) return { succeeded: 0, failed: 0, skipped: 0 };
   if (driveRetryQueue.length === 0) return { succeeded: 0, failed: 0, skipped: 0 };
   driveRetryProcessing = true;
@@ -668,6 +668,11 @@ async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
     const snapshot = driveRetryQueue.slice();
     const workEntries = [];
     for (const entry of snapshot) {
+      // targetLocalPath 지정 시 그 entry 외엔 skip — 단일 entry 즉시 재시도(/retry-one)용.
+      if (targetLocalPath && entry.localPath !== targetLocalPath) {
+        skipped++;
+        continue;
+      }
       if (entry.status === 'failed') {
         skipped++;
         continue;
@@ -3139,6 +3144,29 @@ app.post('/api/drive/retry-reset', (req, res) => {
   entry.nextRetryAt = Date.now() + DRIVE_RETRY_INTERVALS[0];
   saveDriveRetryQueue();
   res.json({ ok: true });
+});
+
+// 단일 entry 즉시 재시도 — widget의 row별 [재시도] 버튼용. failed면 reset 후 처리.
+// processDriveRetryQueue의 targetLocalPath filter로 정확히 그 한 entry만 시도.
+app.post('/api/drive/retry-one', async (req, res) => {
+  const { localPath } = req.body || {};
+  if (!localPath || typeof localPath !== 'string') {
+    return res.status(400).json({ ok: false, error: 'localPath required' });
+  }
+  const absLocalPath = path.resolve(DATA_DIR, localPath);
+  const entry = driveRetryQueue.find((e) => e.localPath === absLocalPath);
+  if (!entry) return res.status(404).json({ ok: false, error: 'not found' });
+  if (entry.status === 'failed') {
+    entry.status = 'pending';
+    entry.attempts = 0;
+    entry.nextRetryAt = Date.now();
+    saveDriveRetryQueue();
+  }
+  const result = await processDriveRetryQueue({
+    ignoreSchedule: true,
+    targetLocalPath: absLocalPath,
+  });
+  res.json({ ok: true, ...result });
 });
 
 // ─── API: Export pipeline (이미지 내보내기 백그라운드) ─────────────────

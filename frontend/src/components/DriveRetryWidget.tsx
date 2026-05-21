@@ -61,6 +61,10 @@ const DriveRetryModal = observer(() => {
   const driveCount = status?.count || 0;
   const exportCount = exportJobs.length;
   const [retrying, setRetrying] = useState(false);
+  // 개별 [재시도] 버튼 click 시 그 localPath만 시각화 추적. row pulse + spinner.
+  // 모두 재시도(retrying)와 독립 — 동시 진행 가능하지만 server processDriveRetryQueue
+  // 가드(driveRetryProcessing)에서 한쪽이 skip 처리됨.
+  const [retryingPaths, setRetryingPaths] = useState<Set<string>>(new Set());
   const onRetryAll = async () => {
     if (retrying) return;
     setRetrying(true);
@@ -68,6 +72,19 @@ const DriveRetryModal = observer(() => {
       await appState.driveRetryNowAndRefresh();
     } finally {
       setRetrying(false);
+    }
+  };
+  const onRetryOne = async (localPath: string, fileName: string) => {
+    if (retryingPaths.has(localPath)) return;
+    setRetryingPaths((prev) => new Set(prev).add(localPath));
+    try {
+      await appState.driveRetryOneAndRefresh(localPath, fileName);
+    } finally {
+      setRetryingPaths((prev) => {
+        const next = new Set(prev);
+        next.delete(localPath);
+        return next;
+      });
     }
   };
   return (
@@ -109,14 +126,21 @@ const DriveRetryModal = observer(() => {
         </div>
         <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
           자동 재시도 간격: 1분 → 2분 → 5분 → 10분 → 20분 → 30분 (총 6회). 마지막
-          시도까지 실패하면 X로 표시되고, [재시도] 버튼으로 다시 큐에 넣거나 [포기]로
-          제거할 수 있어요.
+          시도까지 실패하면 X로 표시되고, [재시도]로 즉시 다시 시도하거나 [포기]로
+          제거할 수 있어요. 자동 재시도 대기 중인 항목도 [재시도]로 일정 무시하고 즉시 시도 가능해요.
         </div>
         {!status || status.entries.length === 0 ? (
           <div className="text-sm text-gray-500">Drive 대기 항목이 없어요.</div>
         ) : (
           status.entries.map((e) => (
-            <DriveRetryRow key={e.localPath} entry={e} maxAttempts={status.maxAttempts} retrying={retrying} />
+            <DriveRetryRow
+              key={e.localPath}
+              entry={e}
+              maxAttempts={status.maxAttempts}
+              retrying={retrying}
+              retryingThis={retryingPaths.has(e.localPath)}
+              onRetryOne={() => onRetryOne(e.localPath, e.fileName)}
+            />
           ))
         )}
         {status && status.pendingCount > 0 && (
@@ -202,12 +226,18 @@ interface RowProps {
   entry: DriveRetryEntry;
   maxAttempts: number;
   retrying?: boolean;
+  retryingThis?: boolean;
+  onRetryOne: () => void;
 }
 
-const DriveRetryRow = ({ entry, maxAttempts, retrying }: RowProps) => {
+const DriveRetryRow = ({ entry, maxAttempts, retrying, retryingThis, onRetryOne }: RowProps) => {
   const failed = entry.status === 'failed';
-  // retrying이고 pending이면 이 entry는 지금 서버에서 rclone 시도 중 — 펄스로 강조.
-  const active = !!retrying && !failed;
+  // active: (a) 모두 재시도 진행 중인데 본 entry는 failed가 아니라 처리 대상이거나
+  //         (b) 본 row의 [재시도] 버튼 누른 상태(retryingThis). 둘 다 펄스로 강조.
+  const active = (!!retrying && !failed) || !!retryingThis;
+  // 버튼 disable: 모두 재시도 진행 중이거나 본 row 진행 중일 때만. 둘 다 server-side
+  // driveRetryProcessing 가드와 일관 — 동시 클릭해도 안전하지만 UX상 중복 트리거 차단.
+  const buttonsDisabled = !!retrying || !!retryingThis;
   return (
     <div
       className={
@@ -216,7 +246,7 @@ const DriveRetryRow = ({ entry, maxAttempts, retrying }: RowProps) => {
       }
     >
       <div className="flex-shrink-0">
-        {failed ? (
+        {failed && !retryingThis ? (
           <FaExclamationTriangle className="text-red-500" />
         ) : active ? (
           <Spinner className="border-amber-500" />
@@ -227,26 +257,28 @@ const DriveRetryRow = ({ entry, maxAttempts, retrying }: RowProps) => {
       <div className="flex-1 min-w-0">
         <div className="text-sm truncate font-medium">{entry.fileName}</div>
         <div className="text-xs text-gray-500 dark:text-gray-400">
-          {failed
+          {retryingThis
+            ? '재시도 중 — rclone 호출 응답 대기'
+            : failed
             ? `포기됨 (${entry.attempts}/${maxAttempts}회 시도)`
             : `다음 재시도: ${formatRelative(entry.nextRetryAt)} (${entry.attempts}/${maxAttempts}회)`}
         </div>
-        {entry.lastError && (
+        {entry.lastError && !retryingThis && (
           <div className="text-xs text-red-500 truncate">{entry.lastError}</div>
         )}
       </div>
       <div className="flex gap-1 flex-shrink-0">
-        {failed && (
-          <button
-            onClick={() => appState.driveRetryResetAndRefresh(entry.localPath)}
-            className="px-2 py-1 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded"
-          >
-            재시도
-          </button>
-        )}
+        <button
+          onClick={onRetryOne}
+          disabled={buttonsDisabled}
+          className="px-2 py-1 text-xs bg-blue-500 hover:bg-blue-600 disabled:bg-blue-700 disabled:opacity-60 disabled:cursor-wait text-white rounded"
+        >
+          {retryingThis ? '재시도 중...' : '재시도'}
+        </button>
         <button
           onClick={() => appState.driveRetryDismissAndRefresh(entry.localPath)}
-          className="px-2 py-1 text-xs bg-gray-500 hover:bg-gray-600 text-white rounded"
+          disabled={buttonsDisabled}
+          className="px-2 py-1 text-xs bg-gray-500 hover:bg-gray-600 disabled:bg-gray-700 disabled:opacity-60 text-white rounded"
         >
           포기
         </button>

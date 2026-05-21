@@ -1,6 +1,6 @@
 import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderResult, DeleteProjectResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
+import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderResult, DeleteProjectResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -251,6 +251,13 @@ export class ServerBackend extends Backend {
 
   async driveRetryNow(): Promise<DriveRetryResult> {
     return apiJSON('/drive/retry-now', { method: 'POST' });
+  }
+
+  async driveRetryOne(localPath: string): Promise<DriveRetryOneResult> {
+    return apiJSON('/drive/retry-one', {
+      method: 'POST',
+      body: JSON.stringify({ localPath }),
+    });
   }
 
   async driveRetryDismiss(localPath: string): Promise<void> {

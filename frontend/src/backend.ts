@@ -66,6 +66,15 @@ export interface DriveRetryResult {
   skipped: number;
 }
 
+// 단일 entry 즉시 재시도(/drive/retry-one) 응답. 모두 재시도(DriveRetryResult)와 달리
+// before/after queue length 변동은 분기 의미 없어서 omit. succeeded/failed 합이 항상 0 또는 1.
+export interface DriveRetryOneResult {
+  ok: boolean;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+}
+
 // 클라가 큐 push 시 task 매핑용으로 함께 보내는 메타데이터.
 // 페이지 로드 시 GET /api/queue/full-state로 회수해 task 복원.
 export interface QueueJobMeta {
@@ -153,6 +162,7 @@ export abstract class Backend {
   abstract queuePrioritize(taskIds: string[], priority: boolean): Promise<{ changed: number }>;
   abstract getDriveRetryStatus(): Promise<DriveRetryStatus>;
   abstract driveRetryNow(): Promise<DriveRetryResult>;
+  abstract driveRetryOne(localPath: string): Promise<DriveRetryOneResult>;
   abstract driveRetryDismiss(localPath: string): Promise<void>;
   abstract driveRetryReset(localPath: string): Promise<void>;
   abstract augmentImage(arg: ImageAugmentInput): Promise<void>;

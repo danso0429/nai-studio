@@ -748,6 +748,26 @@ export class AppState {
     await this.refreshDriveRetryStatus();
   }
 
+  // 단일 entry 즉시 재시도. failed면 server가 reset 겸함. 성공/실패 토스트.
+  async driveRetryOneAndRefresh(localPath: string, fileName: string): Promise<void> {
+    let result: { succeeded: number; failed: number; skipped: number } | null = null;
+    try {
+      result = await backend.driveRetryOne(localPath);
+    } catch (e: any) {
+      this.pushMessage(`Drive 재시도 호출 실패: ${e?.message || e}`);
+    }
+    await this.refreshDriveRetryStatus();
+    if (result) {
+      if (result.succeeded > 0) {
+        this.pushMessage(`✓ ${fileName} Drive 업로드 완료`);
+      } else if (result.failed > 0) {
+        this.pushMessage(`✗ ${fileName} 재시도 실패 — 자동 재시도 일정으로 복귀`);
+      } else if (result.skipped > 0) {
+        this.pushMessage(`${fileName} 처리 skip (이미 다른 재시도 진행 중)`);
+      }
+    }
+  }
+
   handleFile(file: File) {
     // iOS Safari는 .json/.png 파일에 file.type을 빈 문자열로 주는 경우가 있어
     // 확장자 fallback도 함께 검사.
