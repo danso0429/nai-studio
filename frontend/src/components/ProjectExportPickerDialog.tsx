@@ -22,7 +22,6 @@ type FolderState = 'all' | 'some' | 'none';
 const ProjectExportPickerDialog = observer(({ onClose }: Props) => {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState(false);
 
   // 트리 구조 — SessionTreePicker와 같은 sort/folder 분류 로직 (한글/숫자 자연 정렬).
   const tree = useMemo(() => {
@@ -54,7 +53,6 @@ const ProjectExportPickerDialog = observer(({ onClose }: Props) => {
   }, []);
 
   const toggleProject = (name: string) => {
-    if (busy) return;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
@@ -74,7 +72,6 @@ const ProjectExportPickerDialog = observer(({ onClose }: Props) => {
   };
 
   const toggleFolderCheckbox = (folder: string) => {
-    if (busy) return;
     const projs = tree.folderToProjects.get(folder) || [];
     const state = folderState(folder);
     setSelected((prev) => {
@@ -98,17 +95,15 @@ const ProjectExportPickerDialog = observer(({ onClose }: Props) => {
     });
   };
 
-  const handleExport = async () => {
-    if (selected.size === 0 || busy) return;
-    setBusy(true);
-    try {
-      await appState.projectExportMulti(Array.from(selected));
-      onClose();
-    } catch (e: any) {
+  const handleExport = () => {
+    if (selected.size === 0) return;
+    const names = Array.from(selected);
+    // picker 즉시 닫고 백그라운드 실행 — 진행 상황은 메인 UI의 progress dialog가 추적.
+    // 토스트도 projectExportMulti 내부에서 발사.
+    onClose();
+    appState.projectExportMulti(names).catch((e: any) => {
       appState.pushMessage('내보내기 실패: ' + (e?.message || e));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   const totalProjects =
@@ -118,7 +113,7 @@ const ProjectExportPickerDialog = observer(({ onClose }: Props) => {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={busy ? undefined : onClose}
+      onClick={onClose}
     >
       <div
         className="bg-white dark:bg-gray-800 text-default rounded-lg w-full max-w-md max-h-[80vh] m-4 flex flex-col overflow-hidden border border-gray-300 dark:border-gray-600"
@@ -130,9 +125,8 @@ const ProjectExportPickerDialog = observer(({ onClose }: Props) => {
           </span>
           <button
             type="button"
-            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
             onClick={onClose}
-            disabled={busy}
             aria-label="닫기"
           >
             <FaTimes />
@@ -143,21 +137,19 @@ const ProjectExportPickerDialog = observer(({ onClose }: Props) => {
         <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
           <button
             type="button"
-            className="w-full px-3 py-2 text-sm rounded bg-sky-500 hover:bg-sky-600 disabled:bg-sky-700 disabled:opacity-70 disabled:cursor-wait text-white flex items-center justify-center gap-2"
+            className="w-full px-3 py-2 text-sm rounded bg-sky-500 hover:bg-sky-600 disabled:bg-sky-700 disabled:opacity-70 text-white flex items-center justify-center gap-2"
             onClick={handleExport}
-            disabled={busy || selected.size === 0}
+            disabled={selected.size === 0}
           >
             <FaUpload size={11} />
             <span>
-              {busy
-                ? `내보내는 중... (${selected.size}개)`
-                : selected.size === 0
+              {selected.size === 0
                 ? '내보낼 프로젝트 선택'
-                : `내보내기 (${selected.size}개)`}
+                : `내보내기 (${selected.size}개) — 백그라운드`}
             </span>
           </button>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 text-center">
-            Drive 가용시 자동 업로드, 미가용시 브라우저 다운로드
+            클릭 즉시 picker 닫힘. 진행은 메인 화면 progress dialog로 추적.
           </p>
         </div>
 
@@ -211,7 +203,7 @@ const ProjectExportPickerDialog = observer(({ onClose }: Props) => {
                         if (el) el.indeterminate = state === 'some';
                       }}
                       onChange={() => toggleFolderCheckbox(folder)}
-                      disabled={projsInFolder.length === 0 || busy}
+                      disabled={projsInFolder.length === 0}
                     />
                   </label>
                 </div>
