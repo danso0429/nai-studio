@@ -207,7 +207,7 @@ export const App = observer(() => {
           ],
           callback: (value?: string) => {
             if (value === 'open') {
-              backend.openWebPage('https://github.com/Dd154663/SDStudio/releases');
+              backend.openWebPage('https://github.com/danso0429/nai-studio/releases');
             } else if (value === 'dismiss') {
               appUpdateNoticeService.dismissVersion(latest);
             }

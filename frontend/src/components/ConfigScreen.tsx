@@ -511,7 +511,7 @@ const OtherTab = ({
           ],
           callback: (value?: string) => {
             if (value === 'open') {
-              backend.openWebPage('https://github.com/Dd154663/SDStudio/releases');
+              backend.openWebPage('https://github.com/danso0429/nai-studio/releases');
             } else if (value === 'dismiss') {
               appUpdateNoticeService.dismissVersion(latest);
             }
@@ -615,9 +615,9 @@ const OtherTab = ({
         <div className="flex flex-col gap-1 text-sm">
           <a
             className="text-sky-500 hover:text-sky-400 cursor-pointer"
-            onClick={() => backend.openWebPage('https://github.com/Dd154663/SDStudio')}
+            onClick={() => backend.openWebPage('https://github.com/danso0429/nai-studio')}
           >
-            GitHub — Dd154663/SDStudio
+            GitHub — danso0429/nai-studio
           </a>
           <a
             className="text-sky-500 hover:text-sky-400 cursor-pointer"
