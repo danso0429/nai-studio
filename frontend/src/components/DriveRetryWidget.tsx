@@ -1,4 +1,5 @@
 import { observer } from 'mobx-react-lite';
+import { useState } from 'react';
 import { FaCloudUploadAlt, FaTimes, FaExclamationTriangle, FaFileArchive } from 'react-icons/fa';
 import { appState } from '../models/AppService';
 import { backend } from '../models';
@@ -59,6 +60,16 @@ const DriveRetryModal = observer(() => {
   const exportJobs = appState.exportPipelineJobs;
   const driveCount = status?.count || 0;
   const exportCount = exportJobs.length;
+  const [retrying, setRetrying] = useState(false);
+  const onRetryAll = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      await appState.driveRetryNowAndRefresh();
+    } finally {
+      setRetrying(false);
+    }
+  };
   return (
     <div
       className="fixed inset-0 flex items-center justify-center"
@@ -78,6 +89,12 @@ const DriveRetryModal = observer(() => {
             ×
           </button>
         </div>
+        {retrying && (
+          <div className="mb-2 px-3 py-2 rounded bg-amber-100 dark:bg-amber-900/40 border border-amber-300 dark:border-amber-700 flex items-center gap-2 text-sm text-amber-800 dark:text-amber-200">
+            <Spinner className="border-amber-600 dark:border-amber-300" />
+            <span>재시도 처리 중 — rclone 호출 응답 대기 (최대 30초/항목)</span>
+          </div>
+        )}
         {exportCount > 0 && (
           <>
             <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
@@ -98,15 +115,25 @@ const DriveRetryModal = observer(() => {
         {!status || status.entries.length === 0 ? (
           <div className="text-sm text-gray-500">Drive 대기 항목이 없어요.</div>
         ) : (
-          status.entries.map((e) => <DriveRetryRow key={e.localPath} entry={e} maxAttempts={status.maxAttempts} />)
+          status.entries.map((e) => (
+            <DriveRetryRow key={e.localPath} entry={e} maxAttempts={status.maxAttempts} retrying={retrying} />
+          ))
         )}
         {status && status.pendingCount > 0 && (
           <div className="mt-4 flex justify-end">
             <button
-              onClick={() => appState.driveRetryNowAndRefresh()}
-              className="px-3 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded"
+              onClick={onRetryAll}
+              disabled={retrying}
+              className="px-3 py-2 text-sm bg-green-600 hover:bg-green-700 disabled:bg-green-700 disabled:opacity-70 disabled:cursor-wait text-white rounded flex items-center gap-2"
             >
-              지금 모두 재시도 ({status.pendingCount})
+              {retrying ? (
+                <>
+                  <Spinner className="border-white" />
+                  <span>재시도 중...</span>
+                </>
+              ) : (
+                <span>지금 모두 재시도 ({status.pendingCount})</span>
+              )}
             </button>
           </div>
         )}
@@ -114,6 +141,15 @@ const DriveRetryModal = observer(() => {
     </div>
   );
 });
+
+const Spinner = ({ className = '' }: { className?: string }) => (
+  <span
+    className={
+      'inline-block w-3 h-3 border-2 border-t-transparent rounded-full animate-spin ' + className
+    }
+    aria-hidden
+  />
+);
 
 interface ExportRowProps {
   job: {
@@ -165,15 +201,25 @@ const ExportPipelineRow = ({ job }: ExportRowProps) => {
 interface RowProps {
   entry: DriveRetryEntry;
   maxAttempts: number;
+  retrying?: boolean;
 }
 
-const DriveRetryRow = ({ entry, maxAttempts }: RowProps) => {
+const DriveRetryRow = ({ entry, maxAttempts, retrying }: RowProps) => {
   const failed = entry.status === 'failed';
+  // retrying이고 pending이면 이 entry는 지금 서버에서 rclone 시도 중 — 펄스로 강조.
+  const active = !!retrying && !failed;
   return (
-    <div className="border-b border-gray-200 dark:border-slate-700 py-2 flex items-center gap-2">
+    <div
+      className={
+        'border-b border-gray-200 dark:border-slate-700 py-2 flex items-center gap-2 ' +
+        (active ? 'animate-pulse' : '')
+      }
+    >
       <div className="flex-shrink-0">
         {failed ? (
           <FaExclamationTriangle className="text-red-500" />
+        ) : active ? (
+          <Spinner className="border-amber-500" />
         ) : (
           <FaCloudUploadAlt className="text-amber-500" />
         )}

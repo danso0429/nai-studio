@@ -57,6 +57,15 @@ export interface DriveRetryStatus {
   entries: DriveRetryEntry[];
 }
 
+export interface DriveRetryResult {
+  ok: boolean;
+  before: number;
+  after: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+}
+
 // 클라가 큐 push 시 task 매핑용으로 함께 보내는 메타데이터.
 // 페이지 로드 시 GET /api/queue/full-state로 회수해 task 복원.
 export interface QueueJobMeta {
@@ -143,7 +152,7 @@ export abstract class Backend {
   abstract cancelQueueByTaskIds(taskIds: string[]): Promise<{ cancelled: number }>;
   abstract queuePrioritize(taskIds: string[], priority: boolean): Promise<{ changed: number }>;
   abstract getDriveRetryStatus(): Promise<DriveRetryStatus>;
-  abstract driveRetryNow(): Promise<void>;
+  abstract driveRetryNow(): Promise<DriveRetryResult>;
   abstract driveRetryDismiss(localPath: string): Promise<void>;
   abstract driveRetryReset(localPath: string): Promise<void>;
   abstract augmentImage(arg: ImageAugmentInput): Promise<void>;

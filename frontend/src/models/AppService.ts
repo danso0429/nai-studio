@@ -715,10 +715,23 @@ export class AppState {
   }
 
   async driveRetryNowAndRefresh(): Promise<void> {
+    let result: { succeeded: number; failed: number; skipped: number; before: number } | null = null;
     try {
-      await backend.driveRetryNow();
-    } catch {}
+      result = await backend.driveRetryNow();
+    } catch (e: any) {
+      this.pushMessage('Drive 재시도 호출 실패: ' + (e?.message || e));
+    }
     await this.refreshDriveRetryStatus();
+    if (result) {
+      const parts: string[] = [];
+      if (result.succeeded > 0) parts.push(`${result.succeeded}건 성공`);
+      if (result.failed > 0) parts.push(`${result.failed}건 실패`);
+      if (result.skipped > 0) parts.push(`${result.skipped}건 skip(포기/대기)`);
+      if (parts.length === 0) {
+        parts.push(result.before === 0 ? '재시도할 항목 없음' : '변동 없음');
+      }
+      this.pushMessage('Drive 재시도: ' + parts.join(' / '));
+    }
   }
 
   async driveRetryDismissAndRefresh(localPath: string): Promise<void> {
