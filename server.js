@@ -3142,22 +3142,6 @@ app.post('/api/drive/retry-dismiss', async (req, res) => {
   res.json({ ok: true, removed: true, localRemoved });
 });
 
-// failed entry를 다시 pending으로 (attempts=0). widget의 reset 버튼용.
-app.post('/api/drive/retry-reset', (req, res) => {
-  const { localPath } = req.body || {};
-  if (!localPath || typeof localPath !== 'string') {
-    return res.status(400).json({ ok: false, error: 'localPath required' });
-  }
-  const absLocalPath = path.resolve(DATA_DIR, localPath);
-  const entry = driveRetryQueue.find((e) => e.localPath === absLocalPath);
-  if (!entry) return res.status(404).json({ ok: false, error: 'not found' });
-  entry.status = 'pending';
-  entry.attempts = 0;
-  entry.nextRetryAt = Date.now() + DRIVE_RETRY_INTERVALS[0];
-  saveDriveRetryQueue();
-  res.json({ ok: true });
-});
-
 // 단일 entry 즉시 재시도 — widget의 row별 [재시도] 버튼용. failed면 reset 후 처리.
 // processDriveRetryQueue의 targetLocalPath filter로 정확히 그 한 entry만 시도.
 app.post('/api/drive/retry-one', async (req, res) => {

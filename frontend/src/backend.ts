@@ -164,7 +164,6 @@ export abstract class Backend {
   abstract driveRetryNow(): Promise<DriveRetryResult>;
   abstract driveRetryOne(localPath: string): Promise<DriveRetryOneResult>;
   abstract driveRetryDismiss(localPath: string): Promise<void>;
-  abstract driveRetryReset(localPath: string): Promise<void>;
   abstract augmentImage(arg: ImageAugmentInput): Promise<void>;
   abstract login(email: string, password: string): Promise<void>;
   abstract loginWithToken(token: string): Promise<void>;

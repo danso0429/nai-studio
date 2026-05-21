@@ -780,13 +780,6 @@ export class AppState {
     await this.refreshDriveRetryStatus();
   }
 
-  async driveRetryResetAndRefresh(localPath: string): Promise<void> {
-    try {
-      await backend.driveRetryReset(localPath);
-    } catch {}
-    await this.refreshDriveRetryStatus();
-  }
-
   // 단일 entry 즉시 재시도. failed면 server가 reset 겸함. 성공/실패 토스트.
   async driveRetryOneAndRefresh(localPath: string, fileName: string): Promise<void> {
     let result: { succeeded: number; failed: number; skipped: number } | null = null;
@@ -3521,22 +3514,20 @@ export class AppState {
   @action
   clearAppliedCharacterPreset() {
     if (!this.curSession) return;
-    
-    const workflowType = this.curSession.selectedWorkflow?.workflowType;
-    if (!workflowType) return;
-    
-    const shared = this.curSession.presetShareds.get(workflowType);
-    if (!shared) return;
-    
-    // 프리셋에서 적용된 값들 초기화
-    shared.vibes = [];
-    shared.characterReferences = [];
-    if (workflowType === 'SDImageGenEasy') {
-      shared.characterPrompt = '';
-      shared.backgroundPrompt = '';
-      shared.uc = '';
+    // 모든 워크플로우 shared 순회 — 사용자가 EASY에서 preset 'A' 적용 → SD에서 'B'
+    // 적용 → SD에서 [×] 누르면 옛 코드는 SD shared만 clear, EASY의 A residue stuck.
+    // [재명: cleanupOrphanedPresetApplication과 동일 iteration 패턴 — preset 적용 명목이
+    // 해제됐으면 모든 workflow의 residue도 함께 해제. F6 follow-up.]
+    for (const [workflowType, shared] of this.curSession.presetShareds) {
+      if (!shared) continue;
+      shared.vibes = [];
+      shared.characterReferences = [];
+      if (workflowType === 'SDImageGenEasy') {
+        shared.characterPrompt = '';
+        shared.backgroundPrompt = '';
+        shared.uc = '';
+      }
     }
-    
     this.appliedCharacterPreset = undefined;
     this.pushMessage('캐릭터 프리셋이 해제되었습니다');
   }

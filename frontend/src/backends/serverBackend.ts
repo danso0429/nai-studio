@@ -267,13 +267,6 @@ export class ServerBackend extends Backend {
     });
   }
 
-  async driveRetryReset(localPath: string): Promise<void> {
-    await api('/drive/retry-reset', {
-      method: 'POST',
-      body: JSON.stringify({ localPath }),
-    });
-  }
-
   async startExportScenePack(opts: {
     paths: Array<{ srcPath: string; finalName: string }>;
     outFilePath: string;
