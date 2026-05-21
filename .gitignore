@@ -22,6 +22,8 @@ npm-debug.log*
 server.js.bak*
 *.bak
 *.bak.phase*
+*-bak
+*.preview-bak
 ecosystem.config.js
 
 # atomic write 임시 파일 (writeFile→rename 패턴, crash 시 잔존 가능)
@@ -42,3 +44,9 @@ CLAUDE.md
 JOURNAL.md
 .code-review/
 docs/heat-diagnosis/
+.audit-pass-*/
+
+# TLS 인증서 / 비밀키 — Tailscale `tailscale cert <host>` 등의 산출물. 절대 commit 금지
+*.crt
+*.key
+*.pem
