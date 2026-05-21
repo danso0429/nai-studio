@@ -24,7 +24,8 @@ const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const PORT = process.env.PORT || 6247;
 const URL_PREFIX = process.env.URL_PREFIX || '';
 // rclone Google Drive remote 이름. 'rclone config'로 만든 remote와 동일해야 함.
-const RCLONE_REMOTE = process.env.RCLONE_REMOTE || 'gdrivemain';
+// Drive 동기화는 opt-in. 미설정 시 rclone 호출 0건이라 외부 인프라 의존도 0.
+const RCLONE_REMOTE = process.env.RCLONE_REMOTE || '';
 const RCLONE_REMOTE_BASE = process.env.RCLONE_REMOTE_BASE || 'NAI-Studio';
 
 // 자동 업데이트 (POST /api/self-update) 동시 호출 차단 락.
@@ -684,7 +685,7 @@ async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
         console.log('[Drive retry] success: ' + entry.localPath);
         succeeded++;
         broadcast('drive-sync-complete', {
-          localPath: entry.localPath,
+          localPath: path.relative(DATA_DIR, entry.localPath),
           requestedPath: entry.requestedPath,
           fileName: path.basename(entry.localPath),
         });
@@ -710,7 +711,7 @@ async function processDriveRetryQueue({ ignoreSchedule = false } = {}) {
         entry.nextRetryAt = Date.now() + delay;
       }
       broadcast('drive-sync-failed', {
-        localPath: entry.localPath,
+        localPath: path.relative(DATA_DIR, entry.localPath),
         requestedPath: entry.requestedPath,
         fileName: path.basename(entry.localPath),
         error: result.error,
@@ -2181,6 +2182,13 @@ function checkRcloneAvailable() {
   if (_rcloneAvailableCache !== null && (now - _rcloneAvailableCheckedAt) < RCLONE_AVAILABLE_CACHE_MS) {
     return _rcloneAvailableCache;
   }
+  // RCLONE_REMOTE 미설정 = Drive 기능 disabled. 옛 grep ${RCLONE_REMOTE}는 빈 패턴이면
+  // 모든 줄에 match라 false-positive로 enable됨 — early-return으로 차단.
+  if (!RCLONE_REMOTE) {
+    _rcloneAvailableCache = false;
+    _rcloneAvailableCheckedAt = now;
+    return false;
+  }
   try {
     execSync('which rclone', { stdio: 'pipe' });
     execSync(`rclone listremotes 2>/dev/null | grep ${RCLONE_REMOTE}`, { stdio: 'pipe' });
@@ -3068,8 +3076,10 @@ app.get('/api/drive/retry-status', (req, res) => {
     failedCount: driveRetryQueue.filter((e) => e.status === 'failed').length,
     intervalsMs: DRIVE_RETRY_INTERVALS,
     maxAttempts: DRIVE_RETRY_MAX_ATTEMPTS,
+    // localPath는 DATA_DIR 기준 상대 경로로 emit — 절대 path는 deployee install dir 노출. fileName과
+    // 분리해서 보낸 이유: 동일 basename 다른 디렉토리(예: outs/A.png vs exports/A.png) 구분 용도.
     entries: driveRetryQueue.map((e) => ({
-      localPath: e.localPath,
+      localPath: path.relative(DATA_DIR, e.localPath),
       requestedPath: e.requestedPath || null,
       fileName: path.basename(e.localPath),
       addedAt: e.addedAt,
@@ -3098,15 +3108,17 @@ app.post('/api/drive/retry-dismiss', async (req, res) => {
   if (!localPath || typeof localPath !== 'string') {
     return res.status(400).json({ ok: false, error: 'localPath required' });
   }
-  const idx = driveRetryQueue.findIndex((e) => e.localPath === localPath);
+  // 클라가 DATA_DIR 기준 상대 path를 보내고 서버가 abs로 복원 — install dir 노출 차단.
+  const absLocalPath = path.resolve(DATA_DIR, localPath);
+  const idx = driveRetryQueue.findIndex((e) => e.localPath === absLocalPath);
   if (idx < 0) return res.json({ ok: true, removed: false });
   driveRetryQueue.splice(idx, 1);
   saveDriveRetryQueue();
   // 로컬 파일 삭제 — DATA_DIR 하위만 허용
   let localRemoved = false;
-  if (localPath.startsWith(DATA_DIR + path.sep)) {
+  if (absLocalPath.startsWith(DATA_DIR + path.sep)) {
     try {
-      await fs.unlink(localPath);
+      await fs.unlink(absLocalPath);
       localRemoved = true;
     } catch {} // 이미 없거나 권한 없으면 무시
   }
@@ -3119,7 +3131,8 @@ app.post('/api/drive/retry-reset', (req, res) => {
   if (!localPath || typeof localPath !== 'string') {
     return res.status(400).json({ ok: false, error: 'localPath required' });
   }
-  const entry = driveRetryQueue.find((e) => e.localPath === localPath);
+  const absLocalPath = path.resolve(DATA_DIR, localPath);
+  const entry = driveRetryQueue.find((e) => e.localPath === absLocalPath);
   if (!entry) return res.status(404).json({ ok: false, error: 'not found' });
   entry.status = 'pending';
   entry.attempts = 0;
@@ -3424,25 +3437,43 @@ async function start() {
 
   const server = http.createServer(app);
 
-  // WebSocket — same-origin만 허용 (tailnet 폐쇄망 가정 외 cross-origin 차단).
-  // verifyClient에서 Origin 헤더 vs Host 매칭. Origin 없거나 (curl/native client) 통과.
-  wss = new WebSocketServer({
-    server,
-    path: '/ws',
-    verifyClient: (info, done) => {
-      const origin = info.req.headers.origin;
-      const host = info.req.headers.host;
-      if (!origin) return done(true); // native client (Origin 헤더 없음)
+  // WebSocket — noServer 모드 + URL_PREFIX strip upgrade handler.
+  // path strip 안 하는 proxy(lxc proxy / 직접 포트 노출 / Cloudflare Tunnel 등) 환경에서도 동작.
+  // 본인 main은 Tailscale serve `--set-path=/studio`가 strip 진행이라 server 모드로도 정상 동작했지만,
+  // path strip 의존성 제거 = 외부 사용자의 모든 reverse proxy 환경 cover.
+  // same-origin verification은 noServer 모드에서 verifyClient option이 무시되므로 upgrade handler에서 직접.
+  wss = new WebSocketServer({ noServer: true });
+  server.on('upgrade', (request, socket, head) => {
+    let pathname = request.url || '/';
+    if (URL_PREFIX && pathname.startsWith(URL_PREFIX)) {
+      pathname = pathname.slice(URL_PREFIX.length) || '/';
+    }
+    if (pathname !== '/ws') {
+      socket.destroy();
+      return;
+    }
+    // same-origin 검증 (tailnet 폐쇄망 가정 외 cross-origin 차단)
+    const origin = request.headers.origin;
+    const host = request.headers.host;
+    if (origin) {
       try {
         const originHost = new URL(origin).host;
-        if (originHost === host) return done(true);
-        console.warn(`[ws] reject cross-origin: origin=${origin} host=${host}`);
-        return done(false, 403, 'Cross-origin WebSocket blocked');
+        if (originHost !== host) {
+          console.warn(`[ws] reject cross-origin: origin=${origin} host=${host}`);
+          socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+          socket.destroy();
+          return;
+        }
       } catch (e) {
         console.warn('[ws] reject malformed origin:', origin);
-        return done(false, 403, 'Malformed origin');
+        socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
       }
-    },
+    }
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
   });
   wss.on('connection', (ws) => {
     console.log('[NAI Studio] WebSocket client connected');
