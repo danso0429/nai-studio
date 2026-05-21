@@ -356,7 +356,7 @@
 
 <script>
   // URL_PREFIX 자동 감지: queue.html 경로에서 추출
-  const BASE = window.location.pathname.replace(/\/queue\.html$/, '');
+  const BASE = window.location.pathname.replace(/\/queue(\.html)?$/, '');
 
   function fmtDur(ms) {
     if (!ms || ms < 0) return '-';
