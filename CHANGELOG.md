@@ -290,7 +290,7 @@ stable. v1.5.2 → v1.5.3 누적 (180 commit).
 - **feat**: 개수 ◀▶ 버튼 + 기본값 1 + 버전 알약 클릭 → GitHub 저장소.
 - **fix**: 예약 취소 mirror stats unwind 정확 + cancel disk 동기화.
 - **fix**: 태그 자동완성 underscore → space + 모바일 popover 위치.
-- **fix**: 업데이트 알림 + update.sh 안내 path 갱신 (`~/nai-studio-2`).
+- **fix**: 업데이트 알림 + update.sh 안내 path 갱신 (`~/nai-studio`).
 - **fix**: `restoreMirroredState` — meta.sceneName으로 placeholder scene 채워 (none) 제거.
 - **refactor**: rclone remote 이름 환경변수화 (`RCLONE_REMOTE`, `RCLONE_REMOTE_BASE`).
 - **refactor**: `ServerQueueStatus` 알약 제거 + TaskQueueList에 mirror task 통합.
@@ -317,7 +317,7 @@ stable. v1.5.2 → v1.5.3 누적 (180 commit).
 - **chore**: P13 마무리 (tsc 3→0, npm run build 복구).
 
 ## v1.5.0-preview.4 (2026-05-12)
-- **investigate**: P15 Step A (SceneCell 썸네일 base64 → native `<img src=getThumbURL>`) 시도 후 본인 L3 회귀 보고. 환경 변수 (집 외 위치 + 도메인 변경) 가능성으로 진단 불가 → `git reset --hard v1.5.0-preview.3`. JOURNAL Phase 9 참조.
+- **investigate**: P15 Step A (SceneCell 썸네일 base64 → native `<img src=getThumbURL>`) 시도 후 L3 회귀 보고. 테스트 환경 변수 가능성으로 진단 불가 → `git reset --hard v1.5.0-preview.3`. JOURNAL Phase 9 참조.
 - **chore**: TS 26 → 3 (88% 정리). 안전 묶음 + Electron 잔재 제거.
   - P13a: `importPresets` dead import 제거 / SceneTrashView `type` narrow / `lib` ES2021
   - P13b-1: type-only import 경로 정정 6건 (`'../main/config'` 등 잘못된 상대 경로)

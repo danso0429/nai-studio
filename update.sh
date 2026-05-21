@@ -1,6 +1,6 @@
 #!/bin/bash
 # SDStudio Remote 업데이트 스크립트
-# 사용법: cd ~/nai-studio-2 && ./update.sh
+# 사용법: cd ~/nai-studio && ./update.sh
 set -e
 cd "$(dirname "$0")"
 

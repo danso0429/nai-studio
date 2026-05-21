@@ -396,7 +396,7 @@ Windows SDStudio 데이터 위치: `%APPDATA%\SDStudio\SDStudio\`
 UI 사용 불가하거나 트러블슈팅 필요 시:
 
 ```bash
-cd ~/nai-studio-2 && ./update.sh
+cd ~/nai-studio && ./update.sh
 ```
 
 `update.sh`가 자동으로:
@@ -418,7 +418,7 @@ cd ~/nai-studio-2 && ./update.sh
 | --- | --- | --- |
 | `PORT` | `6247` | 서버 listen 포트 |
 | `URL_PREFIX` | (빈 값) | 리버스 프록시 경로 (예: `/studio`) |
-| `RCLONE_REMOTE` | `gdrivemain` | rclone remote 이름 (Google Drive 설정 시) |
+| `RCLONE_REMOTE` | (미설정) | rclone remote 이름. **미설정 시 Drive 기능 모두 자동 disabled** (rclone 호출 0건). 사용하려면 [Google Drive 동기화](#google-drive-자동-동기화-rclone) 가이드 참조 |
 | `RCLONE_REMOTE_BASE` | `NAI-Studio` | Drive 안 베이스 폴더 |
 | `DRIVE_RETRY_CONCURRENCY` | `3` | Drive 재시도 큐 동시 처리 개수 |
 | `EXPORT_CONCURRENCY` | `10` | 이미지 내보내기(서버 측 resize/zip) 동시 job 수 |
@@ -428,6 +428,7 @@ cd ~/nai-studio-2 && ./update.sh
 ```bash
 PORT=6247
 URL_PREFIX=/studio
+# Drive 안 쓰면 아래 줄 제거 (default가 빈 값이라 Drive 기능 자동 off)
 RCLONE_REMOTE=mygdrive
 ```
 
@@ -439,29 +440,60 @@ RCLONE_REMOTE=mygdrive
 
 **Drive 없이도 서비스 전체 사용 가능해요.** Drive 설정하면 내보내기 결과(`data/exports/`)가 자동 백업되고, 서버 디스크가 가득 차도 안전합니다.
 
-#### 1. rclone 설치 + 인증
+> **opt-in 모드**: `RCLONE_REMOTE` 환경변수 미설정이면 rclone 호출 0건 — Drive 관련 background 작업(자동 업로드 / 재시도 큐 / 30초 폴링) 모두 자동 skip. 본 가이드는 Drive 쓰고 싶을 때만 따라하면 돼요.
+
+#### 1. rclone 설치 + Google Drive remote 인증
+
 ```bash
 curl https://rclone.org/install.sh | sudo bash
 rclone config
-# 안내 따라서: New remote → name: gdrivemain (또는 본인 원하는 이름)
-#               Storage: drive (Google Drive)
-# OAuth 흐름은 브라우저에서 진행
 ```
 
-remote 이름을 `gdrivemain`이 아닌 다른 걸로 만들었으면 `.env.local`에 `RCLONE_REMOTE=내remote이름` 추가하세요.
+`rclone config` wizard 진행:
 
-#### 2. 추가 동기화 (선택) — 30분마다 데이터 전체 백업
+1. `n` (New remote) 선택
+2. **name**: 원하는 이름 입력 (예: `mygdrive`, `nai-drive` 등 — 본인이 식별 가능한 이름). 이 이름이 곧 `.env.local`의 `RCLONE_REMOTE` 값.
+3. **Storage**: `drive` (Google Drive)
+4. **client_id / client_secret**: 빈 값으로 두면 rclone의 default app 사용 (간단). 또는 본인 Google Cloud Console에서 만든 OAuth client 사용 가능.
+5. **scope**: `1` (drive — full access) 또는 `2` (drive.file — rclone이 만든 파일에만 접근, 더 안전).
+6. **service_account_file**: 빈 값.
+7. **Edit advanced config**: `n`.
+8. **Use auto config**: `y` (브라우저로 OAuth) — 헤드리스 서버면 `n` 선택하고 다른 머신에서 `rclone authorize "drive"` 결과 복사.
+9. **Configure as Shared Drive**: 보통 `n`.
+10. **Confirm**: `y` → `q`로 종료.
+
+#### 2. `.env.local`에 remote 이름 박기
+
+```bash
+# ~/nai-studio/.env.local
+RCLONE_REMOTE=mygdrive   # ← 위에서 정한 remote 이름 그대로
+RCLONE_REMOTE_BASE=NAI-Studio   # Drive 안 베이스 폴더 (기본 'NAI-Studio')
+```
+
+서버 재시작 (또는 `./update.sh`) 후 좌측 하단 `📤` 위젯에서 자동 동기화 진행 확인 가능.
+
+#### 3. 검증
+
+```bash
+rclone lsd mygdrive:   # remote 동작 테스트 — 본인 Drive 폴더 목록 출력되면 OK
+```
+
+#### 4. 추가 동기화 (선택) — 30분마다 데이터 전체 백업
 
 내보내기 외에 프로젝트/바이브 등도 자동 백업하려면 cron 등록:
 
 ```bash
+# .env.local에 RCLONE_REMOTE 박혀 있다고 가정. cron 안에선 환경변수 자동 로드 안 되니까
+# remote 이름을 직접 적어주세요 (아래 'mygdrive'를 본인 이름으로 교체)
 cat > ~/sync_naistudio.sh << 'SHEOF'
 #!/bin/bash
 LOG="$HOME/sync_naistudio.log"
-rclone sync ~/nai-studio/data/ gdrivemain:NAI-Studio/data/ \
+REMOTE="mygdrive"   # ← 본인 remote 이름으로 교체
+BASE="NAI-Studio"
+rclone sync ~/nai-studio/data/ "${REMOTE}:${BASE}/data/" \
   --exclude "tmp/**" --exclude "**/fastcache/**" --exclude "**/.trash/**" \
   --log-file="$LOG" --log-level INFO
-rclone copy ~/nai-studio/data/exports/ gdrivemain:NAI-Studio/data/exports/ \
+rclone copy ~/nai-studio/data/exports/ "${REMOTE}:${BASE}/data/exports/" \
   --log-file="$LOG" --log-level INFO
 SHEOF
 chmod +x ~/sync_naistudio.sh

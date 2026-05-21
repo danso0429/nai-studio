@@ -1,6 +1,6 @@
 #!/bin/bash
 # cleanup_old_files.sh — 자동 정리 cron 스크립트
-# cron: 0 5 * * * ~/nai-studio-2/cleanup_old_files.sh
+# cron: 0 5 * * * ~/nai-studio/cleanup_old_files.sh
 #
 # 1. tmp/exports: 7일 이상 된 파일 삭제
 # 2. fastcache: 30일 이상 안 쓴 썸네일 삭제 (재생성 가능, 무한 누적 회피)
