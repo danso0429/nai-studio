@@ -9,6 +9,37 @@
 
 ---
 
+## v1.7.3 (2026-05-21)
+
+patch. v1.7.2 → v1.7.3. 다중 프로젝트 내보내기 + Drive 위젯 개별 재시도 시각화 + SDStudio upstream v4.8.1/v4.8.2 통합 + 업스트림 새 release 알림.
+
+### 새 기능 — 다중 프로젝트 내보내기 (project.json)
+- **feat(export)** (`0cdbd5c`): `SessionTreePicker` "내보내기" 버튼이 새 `ProjectExportPickerDialog`를 열어 트리에서 N개 체크박스로 선택. 폴더 체크박스 3-state(전체/일부/none). `projectExportMulti(names)`가 `sessionService.get(name)`으로 folder-aware load + `exportSessionShallow` 변환 + `exports/`에 작성. Drive 가용시 `/api/fs/sync-exports` cheap ACK 4개 병렬(서버 driveRetryQueue가 직렬화 처리), 미가용시 브라우저 다운로드 직렬(mobile 다중 click 차단 회피). 단일 progress dialog `X/N` 카운터.
+- **fix(export)** (`cda73f4`): picker 즉시 닫고 백그라운드 실행 — `await projectExportMulti` 끝까지 기다린 다음 `onClose()`라 picker가 export 동안 시야 막던 페인 fix. fire-and-forget으로 변경, 진행은 메인 화면 progress dialog가 추적.
+- **feat(export)** (`42c0c23`): 백그라운드 내보내기 중 그 프로젝트 delete/rename 차단 — `exportingProjects: Set<string>` 락. `deleteProjectBackground`/`projectRename`이 dialog 띄우기 전 + callback 둘 다 체크. "백그라운드 내보내기 중이에요" 메시지로 안내. 씬 수정은 `session.toJSON()` snapshot-safe라 차단 안 함.
+
+### Drive 위젯 — 개별 [재시도] 즉시 처리 + per-row 시각화
+- **feat(drive-retry-ui)** (`588eb4a`): 옛 위젯은 [재시도]가 failed entry에만 노출 + reset만(1분 대기). 모든 entry에 [재시도] 노출 + 즉시 처리로 통합. `processDriveRetryQueue`에 `targetLocalPath` filter 추가 + 새 endpoint `POST /api/drive/retry-one`. `retryingPaths: Set<string>` state로 row별 진행 추적 — 누른 row만 펄스/spinner + "재시도 중 — rclone 호출 응답 대기".
+
+### SDStudio upstream v4.8.1+v4.8.2 통합
+- **feat(sdstudio-4.8)** (`534a623`): 
+  - v4.8.1 캐릭터 프리셋 cleanup: 삭제 시 적용 중이면 auto-clear, 프로젝트 로드 시 orphan cleanup (다른 디바이스에서 삭제한 프리셋의 잔여 데이터 정리)
+  - v4.8.2 SessionSelect 프리셋 apply residual clear: 옛 conditional set은 새 프리셋이 빈 vibes/refs일 때 옛 값 잔류 — 항상 깨끗 swap으로 변경
+  - v4.8.2 모바일 프리셋 버튼 select dialog (해제/관리)
+  - v4.8.2 내보내기 프리셋 `prefix_ask` 형식 — 적용 시점에 캐릭터 이름 input dialog. 4개 export flow site에서 공통 `resolveExportPrefix` helper 재사용.
+- **fix(presets)** (`f651c9d`): `cleanupOrphanedPresetApplication` 모든 presetShareds 순회 — 옛 코드는 selectedWorkflow의 shared만 clear, EASY에서 preset 적용 → SD 전환 → 그 preset 삭제 → 다음 EASY 진입 시 residue 표면화 시나리오 cover 못 함.
+
+### 업스트림 SDStudio 새 release 알림 (indigo 펄스)
+- **feat(version-check)** (`a3c0a30`): `lib/sdstudio-version-check.js` 신설 — GitHub releases API + 60분 cache + single-flight. `/api/sdstudio-version-check` endpoint. BuildInfo가 데스크탑은 SDStudio 라벨 옆 indigo `🔧 SD v{latest}` 펄스, 모바일은 SD 알약 옆 작은 indigo `🔧` dot. 클릭 시 upstream release notes URL 새 탭. fork update orange 펄스(🔄)와 시각 구분 — 각각 다른 action 트리거. version.json `sdstudioBase` 4.8.0 → 4.8.2.
+
+### 부수 cleanup
+- **chore(cleanup)** (`81d9604`): `clearAppliedCharacterPreset`도 같은 race — 모든 presetShareds 순회로 fix. retry-reset dead code 4곳 제거 (위젯이 retry-one으로 통합돼 호출처 0건이 됐었음 — backend.ts abstract + serverBackend.ts impl + AppService wrapper + server.js endpoint).
+
+### Build
+- **build** (`96fd747`, `ccc8238`, `73143bf`, `1046843`, `7a64490`, `f7e9fcd`, `9851622`): vite production build hash 갱신 6회.
+
+---
+
 ## v1.7.2 (2026-05-21)
 
 patch. v1.7.1 → v1.7.2. v1.7.1 LXC dogfood 후속 sanitize sweep. 기능/안정성 변경 없음 — fresh install 안내 정확성 + push leak surface 차단 위주.

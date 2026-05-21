@@ -1,6 +1,6 @@
 {
-  "version": "1.7.2",
+  "version": "1.7.3",
   "sdstudioBase": "4.8.2",
   "released": "2026-05-21",
-  "notes": "patch. v1.7.1 → v1.7.2. v1.7.1 LXC dogfood (fresh ubuntu:24.04 + lxc proxy plain HTTP) 후속 sanitize sweep — fresh install 시점에 표면화된 안내문 path 정규화 + rclone 본문 정확화 + UI GitHub 링크 본인 fork 정정 + self-update stderr abs path 마스킹 + TLS cert gitignore 가드 + default assets metadata 스트립 + frontend/styles/ixy.png 잔재 삭제. 기능/안정성 변경 없음 — fresh install 안내 정확성 + push leak surface 차단 위주."
+  "notes": "patch. v1.7.2 → v1.7.3. 다중 내보내기 picker + 백그라운드 + 소프트 락(`/exports/*.json` N개 한 번에) / Drive 위젯 [재시도] 즉시 처리 + per-row 시각화 / SDStudio upstream v4.8.1+v4.8.2 통합(캐릭터 프리셋 orphan cleanup + apply residual clear + mobile clear dialog + 내보내기 prefix_ask 캐릭터 이름 직접 입력) / 업스트림 SDStudio 새 release indigo 펄스 알림(🔧). 부수 — clearAppliedCharacterPreset 모든 presetShareds 순회로 fix + retry-reset dead code 정리."
 }
