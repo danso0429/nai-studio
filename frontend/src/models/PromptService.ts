@@ -183,9 +183,6 @@ export class PromptService extends EventTarget {
       visited = {};
     }
     if (word.charAt(0) === '<' && word.charAt(word.length - 1) === '>') {
-      if (!session) {
-        throw new Error('그림체에서는 조각을 사용할 수 없습니다');
-      }
       const res: PromptGroupNode = {
         type: 'group',
         children: [],
