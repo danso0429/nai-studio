@@ -4,15 +4,7 @@ import { backend } from '.';
 
 const PROMPT_PRESETS_FILE = 'prompt_presets.json';
 
-export interface IPromptPresetParams {
-  steps?: number;
-  sampling?: string;
-  promptGuidance?: number;
-  cfgRescale?: number;
-  noiseSchedule?: string;
-}
-
-export interface IPromptPreset extends IPromptPresetParams {
+export interface IPromptPreset {
   id: string;
   name: string;
   frontPrompt: string;
@@ -152,7 +144,6 @@ export class PromptPresetService extends EventTarget {
     frontPrompt: string,
     backPrompt: string,
     uc: string,
-    params?: IPromptPresetParams,
   ): IPromptPreset {
     name = name.trim();
     if (!name) throw new Error('이름을 입력해 주세요');
@@ -163,7 +154,6 @@ export class PromptPresetService extends EventTarget {
       frontPrompt,
       backPrompt,
       uc,
-      ...(params || {}),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -179,23 +169,12 @@ export class PromptPresetService extends EventTarget {
     frontPrompt: string,
     backPrompt: string,
     uc: string,
-    params?: IPromptPresetParams,
   ): void {
     const entry = this.get(id);
     if (!entry) throw new Error('프리셋을 찾을 수 없습니다');
     entry.frontPrompt = frontPrompt;
     entry.backPrompt = backPrompt;
     entry.uc = uc;
-    // sampler 파라미터 — 명시 set이면 갱신, undefined면 삭제 (그림체별로 옵션 토글).
-    const keys = ['steps', 'sampling', 'promptGuidance', 'cfgRescale', 'noiseSchedule'] as const;
-    for (const k of keys) {
-      const v = params?.[k];
-      if (v === undefined || v === null || (v as any) === '') {
-        delete (entry as any)[k];
-      } else {
-        (entry as any)[k] = v;
-      }
-    }
     entry.updatedAt = Date.now();
     this.presets = [...this.presets];
     this.scheduleSave();

@@ -2229,20 +2229,6 @@ const WFRInline = observer(({ element }: WFElementProps) => {
     }
   }
   const key = `${type}_${preset.name}_${input.field}`;
-  // 프롬프트 프리셋 적용 중일 때 lock할 필드들 — 프리셋이 덮어쓴 값들.
-  const LOCK_FIELDS = new Set([
-    'frontPrompt', 'backPrompt', 'uc',
-    'steps', 'sampling', 'promptGuidance', 'cfgRescale', 'noiseSchedule',
-  ]);
-  const isPresetLocked =
-    appState.appliedPromptPreset !== undefined &&
-    (type === 'SDImageGen' || type === 'SDImageGenEasy') &&
-    input.fieldType === 'preset' &&
-    LOCK_FIELDS.has(input.field);
-  // lock 시 영역 자체를 hide — 모바일 viewport 절약 + 자유 영역 접근 용이.
-  // 적용 중 프리셋 내용은 PromptPresetButton 배너의 [내용 보기] 토글로 확인.
-  const lockWrap = (el: React.ReactNode) =>
-    isPresetLocked ? <></> : el;
   switch (field.type) {
     case 'prompt': {
       const showPresetBtn =
@@ -2255,30 +2241,22 @@ const WFRInline = observer(({ element }: WFElementProps) => {
               getFrontPrompt={() => preset.frontPrompt || ''}
               getBackPrompt={() => preset.backPrompt || ''}
               getUc={() => preset.uc || ''}
-              getCurrentParams={() => ({
-                steps: preset.steps,
-                sampling: preset.sampling,
-                promptGuidance: preset.promptGuidance,
-                cfgRescale: preset.cfgRescale,
-                noiseSchedule: preset.noiseSchedule,
-              })}
-              onApply={(_fp, _bp, _uc, _params, id) => {
-                // 옵션 3 오버라이드 모델 — preset 객체 mutation 안 함.
-                // SDImageGenHandler / SDCreatePrompt에서 적용 시점에 override.
+              onApply={(id) => {
+                // 적용 = appliedPromptPreset id 저장. preset 객체 mutation X.
+                // 생성 시점에 SDWorkFlow applyPromptPresetOverride가 chunk + 사용자 슬롯
+                // 합쳐서 사본 반환 (덮어쓰기 X, 합치기).
                 appState.setAppliedPromptPreset(id);
               }}
             />
           )}
-          {lockWrap(
-            <EditorField label={input.label} full={input.flex === 'flex-1'}>
-              <PromptEditTextArea
-                key={key}
-                value={getField()}
-                disabled={false}
-                onChange={setField}
-              ></PromptEditTextArea>
-            </EditorField>
-          )}
+          <EditorField label={input.label} full={input.flex === 'flex-1'}>
+            <PromptEditTextArea
+              key={key}
+              value={getField()}
+              disabled={false}
+              onChange={setField}
+            ></PromptEditTextArea>
+          </EditorField>
         </>
       );
     }
@@ -2330,7 +2308,7 @@ const WFRInline = observer(({ element }: WFElementProps) => {
         </InlineEditorField>
       );
     case 'int':
-      return lockWrap(
+      return (
         <IntSliderInput
           label={input.label}
           value={getField()}
@@ -2343,7 +2321,7 @@ const WFRInline = observer(({ element }: WFElementProps) => {
         />
       );
     case 'sampling':
-      return lockWrap(
+      return (
         <InlineEditorField label={input.label}>
           <DropdownSelect
             key={key}
@@ -2361,7 +2339,7 @@ const WFRInline = observer(({ element }: WFElementProps) => {
         </InlineEditorField>
       );
     case 'noiseSchedule':
-      return lockWrap(
+      return (
         <InlineEditorField label={input.label}>
           <DropdownSelect
             key={key}

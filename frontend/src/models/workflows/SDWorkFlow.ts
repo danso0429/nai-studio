@@ -174,23 +174,26 @@ const SDImageGenEasyInnerUI = wfiStack([
   ]),
 ]);
 
-// 프롬프트 프리셋 오버라이드 — appliedPromptPreset이 있으면 그림체 영역(front/back/uc
-// + sampler params) 값을 프리셋 데이터로 교체한 사본을 반환. preset 객체 자체는 mutation
-// X — *원래 값 보존* + 프로젝트 swap 무관하게 영구 적용 (옵션 3 오버라이드 모델, P19 #12).
+// 프롬프트 프리셋 오버라이드 — appliedPromptPreset이 있으면 그 프리셋의 front/back/uc
+// 텍스트를 사용자 슬롯 텍스트의 *앞에 합쳐서* 반환. preset 객체 자체는 mutation X.
+// 옛 동작(통째 덮어쓰기 + slot lock)을 폐기 — 사용자가 chunk와 다른 태그 조합을 함께
+// 쓸 수 있도록 합치기 방식으로 전환. sampler params는 폐기 (본인 결정, 2026-05-22).
 function applyPromptPresetOverride(preset: any): any {
   const id = appState.appliedPromptPreset;
   if (!id) return preset;
   const applied = promptPresetService.get(id);
   if (!applied) return preset;
+  const join = (a: string, b: string): string => {
+    const x = (a || '').trim();
+    const y = (b || '').trim();
+    if (!x) return b || '';
+    if (!y) return a || '';
+    return `${a}, ${b}`;
+  };
   const out = { ...preset };
-  out.frontPrompt = applied.frontPrompt;
-  out.backPrompt = applied.backPrompt;
-  out.uc = applied.uc;
-  if (applied.steps !== undefined) out.steps = applied.steps;
-  if (applied.sampling !== undefined) out.sampling = applied.sampling;
-  if (applied.promptGuidance !== undefined) out.promptGuidance = applied.promptGuidance;
-  if (applied.cfgRescale !== undefined) out.cfgRescale = applied.cfgRescale;
-  if (applied.noiseSchedule !== undefined) out.noiseSchedule = applied.noiseSchedule;
+  out.frontPrompt = join(applied.frontPrompt, preset.frontPrompt || '');
+  out.backPrompt = join(applied.backPrompt, preset.backPrompt || '');
+  out.uc = join(applied.uc, preset.uc || '');
   return out;
 }
 
