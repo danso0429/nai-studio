@@ -551,9 +551,24 @@ export class AppState {
     this.dialogs.push(dialog);
   }
 
-  copyImagesToClipboard(paths: string[]) {
+  async copyImagesToClipboard(paths: string[]) {
     this.imageClipboard = [...paths];
-    this.pushMessage(paths.length + '장의 이미지가 복사되었습니다.');
+    if (paths.length === 0) return;
+    // 씬간 paste용 imageClipboard는 옛 동작 그대로. 추가로 첫 장을 OS 클립보드에도
+    // PNG로 복사 — 사용자가 "복사" 버튼을 누르면 다른 앱에서 Ctrl+V로 바로 붙을 거라는
+    // 기대를 충족. backend가 ClipboardItem(Promise<Blob>) 패턴이라 Chrome user activation 보존.
+    try {
+      await backend.copyImageToClipboard(paths[0]);
+      if (paths.length === 1) {
+        this.pushMessage('이미지를 클립보드에 복사했어요');
+      } else {
+        this.pushMessage(`${paths.length}장 복사 · 첫 장은 OS 클립보드, 전체는 씬간 붙여넣기 가능`);
+      }
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      this.pushMessage(`${paths.length}장 씬간 복사됨 · OS 클립보드 실패: ${msg}`);
+      console.error('Clipboard copy failed:', e);
+    }
   }
 
   async pasteImagesFromClipboard(session: Session, scene: GenericScene) {
