@@ -1970,6 +1970,7 @@ export class AppState {
     outFilePath: string,
     optimize: 'none' | 'lossy' | 'lossless' | 'avif',
     imageSize: number,
+    nestedByPrefix: boolean = false,
   ): Promise<string | null> {
     const pid = appState.pushProgressDialog('이미지 내보내기 큐 등록 중...', 1);
     let jobId: string | null = null;
@@ -1979,6 +1980,7 @@ export class AppState {
         outFilePath,
         optimize,
         imageSize,
+        nestedByPrefix,
       });
       jobId = result.queued ? result.jobId : null;
     } catch (e: any) {
@@ -2181,6 +2183,8 @@ export class AppState {
     );
 
     // 2단계: 1번 큐 등록. outFilePath = exports/{folderName}.tar
+    // nestedByPrefix=true: outer tar 안에 프로젝트별 inner tar가 들어감.
+    // finalName은 '{프로젝트명}/{파일명}' 형식이라 서버가 첫 segment로 자동 그룹화.
     const outFilePath = 'exports/' + folderName + '.tar';
     const optimize: 'none' | 'lossy' | 'lossless' | 'avif' =
       opt === 'original' ? 'none' : (opt as 'lossy' | 'lossless' | 'avif');
@@ -2189,6 +2193,7 @@ export class AppState {
       outFilePath,
       optimize,
       opt === 'original' ? 0 : imageSize,
+      true,
     );
 
     if (failures.length > 0) {
