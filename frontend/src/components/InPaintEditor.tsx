@@ -18,7 +18,11 @@ import {
   FaImages,
   FaPuzzlePiece,
 } from 'react-icons/fa';
-import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
+import {
+  TransformWrapper,
+  TransformComponent,
+  ReactZoomPanPinchRef,
+} from 'react-zoom-pan-pinch';
 import {
   isMobile,
   imageService,
@@ -284,6 +288,29 @@ const InPaintEditor = observer(
     const brushTool = useRef<BrushToolRef | null>(null);
     // 브러시 스트로크 후 마스크 데이터를 캐싱 (언마운트 시 ref가 null이므로)
     const cachedMaskRef = useRef<string | null>(null);
+    const canvasViewportRef = useRef<HTMLDivElement | null>(null);
+    const transformRef = useRef<ReactZoomPanPinchRef | null>(null);
+
+    // 이미지 dimensions 확정되면 viewport에 맞춰 fit-to-center
+    // (초기 0.7 정적 스케일은 큰 이미지/미러 캔버스에서 화면 밖으로 흘러서 폐기)
+    useEffect(() => {
+      if (!width || !height) return;
+      const fit = () => {
+        const container = canvasViewportRef.current;
+        const tr = transformRef.current;
+        if (!container || !tr) return;
+        const cw = container.clientWidth;
+        const ch = container.clientHeight;
+        if (cw === 0 || ch === 0) return;
+        const fitScale = Math.min(cw / width, ch / height, 1);
+        const x = (cw - width * fitScale) / 2;
+        const y = (ch - height * fitScale) / 2;
+        tr.setTransform(x, y, fitScale, 0);
+      };
+      fit();
+      const raf = requestAnimationFrame(fit);
+      return () => cancelAnimationFrame(raf);
+    }, [width, height]);
 
     const onDrawEnd = () => {
       if (brushTool.current) {
@@ -613,12 +640,13 @@ const InPaintEditor = observer(
           )}
         </div>
         <div className="flex flex-col flex-1 overflow-hidden">
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden" ref={canvasViewportRef}>
             <TransformWrapper
+              ref={transformRef}
               disabled={!!def?.hasMask && brushing}
-              minScale={0.7}
-              initialScale={0.7}
-              centerOnInit={true}
+              minScale={0.1}
+              initialScale={1}
+              limitToBounds={false}
             >
               <TransformComponent wrapperClass="wrapper flex-none items-center justify-center">
                 <BrushTool
