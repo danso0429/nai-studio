@@ -281,7 +281,7 @@ interface ImageGalleryProps {
   scene: GenericScene;
   filePaths: string[];
   imageSize: number;
-  onSelected?: (index: number) => void;
+  onSelected?: (index: number, ev?: React.MouseEvent) => void;
   isMainImage?: (path: string) => boolean;
   onFilenameChange?: (src: string, dst: string) => void;
   pageSize?: number;
@@ -540,10 +540,10 @@ const Cell = memo(
           (isOver ? ' border-2 border-sky-500' : '')
         }
         draggable
-        onClick={() => {
+        onClick={(ev) => {
           if (path) {
             if (onSelected) {
-              onSelected(index);
+              onSelected(index, ev);
             }
           }
         }}
@@ -1354,8 +1354,25 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
     selectModeRef.current = selectMode;
     const pathsRef = useRef(paths);
     pathsRef.current = paths;
-    const onSelected = useCallback((index: any) => {
+    const onSelected = useCallback((index: number, ev?: React.MouseEvent) => {
       const p = pathsRef.current[index];
+      // 데스크탑 ctrl(Win/Linux) / cmd(macOS) + 좌클릭 — 선택 모드 자동 진입 + 그 이미지 선택.
+      // 모바일은 longpress/선택 모드 버튼 흐름 유지(modifier 없음 + hang 회귀 P12 #7 회피).
+      const modifier = !isMobile && ev && (ev.ctrlKey || ev.metaKey);
+      if (modifier) {
+        if (!selectModeRef.current) {
+          setSelectMode(true);
+          selectModeRef.current = true;
+        }
+        if (selectedImages.current.has(p)) {
+          selectedImages.current.delete(p);
+        } else {
+          selectedImages.current.add(p);
+        }
+        if (gallaryRef.current) gallaryRef.current.refeshImage(p);
+        if (gallaryRef2.current) gallaryRef2.current.refeshImage(p);
+        return;
+      }
       if (selectModeRef.current) {
         if (selectedImages.current.has(p)) {
           selectedImages.current.delete(p);
