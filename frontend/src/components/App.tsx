@@ -367,7 +367,12 @@ export const App = observer(() => {
   // 있을 때만 imageMap 갱신). SceneQueueControl 카드 list view는 listener 없어서
   // imageMap 영원히 stale (큐 끝나도 카드의 카운터 0, 썸네일 X). App.tsx에서 받아서
   // 그 씬 한정 refresh — 본인 보던 화면 무관하게 always cover.
+  //
+  // sceneKey-scoped debounce 1000ms — 같은 씬에 burst complete (예: 100 잡 동시 끝)
+  // 시 100회 listFiles refresh 누적 → 모바일 발열 직접 동인. burst를 1회로 압축.
   useEffect(() => {
+    const DEBOUNCE_MS = 1000;
+    const pendingRefresh = new Map<string, ReturnType<typeof setTimeout>>();
     const onSceneJobComplete = (e: any) => {
       const sceneKey = e?.detail?.sceneKey;
       if (!sceneKey || !appState.curSession) return;
@@ -376,14 +381,26 @@ export const App = observer(() => {
       const [sName, sType] = [parts[0], parts[1]];
       const sceneName = parts.slice(2).join('/');
       if (sName !== appState.curSession.name) return;
-      const scene = sType === 'inpaint'
-        ? appState.curSession.inpaints.get(sceneName)
-        : appState.curSession.scenes.get(sceneName);
-      if (!scene) return;
-      imageService.refresh(appState.curSession, scene);
+      const existing = pendingRefresh.get(sceneKey);
+      if (existing) clearTimeout(existing);
+      const timer = setTimeout(() => {
+        pendingRefresh.delete(sceneKey);
+        // timer fire 시점에 session 변경됐을 수 있음 — re-verify.
+        if (!appState.curSession || appState.curSession.name !== sName) return;
+        const scene = sType === 'inpaint'
+          ? appState.curSession.inpaints.get(sceneName)
+          : appState.curSession.scenes.get(sceneName);
+        if (!scene) return;
+        imageService.refresh(appState.curSession, scene);
+      }, DEBOUNCE_MS);
+      pendingRefresh.set(sceneKey, timer);
     };
     taskQueueService.addEventListener('scene-job-complete', onSceneJobComplete);
-    return () => taskQueueService.removeEventListener('scene-job-complete', onSceneJobComplete);
+    return () => {
+      taskQueueService.removeEventListener('scene-job-complete', onSceneJobComplete);
+      for (const timer of pendingRefresh.values()) clearTimeout(timer);
+      pendingRefresh.clear();
+    };
   }, []);
 
   // 큐 완전 종료(mirroredTasks 비어짐) 시점 안전망 — 누락된 scene refresh 일괄 cover.
