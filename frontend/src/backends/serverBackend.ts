@@ -506,22 +506,32 @@ export class ServerBackend extends Backend {
   async loadModel(_modelPath: string): Promise<void> {}
 
   async copyImageToClipboard(imagePath: string): Promise<void> {
-    // audit H20 — 옛 raw fetch는 signal/timeout 없음. 인터넷 hang 시 blob (~1-5 MB)이
-    // 네트워크 OS timeout (분 단위)까지 retain. 30초 defensive timeout으로 끊음.
+    // Chrome 데스크탑 user activation 보존 패턴: fetch await 후 clipboard.write를
+    // 직접 호출하면 activation이 만료돼 NotAllowedError. ClipboardItem에 Promise<Blob>를
+    // 직접 넘기면 Chrome이 resolve까지 activation 유지. 옛 패턴은 sync blob 전달 후
+    // catch에서 silent — 사용자가 실패 자체를 모름. 이번엔 throw + 호출측 toast.
+    // audit H20 — 30초 defensive timeout (네트워크 hang 시 blob retain 방지).
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const res = await fetch(
-        `${API_BASE}/api/fs/image?path=${encodeURIComponent(imagePath)}`,
-        { signal: controller.signal },
-      );
-      const blob = await res.blob();
-      await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
-    } catch (e) {
-      console.error('Clipboard copy failed:', e);
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    const blobPromise = (async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/fs/image?path=${encodeURIComponent(imagePath)}`,
+          { signal: controller.signal },
+        );
+        if (!res.ok) throw new Error(`이미지 fetch 실패 (HTTP ${res.status})`);
+        const raw = await res.blob();
+        // Chrome/Safari/Firefox 데스크탑 모두 image/png는 안정 지원. .png 외 확장자도
+        // PNG로 라벨링하면 raw 바이트가 PNG 시그니처면 그대로 붙고, 아니면 paste 측에서 거부.
+        // 우리 cache는 .png가 default라 99% 케이스는 PNG.
+        return new Blob([await raw.arrayBuffer()], { type: 'image/png' });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    })();
+    await navigator.clipboard.write([
+      new ClipboardItem({ 'image/png': blobPromise }),
+    ]);
   }
 
   async spawnLocalAI(): Promise<void> {}

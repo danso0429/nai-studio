@@ -92,7 +92,14 @@ export const AppContextMenu = observer(() => {
     });
   };
   const clipboardImage = async (ctx: GallaryImageContextAlt) => {
-    await backend.copyImageToClipboard(ctx.path[0]);
+    try {
+      await backend.copyImageToClipboard(ctx.path[0]);
+      appState.pushMessage('이미지를 클립보드에 복사했어요');
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      appState.pushMessage(`클립보드 복사 실패: ${msg}`);
+      console.error('Clipboard copy failed:', e);
+    }
   };
   const favImage = (ctx: GallaryImageContextAlt) => {
     if (!ctx.scene) return;
