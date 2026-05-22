@@ -924,8 +924,8 @@ async function processExportQueue() {
 }
 
 async function runExportJob(job) {
-  const { jobId, paths: items, outFilePath, optimize, imageSize } = job;
-  console.log('[Export] start jobId=' + jobId + ' items=' + items.length + ' optimize=' + optimize);
+  const { jobId, paths: items, outFilePath, optimize, imageSize, nestedByPrefix } = job;
+  console.log('[Export] start jobId=' + jobId + ' items=' + items.length + ' optimize=' + optimize + (nestedByPrefix ? ' nested' : ''));
 
   // Phase 1: resize (skip when optimize === 'none')
   if (optimize && optimize !== 'none') {
@@ -962,57 +962,122 @@ async function runExportJob(job) {
   const totalForZip = items.length;
   setExportProgress(jobId, 'zip', 0, totalForZip);
   const JSZip = require('jszip');
-  const zip = new JSZip();
   const skipped = [];
   let included = 0;
-  let processed = 0;
-  for (const item of items) {
-    if (isExportCanceled(jobId)) throw new Error('canceled');
-    const sourceFile = item.processedPath || resolvePath(item.srcPath);
-    try {
-      // ENOENT skip을 stream 전에 잡기 — 옛 fs.readFile은 read 시점에 throw였는데,
-      // createReadStream은 비동기 'error'로 흘러서 generateNodeStream 단계에서 전체 zip을 실패시킴.
-      // fs.access 사전 체크로 옛 per-file skip semantics 보존.
-      await fs.access(sourceFile);
-      zip.file(item.finalName, fss.createReadStream(sourceFile));
-      included++;
-    } catch (e) {
-      if (e.code === 'ENOENT') {
-        skipped.push(item.srcPath);
-        console.warn('[Export] ENOENT, skipping:', item.srcPath);
-      } else {
-        throw e;
-      }
-    }
-    processed++;
-    // 진행도는 매 16개나 끝에서 broadcast (너무 잦은 broadcast 회피)
-    if (processed % 16 === 0 || processed === totalForZip) {
-      setExportProgress(jobId, 'zip', processed, totalForZip);
-    }
-  }
-  if (included === 0) {
-    throw new Error('아카이브할 파일이 없어요');
-  }
-  if (isExportCanceled(jobId)) throw new Error('canceled');
   const outAbs = resolvePath(outFilePath);
   await fs.mkdir(path.dirname(outAbs), { recursive: true });
-  // 옛: zip.generateAsync(nodebuffer) → 전체 archive를 단일 Buffer로 머터리얼라이즈 후 fs.writeFile.
-  // EXPORT_CONCURRENCY=10 + 수백 MB 잡 + 동시 GB 합산. 24GB RAM에서도 OOM risk.
-  // 새: generateNodeStream + streamFiles → 파일별 chunk만 메모리에 두고 디스크에 즉시 흘림.
-  // Peak heap O(per-file buffer)로 감소.
-  try {
-    await new Promise((resolve, reject) => {
-      const out = fss.createWriteStream(outAbs);
-      out.on('error', reject);
-      out.on('finish', resolve);
-      zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true })
-        .on('error', reject)
-        .pipe(out);
-    });
-  } catch (e) {
-    // partial write 파일 정리 — write stream은 open 시 0-byte 파일 생성하므로 reject 시 잔존.
-    try { await fs.unlink(outAbs); } catch {}
-    throw e;
+
+  // streamFiles=true + generateNodeStream → 옛 단일 buffer 머터리얼라이즈 대신 파일별 chunk만
+  // 메모리에 두고 디스크로 흘림. Peak heap O(per-file buffer). EXPORT_CONCURRENCY=10 환경에서 OOM 회피.
+  const streamZipToFile = async (zip, absPath) => {
+    try {
+      await new Promise((resolve, reject) => {
+        const out = fss.createWriteStream(absPath);
+        out.on('error', reject);
+        out.on('finish', resolve);
+        zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true })
+          .on('error', reject)
+          .pipe(out);
+      });
+    } catch (e) {
+      // partial write 파일 정리 — write stream은 open 시 0-byte 파일 생성하므로 reject 시 잔존.
+      try { await fs.unlink(absPath); } catch {}
+      throw e;
+    }
+  };
+
+  if (nestedByPrefix) {
+    // outer tar 안에 프로젝트별 inner tar(.tar 확장자 zip)을 묶는 모드.
+    // 그룹 키 = finalName 첫 '/' 앞 segment. '/' 없으면 단일 그룹('_root').
+    // 각 inner zip은 tmp 파일로 streaming write → outer zip에 createReadStream으로 add → outer streaming write.
+    const groups = new Map(); // prefix → [items]
+    for (const item of items) {
+      const fn = item.finalName || '';
+      const slash = fn.indexOf('/');
+      const prefix = slash >= 0 ? fn.slice(0, slash) : '_root';
+      let g = groups.get(prefix);
+      if (!g) { g = []; groups.set(prefix, g); }
+      g.push(item);
+    }
+
+    const innerTmpFiles = [];
+    let processed = 0;
+    try {
+      const outerZip = new JSZip();
+      for (const [prefix, groupItems] of groups) {
+        if (isExportCanceled(jobId)) throw new Error('canceled');
+        const innerZip = new JSZip();
+        let groupIncluded = 0;
+        for (const item of groupItems) {
+          if (isExportCanceled(jobId)) throw new Error('canceled');
+          const sourceFile = item.processedPath || resolvePath(item.srcPath);
+          try {
+            await fs.access(sourceFile);
+            innerZip.file(item.finalName, fss.createReadStream(sourceFile));
+            groupIncluded++;
+            included++;
+          } catch (e) {
+            if (e.code === 'ENOENT') {
+              skipped.push(item.srcPath);
+              console.warn('[Export] ENOENT, skipping:', item.srcPath);
+            } else {
+              throw e;
+            }
+          }
+          processed++;
+          if (processed % 16 === 0 || processed === totalForZip) {
+            setExportProgress(jobId, 'zip', processed, totalForZip);
+          }
+        }
+        if (groupIncluded === 0) continue; // 그룹 전체가 ENOENT면 inner tar 생성 skip
+        const innerAbs = resolvePath('tmp/inner-' + jobId + '-' + uuidv4() + '.tar');
+        await fs.mkdir(path.dirname(innerAbs), { recursive: true });
+        await streamZipToFile(innerZip, innerAbs);
+        innerTmpFiles.push(innerAbs);
+        if (isExportCanceled(jobId)) throw new Error('canceled');
+        outerZip.file(prefix + '.tar', fss.createReadStream(innerAbs));
+      }
+      if (included === 0) throw new Error('아카이브할 파일이 없어요');
+      if (isExportCanceled(jobId)) throw new Error('canceled');
+      await streamZipToFile(outerZip, outAbs);
+    } finally {
+      for (const p of innerTmpFiles) {
+        try { await fs.unlink(p); } catch {}
+      }
+    }
+  } else {
+    // 옛 동작: 모든 file을 단일 zip에 평탄하게 추가.
+    const zip = new JSZip();
+    let processed = 0;
+    for (const item of items) {
+      if (isExportCanceled(jobId)) throw new Error('canceled');
+      const sourceFile = item.processedPath || resolvePath(item.srcPath);
+      try {
+        // ENOENT skip을 stream 전에 잡기 — 옛 fs.readFile은 read 시점에 throw였는데,
+        // createReadStream은 비동기 'error'로 흘러서 generateNodeStream 단계에서 전체 zip을 실패시킴.
+        // fs.access 사전 체크로 옛 per-file skip semantics 보존.
+        await fs.access(sourceFile);
+        zip.file(item.finalName, fss.createReadStream(sourceFile));
+        included++;
+      } catch (e) {
+        if (e.code === 'ENOENT') {
+          skipped.push(item.srcPath);
+          console.warn('[Export] ENOENT, skipping:', item.srcPath);
+        } else {
+          throw e;
+        }
+      }
+      processed++;
+      // 진행도는 매 16개나 끝에서 broadcast (너무 잦은 broadcast 회피)
+      if (processed % 16 === 0 || processed === totalForZip) {
+        setExportProgress(jobId, 'zip', processed, totalForZip);
+      }
+    }
+    if (included === 0) {
+      throw new Error('아카이브할 파일이 없어요');
+    }
+    if (isExportCanceled(jobId)) throw new Error('canceled');
+    await streamZipToFile(zip, outAbs);
   }
   // tar 작성 후에도 한 번 더 체크 — 직후 취소 들어왔으면 정리하고 throw
   if (isExportCanceled(jobId)) {
@@ -3293,7 +3358,7 @@ app.post('/api/drive/retry-one', async (req, res) => {
 // body: { paths: [{ srcPath, finalName }], outFilePath, optimize: 'none'|'lossy'|'lossless'|'avif', imageSize }
 // 큐에 적재 + 즉시 처리 트리거, 202 + jobId 반환. WS 이벤트로 진행/완료 알림.
 app.post('/api/export/scene-pack', async (req, res) => {
-  const { paths: items, outFilePath, optimize, imageSize } = req.body || {};
+  const { paths: items, outFilePath, optimize, imageSize, nestedByPrefix } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ ok: false, error: 'paths required' });
   }
@@ -3328,6 +3393,7 @@ app.post('/api/export/scene-pack', async (req, res) => {
     outFilePath: 'exports/' + cleaned,
     optimize: optimize || 'none',
     imageSize: imageSize || 0,
+    nestedByPrefix: !!nestedByPrefix,
   });
   setImmediate(() => processExportQueue());
   res.status(202).json({ ok: true, jobId, queued: true });

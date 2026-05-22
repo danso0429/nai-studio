@@ -299,6 +299,7 @@ export class ServerBackend extends Backend {
     outFilePath: string;
     optimize: 'none' | 'lossy' | 'lossless' | 'avif';
     imageSize: number;
+    nestedByPrefix?: boolean;
   }): Promise<{ jobId: string; queued: boolean }> {
     const data = await apiJSON('/export/scene-pack', {
       method: 'POST',
