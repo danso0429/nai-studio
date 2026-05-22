@@ -225,17 +225,15 @@ const SessionSelect = observer(() => {
         <FaTrashAlt size={18} />{' '}
       </button>
       </Tooltip>
-      {/* round-button CSS가 display: inline-flex !important처럼 작동해서 Tailwind
-          `hidden`이 무력화. wrapping div로 감싸 모바일에서 확실히 숨김 처리. */}
-      <div className="hidden md:block">
-        <button
-          className="round-button back-green flex items-center gap-1 ml-1"
-          onClick={() => appState.openPieceEditor()}
-        >
-          <FaPuzzlePiece size={18} />
-          <span>프롬프트조각</span>
-        </button>
-      </div>
+      <Tooltip content="프롬프트조각 라이브러리">
+      <button
+        className={`icon-button nback-green mx-1 flex items-center gap-1`}
+        onClick={() => appState.openPieceEditor()}
+      >
+        <FaPuzzlePiece size={18} />
+        <span className="hidden md:inline text-sm">프롬프트조각</span>
+      </button>
+      </Tooltip>
     </div>
   );
 });
