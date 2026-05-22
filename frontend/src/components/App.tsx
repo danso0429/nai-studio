@@ -361,6 +361,44 @@ export const App = observer(() => {
     return off;
   }, []);
 
+  // 'scene-job-complete' broadcast 흡수. restored mirror task가 complete될 때 task.params
+  // 빈 placeholder라 afterGenComplete 스킵됨 → imageService.onAddImage 안 불림 → 옛엔
+  // ResultViewer.tsx:1317의 sceneKey-scoped listener만 작동 (본인이 결과 viewer 안에
+  // 있을 때만 imageMap 갱신). SceneQueueControl 카드 list view는 listener 없어서
+  // imageMap 영원히 stale (큐 끝나도 카드의 카운터 0, 썸네일 X). App.tsx에서 받아서
+  // 그 씬 한정 refresh — 본인 보던 화면 무관하게 always cover.
+  useEffect(() => {
+    const onSceneJobComplete = (e: any) => {
+      const sceneKey = e?.detail?.sceneKey;
+      if (!sceneKey || !appState.curSession) return;
+      const parts = sceneKey.split('/');
+      if (parts.length < 3) return;
+      const [sName, sType] = [parts[0], parts[1]];
+      const sceneName = parts.slice(2).join('/');
+      if (sName !== appState.curSession.name) return;
+      const scene = sType === 'inpaint'
+        ? appState.curSession.inpaints.get(sceneName)
+        : appState.curSession.scenes.get(sceneName);
+      if (!scene) return;
+      imageService.refresh(appState.curSession, scene);
+    };
+    taskQueueService.addEventListener('scene-job-complete', onSceneJobComplete);
+    return () => taskQueueService.removeEventListener('scene-job-complete', onSceneJobComplete);
+  }, []);
+
+  // 큐 완전 종료(mirroredTasks 비어짐) 시점 안전망 — 누락된 scene refresh 일괄 cover.
+  // restored mirror task가 진행 중에 끊어진 broadcast 다수 + scene-job-complete listener
+  // 미설치 시점이 겹치면 카운터/썸네일 영구 stale. 'stop' event 시 refreshBatch.
+  useEffect(() => {
+    const onStop = () => {
+      if (appState.curSession) {
+        imageService.refreshBatch(appState.curSession);
+      }
+    };
+    taskQueueService.addEventListener('stop', onStop);
+    return () => taskQueueService.removeEventListener('stop', onStop);
+  }, []);
+
   // visibility 복귀 시 refreshBatch. 모바일 백그라운드 시 iOS는 WS 연결 자체는
   // 유지하지만 idle 상태라 broadcast 처리가 deferred. ws-reconnect 이벤트는
   // *연결이 끊긴 경우*에만 발생 — 끊기지 않고 idle만 됐다 돌아온 경우는 ws-reconnect
