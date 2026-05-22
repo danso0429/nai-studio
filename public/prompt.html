@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>NAI 프롬프트 분류기</title>
+<link rel="apple-touch-icon" href="./icons/queue-180.png">
+<meta name="apple-mobile-web-app-title" content="NAI 프롬프트">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f1115;
+    color: #e6e8eb;
+    padding: 16px;
+    max-width: 760px;
+    margin: 0 auto;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 {
+    font-size: 14px;
+    color: #8a8f98;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 12px;
+  }
+  h2 {
+    font-size: 13px;
+    color: #b8bcc4;
+    font-weight: 600;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .desc {
+    color: #8a8f98;
+    font-size: 12px;
+    line-height: 1.5;
+    margin-bottom: 14px;
+  }
+  .card {
+    background: #1a1d23;
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  textarea {
+    width: 100%;
+    background: #0f1115;
+    color: #e6e8eb;
+    border: 1px solid #2a2e36;
+    border-radius: 8px;
+    padding: 10px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    resize: vertical;
+    -webkit-text-fill-color: #e6e8eb;
+  }
+  textarea.input-main {
+    min-height: 120px;
+  }
+  textarea.output {
+    min-height: 80px;
+  }
+  button {
+    background: #2a6cff;
+    color: #fff;
+    border: 0;
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:hover { background: #1a5cef; }
+  button:disabled { background: #2a2e36; color: #6a6e76; cursor: default; }
+  button.secondary {
+    background: #2a2e36;
+    color: #b8bcc4;
+  }
+  button.secondary:hover { background: #3a3e46; }
+  .row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .row > .grow { flex: 1; }
+  .small {
+    font-size: 11px;
+    color: #6a6e76;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 500;
+    margin-left: 6px;
+  }
+  .badge.front { background: #1e3a5f; color: #7cb3ff; }
+  .badge.back  { background: #3a2a5f; color: #b899ff; }
+  .badge.uc    { background: #5f2a2a; color: #ff9999; }
+  .badge.other { background: #2a2e36; color: #b8bcc4; }
+  .stat {
+    color: #6a6e76;
+    font-size: 11px;
+    margin-top: 4px;
+  }
+  .info-bullet {
+    color: #8a8f98;
+    font-size: 12px;
+    line-height: 1.6;
+    padding-left: 8px;
+  }
+  .info-bullet b { color: #b8bcc4; }
+  .copied {
+    color: #4fc77f;
+    font-size: 11px;
+    margin-left: 8px;
+  }
+  a { color: #7cb3ff; }
+</style>
+</head>
+<body>
+<h1>NAI 프롬프트 분류기</h1>
+<div class="desc">
+  태그 뭉치를 콤마(,)로 구분해서 붙여넣으면 <b>상위(그림체)</b> / <b>하위(보강)</b> / <b>네거티브</b> / <b>기타</b>로 자동 분류해줘요. db.csv 카테고리 + quality-tags 화이트리스트 기반 휴리스틱이에요. 결과는 직접 편집할 수 있어요.
+</div>
+
+<div class="card">
+  <h2>입력 — 분류할 태그 뭉치</h2>
+  <textarea class="input-main" id="input" placeholder="예시: artist:hwansang, 1girl, official_art, highres, depth_of_field, sunlight, blurry, worst_quality, lowres, bad_anatomy, school_uniform, holding_sword"></textarea>
+  <div class="row">
+    <button id="analyzeBtn">분류 실행</button>
+    <button class="secondary" id="exampleBtn">예시 채우기</button>
+    <button class="secondary" id="clearBtn">초기화</button>
+    <span class="small" id="status"></span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>
+    <span>상위 프롬프트 <span class="badge front">FRONT</span></span>
+    <button class="secondary" data-copy="front">복사</button>
+  </h2>
+  <textarea class="output" id="out-front" placeholder="아티스트 태그, 그림체 키워드"></textarea>
+  <div class="stat">그림체 / 스타일 — 작가 태그(artist:*), category=1, *_(style) 등</div>
+</div>
+
+<div class="card">
+  <h2>
+    <span>하위 프롬프트 <span class="badge back">BACK</span></span>
+    <button class="secondary" data-copy="back">복사</button>
+  </h2>
+  <textarea class="output" id="out-back" placeholder="quality booster, 매체, 조명, 배경, 카메라 효과 등"></textarea>
+  <div class="stat">보강 — db.csv category=5 (meta) + lighting/composition/medium 화이트리스트</div>
+</div>
+
+<div class="card">
+  <h2>
+    <span>네거티브 프롬프트 <span class="badge uc">UC</span></span>
+    <button class="secondary" data-copy="uc">복사</button>
+  </h2>
+  <textarea class="output" id="out-uc" placeholder="lowres, worst_quality, bad_anatomy 등"></textarea>
+  <div class="stat">부정 태그 — `-` prefix 또는 명시적 negative 키워드 화이트리스트</div>
+</div>
+
+<div class="card">
+  <h2>
+    <span>기타 / 직접 배치 <span class="badge other">OTHER</span></span>
+    <button class="secondary" data-copy="other">복사</button>
+  </h2>
+  <textarea class="output" id="out-other" placeholder="캐릭터, 액션, 의상, 사물 등 — 사용자가 직접 어느 칸에 둘지 결정"></textarea>
+  <div class="stat">캐릭터(category=4) / 저작권(category=3) / 일반 태그(category=0) — 그 씬에서만 쓰는 것들. 보통 SDStudio의 '중간 프롬프트(씬별)' 영역으로 가요.</div>
+</div>
+
+<div class="card">
+  <h2>분류 기준 안내</h2>
+  <div class="info-bullet">
+    • <b>상위 (FRONT)</b>: 모델이 가장 우선 인지 — 그림체 / 작가 / 조명 같은 *전체 톤*을 결정<br>
+    • <b>하위 (BACK)</b>: 마지막에 붙는 보강 — quality booster, 매체, 배경 처리<br>
+    • <b>네거티브 (UC)</b>: 보기 싫은 것들 — anatomy 오류, 저화질, 워터마크<br>
+    • <b>기타</b>: 씬마다 바뀌는 것들 (1girl, 의상, 포즈) — 그림체 프리셋과 따로 가야 swap이 의미 있어요
+  </div>
+  <div class="stat" style="margin-top: 8px;">
+    NAI weight 표기(<code>1.5::tag::</code>, <code>{tag}</code>) 안의 태그도 추출해서 분류해요. 분류 후 weight는 결과에서 제거되니, 필요하면 다시 박아주세요.
+  </div>
+</div>
+
+<script>
+const BASE = window.location.pathname.replace(/\/prompt(\.html)?$/, '');
+
+// 화이트리스트 — quality-tags-reference.md 기반.
+const WHITELIST_BACK = new Set([
+  // 품질/해상도
+  'highres', 'absurdres', 'incredibly_absurdres',
+  // 소스 타입
+  'official_art', 'game_cg', 'anime_screenshot', 'promotional_art',
+  'novel_illustration', 'official_wallpaper', 'concept_art', 'artbook',
+  // 매체
+  'photoshop_(medium)', 'traditional_media', 'painting_(medium)', 'photo_(medium)',
+  'watercolor_(medium)', 'painttool_sai_(medium)', 'marker_(medium)',
+  'graphite_(medium)', 'clip_studio_paint_(medium)', 'colored_pencil_(medium)',
+  'pen_(medium)', 'procreate_(medium)', 'paint.net_(medium)',
+  // 조명
+  'sunlight', 'backlighting', 'sunbeam', 'dappled_sunlight', 'sidelighting',
+  'spotlight', 'silhouette', 'moonlight',
+  // 카메라 효과
+  'depth_of_field', 'blurry_background', 'blurry', 'blurry_foreground',
+  'motion_blur', 'chromatic_aberration', 'film_grain', 'bokeh',
+  // 빛/효과
+  'sparkle', 'glowing', 'glowing_eyes', 'shaded_face', 'reflection',
+  'drop_shadow', 'glaring', 'caustics',
+  // 배경 처리
+  'simple_background', 'white_background', 'gradient_background',
+  'grey_background', 'gray_background', 'blue_background', 'black_background',
+  'transparent_background', 'two-tone_background', 'pink_background',
+  'dark_background', 'floral_background', 'checkered_background',
+  'polka_dot_background', 'multicolored_background',
+  // 구도
+  'portrait', 'very_wide_shot', 'wide_shot', 'scenery', 'landscape',
+  // 스타일/채색
+  'sketch', 'outline', 'white_outline', 'anime_coloring', 'linear_hatching',
+  // NAI 자동 quality 보강 (db.csv 외 — 실사용)
+  'masterpiece', 'best_quality', 'amazing_quality', 'very_aesthetic',
+  'aesthetic', 'best_illustration',
+]);
+
+const WHITELIST_UC = new Set([
+  // 저화질
+  'lowres', 'worst_quality', 'bad_quality', 'normal_quality', 'low_quality',
+  'jpeg_artifacts', 'scan_artifacts', 'aliasing', 'upscaled', 'dithering',
+  'halftone', 'screentone', 'screentones', 'compression_artifacts',
+  'film_grain', 'heavy_film_grain', 'chromatic_aberration', 'digital_dissolve',
+  // 해부학
+  'bad_anatomy', 'bad_proportions', 'bad_face', 'bad_eyes', 'bad_hands',
+  'bad_limbs', 'bad_arm', 'bad_legs', 'bad_arms', 'bad_leg', 'bad_hand_structure',
+  'extra_digits', 'fewer_digits', 'extra_arms', 'extra_legs', 'extra_hands',
+  'extra_leg', 'amputee', 'missing_limb', 'missing_arm', 'missing_leg',
+  'distorted_anatomy', 'anatomical_structure_error', 'asymmetrical_face',
+  'unnatural_hair', 'pointy_ears',
+  // 변형/왜곡
+  'mutation', 'deformed', 'distorted', 'disfigured', 'anatomy_error',
+  'unnatural', 'animation_error', 'artistic_error',
+  // 눈/얼굴
+  'mob_face', 'empty_eyes', 'cloudy_eyes', 'blank_eyes',
+  // 텍스트/메타
+  'watermark', 'too_many_watermarks', 'text', 'text-only_page', 'logo',
+  'signature', 'username', 'artist_name', 'dated', 'reference', 'blank_page',
+  // 품질 표현
+  'displeasing', 'very_displeasing', 'unfinished', 'incomplete', 'amateur',
+  'cheesy', 'unsatisfactory', 'inadequate', 'deficient', 'subpar', 'poor',
+  'bad_illustration', 'bad_portrait', 'fewer_details',
+  // 스타일 (보통 회피)
+  '4koma', '2koma', 'toon_(style)', '1990s_(style)', 'oekaki', 'turnaround',
+  'monochrome', 'old',
+  // 메타
+  'artist_collaboration', 'one-hour_drawing_challenge', 'variant_set',
+  'large_variant_set', 'multiple_views', 'multiple_view',
+  // 검열
+  'censored', 'mosaic_censoring',
+  // 색감
+  'disorganized_colors', 'vertical_lines', 'vertical_banding', 'negative_space',
+  // 구도
+  'distorted_composition', 'bad_perspective',
+]);
+
+// FRONT는 동적 (artist:* 패턴 + db.csv category=1)이라 set 아닌 함수 매치.
+
+// NAI weight/grouping 표기 strip. 예:
+//   1.5::artist:hwansang::  →  artist:hwansang
+//   {{best quality}}        →  best quality
+//   [tag]                   →  tag
+//   -3::bad anatomy::       →  bad anatomy   (prefix `-`로도 처리 안 함 — :: 안은 이미 그 가중치)
+function stripWeight(tag) {
+  // 1.5::xxx:: → xxx
+  let m = tag.match(/^-?\d+(?:\.\d+)?::(.+?)::$/);
+  if (m) return m[1].trim();
+  // {{xxx}} 또는 [xxx]
+  return tag.replace(/^[{[]+|[\]}]+$/g, '').trim();
+}
+
+function normalizeForLookup(tag) {
+  // db.csv는 underscore. 사용자 입력은 공백 가능. NAI도 둘 다 받아서 정규화.
+  return tag.replace(/\s+/g, '_').toLowerCase();
+}
+
+function parseInput(text) {
+  // 콤마로 split. 가중치 표기는 그대로 두고 base만 추출용으로 strip.
+  const parts = text.split(/,|\n/).map((s) => s.trim()).filter(Boolean);
+  return parts.map((raw) => {
+    let negative = false;
+    let base = stripWeight(raw);
+    // `-` prefix (예: -bad_quality)
+    if (base.startsWith('-') && !base.startsWith('-1::') && !base.startsWith('-2::') && !base.startsWith('-3::')) {
+      // 단일 - prefix만 negative 신호
+      const after = base.slice(1).trim();
+      if (after.length > 0 && !/^\d/.test(after)) {
+        negative = true;
+        base = after;
+      }
+    }
+    return { raw, base, normalized: normalizeForLookup(base), negative };
+  });
+}
+
+function isArtistTag(base) {
+  return /^artist:/i.test(base);
+}
+
+function isStyleSuffix(base) {
+  return /_\(style\)$/i.test(base.replace(/\s+/g, '_'));
+}
+
+async function lookupCategory(normalized) {
+  try {
+    const r = await fetch(BASE + '/api/tags/lookup?q=' + encodeURIComponent(normalized), { cache: 'force-cache' });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j; // {word, category, freq, ...} or null
+  } catch (e) {
+    return null;
+  }
+}
+
+async function classify(item) {
+  if (item.negative) return 'uc';
+  // 명시적 화이트리스트
+  if (WHITELIST_UC.has(item.normalized)) return 'uc';
+  if (WHITELIST_BACK.has(item.normalized)) return 'back';
+  // 아티스트 패턴
+  if (isArtistTag(item.base)) return 'front';
+  if (isStyleSuffix(item.base)) return 'front';
+  // db.csv 카테고리 fallback
+  const info = await lookupCategory(item.normalized);
+  if (info) {
+    switch (info.category) {
+      case 5: return 'back';
+      case 1: return 'front';
+      case 4: return 'other'; // character
+      case 3: return 'other'; // copyright
+      case 0: return 'other'; // general (씬 단위 prompt)
+    }
+  }
+  // db.csv 없음 — 사용자 custom. 기본 'other'.
+  return 'other';
+}
+
+async function runAnalyze() {
+  const text = document.getElementById('input').value;
+  const items = parseInput(text);
+  if (items.length === 0) {
+    setStatus('입력이 비어있어요.');
+    return;
+  }
+  setStatus(`${items.length}개 태그 분석 중…`);
+  const buckets = { front: [], back: [], uc: [], other: [] };
+  // batch limit: Promise.all로 동시 fetch (db.csv lookup은 메모리에서 즉답이라 빠름)
+  const cats = await Promise.all(items.map(classify));
+  items.forEach((it, i) => {
+    const cat = cats[i];
+    // raw(가중치 표기 포함) 그대로 유지 — 사용자가 weight 박은 의도 존중.
+    // 단, negative `-` prefix는 raw에서 떼고 결과로 넘김 (uc에 넣을 거니까).
+    let out = it.raw;
+    if (it.negative && out.startsWith('-')) out = it.base;
+    buckets[cat].push(out);
+  });
+  document.getElementById('out-front').value = buckets.front.join(', ');
+  document.getElementById('out-back').value = buckets.back.join(', ');
+  document.getElementById('out-uc').value = buckets.uc.join(', ');
+  document.getElementById('out-other').value = buckets.other.join(', ');
+  setStatus(
+    `완료: 상위 ${buckets.front.length} · 하위 ${buckets.back.length} · 네거티브 ${buckets.uc.length} · 기타 ${buckets.other.length}`
+  );
+}
+
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+
+async function copyTo(id) {
+  const el = document.getElementById('out-' + id);
+  const text = el.value;
+  if (!text.trim()) {
+    setStatus('비어있어요.');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus(`${id} 복사됨 (${text.length} chars)`);
+  } catch (e) {
+    // fallback
+    el.select();
+    document.execCommand('copy');
+    setStatus(`${id} 복사됨 (fallback)`);
+  }
+}
+
+document.getElementById('analyzeBtn').addEventListener('click', runAnalyze);
+document.getElementById('exampleBtn').addEventListener('click', () => {
+  document.getElementById('input').value =
+    'artist:hwansang, artist:wanke, 1girl, solo, long_hair, school_uniform, holding_sword, ' +
+    'official_art, highres, masterpiece, best_quality, very_aesthetic, depth_of_field, ' +
+    'sunlight, sidelighting, simple_background, white_background, ' +
+    'lowres, worst_quality, bad_anatomy, bad_hands, jpeg_artifacts, watermark, text';
+});
+document.getElementById('clearBtn').addEventListener('click', () => {
+  document.getElementById('input').value = '';
+  document.getElementById('out-front').value = '';
+  document.getElementById('out-back').value = '';
+  document.getElementById('out-uc').value = '';
+  document.getElementById('out-other').value = '';
+  setStatus('');
+});
+document.querySelectorAll('button[data-copy]').forEach((btn) => {
+  btn.addEventListener('click', () => copyTo(btn.dataset.copy));
+});
+// Enter (Ctrl/Cmd) → 분석
+document.getElementById('input').addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    runAnalyze();
+  }
+});
+</script>
+</body>
+</html>

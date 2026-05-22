@@ -1323,6 +1323,12 @@ app.get('/queue', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/queue.html'));
 });
 
+// /prompt → /prompt.html alias. 태그 뭉치 자동 분류 도구 (상위/하위/네거티브).
+app.get('/prompt', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'public/prompt.html'));
+});
+
 // ─── API: Config ────────────────────────────────────────────────────
 app.get('/api/config', async (req, res) => {
   try { res.json(await loadConfig()); }
