@@ -187,12 +187,15 @@ export class AppState {
   // sync 큐 거부 등 일관성 깨짐). 씬 수정은 toJSON 스냅샷-safe라 차단 안 함.
   @observable accessor exportingProjects: Set<string> = new Set();
 
-  // 여러 프로젝트 한 번에 임포트(드래그 ≥2 JSON) 시 새 프로젝트 이름 입력 다이얼로그 상태.
+  // 임포트 시 새 프로젝트 이름 + 저장 폴더 입력 다이얼로그 상태.
   // MultiImportNameDialog가 observer로 읽어 렌더. null이면 다이얼로그 닫힘.
+  // 단일/다중 .json 임포트 모두 이 dialog를 N≥1로 재사용.
+  // 폴더는 사용자가 매번 명시 선택 — value '' = 루트, value '<폴더명>' = 폴더.
   @observable accessor multiImportRequest: {
     items: { origName: string; defaultName: string }[];
     existingNames: string[];
-    onConfirm: (names: string[]) => void;
+    availableFolders: string[];
+    onConfirm: (names: string[], folder: string | null) => void;
     onCancel: () => void;
   } | null = null;
 
@@ -1038,17 +1041,16 @@ export class AppState {
       }
       defaultNames.push(name);
     }
-    // 단일 임포트와 같은 룰 — curSession 폴더가 있으면 그 폴더로 자동 (P18).
-    const targetFolder = this.curSession
-      ? sessionService.getFolderOf(this.curSession.name)
-      : null;
+    // 폴더는 dialog에서 사용자 강제 선택 — 옛 "curSession 폴더로 자동" 룰 폐기.
+    // dialog가 onConfirm으로 folder를 전달.
     this.multiImportRequest = {
       items: sessions.map((s, i) => ({
         origName: s.origName,
         defaultName: defaultNames[i],
       })),
       existingNames,
-      onConfirm: async (names: string[]) => {
+      availableFolders: sessionService.listFolders(),
+      onConfirm: async (names: string[], folder: string | null) => {
         this.multiImportRequest = null;
         const pid = appState.pushProgressDialog(
           `임포트 중... 0/${sessions.length}`,
@@ -1058,7 +1060,7 @@ export class AppState {
         let lastNewSession: Session | undefined;
         for (let i = 0; i < sessions.length; i++) {
           try {
-            await sessionService.importSessionShallow(sessions[i].json, names[i], targetFolder);
+            await sessionService.importSessionShallow(sessions[i].json, names[i], folder);
             lastNewSession = (await sessionService.get(names[i])) || undefined;
           } catch (e: any) {
             console.warn('[multiImport] import failed for', names[i], e);
@@ -1106,57 +1108,18 @@ export class AppState {
     if (name.endsWith('.json')) {
       name = name.slice(0, -5);
     }
-      // curSession이 폴더에 있으면 새 임포트도 같은 폴더로. 옛 흐름은 항상 루트라
-      // "폴더없음" 으로 떨어지던 페인 (P18). curSession 없으면 null = 루트.
-      const targetFolder = this.curSession
-        ? sessionService.getFolderOf(this.curSession.name)
-        : null;
+      // 폴더와 이름 충돌은 dialog에서 사용자가 결정 — 옛 자동 룰 폐기.
+      // 단일도 다중과 같은 MultiImportNameDialog를 N=1로 재사용. 이름 충돌 자동
+      // suffix 룰 + 폴더 강제 선택을 한 곳에서 처리.
+      const importViaDialog = (sessionJson: any) => {
+        this._openMultiNameDialog(
+          [{ origName: sessionJson.name ?? name, json: sessionJson as ISession }],
+          sessionService.list(),
+        );
+      };
       const handleAddSession = async (json: any) => {
-        const importCool = async () => {
-          const sess = await sessionService.get(json.name);
-          if (!sess) {
-            const pid = appState.pushProgressDialog('프로젝트 불러오는 중...', 1);
-            try {
-              await sessionService.importSessionShallow(
-                json as ISession,
-                json.name,
-                targetFolder,
-              );
-              const newSession = (await sessionService.get(json.name))!;
-              this.curSession = newSession;
-              appState.finishProgressDialog(pid, '✓ 프로젝트를 불러왔습니다', true);
-            } catch (e: any) {
-              appState.finishProgressDialog(pid, '✗ 임포트 실패: ' + (e?.message || e), false);
-              return;
-            }
-          } else {
-            this.pushDialog({
-              type: 'input-confirm',
-              text: '프로젝트를 임포트 합니다. 새 프로젝트 이름을 입력하세요.',
-              callback: async (value) => {
-                if (!value || value === '') {
-                  return;
-                }
-                const pid = appState.pushProgressDialog('프로젝트 불러오는 중...', 1);
-                try {
-                  await sessionService.importSessionShallow(
-                    json as ISession,
-                    value,
-                    targetFolder,
-                  );
-                  const newSession = (await sessionService.get(value))!;
-                  this.curSession = newSession;
-                  appState.finishProgressDialog(pid, '✓ 프로젝트를 불러왔습니다', true);
-                } catch (e) {
-                  appState.finishProgressDialog(pid, '✗ 이미 존재하는 프로젝트 이름입니다.', false);
-                  this.pushMessage('이미 존재하는 프로젝트 이름입니다.');
-                }
-              },
-            });
-          }
-        };
         if (!this.curSession) {
-          await importCool();
+          importViaDialog(json);
         } else {
           this.pushDialog({
             type: 'select',
@@ -1173,7 +1136,7 @@ export class AppState {
             ],
             callback: async (option?: string) => {
               if (option === 'new-project') {
-                await importCool();
+                importViaDialog(json);
               } else if (option === 'cur-project') {
                 const cur = this.curSession!;
                 const newJson: ISession = await sessionService.migrate(json);

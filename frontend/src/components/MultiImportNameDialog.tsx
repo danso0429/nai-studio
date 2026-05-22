@@ -1,23 +1,34 @@
 import { useEffect, useMemo, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
+import { DropdownSelect, Option } from './UtilComponents';
 
 // 4개 이하면 페이지 1개. 그 이상이면 4개씩 페이지 나뉨.
 // 본인 spec (2026-05-17): 모바일 세로 + iOS 키보드 올라온 상태에서도 4개 입력칸 +
 // 4개 원본 이름 라벨이 다 보이게.
 const PAGE_SIZE = 4;
 
+// 폴더 dropdown value 컨벤션:
+//   undefined  → 미선택 (confirm 비활성)
+//   ''         → 폴더없음(루트)
+//   '<폴더명>' → 해당 폴더
+const ROOT_VALUE = '';
+
 const MultiImportNameDialog = observer(() => {
   const req = appState.multiImportRequest;
 
   const [names, setNames] = useState<string[]>([]);
   const [page, setPage] = useState(0);
+  // 폴더 선택값 — 사용자 강제 선택 룰: undefined로 시작 → confirm 비활성.
+  const [folder, setFolder] = useState<string | undefined>(undefined);
 
   // req 바뀌면 입력값을 default로 재초기화 + 페이지 0으로 이동.
+  // 폴더도 매번 빈 칸으로 초기화 — 사용자가 매 임포트마다 명시 선택.
   useEffect(() => {
     if (req) {
       setNames(req.items.map((i) => i.defaultName));
       setPage(0);
+      setFolder(undefined);
     }
   }, [req]);
 
@@ -41,9 +52,20 @@ const MultiImportNameDialog = observer(() => {
     });
   }, [names, req]);
 
+  // 폴더 옵션: 루트 가상 항목 + 기존 폴더들. 기존 폴더 0개여도 루트 한 항목은 항상 노출.
+  const folderOptions = useMemo<Option<string>[]>(() => {
+    if (!req) return [];
+    return [
+      { value: ROOT_VALUE, label: '📂 폴더없음 (루트)' },
+      ...req.availableFolders.map((f) => ({ value: f, label: `📁 ${f}` })),
+    ];
+  }, [req]);
+
   if (!req) return null;
 
-  const valid = errors.every((e) => !e);
+  const namesValid = errors.every((e) => !e);
+  const folderValid = folder !== undefined;
+  const valid = namesValid && folderValid;
   const start = page * PAGE_SIZE;
   const visible = req.items.slice(start, start + PAGE_SIZE);
 
@@ -55,7 +77,9 @@ const MultiImportNameDialog = observer(() => {
 
   const handleConfirm = () => {
     if (!valid) return;
-    req.onConfirm(names.map((n) => n.trim()));
+    // folder ROOT_VALUE('') → null (서비스 API 컨벤션)
+    const folderArg = folder === ROOT_VALUE ? null : folder!;
+    req.onConfirm(names.map((n) => n.trim()), folderArg);
   };
 
   return (
@@ -66,6 +90,20 @@ const MultiImportNameDialog = observer(() => {
         </div>
         <div className="text-sm text-gray-500 dark:text-gray-300 mb-3">
           각 프로젝트의 새 이름을 입력해주세요. 기본값은 충돌이 없으면 원본 이름이에요.
+        </div>
+        <div className="mb-3">
+          <div className="text-sm text-default mb-1">저장 폴더</div>
+          <DropdownSelect
+            selectedOption={folder}
+            options={folderOptions}
+            onSelect={(opt) => setFolder(opt.value)}
+            menuPlacement="auto"
+          />
+          {!folderValid && (
+            <div className="text-xs text-red-500 mt-1">
+              ⚠ 폴더를 선택해주세요
+            </div>
+          )}
         </div>
         <div className="flex-1 overflow-auto flex flex-col gap-3">
           {visible.map((it, idx) => {
