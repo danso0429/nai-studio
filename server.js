@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const fss = require('fs');
 const http = require('http');
+const crypto = require('crypto');
 const { WebSocketServer, WebSocket } = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
@@ -422,8 +423,79 @@ function broadcastQueueStatus() {
   }, 250);
 }
 const QUEUE_STATE_FILE = path.join(DATA_DIR, '.queue_state.json');
+
+// 2026-05-22 페인 동인: 같은 scene N잡이 동일 character reference / vibe base64를
+// jobs.params에 그대로 중복 보유. 180잡 × 600KB ref = file 107MB, stringify ~190ms
+// event loop block + write 360ms libuv 점유 → 다음 잡 시작 지연. 영속화 단에서만
+// content-hash로 dedupe — 인메모리 genQueue/runtime은 원본 그대로(NAI 호출 단순).
+// blobs map은 unique base64 1벌만, 잡 안 image 필드는 '__blob:<hash>' 마커로 치환.
+// load 시 expand back. 옛 포맷(blobs 부재)도 그대로 load 호환.
+const _BLOB_MARK = '__blob:';
+const _BLOB_MIN_LEN = 256; // base64 256자 미만은 dedupe 안 함 (작은 string 부담만)
+function _hashB64(s) {
+  return crypto.createHash('sha256').update(s).digest('hex').slice(0, 32);
+}
+function _dedupeImageArr(arr, blobs) {
+  if (!Array.isArray(arr) || arr.length === 0) return arr;
+  let mutated = false;
+  const out = new Array(arr.length);
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    if (item && typeof item.image === 'string'
+        && item.image.length >= _BLOB_MIN_LEN
+        && !item.image.startsWith(_BLOB_MARK)) {
+      const h = _hashB64(item.image);
+      if (!(h in blobs)) blobs[h] = item.image;
+      out[i] = { ...item, image: _BLOB_MARK + h };
+      mutated = true;
+    } else {
+      out[i] = item;
+    }
+  }
+  return mutated ? out : arr;
+}
 function _queueSnapshot() {
-  return { queue: genQueue.slice(), stats: queueStats, savedAt: Date.now() };
+  const blobs = Object.create(null);
+  const queue = new Array(genQueue.length);
+  for (let i = 0; i < genQueue.length; i++) {
+    const job = genQueue[i];
+    const params = job.params;
+    if (!params || (!params.characterReferences && !params.vibes)) {
+      queue[i] = job;
+      continue;
+    }
+    const newRefs = _dedupeImageArr(params.characterReferences, blobs);
+    const newVibes = _dedupeImageArr(params.vibes, blobs);
+    if (newRefs !== params.characterReferences || newVibes !== params.vibes) {
+      const newParams = { ...params };
+      if (newRefs !== params.characterReferences) newParams.characterReferences = newRefs;
+      if (newVibes !== params.vibes) newParams.vibes = newVibes;
+      queue[i] = { ...job, params: newParams };
+    } else {
+      queue[i] = job;
+    }
+  }
+  return { queue, stats: queueStats, savedAt: Date.now(), blobs };
+}
+function _expandBlobsInPlace(state) {
+  if (!state || !state.blobs || !state.queue) return;
+  const blobs = state.blobs;
+  const expand = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (const item of arr) {
+      if (item && typeof item.image === 'string' && item.image.startsWith(_BLOB_MARK)) {
+        const h = item.image.slice(_BLOB_MARK.length);
+        if (h in blobs) item.image = blobs[h];
+      }
+    }
+  };
+  for (const job of state.queue) {
+    const p = job && job.params;
+    if (!p) continue;
+    expand(p.characterReferences);
+    expand(p.vibes);
+  }
+  delete state.blobs;
 }
 function _writeQueueStateSync() {
   try {
@@ -462,6 +534,8 @@ function loadQueueState() {
     const raw = fss.readFileSync(QUEUE_STATE_FILE, 'utf8');
     const state = JSON.parse(raw);
     if (Date.now() - state.savedAt > 24 * 60 * 60 * 1000) return; // 24시간 지나면 무시
+    // 옛 포맷(blobs 부재)이면 no-op, 새 포맷이면 placeholder를 base64로 복원.
+    _expandBlobsInPlace(state);
     if (state.queue && state.queue.length > 0) {
       genQueue.push(...state.queue);
       queueStats.completed = state.stats?.completed || 0;
