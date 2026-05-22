@@ -348,6 +348,20 @@ export const App = observer(() => {
     };
   }, [appState.curSession]);
 
+  // WS 재연결 시 이미지 cache + 씬 image list refresh. server pm2 restart나 모바일
+  // 백그라운드 복귀로 WS 끊긴 사이 발생한 `image-changed` broadcast는 replay 안 됨 —
+  // 클라이언트는 옛 cache 상태로 stuck. 재연결 시 refreshBatch로 모든 씬의 image
+  // list refetch + cache 갱신. P19 #14 — 본인 페인 "새로고침 안 하면 썸네일/실시간
+  // 이미지 표시 안 됨" fix.
+  useEffect(() => {
+    const off = backend.onWsReconnect(() => {
+      if (appState.curSession) {
+        imageService.refreshBatch(appState.curSession);
+      }
+    });
+    return off;
+  }, []);
+
   // 글로벌 프리셋 손상 복구 알림
   useEffect(() => {
     const handler = (e: any) => {
