@@ -142,6 +142,10 @@ interface TaskQueueRun {
   cachedVibes?: Map<string, { image: string; info: number; strength: number }>;
   cachedReferences?: Map<string, { image: string; info: number; strength: number; fidelity: number; referenceType: string; description: string }>;
   lastSessionName?: string;
+  // 한 task 내 prepGenInput N번 모두 backend.getConfig() 동일 응답 가정. N장 task에서
+  // iteration당 2회 fetch (line 259, 410) = 2N HTTP roundtrip → 226 vs 175 lag 동인.
+  // 첫 prep에서 1회만 fetch, 이후 cache 재사용.
+  cachedConfig?: any;
 }
 
 export interface TaskInfo {
@@ -256,7 +260,8 @@ class GenerateImageTaskHandler implements TaskHandler {
   ): Promise<{ arg: ImageGenInput; outputFilePath: string }> {
     const job: SDAbstractJob<PromptNode> = task.params
       .job as SDAbstractJob<PromptNode>;
-    const config = await backend.getConfig();
+    if (!run.cachedConfig) run.cachedConfig = await backend.getConfig();
+    const config = run.cachedConfig;
     let prompt = lowerPromptNode(job.prompt!);
     console.log('lowered prompt: ' + prompt);
     const outputFilePath =
@@ -407,7 +412,7 @@ class GenerateImageTaskHandler implements TaskHandler {
       : (task.params.scene!.resolution as Resolution);
 
     // 모델 버전에 따른 바이브/캐릭터 레퍼런스 필터링
-    const appConfig = await backend.getConfig();
+    const appConfig = run.cachedConfig;
     const curModelVersion = appConfig.modelVersion ?? ModelVersion.V4_5;
     const isV4 = curModelVersion === ModelVersion.V4 || curModelVersion === ModelVersion.V4Curated;
     const isV4_5 = curModelVersion === ModelVersion.V4_5 || curModelVersion === ModelVersion.V4_5Curated;
