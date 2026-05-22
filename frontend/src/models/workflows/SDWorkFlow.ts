@@ -30,7 +30,7 @@ import {
   lowerPromptNode,
   toPARR,
 } from '../PromptService';
-import { imageService, promptService, taskQueueService, workFlowService } from '..';
+import { imageService, promptService, taskQueueService, workFlowService, promptPresetService } from '..';
 import { TaskParam } from '../TaskQueueService';
 import { dataUriToBase64 } from '../ImageService';
 import { appState } from '../AppService';
@@ -174,6 +174,26 @@ const SDImageGenEasyInnerUI = wfiStack([
   ]),
 ]);
 
+// 프롬프트 프리셋 오버라이드 — appliedPromptPreset이 있으면 그림체 영역(front/back/uc
+// + sampler params) 값을 프리셋 데이터로 교체한 사본을 반환. preset 객체 자체는 mutation
+// X — *원래 값 보존* + 프로젝트 swap 무관하게 영구 적용 (옵션 3 오버라이드 모델, P19 #12).
+function applyPromptPresetOverride(preset: any): any {
+  const id = appState.appliedPromptPreset;
+  if (!id) return preset;
+  const applied = promptPresetService.get(id);
+  if (!applied) return preset;
+  const out = { ...preset };
+  out.frontPrompt = applied.frontPrompt;
+  out.backPrompt = applied.backPrompt;
+  out.uc = applied.uc;
+  if (applied.steps !== undefined) out.steps = applied.steps;
+  if (applied.sampling !== undefined) out.sampling = applied.sampling;
+  if (applied.promptGuidance !== undefined) out.promptGuidance = applied.promptGuidance;
+  if (applied.cfgRescale !== undefined) out.cfgRescale = applied.cfgRescale;
+  if (applied.noiseSchedule !== undefined) out.noiseSchedule = applied.noiseSchedule;
+  return out;
+}
+
 const SDImageGenHandler = async (
   session: Session,
   scene: GenericScene,
@@ -187,6 +207,9 @@ const SDImageGenHandler = async (
   nodelay?: boolean,
   extraUc?: string,
 ) => {
+  // 옵션 3 — 프롬프트 프리셋 적용 중이면 preset의 그림체 영역만 교체한 사본 사용.
+  // preset 객체 자체는 mutation X.
+  preset = applyPromptPresetOverride(preset);
   // 씬 전용 캐릭터 프롬프트 사용 여부 확인
   const sceneObj = scene as Scene;
   const useSceneCharacterPrompts = sceneObj.useSceneCharacterPrompts &&
@@ -284,7 +307,8 @@ const SDCreatePrompt = async (
   preset: any,
   shared: any,
 ) => {
-  return await createSDPrompts(session, preset, shared, scene as Scene);
+  // 옵션 3 — 프리셋 적용 중이면 override한 사본으로 prompt 합성.
+  return await createSDPrompts(session, applyPromptPresetOverride(preset), shared, scene as Scene);
 };
 
 const SDCreateCharacterPrompts = async (

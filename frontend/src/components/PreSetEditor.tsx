@@ -2262,17 +2262,9 @@ const WFRInline = observer(({ element }: WFElementProps) => {
                 cfgRescale: preset.cfgRescale,
                 noiseSchedule: preset.noiseSchedule,
               })}
-              onApply={(fp, bp, uc, params, id) => {
-                preset.frontPrompt = fp;
-                preset.backPrompt = bp;
-                preset.uc = uc;
-                if (params) {
-                  if (params.steps !== undefined) preset.steps = params.steps;
-                  if (params.sampling !== undefined) preset.sampling = params.sampling;
-                  if (params.promptGuidance !== undefined) preset.promptGuidance = params.promptGuidance;
-                  if (params.cfgRescale !== undefined) preset.cfgRescale = params.cfgRescale;
-                  if (params.noiseSchedule !== undefined) preset.noiseSchedule = params.noiseSchedule;
-                }
+              onApply={(_fp, _bp, _uc, _params, id) => {
+                // 옵션 3 오버라이드 모델 — preset 객체 mutation 안 함.
+                // SDImageGenHandler / SDCreatePrompt에서 적용 시점에 override.
                 appState.setAppliedPromptPreset(id);
               }}
             />
