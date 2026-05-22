@@ -366,17 +366,29 @@ export const App = observer(() => {
   // *연결이 끊긴 경우*에만 발생 — 끊기지 않고 idle만 됐다 돌아온 경우는 ws-reconnect
   // 미발생. 본인 페인 (P19 #14): "다른 앱 갔다 돌아오니 씬 이미지 0, 썸네일 X,
   // 씬 들어가면 그제야 후다닥". visibilitychange visible 시 명시적 refreshBatch.
+  //
+  // hidden duration 가드 — 5초 이상 백그라운드였을 때만 refresh. 짧은 탭 swap
+  // (모달 진입·알림 확인 등)은 refresh 불필요 — 매번 50+씬 refetch 비용 회피.
+  // 본인 페인 "더 느려졌어"에 대응.
   useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === 'visible' && appState.curSession) {
+    let hiddenAt: number | null = null;
+    const MIN_HIDDEN_MS = 5000;
+    const onVisChange = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        return;
+      }
+      // visible 복귀
+      const duration = hiddenAt ? Date.now() - hiddenAt : 0;
+      hiddenAt = null;
+      if (duration < MIN_HIDDEN_MS) return;
+      if (appState.curSession) {
         imageService.refreshBatch(appState.curSession);
       }
     };
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('pageshow', onVisible);
+    document.addEventListener('visibilitychange', onVisChange);
     return () => {
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('pageshow', onVisible);
+      document.removeEventListener('visibilitychange', onVisChange);
     };
   }, []);
 
