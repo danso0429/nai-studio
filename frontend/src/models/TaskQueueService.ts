@@ -1165,6 +1165,16 @@ export class TaskQueueService extends EventTarget {
   private async _doRestoreMirroredState() {
     const full = await backend.queueGetFullState();
 
+    // 옛 mirror state snapshot — taskId → {done, total}. 폴링/reconnect 시점에 옛 mirror
+    // task가 server jobs에도 남아있으면 done + total 보존. 본인 페인 (P21 F2): "씬 숫자
+    // 0에서 안 바뀌고" — 옛 흐름은 같은 taskId 재구축 시 done=0, total=jobs.length로
+    // reset → 매 30s 폴링마다 카운터 0 reset 부수효과. 새 흐름은 옛 done 그대로,
+    // total은 max(옛_total, 옛_done + jobs.length)로 단조 유지.
+    const prev = new Map<string, { done: number; total: number }>();
+    for (const [taskId, task] of this.mirroredTasks) {
+      prev.set(taskId, { done: task.done, total: task.total });
+    }
+
     // 기존 mirror state 전체 unwind (groupStats/sceneStats 정확히 빼기)
     for (const [taskId, task] of this.mirroredTasks) {
       this.groupStats[task.cls].total -= task.total;
@@ -1209,6 +1219,13 @@ export class TaskQueueService extends EventTarget {
       // task 단위 priority — 한 task의 어떤 job이라도 priority면 task 통째로 priority 취급.
       // 서버는 task의 모든 jobs를 한 묶음으로 prioritize하니 보통 일치하지만 race 시 보호용.
       const hasPriority = jobs.some((j: any) => !!j.priority);
+      // 같은 taskId가 옛 mirror에도 있으면 옛 done + total 보존(단조 유지). 본인 페인 (P21 F2)
+      // 카운터 0 reset 차단. 옛 mirror에 없는 신규 task만 done=0, total=jobs.length로 시작.
+      const prevTask = prev.get(taskId);
+      const restoredDone = prevTask ? prevTask.done : 0;
+      const restoredTotal = prevTask
+        ? Math.max(prevTask.total, restoredDone + jobs.length)
+        : jobs.length;
       const restoredTask: Task = {
         id: taskId,
         cls,
@@ -1218,8 +1235,8 @@ export class TaskQueueService extends EventTarget {
           outputPath: '',
           scene: placeholderScene,
         },
-        done: 0,
-        total: jobs.length,
+        done: restoredDone,
+        total: restoredTotal,
         priority: hasPriority,
       };
       this.mirroredTasks.set(taskId, restoredTask);
@@ -1231,13 +1248,15 @@ export class TaskQueueService extends EventTarget {
         });
       }
       if (this.groupStats[cls]) {
-        this.groupStats[cls].total += jobs.length;
+        this.groupStats[cls].total += restoredTotal;
+        this.groupStats[cls].done += restoredDone;
       }
       if (meta.sceneKey) {
         if (!(meta.sceneKey in this.sceneStats)) {
           this.sceneStats[meta.sceneKey] = { done: 0, total: 0 };
         }
-        this.sceneStats[meta.sceneKey].total += jobs.length;
+        this.sceneStats[meta.sceneKey].total += restoredTotal;
+        this.sceneStats[meta.sceneKey].done += restoredDone;
       }
       this.mirrorTaskSceneKeys.set(taskId, meta.sceneKey || '');
     }
