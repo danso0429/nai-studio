@@ -9,6 +9,7 @@ import {
 } from './UtilComponents';
 import { NoiseSchedule, Resolution, Sampling } from '../backends/imageGen';
 import PromptEditTextArea from './PromptEditTextArea';
+import { PromptPresetButton } from './PromptPresetDialog';
 import {
   FaCopy,
   FaFont,
@@ -2228,18 +2229,67 @@ const WFRInline = observer(({ element }: WFElementProps) => {
     }
   }
   const key = `${type}_${preset.name}_${input.field}`;
+  // 프롬프트 프리셋 적용 중일 때 lock할 필드들 — 프리셋이 덮어쓴 값들.
+  const LOCK_FIELDS = new Set([
+    'frontPrompt', 'backPrompt', 'uc',
+    'steps', 'sampling', 'promptGuidance', 'cfgRescale', 'noiseSchedule',
+  ]);
+  const isPresetLocked =
+    appState.appliedPromptPreset !== undefined &&
+    (type === 'SDImageGen' || type === 'SDImageGenEasy') &&
+    input.fieldType === 'preset' &&
+    LOCK_FIELDS.has(input.field);
+  // lock 시 영역 자체를 hide — 모바일 viewport 절약 + 자유 영역 접근 용이.
+  // 적용 중 프리셋 내용은 PromptPresetButton 배너의 [내용 보기] 토글로 확인.
+  const lockWrap = (el: React.ReactNode) =>
+    isPresetLocked ? <></> : el;
   switch (field.type) {
-    case 'prompt':
+    case 'prompt': {
+      const showPresetBtn =
+        input.field === 'frontPrompt' &&
+        (type === 'SDImageGen' || type === 'SDImageGenEasy');
       return (
-        <EditorField label={input.label} full={input.flex === 'flex-1'}>
-          <PromptEditTextArea
-            key={key}
-            value={getField()}
-            disabled={false}
-            onChange={setField}
-          ></PromptEditTextArea>
-        </EditorField>
+        <>
+          {showPresetBtn && (
+            <PromptPresetButton
+              getFrontPrompt={() => preset.frontPrompt || ''}
+              getBackPrompt={() => preset.backPrompt || ''}
+              getUc={() => preset.uc || ''}
+              getCurrentParams={() => ({
+                steps: preset.steps,
+                sampling: preset.sampling,
+                promptGuidance: preset.promptGuidance,
+                cfgRescale: preset.cfgRescale,
+                noiseSchedule: preset.noiseSchedule,
+              })}
+              onApply={(fp, bp, uc, params, id) => {
+                preset.frontPrompt = fp;
+                preset.backPrompt = bp;
+                preset.uc = uc;
+                if (params) {
+                  if (params.steps !== undefined) preset.steps = params.steps;
+                  if (params.sampling !== undefined) preset.sampling = params.sampling;
+                  if (params.promptGuidance !== undefined) preset.promptGuidance = params.promptGuidance;
+                  if (params.cfgRescale !== undefined) preset.cfgRescale = params.cfgRescale;
+                  if (params.noiseSchedule !== undefined) preset.noiseSchedule = params.noiseSchedule;
+                }
+                appState.setAppliedPromptPreset(id);
+              }}
+            />
+          )}
+          {lockWrap(
+            <EditorField label={input.label} full={input.flex === 'flex-1'}>
+              <PromptEditTextArea
+                key={key}
+                value={getField()}
+                disabled={false}
+                onChange={setField}
+              ></PromptEditTextArea>
+            </EditorField>
+          )}
+        </>
       );
+    }
     case 'select':
       return (
         <InlineEditorField label={input.label}>
@@ -2288,7 +2338,7 @@ const WFRInline = observer(({ element }: WFElementProps) => {
         </InlineEditorField>
       );
     case 'int':
-      return (
+      return lockWrap(
         <IntSliderInput
           label={input.label}
           value={getField()}
@@ -2301,7 +2351,7 @@ const WFRInline = observer(({ element }: WFElementProps) => {
         />
       );
     case 'sampling':
-      return (
+      return lockWrap(
         <InlineEditorField label={input.label}>
           <DropdownSelect
             key={key}
@@ -2319,7 +2369,7 @@ const WFRInline = observer(({ element }: WFElementProps) => {
         </InlineEditorField>
       );
     case 'noiseSchedule':
-      return (
+      return lockWrap(
         <InlineEditorField label={input.label}>
           <DropdownSelect
             key={key}

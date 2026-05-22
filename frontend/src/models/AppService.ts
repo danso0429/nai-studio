@@ -223,6 +223,7 @@ export class AppState {
   }[] = [];
   @observable accessor externalImage: string | undefined = undefined;
   @observable accessor appliedCharacterPreset: string | undefined = undefined; // 현재 적용된 캐릭터 프리셋 이름
+  @observable accessor appliedPromptPreset: string | undefined = undefined; // 현재 적용된 프롬프트 프리셋 id
 
   // 이미지 클립보드
   @observable accessor imageClipboard: string[] = [];
@@ -3509,6 +3510,16 @@ export class AppState {
   @action
   setAppliedCharacterPreset(presetName: string | undefined) {
     this.appliedCharacterPreset = presetName;
+  }
+
+  @action
+  setAppliedPromptPreset(id: string | undefined) {
+    this.appliedPromptPreset = id;
+  }
+
+  @action
+  clearAppliedPromptPreset() {
+    this.appliedPromptPreset = undefined;
   }
 
   @action
