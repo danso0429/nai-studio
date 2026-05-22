@@ -1220,12 +1220,27 @@ export class TaskQueueService extends EventTarget {
       // 서버는 task의 모든 jobs를 한 묶음으로 prioritize하니 보통 일치하지만 race 시 보호용.
       const hasPriority = jobs.some((j: any) => !!j.priority);
       // 같은 taskId가 옛 mirror에도 있으면 옛 done + total 보존(단조 유지). 본인 페인 (P21 F2)
-      // 카운터 0 reset 차단. 옛 mirror에 없는 신규 task만 done=0, total=jobs.length로 시작.
+      // 카운터 0 reset 차단. 옛 mirror에 없는 신규(or page reload 후) task는 server meta의
+      // jobTotal로 originalTotal 복구 — meta.jobTotal은 task 첫 등록 시 task.total로 sealed돼
+      // 큐에 남아있는 jobs N개 모두 동일 값 보유. P22 F1 (2026-05-22 본인 페인): F5/Ctrl+Shift+R
+      // 새로고침 시 taskCommitsRef + prev mirror state 둘 다 휘발 → 분모가 jobs.length(=남은 잡)로
+      // sealed돼 deflate. 처방: prev 없으면 meta.jobTotal로 분모 복구 + done = jobTotal - 남은 잡 추정.
+      const metaTaskTotal = jobs[0].meta?.jobTotal;
+      const hasMetaTotal = typeof metaTaskTotal === 'number' && metaTaskTotal > 0;
       const prevTask = prev.get(taskId);
-      const restoredDone = prevTask ? prevTask.done : 0;
-      const restoredTotal = prevTask
-        ? Math.max(prevTask.total, restoredDone + jobs.length)
-        : jobs.length;
+      let restoredDone: number;
+      let restoredTotal: number;
+      if (prevTask) {
+        restoredDone = prevTask.done;
+        restoredTotal = Math.max(prevTask.total, hasMetaTotal ? metaTaskTotal! : restoredDone + jobs.length);
+      } else if (hasMetaTotal) {
+        restoredTotal = metaTaskTotal!;
+        restoredDone = Math.max(0, metaTaskTotal! - jobs.length);
+      } else {
+        // legacy meta(jobTotal 없음)의 큐 — 옛 동작 그대로
+        restoredTotal = jobs.length;
+        restoredDone = 0;
+      }
       const restoredTask: Task = {
         id: taskId,
         cls,
