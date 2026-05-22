@@ -348,11 +348,10 @@ export const App = observer(() => {
     };
   }, [appState.curSession]);
 
-  // WS 재연결 시 이미지 cache + 씬 image list refresh. server pm2 restart나 모바일
-  // 백그라운드 복귀로 WS 끊긴 사이 발생한 `image-changed` broadcast는 replay 안 됨 —
-  // 클라이언트는 옛 cache 상태로 stuck. 재연결 시 refreshBatch로 모든 씬의 image
-  // list refetch + cache 갱신. P19 #14 — 본인 페인 "새로고침 안 하면 썸네일/실시간
-  // 이미지 표시 안 됨" fix.
+  // WS 재연결 시 이미지 cache + 씬 image list refresh. server pm2 restart로 WS
+  // 끊긴 사이 발생한 `image-changed` broadcast는 replay 안 됨 — 클라이언트는 옛
+  // cache 상태로 stuck. 재연결 시 refreshBatch로 모든 씬의 image list refetch +
+  // cache 갱신. P19 #14 fix.
   useEffect(() => {
     const off = backend.onWsReconnect(() => {
       if (appState.curSession) {
@@ -360,6 +359,25 @@ export const App = observer(() => {
       }
     });
     return off;
+  }, []);
+
+  // visibility 복귀 시 refreshBatch. 모바일 백그라운드 시 iOS는 WS 연결 자체는
+  // 유지하지만 idle 상태라 broadcast 처리가 deferred. ws-reconnect 이벤트는
+  // *연결이 끊긴 경우*에만 발생 — 끊기지 않고 idle만 됐다 돌아온 경우는 ws-reconnect
+  // 미발생. 본인 페인 (P19 #14): "다른 앱 갔다 돌아오니 씬 이미지 0, 썸네일 X,
+  // 씬 들어가면 그제야 후다닥". visibilitychange visible 시 명시적 refreshBatch.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && appState.curSession) {
+        imageService.refreshBatch(appState.curSession);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('pageshow', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('pageshow', onVisible);
+    };
   }, []);
 
   // 글로벌 프리셋 손상 복구 알림
