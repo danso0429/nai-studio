@@ -3628,6 +3628,19 @@ async function start() {
     // ws v8+ 이상에선 'error' listener 없으면 EventEmitter unhandled로 process crash 위험.
     ws.on('error', (err) => console.warn('[ws] client error:', err && err.message));
     ws.on('close', () => console.log('[NAI Studio] WebSocket client disconnected'));
+    // Application-level ping/pong — 클라가 silent stale(onclose 미발화)을 직접 감지하기 위해
+    // 클라 → 서버 ping을 보내고 서버 → 클라 pong을 응답. native ping/pong frame은 브라우저가
+    // 자동 응답하지만 그 응답이 클라 JS layer에 도달하지 않아 silent stale 감지 불가.
+    ws.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg && msg.type === 'ping') {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'pong', t: Date.now() }));
+          }
+        }
+      } catch {}
+    });
   });
 
   server.listen(PORT, () => {

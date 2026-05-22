@@ -144,9 +144,31 @@ export class ServerBackend extends Backend {
     // local `ws` 변수로 closure 고정 + identity 가드로 차단.
     const ws = new WebSocket(wsUrl);
     this.ws = ws;
+    // Heartbeat — 클라가 silent stale(iOS Safari WS idle, OS TCP keepalive 끊김 등 onclose
+    // 미발화 케이스)을 직접 감지. 30초 주기로 ping 보내고 10초 내 pong 안 오면 ws.close()
+    // 명시 트리거 → onclose → 옛 exponential backoff reconnect 흐름 자동 발화.
+    const PING_INTERVAL_MS = 30_000;
+    const PONG_TIMEOUT_MS = 10_000;
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
+    let pongTimeout: ReturnType<typeof setTimeout> | null = null;
+    const stopHeartbeat = () => {
+      if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+      if (pongTimeout) { clearTimeout(pongTimeout); pongTimeout = null; }
+    };
     ws.onopen = () => {
       if (this.ws !== ws) return; // stale
       this.reconnectAttempt = 0;
+      pingTimer = setInterval(() => {
+        if (this.ws !== ws) return;
+        if (ws.readyState !== WebSocket.OPEN) return;
+        try { ws.send(JSON.stringify({ type: 'ping', t: Date.now() })); } catch {}
+        if (pongTimeout) clearTimeout(pongTimeout);
+        pongTimeout = setTimeout(() => {
+          if (this.ws !== ws) return;
+          console.warn('[WS] pong timeout — closing for reconnect');
+          try { ws.close(); } catch {}
+        }, PONG_TIMEOUT_MS);
+      }, PING_INTERVAL_MS);
       // 첫 연결은 skip (constructor에서 별도 init 호출). 재연결만 broadcast.
       if (this.isFirstConnect) {
         this.isFirstConnect = false;
@@ -159,6 +181,10 @@ export class ServerBackend extends Backend {
       if (this.ws !== ws) return; // stale
       try {
         const msg = JSON.parse(event.data);
+        if (msg && msg.type === 'pong') {
+          if (pongTimeout) { clearTimeout(pongTimeout); pongTimeout = null; }
+          return;
+        }
         const handlers = this.eventHandlers.get(msg.type);
         if (handlers) handlers.forEach((h) => h(msg.data));
       } catch (e) {
@@ -168,6 +194,7 @@ export class ServerBackend extends Backend {
     };
     ws.onclose = () => {
       if (this.ws !== ws) return; // stale (이미 다른 ws로 교체됨)
+      stopHeartbeat();
       // exponential backoff: 500ms × 2^n, max 30s, ±10% jitter
       const baseDelay = Math.min(30_000, 500 * 2 ** this.reconnectAttempt);
       const jitter = (Math.random() - 0.5) * baseDelay * 0.2;
