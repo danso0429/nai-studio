@@ -3710,6 +3710,14 @@ queueMicrotask(() => {
       appState.currentProcessingSceneKey = key;
     }
   });
+
+  // server add-batch가 큐 한도(QUEUE_MAX_SIZE) 도달로 부분 rejected 했을 때 사용자 안내.
+  // 옛엔 server broadcast만 있고 클라 listener 없어 silent (본인 2026-05-23 페인: UI 카운터
+  // deflate 보고 "사라졌다"고 인지 → 한도 도달 사실 모름).
+  backend.onQueueFull((data) => {
+    if (!data?.message) return;
+    appState.pushMessage(data.message);
+  });
   // complete/error는 sceneKey를 굳이 null로 비우지 않음 — 다음 job-start가 곧 덮어씀.
   // 큐가 진짜 비면 다음 refreshServerQueueAvg 폴링에서 processing=false 보고 null로 회복.
 });

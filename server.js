@@ -401,7 +401,10 @@ function loadCompletedJobs() {
   } catch {}
 }
 
-const QUEUE_MAX_SIZE = 5000;
+// 본인 가끔 5천 초과 등록 (2026-05-23 P21 #3 페인 보고). 7000 한도 — saveQueueState
+// stringify ~85ms / disk ~32MB 부담 안에. 1초 debounce(line 519-524)라 burst 시도
+// 1회 stringify, event loop block ~85ms 무시 가능.
+const QUEUE_MAX_SIZE = 7000;
 const DISK_WARN_GB = 15;
 const DISK_CRIT_GB = 10;
 
@@ -1668,10 +1671,21 @@ app.post('/api/queue/add-batch', async (req, res) => {
     genQueue.push({ jobId, params, meta });
     jobIds.push(jobId);
   }
+  const rejected = jobs.length - toAdd.length;
+  // 옛 add 단일은 한도 도달 시 broadcast 'queue-full'(line 1645). add-batch는 누락이라
+  // 사용자 silent 누락 페인 (2026-05-23 P21 #3: UI 5600 약속됐는데 새로고침 후 4750 deflate,
+  // 본인이 한도 도달 사실 모름). 클라 측 onQueueFull handler에서 toast로 안내.
+  if (rejected > 0) {
+    broadcast('queue-full', {
+      max: QUEUE_MAX_SIZE,
+      rejected,
+      message: `큐가 가득 차서 ${rejected}개가 등록 안 됐어요 (한도 ${QUEUE_MAX_SIZE}개)`,
+    });
+  }
   broadcastQueueStatus();
   setImmediate(() => processQueue().catch((e) => console.error('[queue] runner crashed:', e)));
   saveQueueState();
-  res.json({ jobIds, rejected: jobs.length - toAdd.length });
+  res.json({ jobIds, rejected });
 });
 
 app.get('/api/queue/status', async (req, res) => {

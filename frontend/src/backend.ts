@@ -232,7 +232,11 @@ export abstract class Backend {
   abstract onCleanupOrphansError(callback: (data: CleanupOrphansError) => void): () => void;
   abstract getDiskUsage(): Promise<DiskUsageResult>;
   abstract cleanupDisk(targets: string[]): Promise<DiskCleanupResult>;
+  abstract onQueueFull(callback: (data: QueueFullEvent) => void): () => void;
 }
+
+// server add-batch가 큐 한도 도달로 부분 rejected 했을 때 broadcast. AppService에서 listen → toast.
+export type QueueFullEvent = { max: number; rejected: number; message: string };
 
 // 디스크 정리 API — queue popup의 manual trigger. 화이트리스트 5종.
 export type DiskCategory = 'outs' | 'exports' | 'tmp' | 'inpaints' | 'vibes';

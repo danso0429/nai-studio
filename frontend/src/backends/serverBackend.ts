@@ -1,6 +1,6 @@
 import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderResult, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
+import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderResult, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -591,6 +591,7 @@ export class ServerBackend extends Backend {
   onQueueJobStart(callback: (data: { jobId: string; pending: number; meta: QueueJobMeta }) => void): () => void { return this.on('queue-job-start', callback); }
   onQueueJobComplete(callback: (data: { jobId: string; outputFilePath?: string; meta: QueueJobMeta }) => void): () => void { return this.on('queue-job-complete', callback); }
   onQueueJobError(callback: (data: { jobId: string; error: string; meta: QueueJobMeta }) => void): () => void { return this.on('queue-job-error', callback); }
+  onQueueFull(callback: (data: QueueFullEvent) => void): () => void { return this.on('queue-full', callback); }
   onWsReconnect(callback: () => void): () => void { return this.on('ws-reconnect', callback); }
   onDriveSyncComplete(callback: (data: { localPath: string; requestedPath: string | null; fileName: string }) => void): () => void {
     return this.on('drive-sync-complete', callback);
