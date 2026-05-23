@@ -85,8 +85,14 @@ export const TaskProgressBar = observer(({ fast }: TaskProgressBarProps) => {
   const getProgressText = () => {
     const stats = taskQueueService.statsAllTasks();
     const remain = stats.total - stats.done;
+    // ETA 우선순위: (1) server cross-hour 시뮬레이션 (시간대별 평균 + KST hour 경계
+    // 점진 적용) — 22시에 박는 큐가 04시까지 cross 시 11.5s→3.7s 점진 변화 반영.
+    // (2) fallback: 단일 server avg × remain. (3) 최후 fallback: 클라 ring buffer.
+    const eta = appState.serverQueueEtaMs;
     const avg = serverAvgMs();
-    const totalMs = avg > 0 ? avg * remain : taskQueueService.estimateTime('mean');
+    const totalMs = eta != null
+      ? eta
+      : (avg > 0 ? avg * remain : taskQueueService.estimateTime('mean'));
     return `${remain}개 남음 (예상 ${formatTime(totalMs)})`;
   };
   const topTaskDurationSec = () => {

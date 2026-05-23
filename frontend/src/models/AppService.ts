@@ -217,6 +217,11 @@ export class AppState {
   // 서버 큐 통계 — TaskProgressBar의 정확한 ETA용. /api/queue/status에서 폴링.
   // recentAvgMs(최근 100건) → currentBucketAvgMs → allTimeAvgMs 순서로 fallback. 2026-05-13.
   @observable accessor serverQueueAvgMs: number = 0;
+  // 서버 cross-hour ETA (시간대별 평균 + KST hour 경계 점진 시뮬레이션). 단일 평균 × N
+  // 모델은 시간대 차이(최대 3.8배)를 무시 — 22시에 1000개 박는 큐를 16시 활동 후
+  // recentAvg로 계산하면 underestimate. server etaMs는 server pending 기준이라 클라
+  // mirror remain과 약간 다를 수 있지만, 차이가 작아 표시상 mismatch 무시 가능.
+  @observable accessor serverQueueEtaMs: number | null = null;
   // 진행 중인 export pipeline (resize/zip). tar 생성 끝나면 null로 → driveRetry가 인계.
   @observable accessor exportPipelineJobs: {
     jobId: string;
@@ -739,6 +744,7 @@ export class AppState {
       const d = await r.json();
       const avg = d.recentAvgMs || d.currentBucketAvgMs || d.allTimeAvgMs || 0;
       if (avg > 0) this.serverQueueAvgMs = avg;
+      this.serverQueueEtaMs = (typeof d.etaMs === 'number' && d.etaMs > 0) ? d.etaMs : null;
       // 백그라운드 복귀 / WS 재연결 / 초기 부트 시 현재 처리 중 씬 회복.
       // genQueue[0].meta.sceneKey가 있으면 그게 진행 중 씬. processing=false면 null.
       const first = Array.isArray(d.jobs) && d.jobs.length > 0 ? d.jobs[0] : null;

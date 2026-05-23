@@ -262,6 +262,57 @@ function recordTiming(finishedAt, durationMs) {
   pruneTimingHistory();
 }
 
+// 시간대별 평균 + KST hour 경계 cross-hour 점진 시뮬레이션으로 ETA 계산.
+// 단일 평균 × N 모델은 시간대 차이(38786건 누적 기준 최대 3.8배)를 무시 — 22시에
+// 1000개 박는 큐를 16시 활동 후 recentAvg(7s)로 계산하면 ~2배 underestimate.
+// 시뮬레이션은 cur hour 평균으로 다음 hour 경계까지 처리, 경계 도달 시 다음
+// hour 평균으로 전환. n < BUCKET_N_MIN인 sparse 시간대는 recentAvg/globalAvg
+// fallback. MAX_ITER=100 안전망(24×4=96, 4일치 큐도 커버).
+function computeEtaMs(remaining) {
+  if (remaining <= 0) return 0;
+  if (timingStats.allTime.count <= 0) return null;
+  const HOUR_MS = 60 * 60 * 1000;
+  const BUCKET_N_MIN = 20;
+  const MAX_ITER = 100;
+  const globalAvg = timingStats.allTime.totalMs / timingStats.allTime.count;
+  const recentN = Math.min(100, timingHistory.length);
+  const recentAvg = recentN >= 5
+    ? timingHistory.slice(-recentN).reduce((s, e) => s + e[1], 0) / recentN
+    : globalAvg;
+  const fallbackAvg = recentAvg > 0 ? recentAvg : globalAvg;
+  let cur = Date.now();
+  let elapsed = 0;
+  let left = remaining;
+  let iter = 0;
+  while (left > 0 && iter < MAX_ITER) {
+    iter++;
+    const hour = bucketIndexFor(cur);
+    const bucket = timingStats.buckets[hour];
+    const bucketAvg = bucket.count >= BUCKET_N_MIN && bucket.totalMs > 0
+      ? bucket.totalMs / bucket.count
+      : fallbackAvg;
+    const kstNow = new Date(cur + TIMING_TZ_OFFSET_MS);
+    const minInHour = kstNow.getUTCMinutes() * 60_000
+      + kstNow.getUTCSeconds() * 1000
+      + kstNow.getUTCMilliseconds();
+    const msUntilNextHour = HOUR_MS - minInHour;
+    const jobsThisHour = Math.min(left, Math.floor(msUntilNextHour / bucketAvg));
+    if (jobsThisHour > 0) {
+      const seg = jobsThisHour * bucketAvg;
+      elapsed += seg;
+      cur += seg;
+      left -= jobsThisHour;
+    } else {
+      // bucketAvg > msUntilNextHour: 이 시간대 안 한 잡도 못 끝남. cur hour 평균으로
+      // 1잡 처리하고 시간 전진 (cross hour 잡은 시작 시점 hour로 atomic 처리).
+      elapsed += bucketAvg;
+      cur += bucketAvg;
+      left -= 1;
+    }
+  }
+  return Math.round(elapsed);
+}
+
 function _writeTimingHistorySync() {
   try {
     fss.writeFileSync(TIMING_HISTORY_FILE, JSON.stringify(timingHistory));
@@ -1687,9 +1738,10 @@ app.get('/api/queue/status', async (req, res) => {
   const recentAvgMs = recentN >= 5
     ? recentSlice.reduce((s, e) => s + e[1], 0) / recentN
     : avgMs;
-  // ETA는 최근 평균 기준 (더 정확)
-  const baseAvg = recentAvgMs > 0 ? recentAvgMs : avgMs;
-  const etaMs = baseAvg > 0 ? Math.round(baseAvg * genQueue.length) : null;
+  // ETA는 KST 시간대별 평균 + cross-hour 점진 시뮬레이션. 단일 평균 × N은 시간대
+  // 차이(최대 3.8배)를 무시. computeEtaMs는 cur hour 평균으로 다음 hour 경계까지
+  // 처리하고 경계 도달 시 다음 hour 평균으로 전환 — 큐가 시간대 cross 시 정확.
+  const etaMs = computeEtaMs(genQueue.length);
   // 현재 처리 중 job(genQueue[0])과 같은 프로젝트의 큐 잔여 수 — queue.html 보조 표시용.
   // outs/<project>/<scene>/<file>.png 경로의 두 번째 segment가 project name.
   const currentProjectName = (() => {
