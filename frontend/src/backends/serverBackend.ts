@@ -1,6 +1,6 @@
 import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderResult, DeleteProjectResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
+import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderResult, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -568,6 +568,20 @@ export class ServerBackend extends Backend {
   }
   onCleanupOrphansError(callback: (data: CleanupOrphansError) => void): () => void {
     return this.on('cleanup-orphans-error', callback);
+  }
+
+  async getDiskUsage(): Promise<DiskUsageResult> {
+    return await apiJSON('/disk/usage');
+  }
+
+  async cleanupDisk(targets: string[]): Promise<DiskCleanupResult> {
+    // 큰 폴더(예: outs/exports 다 GB 단위)는 fs.rm 직렬이라 수십초 가능. iOS Safari
+    // default 60s timeout으로 spurious abort 회피 위해 FOLDER_DELETE_TIMEOUT_MS 사용.
+    return await apiJSON('/disk/cleanup', {
+      method: 'POST',
+      body: JSON.stringify({ targets }),
+      timeout: FOLDER_DELETE_TIMEOUT_MS,
+    });
   }
 
   onDownloadProgress(callback: (progress: any) => void): () => void { return this.on('download-progress', callback); }

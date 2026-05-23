@@ -2767,6 +2767,79 @@ app.get('/api/project/cleanup-preview', async (req, res) => {
   }
 });
 
+// 디스크 정리 manual API — queue popup의 즉시 trigger용. cleanup_old_files.sh
+// (7일 cron) / cleanup-orphans(비활성 프로젝트) / diskCleanupStageN(disk-low 자동) 전부와
+// 별개 경로. 화이트리스트 5종만 허용 — req 임의 폴더명 X.
+// sumDirRecursive(line 2695)와 달리 dot prefix(.trash 등)도 포함 — outs/.trash가
+// 사용자 디스크 누적의 큰 부분이라 size/cleanup 둘 다 일관되게 포함.
+const DISK_CLEANUP_CATEGORIES = ['outs', 'exports', 'tmp', 'inpaints', 'vibes'];
+
+async function sumDirAll(dirPath) {
+  let count = 0;
+  let size = 0;
+  async function walk(p) {
+    let entries;
+    try { entries = await fs.readdir(p, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = path.join(p, e.name);
+      if (e.isDirectory()) await walk(full);
+      else if (e.isFile()) {
+        try { const st = await fs.stat(full); count += 1; size += st.size; } catch {}
+      }
+    }
+  }
+  await walk(dirPath);
+  return { count, size };
+}
+
+app.get('/api/disk/usage', async (req, res) => {
+  try {
+    const result = {};
+    for (const cat of DISK_CLEANUP_CATEGORIES) {
+      const dirPath = path.join(DATA_DIR, cat);
+      result[cat] = await sumDirAll(dirPath);
+    }
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/disk/cleanup', async (req, res) => {
+  try {
+    const targets = Array.isArray(req.body?.targets) ? req.body.targets : [];
+    const valid = targets.filter((t) => DISK_CLEANUP_CATEGORIES.includes(t));
+    if (valid.length === 0) {
+      return res.status(400).json({ error: 'no valid targets' });
+    }
+    const results = {};
+    for (const cat of valid) {
+      const dirPath = path.join(DATA_DIR, cat);
+      const before = await sumDirAll(dirPath);
+      try {
+        // 폴더 안 entries 통째 rm — 폴더 자체(data/outs 등)는 유지해서 ensureDirs
+        // 의도 보존. 새 mkdir 불필요.
+        const entries = await fs.readdir(dirPath, { withFileTypes: true });
+        for (const e of entries) {
+          const full = path.join(dirPath, e.name);
+          try { await fs.rm(full, { recursive: true, force: true }); } catch {}
+        }
+        const after = await sumDirAll(dirPath);
+        results[cat] = {
+          deletedFiles: before.count - after.count,
+          deletedBytes: before.size - after.size,
+        };
+      } catch (e) {
+        results[cat] = { error: e.message, deletedFiles: 0, deletedBytes: 0 };
+      }
+    }
+    console.log(`[Disk] Manual cleanup: ${valid.join(', ')} — ${JSON.stringify(results)}`);
+    res.json({ results });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // cleanup-orphans는 Drive purge 다수로 long-running. iPhone Safari fetch
 // timeout과 충돌하지 않게 fire-and-forget + WS 진행도 broadcast 방식.
 let cleanupOrphansActiveJobId = null;

@@ -1,10 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FaCaretLeft, FaCaretRight, FaPause, FaPlay, FaRegCalendarTimes, FaTimes, FaRegClock, FaStar, FaRegStar } from 'react-icons/fa';
-import { sessionService, taskQueueService, cyclingSessionService } from '../models';
+import { backend, sessionService, taskQueueService, cyclingSessionService } from '../models';
 import { getSceneKey, Task } from '../models/TaskQueueService';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
+import { DiskCategory, DiskUsageResult } from '../backend';
+import { extractApiError } from '../models/util';
 
 interface ProgressBarProps {
   duration: number;
@@ -291,6 +293,165 @@ type FolderSnap = {
   normalDone: number;
   completedAt?: number;
 };
+
+// 디스크 정리 섹션 — popup 안에 fold 가능한 sub-panel. queue 트리와 무관한 admin
+// 기능이라 default 접힘. 열 때만 /api/disk/usage GET. cleanup_old_files.sh(7일 cron)와
+// 별개 즉시 실행 경로.
+type DiskCatSpec = { key: DiskCategory; label: string; defaultOn: boolean };
+// outs/exports/tmp: 재생성 가능(또는 산출물). inpaints/vibes: 사용자 작업 원본 — 손실
+// 위험으로 default off. 본인이 명시 체크 시에만 cleanup 대상.
+const DISK_CATEGORIES: DiskCatSpec[] = [
+  { key: 'outs', label: '출력 이미지 (outs)', defaultOn: true },
+  { key: 'exports', label: 'export 산출물', defaultOn: true },
+  { key: 'tmp', label: '임시 파일 (tmp)', defaultOn: true },
+  { key: 'inpaints', label: '인페인트 원본/마스크', defaultOn: false },
+  { key: 'vibes', label: 'vibe 참조 이미지', defaultOn: false },
+];
+
+const formatBytes = (n: number) => {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
+const DiskCleanupSection = observer(() => {
+  const [usage, setUsage] = useState<DiskUsageResult | null>(null);
+  const [selected, setSelected] = useState<Set<DiskCategory>>(
+    () => new Set(DISK_CATEGORIES.filter((c) => c.defaultOn).map((c) => c.key)),
+  );
+  const [open, setOpen] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [measuring, setMeasuring] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setMeasuring(true);
+    try {
+      const data = await backend.getDiskUsage();
+      setUsage(data);
+    } catch (e) {
+      appState.pushMessage('디스크 사이즈 측정 실패: ' + extractApiError(e));
+    } finally {
+      setMeasuring(false);
+    }
+  }, []);
+
+  // open 시 1회 측정. 닫혔다 다시 열리면 stale 안 보이게 매번 재측정.
+  useEffect(() => {
+    if (open) {
+      void refresh();
+    }
+  }, [open, refresh]);
+
+  const totalSelected = useMemo(() => {
+    if (!usage) return 0;
+    let s = 0;
+    for (const k of selected) s += usage[k]?.size ?? 0;
+    return s;
+  }, [usage, selected]);
+
+  const toggle = (key: DiskCategory) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const run = () => {
+    if (selected.size === 0 || !usage) return;
+    const targets = Array.from(selected);
+    const list = targets
+      .map((k) => {
+        const cat = DISK_CATEGORIES.find((c) => c.key === k)!;
+        return `· ${cat.label} — ${formatBytes(usage[k]?.size ?? 0)} (${usage[k]?.count ?? 0}개)`;
+      })
+      .join('\n');
+    appState.pushDialog({
+      type: 'confirm',
+      text: `다음을 영구 삭제합니다 (복구 불가):\n${list}\n\n진행할까요?`,
+      callback: () => {
+        setRunning(true);
+        backend
+          .cleanupDisk(targets)
+          .then((res) => {
+            const summary = targets
+              .map((k) => {
+                const r = res.results[k];
+                if (!r) return `${k}: (응답 없음)`;
+                if (r.error) return `${k}: 실패 — ${r.error}`;
+                return `· ${k}: ${r.deletedFiles}개 / ${formatBytes(r.deletedBytes)}`;
+              })
+              .join('\n');
+            appState.pushMessage('디스크 정리 완료\n' + summary);
+            return refresh();
+          })
+          .catch((e) => {
+            appState.pushMessage('디스크 정리 실패: ' + extractApiError(e));
+          })
+          .finally(() => setRunning(false));
+      },
+    });
+  };
+
+  return (
+    <div className="mt-2 mx-1 border border-gray-300 dark:border-slate-500 rounded-md overflow-hidden">
+      <div
+        className="flex items-center gap-2 px-2.5 py-2 cursor-pointer bg-gray-50 dark:bg-slate-700/40"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="flex-none text-xs text-gray-500 dark:text-gray-300 w-3 inline-block">
+          {open ? '▼' : '▶'}
+        </span>
+        <div className="flex-none text-base">🧹</div>
+        <span className="flex-1 text-sm md:text-base font-medium text-default">디스크 정리</span>
+      </div>
+      {open && (
+        <div className="px-3 py-2 flex flex-col gap-1.5">
+          {measuring && !usage && (
+            <div className="text-xs text-gray-500 dark:text-gray-400">사이즈 측정 중…</div>
+          )}
+          {usage &&
+            DISK_CATEGORIES.map((cat) => {
+              const info = usage[cat.key] ?? { size: 0, count: 0 };
+              const checked = selected.has(cat.key);
+              return (
+                <label
+                  key={cat.key}
+                  className="flex items-center gap-2 text-sm cursor-pointer text-default min-w-0"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggle(cat.key)}
+                    disabled={running}
+                    className="flex-none"
+                  />
+                  <span className="flex-1 min-w-0 truncate">{cat.label}</span>
+                  <span className="flex-none text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                    {formatBytes(info.size)} · {info.count}개
+                  </span>
+                </label>
+              );
+            })}
+          {usage && (
+            <button
+              className={
+                'round-button mt-1 px-3 py-1.5 text-sm ' +
+                (selected.size === 0 || running ? 'back-gray opacity-60 cursor-not-allowed' : 'back-red')
+              }
+              disabled={selected.size === 0 || running}
+              onClick={run}
+            >
+              {running ? '정리 중…' : `선택 항목 정리 (${formatBytes(totalSelected)})`}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
 
 // anchor: pill DOM. 옛 popup은 pill의 relative 안 absolute였는데, FloatView(scene/image)
 // 와 stacking context 충돌로 X 클릭이 안 먹는 회귀 — 본인 보고 (2026-05-17).
@@ -847,6 +1008,7 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
           </>
         )}
         {renderTree(normalTree, 'nor:')}
+        <DiskCleanupSection />
       </div>
     </div>,
     document.body,

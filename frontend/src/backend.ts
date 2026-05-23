@@ -230,4 +230,13 @@ export abstract class Backend {
   abstract onCleanupOrphansProgress(callback: (data: CleanupOrphansProgress) => void): () => void;
   abstract onCleanupOrphansDone(callback: (data: CleanupOrphansDone) => void): () => void;
   abstract onCleanupOrphansError(callback: (data: CleanupOrphansError) => void): () => void;
+  abstract getDiskUsage(): Promise<DiskUsageResult>;
+  abstract cleanupDisk(targets: string[]): Promise<DiskCleanupResult>;
 }
+
+// 디스크 정리 API — queue popup의 manual trigger. 화이트리스트 5종.
+export type DiskCategory = 'outs' | 'exports' | 'tmp' | 'inpaints' | 'vibes';
+export type DiskUsageResult = Record<DiskCategory, { count: number; size: number }>;
+export type DiskCleanupResult = {
+  results: Record<DiskCategory, { deletedFiles: number; deletedBytes: number; error?: string }>;
+};
