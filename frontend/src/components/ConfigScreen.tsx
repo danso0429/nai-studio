@@ -576,6 +576,8 @@ const OtherTab = ({
           자동: 화면 폭 480 미만 80 / 768 미만 200 / 1280 미만 400 / 이상 500.
           인터넷 느린 환경: 120~160 권장 (80은 픽셀 보임).
           ResultViewer 안 이미지 그리드는 별도 S/M/L 버튼(200/400/500)으로 변경.
+          새 이미지마다 이 사이즈가 자동 prewarm돼요 (자동이면 200/400/500 3사이즈).
+          설정 변경 시 옛 이미지는 옛 사이즈 fastcache hit 그대로, 새 이미지부터 새 사이즈로 prewarm.
         </p>
       </div>
       <hr className="border-gray-200 dark:border-slate-600" />

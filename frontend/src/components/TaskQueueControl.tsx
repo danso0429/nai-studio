@@ -307,7 +307,8 @@ type DiskCatSpec = { key: DiskCategory; label: string; defaultOn: boolean };
 // outs/exports/tmp: 재생성 가능(또는 산출물). inpaints/vibes: 사용자 작업 원본 — 손실
 // 위험으로 default off. 본인이 명시 체크 시에만 cleanup 대상.
 const DISK_CATEGORIES: DiskCatSpec[] = [
-  { key: 'outs', label: '출력 이미지 (outs)', defaultOn: true },
+  { key: 'outs', label: '출력 이미지 (outs, 원본+썸네일)', defaultOn: true },
+  { key: 'outs-thumbnails', label: '└ 썸네일만 (outs/.../fastcache)', defaultOn: false },
   { key: 'exports', label: 'export 산출물', defaultOn: true },
   { key: 'tmp', label: '임시 파일 (tmp)', defaultOn: true },
   { key: 'inpaints', label: '인페인트 원본/마스크', defaultOn: false },
@@ -352,7 +353,11 @@ const DiskCleanupSection = observer(() => {
   const totalSelected = useMemo(() => {
     if (!usage) return 0;
     let s = 0;
-    for (const k of selected) s += usage[k]?.size ?? 0;
+    for (const k of selected) {
+      // outs-thumbnails는 outs의 부분집합 — outs도 체크되면 중복 합산 회피
+      if (k === 'outs-thumbnails' && selected.has('outs')) continue;
+      s += usage[k]?.size ?? 0;
+    }
     return s;
   }, [usage, selected]);
 

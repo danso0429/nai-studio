@@ -160,11 +160,21 @@ try {
   console.warn('[NAI Studio] sharp not available, image resize disabled');
 }
 
-// Generate 200/400/500 thumbnails for the given output file into its fastcache/ sibling.
+// Prewarm thumbnails into the file's fastcache/ sibling. 옛엔 무조건 200/400/500
+// 3개 다 prewarm — initialThumbSize 설정 1개만 쓰는 사용자에겐 나머지 2개가 dead
+// (디스크 4배 사용). 처방: config.initialThumbSize 있으면 그 값 1개만, 없으면
+// undefined(auto)이라 어느 device가 어떤 사이즈 쓸지 server는 모름 → 옛 3개 fallback.
 // `source` is a free-form tag included in error log prefix ('queue' or 'direct').
 async function prewarmThumbnails(outPath, relativeFilePath, source) {
   if (!sharp) return;
-  for (const size of [200, 400, 500]) {
+  let sizes = [200, 400, 500];
+  try {
+    const config = await loadConfig();
+    if (config.initialThumbSize && Number.isFinite(config.initialThumbSize)) {
+      sizes = [config.initialThumbSize];
+    }
+  } catch {}
+  for (const size of sizes) {
     try {
       const pp = relativeFilePath.split('/');
       const fn = size + '_' + pp.pop();
@@ -2798,9 +2808,12 @@ app.get('/api/project/cleanup-preview', async (req, res) => {
 // 별개 경로. 화이트리스트 5종만 허용 — req 임의 폴더명 X.
 // sumDirRecursive(line 2695)와 달리 dot prefix(.trash 등)도 포함 — outs/.trash가
 // 사용자 디스크 누적의 큰 부분이라 size/cleanup 둘 다 일관되게 포함.
-const DISK_CLEANUP_CATEGORIES = ['outs', 'exports', 'tmp', 'inpaints', 'vibes'];
+// 'outs-thumbnails'는 가상 카테고리 — outs/ 하위 fastcache/ 안 파일만. 옛 'outs'는
+// 전체(원본 + thumbnail) 통째 청소 옛 동작 유지. 본인 mental model: thumbnail은 재생성
+// 가능한 캐시라 별도 청소 옵션 의미 있음.
+const DISK_CLEANUP_CATEGORIES = ['outs', 'outs-thumbnails', 'exports', 'tmp', 'inpaints', 'vibes'];
 
-async function sumDirAll(dirPath) {
+async function sumDirAll(dirPath, opts = {}) {
   let count = 0;
   let size = 0;
   async function walk(p) {
@@ -2810,6 +2823,7 @@ async function sumDirAll(dirPath) {
       const full = path.join(p, e.name);
       if (e.isDirectory()) await walk(full);
       else if (e.isFile()) {
+        if (opts.fastcacheOnly && !full.includes(path.sep + 'fastcache' + path.sep)) continue;
         try { const st = await fs.stat(full); count += 1; size += st.size; } catch {}
       }
     }
@@ -2822,8 +2836,11 @@ app.get('/api/disk/usage', async (req, res) => {
   try {
     const result = {};
     for (const cat of DISK_CLEANUP_CATEGORIES) {
-      const dirPath = path.join(DATA_DIR, cat);
-      result[cat] = await sumDirAll(dirPath);
+      if (cat === 'outs-thumbnails') {
+        result[cat] = await sumDirAll(path.join(DATA_DIR, 'outs'), { fastcacheOnly: true });
+      } else {
+        result[cat] = await sumDirAll(path.join(DATA_DIR, cat));
+      }
     }
     res.json(result);
   } catch (e) {
@@ -2840,6 +2857,24 @@ app.post('/api/disk/cleanup', async (req, res) => {
     }
     const results = {};
     for (const cat of valid) {
+      if (cat === 'outs-thumbnails') {
+        // outs/ 하위 모든 fastcache/ 파일만 rm. 원본 PNG 보존. 빈 fastcache/ dir도
+        // 같이 삭제 (cleanupDirByPattern). prewarmThumbnails가 다음 NAI 이미지 생성
+        // 시 자동 재생성.
+        const outsDir = path.join(DATA_DIR, 'outs');
+        const before = await sumDirAll(outsDir, { fastcacheOnly: true });
+        try {
+          await cleanupDirByPattern('*/fastcache/*', 'fastcache');
+          const after = await sumDirAll(outsDir, { fastcacheOnly: true });
+          results[cat] = {
+            deletedFiles: before.count - after.count,
+            deletedBytes: before.size - after.size,
+          };
+        } catch (e) {
+          results[cat] = { error: e.message, deletedFiles: 0, deletedBytes: 0 };
+        }
+        continue;
+      }
       const dirPath = path.join(DATA_DIR, cat);
       const before = await sumDirAll(dirPath);
       try {

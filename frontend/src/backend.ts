@@ -240,8 +240,10 @@ export abstract class Backend {
 // server add-batch가 큐 한도 도달로 부분 rejected 했을 때 broadcast. AppService에서 listen → toast.
 export type QueueFullEvent = { max: number; rejected: number; message: string };
 
-// 디스크 정리 API — queue popup의 manual trigger. 화이트리스트 5종.
-export type DiskCategory = 'outs' | 'exports' | 'tmp' | 'inpaints' | 'vibes';
+// 디스크 정리 API — queue popup의 manual trigger. 화이트리스트 6종.
+// 'outs' = 전체(원본 + thumbnail) 통째 청소. 'outs-thumbnails' = outs/ 하위 fastcache/만
+// (원본 보존, prewarm 시 자동 재생성).
+export type DiskCategory = 'outs' | 'outs-thumbnails' | 'exports' | 'tmp' | 'inpaints' | 'vibes';
 export type DiskUsageResult = Record<DiskCategory, { count: number; size: number }>;
 export type DiskCleanupResult = {
   results: Record<DiskCategory, { deletedFiles: number; deletedBytes: number; error?: string }>;
