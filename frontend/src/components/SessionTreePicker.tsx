@@ -106,6 +106,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
       type: 'select',
       text: `폴더 "${folder}" 작업`,
       items: [
+        { text: '🚀 폴더 안 모든 씬 한 번에 큐 등록', value: 'enqueue-all', color: 'amber' },
         { text: '📦 폴더 전체 내보내기 (이미지)', value: 'export' },
         { text: '💾 폴더 전체 백업 (이미지 포함, 복원 가능)', value: 'backup' },
         { text: '💾 폴더 전체 백업 (이미지 없이, 가볍게)', value: 'backup-light' },
@@ -113,6 +114,20 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
         { text: '삭제 (안의 프로젝트도 영구 삭제)', value: 'delete' },
       ],
     });
+    if (action === 'enqueue-all') {
+      const projects = folderToProjects.get(folder) ?? [];
+      // 폴더 안 모든 프로젝트의 모든 씬(scene+inpaint) flat. 세션은 sessionService.get
+      // 으로 1회 load (이미 로드되어 있으면 즉시 반환). load 실패한 프로젝트는 skip.
+      const items: Array<{ session: any; scene: any }> = [];
+      for (const projectName of projects) {
+        const session = await sessionService.get(projectName);
+        if (!session) continue;
+        for (const scene of session.getScenes('scene')) items.push({ session, scene });
+        for (const scene of session.getScenes('inpaint')) items.push({ session, scene });
+      }
+      appState.enqueueScenesSequentially(items, `폴더 "${folder}"`);
+      return;
+    }
     if (action === 'export') {
       const projects = folderToProjects.get(folder) ?? [];
       appState.exportFolder(folder, projects);
@@ -168,7 +183,8 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
 
   const handleProjectMenu = async (name: string) => {
     const currentFolder = sessionService.getFolderOf(name);
-    const items: { text: string; value: string }[] = [];
+    const items: { text: string; value: string; color?: 'amber' | 'green' | 'red' }[] = [];
+    items.push({ text: '🚀 모든 씬 한 번에 큐 등록', value: '__enqueue_all__', color: 'amber' });
     items.push({ text: '📦 이미지 내보내기', value: '__export__' });
     if (currentFolder !== null) items.push({ text: '루트로 이동', value: '__root__' });
     for (const f of sortedFolders) {
@@ -181,6 +197,20 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
       items,
     });
     if (!target) return;
+    if (target === '__enqueue_all__') {
+      // 프로젝트 안 모든 씬(scene+inpaint) flat. picker 자체는 일단 열어둔 채
+      // progress dialog로 진행 — 사용자가 다른 프로젝트도 연속으로 등록하고 싶을 수 있음.
+      const session = await sessionService.get(name);
+      if (!session) {
+        appState.pushMessage(`프로젝트 "${name}"를 불러올 수 없어요`);
+        return;
+      }
+      const items2: Array<{ session: any; scene: any }> = [];
+      for (const scene of session.getScenes('scene')) items2.push({ session, scene });
+      for (const scene of session.getScenes('inpaint')) items2.push({ session, scene });
+      appState.enqueueScenesSequentially(items2, `프로젝트 "${name}"`);
+      return;
+    }
     if (target === '__export__') {
       setOpen(false);
       appState.exportProjectImages(name);

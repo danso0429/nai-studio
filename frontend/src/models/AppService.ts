@@ -15,6 +15,7 @@ import { startVisibleInterval } from '../visibleInterval';
 import type { GlobalPresetType, IGlobalPresetEntry } from './GlobalPresetService';
 import { SUPPORTED_GLOBAL_PRESET_TYPES } from './GlobalPresetService';
 import { Dialog } from '../components/ConfirmWindow';
+import { getSceneKey, queueI2IWorkflow, queueMirrorWorkflow, queueWorkflow, Task } from './TaskQueueService';
 import { cropMirrorResultFromDataUri, dataUriToBase64, deleteImageFiles } from './ImageService';
 import {
   createImageWithText,
@@ -627,9 +628,9 @@ export class AppState {
     }
   }
 
-  pushProgressDialog(text: string, total: number = 1): string {
+  pushProgressDialog(text: string, total: number = 1, onCancel?: () => void): string {
     const id = 'pd-' + Math.random().toString(36).slice(2, 10);
-    this.progressDialogs.push({ id, text, done: 0, total, status: 'active' });
+    this.progressDialogs.push({ id, text, done: 0, total, status: 'active', onCancel });
     return id;
   }
 
@@ -2092,6 +2093,126 @@ export class AppState {
   }
 
   // 폴더 단위 일괄 내보내기. 폴더 안 모든 프로젝트(scene)의 이미지를 1개 zip으로
+  // 폴더/프로젝트 점세개 메뉴의 "큐 일괄 등록". 본인 spec(2026-05-23): 한 씬씩 await
+  // (CHUNK=1) + sceneKey dedup(기존 큐/mirror에 1건이라도 있으면 skip) + cancel
+  // 가능. 기존 SceneQueueControl.addAllToQueue(CHUNK=4 병렬, dedup 없음)와 별개 경로.
+  //
+  // sceneKey dedup은 TaskQueueControl의 taskSceneKey 패턴 그대로 — task.params에서
+  // 직접 추출 + placeholder restored task는 `_sceneKey` fallback. taskQueueService
+  // 내부 mirrorTaskSceneKeys(private) 우회 안 함.
+  async enqueueScenesSequentially(
+    items: Array<{ session: Session; scene: GenericScene }>,
+    label: string,
+  ): Promise<void> {
+    if (items.length === 0) {
+      appState.pushMessage(`${label} 안에 등록할 씬이 없어요`);
+      return;
+    }
+
+    // 활성 sceneKey 측정 — 큐 + mirror 둘 다.
+    const taskSceneKey = (task: Task): string | null => {
+      if (task.params?.session && task.params?.scene) {
+        return getSceneKey(task.params.session, task.params.scene);
+      }
+      const sk = (task.params?.scene as any)?._sceneKey;
+      return typeof sk === 'string' ? sk : null;
+    };
+    const activeKeys = new Set<string>();
+    for (const t of taskQueueService.queue) {
+      if (!t) continue;
+      const k = taskSceneKey(t);
+      if (k) activeKeys.add(k);
+    }
+    for (const [, t] of taskQueueService.mirroredTasks) {
+      const k = taskSceneKey(t);
+      if (k) activeKeys.add(k);
+    }
+
+    // 동일 sceneKey 두 번 등록 회피 — items 안 중복 + 활성 큐 중복 둘 다.
+    const toEnqueue: Array<{ session: Session; scene: GenericScene }> = [];
+    const seen = new Set<string>();
+    let skipped = 0;
+    for (const it of items) {
+      const k = getSceneKey(it.session, it.scene);
+      if (activeKeys.has(k) || seen.has(k)) {
+        skipped++;
+        continue;
+      }
+      seen.add(k);
+      toEnqueue.push(it);
+    }
+
+    if (toEnqueue.length === 0) {
+      appState.pushMessage(`${label} — 모든 씬이 이미 큐에 있어요 (${skipped}개 skip)`);
+      return;
+    }
+
+    // cancel signal — closure 변수. 한 씬 await 사이마다 check.
+    let cancelled = false;
+    const total = toEnqueue.length;
+    const pid = this.pushProgressDialog(
+      `${label} 큐 등록 중... 0/${total}`,
+      total,
+      () => { cancelled = true; },
+    );
+
+    // queueScene 동등 동작 inline — SceneQueueControl.queueScene 패턴 그대로.
+    // scene.type=scene → queueWorkflow / inpaint+SDMirror → queueMirrorWorkflow /
+    // 나머지 inpaint → queueI2IWorkflow. samples는 현재 spinner 값 사용.
+    const enqueueOne = async (session: Session, scene: GenericScene, samples: number) => {
+      if (scene.type === 'scene') {
+        await queueWorkflow(session, session.selectedWorkflow!, scene, samples);
+      } else {
+        const ip = scene as InpaintScene;
+        if (ip.workflowType === 'SDMirror') {
+          await queueMirrorWorkflow(session, ip.workflowType, ip.preset, ip, samples);
+        } else {
+          await queueI2IWorkflow(session, ip.workflowType, ip.preset, ip, samples);
+        }
+      }
+    };
+
+    const samples = appState.samples;
+    let done = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    for (const it of toEnqueue) {
+      if (cancelled) break;
+      try {
+        await enqueueOne(it.session, it.scene, samples);
+      } catch (e: any) {
+        failed++;
+        errors.push(`${it.scene.name}: ${extractApiError(e)}`);
+      }
+      done++;
+      this.updateProgressDialog(pid, {
+        done,
+        text: `${label} 큐 등록 중... ${done}/${total}`,
+      });
+    }
+
+    const success = done - failed;
+    if (cancelled) {
+      this.finishProgressDialog(
+        pid,
+        `취소됨 — ${success}/${total} 등록 (${skipped > 0 ? `${skipped} skip, ` : ''}${failed > 0 ? `${failed} 실패` : ''})`,
+        false,
+      );
+    } else if (failed === 0) {
+      const skipMsg = skipped > 0 ? ` (${skipped}개 이미 큐에 있어 skip)` : '';
+      this.finishProgressDialog(pid, `✓ ${success}개 씬 큐 등록 완료${skipMsg}`, true);
+    } else {
+      this.finishProgressDialog(
+        pid,
+        `△ ${success}/${total} 등록 (${failed} 실패${skipped > 0 ? `, ${skipped} skip` : ''})`,
+        false,
+      );
+      for (const msg of errors.slice(0, 5)) {
+        appState.pushMessage(`프롬프트 에러 (${msg})`);
+      }
+    }
+  }
+
   // 묶음. zip 안 sub-directory로 프로젝트별 분리. outFilePath는 폴더명만.
   // path 수집은 CHUNK=4 병렬, 큐 등록은 1번.
   async exportFolder(folderName: string, projectNames: string[]) {

@@ -13,7 +13,9 @@ export interface Dialog {
   inputValue?: string;
   green?: boolean;
   graySelect?: boolean;
-  items?: { text: string; value: string }[];
+  // color: per-item 색 override. 기본 back-sky 외 'amber'(orange)/'green'/'red'.
+  // graySelect가 true면 전체 back-lgray (color 무시).
+  items?: { text: string; value: string; color?: 'amber' | 'green' | 'red' }[];
   // 확인 버튼 텍스트 override. destructive 액션은 "삭제" / "영구 삭제" 등으로
   // 명시해서 실수 클릭 줄임. undefined면 "확인" default.
   confirmText?: string;
@@ -157,23 +159,28 @@ const ConfirmWindow = observer(() => {
               )}
               {curDialog.type === 'select' && (
                 <>
-                  {curDialog.items!.map((item, idx) => (
-                    <button
-                      key={idx}
-                      className={
-                        'w-full px-4 py-2 rounded mr-2 clickable ' +
-                        (curDialog.graySelect ? 'back-lgray' : 'back-sky')
-                      }
-                      onClick={() => {
-                        appState.dialogs.pop();
-                        if (curDialog.callback) {
-                          curDialog.callback!(item.value, item.text);
-                        }
-                      }}
-                    >
-                      {item.text}
-                    </button>
-                  ))}
+                  {curDialog.items!.map((item, idx) => {
+                    // graySelect가 우선 (전체 일괄 회색), 다음 per-item color, default back-sky.
+                    let colorCls = 'back-sky';
+                    if (curDialog.graySelect) colorCls = 'back-lgray';
+                    else if (item.color === 'amber') colorCls = 'back-orange';
+                    else if (item.color === 'green') colorCls = 'back-green';
+                    else if (item.color === 'red') colorCls = 'back-red';
+                    return (
+                      <button
+                        key={idx}
+                        className={'w-full px-4 py-2 rounded mr-2 clickable ' + colorCls}
+                        onClick={() => {
+                          appState.dialogs.pop();
+                          if (curDialog.callback) {
+                            curDialog.callback!(item.value, item.text);
+                          }
+                        }}
+                      >
+                        {item.text}
+                      </button>
+                    );
+                  })}
                   <button
                     className="w-full px-4 py-2 clickable rounded back-gray"
                     onClick={() => {

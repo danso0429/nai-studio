@@ -4,6 +4,9 @@ export interface ProgressDialog {
   done: number;
   total: number;
   status?: 'active' | 'success' | 'error';
+  // 정의 시 X 버튼 노출. status === 'active'일 때만 노출 (finish 후 자동 숨김).
+  // 호출측이 cancel signal 직접 처리해야 함 (setTimeout/loop guard 등).
+  onCancel?: () => void;
 }
 
 interface Props {
@@ -39,7 +42,7 @@ const ProgressWindow = ({ dialogs, messagesCount = 0, pinned = false, topOffset 
         const finished = d.status === 'success' || d.status === 'error';
         const pct = finished ? 100 : d.total > 0 ? (d.done / d.total) * 100 : 0;
         return (
-          <div key={d.id} className={itemCls}>
+          <div key={d.id} className={itemCls + ' pointer-events-auto'}>
             <div className="text-xs sm:text-sm break-keep truncate min-w-0 flex-1">
               {d.text}
             </div>
@@ -54,6 +57,16 @@ const ProgressWindow = ({ dialogs, messagesCount = 0, pinned = false, topOffset 
                 style={{ width: pct.toString() + '%' }}
               ></div>
             </div>
+            {!finished && d.onCancel && (
+              <button
+                className="text-xs px-1.5 py-0.5 rounded text-gray-500 dark:text-gray-300 hover:text-red-500 dark:hover:text-red-400 flex-shrink-0"
+                onClick={() => d.onCancel?.()}
+                aria-label="취소"
+                title="취소"
+              >
+                ✕
+              </button>
+            )}
           </div>
         );
       })}
