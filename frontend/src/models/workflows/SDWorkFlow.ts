@@ -209,6 +209,7 @@ const SDImageGenHandler = async (
   onComplete?: (img: string) => void,
   nodelay?: boolean,
   extraUc?: string,
+  sceneGroup?: { sceneJobTotal: number; sceneJobStartIndex: number },
 ) => {
   // 옵션 3 — 프롬프트 프리셋 적용 중이면 preset의 그림체 영역만 교체한 사본 사용.
   // preset 객체 자체는 mutation X.
@@ -298,7 +299,7 @@ const SDImageGenHandler = async (
   // 큐 등록 실패 시 toast로 명시 — 옛 fire-and-forget은 console.error + error event
   // dispatch만이라 큐 UI 안 보고 있으면 인지 X (P15 큐 905개 incident class).
   try {
-    await taskQueueService.addTask(param, samples);
+    await taskQueueService.addTask(param, samples, sceneGroup);
   } catch (e: any) {
     appState.pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
   }

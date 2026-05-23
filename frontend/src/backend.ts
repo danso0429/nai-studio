@@ -85,6 +85,8 @@ export interface QueueJobMeta {
   taskType?: string;      // 'gen' | 'inpaint' | 'i2i' 등
   jobIndex?: number;      // task 내 1-based 순번 (queue.html 표시용)
   jobTotal?: number;      // task의 총 jobs 수 (queue.html 표시용)
+  sceneJobIndex?: number; // 씬 그룹(조합 × samples) 내 1-based 순번. queueWorkflow 진입 시 박힘.
+  sceneJobTotal?: number; // 씬 그룹 총 jobs (= prompts.length × samples).
 }
 
 export interface QueueFullState {

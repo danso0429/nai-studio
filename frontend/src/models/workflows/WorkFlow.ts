@@ -45,6 +45,7 @@ export type WFHandler = (
   onComplete?: (img: string) => void,
   nodelay?: boolean,
   extraUc?: string,
+  sceneGroup?: { sceneJobTotal: number; sceneJobStartIndex: number },
 ) => void | Promise<void>;
 
 // WFCreatePrompt 반환: 각 조합의 prompt + 그 조합의 piece들이 가진 uc 합.

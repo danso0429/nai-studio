@@ -76,6 +76,11 @@ export interface Task {
   done: number;
   total: number;
   priority?: boolean; // 우선순위 큐. 서버 측 jobs[i].priority 기반으로 restore 시 set.
+  // 한 씬의 *모든 조합 × samples* 묶음 정보. queueWorkflow가 prompts loop 진입 *전*에
+  // sceneJobTotal=prompts.length*samples 계산해서 모든 task에 동일 박음.
+  // sceneJobStartIndex는 task별 (i-th prompt → i*samples+1). 각 task 안 j-th job은
+  // sceneJobStartIndex + j-1 표시 = 씬 내 N번째.
+  sceneGroup?: { sceneJobTotal: number; sceneJobStartIndex: number };
 }
 
 function getRandomInt(min: number, max: number): number {
@@ -933,13 +938,14 @@ export class TaskQueueService extends EventTarget {
   // prep + queueAddBatch 끝까지 대기하는 부작용으로 "모두 예약추가" 로딩 회귀.
   // P15(큐 등록 실패 사용자 인지) fix는 'error' event dispatch는 그대로 유지 + App
   // 레벨 글로벌 listener에서 toast (TaskQueueControl unmount된 상태도 toast 보장).
-  addTask(params: TaskParam, numExec: number): void {
+  addTask(params: TaskParam, numExec: number, sceneGroup?: Task['sceneGroup']): void {
     const task: Task = {
       id: v4(),
       cls: -1,
       params: params,
       done: 0,
       total: numExec,
+      sceneGroup,
     };
     task.cls = this.getTaskCls(task);
     const handler = this.handlers[task.cls];
@@ -1022,6 +1028,12 @@ export class TaskQueueService extends EventTarget {
             taskType: task.params.scene?.type,
             jobIndex: i + 1,
             jobTotal: task.total,
+            // 씬 그룹(조합 × samples) 진행 카운트. queueWorkflow 진입 시 박힘.
+            // queue.html이 sceneJobIndex/Total 우선 사용해서 'sceneName N/M' 표시.
+            ...(task.sceneGroup ? {
+              sceneJobIndex: task.sceneGroup.sceneJobStartIndex + i,
+              sceneJobTotal: task.sceneGroup.sceneJobTotal,
+            } : {}),
           },
         });
       }
@@ -1626,6 +1638,9 @@ export const queueWorkflow = async (
     shared,
   );
   const scene_ = scene as Scene;
+  // 씬 그룹 총 jobs = prompts.length(조합 수) × samples. 각 task의 sceneJobStartIndex는
+  // (i-th prompt → i*samples+1). queue.html이 'sceneName N/M' 표시할 때 N = M 중 진행 위치.
+  const sceneJobTotal = prompts.length * samples;
   for (let i = 0; i < prompts.length; i++) {
     await def.handler(
       session,
@@ -1639,6 +1654,7 @@ export const queueWorkflow = async (
       undefined,
       undefined,
       prompts[i].uc,
+      { sceneJobTotal, sceneJobStartIndex: i * samples + 1 },
     );
   }
 };

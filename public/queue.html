@@ -489,7 +489,11 @@
               if (parts.length >= 3 && parts[0] === 'outs') sn = parts[parts.length - 2];
             }
             sn = sn || '(unknown)';
-            const idx = jmeta && jmeta.jobIndex ? ' ' + jmeta.jobIndex + '/' + (jmeta.jobTotal || '?') : '';
+            // 씬 그룹 진행(N개 조합 중 i번째) 우선 — jobIndex(task 내 jobs 순번 = samples=1이면 항상 1/1)는
+            // 표시상 무가치라 fallback 안 함. sceneJobIndex 없으면 라벨 생략.
+            const idx = jmeta && jmeta.sceneJobIndex && jmeta.sceneJobTotal
+              ? ' ' + jmeta.sceneJobIndex + '/' + jmeta.sceneJobTotal
+              : '';
             const ts = j && j.completedAt ? fmtTime(j.completedAt) : '-';
             return '<div class="scene-row"><span class="scene-name">' + escapeHtml(sn) + escapeHtml(idx) + '</span><span class="scene-time">' + ts + '</span></div>';
           }).join('')
@@ -912,11 +916,12 @@
     return out;
   }
 
-  // meta로 "씬이름 N" 라벨. meta 없으면 jobId 앞 8자.
+  // meta로 "씬이름 N/M" 라벨. M = 씬 그룹 총 jobs(조합 × samples). N = 그 안 진행 위치.
+  // jobIndex/jobTotal(task 내 jobs 순번)은 samples=1이면 항상 1/1이라 표시상 무가치 — fallback 안 함.
   function labelFromMeta(meta, jobId) {
     if (meta && meta.sceneName) {
-      if (meta.jobIndex && meta.jobTotal) {
-        return `${meta.sceneName} ${meta.jobIndex}/${meta.jobTotal}`;
+      if (meta.sceneJobIndex && meta.sceneJobTotal) {
+        return `${meta.sceneName} ${meta.sceneJobIndex}/${meta.sceneJobTotal}`;
       }
       return meta.sceneName;
     }
