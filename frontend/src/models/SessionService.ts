@@ -470,7 +470,8 @@ export class SessionService extends ResourceSyncService<Session> {
 
     // 한 프로젝트의 모든 미디어 파일을 6번 병렬 listFilesRecursive로 수집.
     // outs/inpaints는 nested (depth=1), inpaint_orgs/inpaint_masks/vibes/references는 flat (depth=0).
-    // includeImages=false면 6개 디렉터리 list 자체를 skip → project.json만 tar로 묶음 (가벼운 백업).
+    // includeImages=true → tar 안 layout {name}/project.json + {name}/outs|inpaints|... (nested).
+    // includeImages=false → tar 안 layout {name}.json (flat, 폴더 감싸지 않음).
     const collectProjectEntries = async (name: string): Promise<FileEntry[]> => {
       const items: FileEntry[] = [];
       if (includeImages) {
@@ -501,9 +502,11 @@ export class SessionService extends ResourceSyncService<Session> {
         pushSrc('inpaint_masks/' + name, name + '/inpaint_masks', inpaintMasks.files);
         pushSrc('vibes/' + name, name + '/vibes', vibes.files);
         pushSrc('references/' + name, name + '/references', references.files);
+        items.push({ path: this.getPath(name), name: name + '/project.json' });
+      } else {
+        // light 백업: media 디렉터리 list skip + project.json을 폴더 없이 {name}.json로.
+        items.push({ path: this.getPath(name), name: name + '.json' });
       }
-      // 프로젝트 .json은 폴더 안에 있으면 projects/{folder}/{name}.json. getPath()로 해결.
-      items.push({ path: this.getPath(name), name: name + '/project.json' });
       return items;
     };
 
@@ -520,12 +523,14 @@ export class SessionService extends ResourceSyncService<Session> {
     }
 
     // 마커: import 시 folder-backup 식별 + 프로젝트 목록 + 원본 폴더명 복원.
+    // format: 'nested' (옛 default, 이미지 포함) / 'flat' (light, {name}.json만).
     const markerPath = 'tmp/folder-backup-marker-' + v4() + '.json';
     const marker = {
       type: 'folder-backup',
       folder: folderName,
       projects: projectNames,
       version: 1,
+      format: includeImages ? 'nested' : 'flat',
       exportedAt: Date.now(),
     };
     await backend.writeFile(markerPath, JSON.stringify(marker));
@@ -576,6 +581,8 @@ export class SessionService extends ResourceSyncService<Session> {
     const projectsInBackup: string[] = marker.projects.filter(
       (x: any) => typeof x === 'string',
     );
+    // format 누락 = v1 옛 백업 (항상 nested layout).
+    const isFlat = marker.format === 'flat';
 
     if (!this.folderList.includes(requestedFolder)) {
       await this.createFolder(requestedFolder);
@@ -604,35 +611,44 @@ export class SessionService extends ResourceSyncService<Session> {
         PHASE_TOTAL,
       );
       const projDir = tmpDir + '/' + origName;
+      // flat 백업은 {name}.json 단독, nested 백업은 {name}/project.json + 미디어 dir들.
+      const projJsonPath = isFlat
+        ? tmpDir + '/' + origName + '.json'
+        : projDir + '/project.json';
 
       let sessionData: ISession;
       try {
-        sessionData = JSON.parse(
-          await backend.readFile(projDir + '/project.json'),
-        );
+        sessionData = JSON.parse(await backend.readFile(projJsonPath));
       } catch (e: any) {
-        skipped.push({ name: origName, reason: 'project.json 누락 또는 파싱 실패' });
+        skipped.push({
+          name: origName,
+          reason: isFlat
+            ? `${origName}.json 누락 또는 파싱 실패`
+            : 'project.json 누락 또는 파싱 실패',
+        });
         continue;
       }
       sessionData.name = finalName;
       existing.add(finalName);
       if (finalName !== origName) renamed.push({ from: origName, to: finalName });
 
-      const renameSafe = async (src: string, dst: string) => {
-        try {
-          await backend.renameDir(src, dst);
-        } catch (e) {
-          // 빈/없는 디렉토리 — 정상 케이스
-        }
-      };
-      await Promise.all([
-        renameSafe(projDir + '/outs', 'outs/' + finalName),
-        renameSafe(projDir + '/inpaints', 'inpaints/' + finalName),
-        renameSafe(projDir + '/inpaint_orgs', 'inpaint_orgs/' + finalName),
-        renameSafe(projDir + '/inpaint_masks', 'inpaint_masks/' + finalName),
-        renameSafe(projDir + '/vibes', 'vibes/' + finalName),
-        renameSafe(projDir + '/references', 'references/' + finalName),
-      ]);
+      if (!isFlat) {
+        const renameSafe = async (src: string, dst: string) => {
+          try {
+            await backend.renameDir(src, dst);
+          } catch (e) {
+            // 빈/없는 디렉토리 — 정상 케이스
+          }
+        };
+        await Promise.all([
+          renameSafe(projDir + '/outs', 'outs/' + finalName),
+          renameSafe(projDir + '/inpaints', 'inpaints/' + finalName),
+          renameSafe(projDir + '/inpaint_orgs', 'inpaint_orgs/' + finalName),
+          renameSafe(projDir + '/inpaint_masks', 'inpaint_masks/' + finalName),
+          renameSafe(projDir + '/vibes', 'vibes/' + finalName),
+          renameSafe(projDir + '/references', 'references/' + finalName),
+        ]);
+      }
 
       try {
         await this.createFrom(finalName, sessionData);
