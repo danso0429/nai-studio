@@ -1047,6 +1047,38 @@ export class TaskQueueService extends EventTarget {
         task.total -= result.rejected;
       }
       this.dispatchProgress();
+    } catch (e: any) {
+      // prep(handler.prepGenInput) / queueAddBatch throw — sync block(line 974-985)에서 박은 stats를
+      // task.total 기준 정확 unwind. catch 없던 옛 동작은 throw 시 stats 그대로 → UI 카운터
+      // ("XX개 남음" / 씬 파란 원) 부풀린 채 잔류 + server엔 jobs 0개. 사용자가 새로고침하면
+      // restoreMirroredState가 server jobs 기준 재구성하면서 부풀린 stats deflate → 사용자는
+      // "큐 사라졌다" 인지 → 재등록 → 부분 성공 task의 잔여 jobs와 중복 사고 (본인 페인 P21 #2:
+      // "9개 예약했는데 5개만 들어가고, 새로고침하면 사라지고, 다시 넣으면 중복"). queueAddBatch
+      // 후 throw 가능 경로는 없음 (queueAddBatch await 후 코드 다 sync) → throw 시점은 prep 또는
+      // queueAddBatch network/timeout. 후자의 경우 server에 일부 jobs 들어갔어도 다음
+      // restoreMirroredState(30s 폴링/WS reconnect)가 server snapshot 기준 별도 task로 정확 재구성 →
+      // 본 unwind는 stats 정합 OK.
+      // [P21-DIAG] 진단 로그 — JOURNAL P21 #2 측정 인프라. 측정 종료 시 본 console.error
+      // 줄만 `grep -n '\[P21-DIAG\]' frontend/src/models/TaskQueueService.ts`로 식별 후
+      // 제거 + 빌드. catch block 자체는 fix이므로 유지(정상 흐름 무영향). 측정 보는 법 /
+      // 결과별 처방 / 삭제 절차는 JOURNAL P21 #2 본문 참조.
+      console.error(
+        `[P21-DIAG][TaskQueue] addMirroredTask threw — stats unwound (sceneKey=${sceneKey || '(none)'} total=${task.total}):`,
+        e?.message || e,
+      );
+      this.groupStats[task.cls].total -= task.total;
+      if (sceneKey && sceneKey in this.sceneStats) {
+        this.sceneStats[sceneKey].total -= task.total;
+        if (this.sceneStats[sceneKey].total <= 0 && this.sceneStats[sceneKey].done <= 0) {
+          delete this.sceneStats[sceneKey];
+        }
+      }
+      this.mirroredTasks.delete(taskId);
+      this.mirrorTaskSceneKeys.delete(taskId);
+      this.mirrorRunStartTimes.delete(taskId);
+      delete this.taskSet[taskId];
+      this.dispatchProgress();
+      throw e; // caller(addTask line 948-955)의 .catch가 'error' event dispatch → 글로벌 토스트
     } finally {
       // chain backlog에 잡힌 base64 vibe/reference items가 다음 batch 진행 동안 동시 retain.
       // length=0으로 closure reference 즉시 끊기 (배열 자체는 본 함수 return 시점에 GC 대상이지만
