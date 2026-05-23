@@ -7,6 +7,7 @@ import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { CharacterPresetFloatEditor } from './CharacterPresetEditor';
 import { CharacterPreset, VibeItem, ReferenceItem } from '../models/types';
+import { formatProjectNameConflict } from '../models/util';
 import { runInAction } from 'mobx';
 
 const SessionSelect = observer(() => {
@@ -21,7 +22,9 @@ const SessionSelect = observer(() => {
         callback: async (inputValue) => {
           if (inputValue) {
             if (sessionService.list().includes(inputValue)) {
-              appState.pushMessage('이미 존재하는 프로젝트 이름입니다.');
+              // basename 전역 unique 정책 — 다른 폴더에 있는 옛 프로젝트라 사용자가
+              // 인지 못 한 경우 위치 명시해서 헷갈림 회피.
+              appState.pushMessage(formatProjectNameConflict(sessionService.getFolderOf(inputValue)));
               return;
             }
             await sessionService.add(inputValue);

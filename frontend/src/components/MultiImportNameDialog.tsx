@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
 import { DropdownSelect, Option } from './UtilComponents';
+import { formatProjectNameConflict } from '../models/util';
 
 // 4개 이하면 페이지 1개. 그 이상이면 4개씩 페이지 나뉨.
 // 본인 spec (2026-05-17): 모바일 세로 + iOS 키보드 올라온 상태에서도 4개 입력칸 +
@@ -43,10 +44,11 @@ const MultiImportNameDialog = observer(() => {
     for (const n of names) {
       seen.set(n, (seen.get(n) || 0) + 1);
     }
+    const folderMap = req.existingFolderMap || {};
     return names.map((n) => {
       const trimmed = n.trim();
       if (!trimmed) return '이름을 입력해주세요';
-      if (existing.has(trimmed)) return '이미 존재하는 프로젝트 이름';
+      if (existing.has(trimmed)) return formatProjectNameConflict(folderMap[trimmed] ?? null);
       if ((seen.get(n) || 0) > 1) return '다른 칸과 중복된 이름';
       return null;
     });

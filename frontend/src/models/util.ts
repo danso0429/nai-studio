@@ -5,6 +5,15 @@ export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// 프로젝트 이름 충돌 메시지. basename은 전역 unique 정책(폴더 무관) — 다른 폴더에
+// 있는 옛 프로젝트라 사용자가 인지 못 한 잔재일 때 "이미 존재"만 보면 위치 모름.
+// folder=null이면 최상위, string이면 해당 폴더에 위치.
+export function formatProjectNameConflict(folder: string | null): string {
+  return folder == null
+    ? '최상위에 이미 같은 이름의 프로젝트가 있어요'
+    : `'${folder}' 폴더에 이미 같은 이름의 프로젝트가 있어요`;
+}
+
 // 한글 받침 유무에 따라 조사 형태 결정. 한글 외/빈 문자열은 받침 없음으로 처리.
 export function hasFinalConsonant(word: string): boolean {
   if (!word) return false;

@@ -195,6 +195,10 @@ export class AppState {
   @observable accessor multiImportRequest: {
     items: { origName: string; defaultName: string }[];
     existingNames: string[];
+    // existing name → folder 매핑 (null=root). 충돌 메시지에 위치 명시용. basename은
+    // 전역 unique 정책이라 충돌 시 어느 폴더에 옛 프로젝트가 있는지 보여줘야 사용자
+    // 인지 밖 폴더 잔재에 헷갈림 회피.
+    existingFolderMap: Record<string, string | null>;
     availableFolders: string[];
     onConfirm: (names: string[], folder: string | null) => void;
     onCancel: () => void;
@@ -1065,12 +1069,19 @@ export class AppState {
     }
     // 폴더는 dialog에서 사용자 강제 선택 — 옛 "curSession 폴더로 자동" 룰 폐기.
     // dialog가 onConfirm으로 folder를 전달.
+    // basename → folder 매핑. 충돌 메시지에 위치 명시용 (전역 unique 정책 + 사용자가
+    // 인지 못 한 다른 폴더 잔재 케이스 대응).
+    const existingFolderMap: Record<string, string | null> = {};
+    for (const n of existingNames) {
+      existingFolderMap[n] = sessionService.getFolderOf(n);
+    }
     this.multiImportRequest = {
       items: sessions.map((s, i) => ({
         origName: s.origName,
         defaultName: defaultNames[i],
       })),
       existingNames,
+      existingFolderMap,
       availableFolders: sessionService.listFolders(),
       onConfirm: async (names: string[], folder: string | null) => {
         this.multiImportRequest = null;
