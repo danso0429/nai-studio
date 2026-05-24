@@ -152,6 +152,7 @@ const SPECIAL_CHAR_REGEX = /[^a-zA-Z0-9가-힣ぁ-んァ-ヶ一-龥\u3000-\u303F
 // LONG : pinned progress 완료. 결과(success/error)를 좀 더 보여줄 가치.
 const TOAST_DISMISS_SHORT_MS = 3000;
 const TOAST_DISMISS_LONG_MS = 5000;
+const TOAST_MAX_VISIBLE = 4;
 
 function detectSpecialChars(scenes: { name: string }[]): Set<string> {
   const result = new Set<string>();
@@ -542,6 +543,7 @@ export class AppState {
 
   pushMessage(msg: string, opts?: { sticky?: boolean }): string {
     const id = v4();
+    if (this.messages.length >= TOAST_MAX_VISIBLE) return id;
     this.messages.push({ id, text: msg });
     if (!opts?.sticky) this._scheduleMessageDismiss(id);
     return id;
