@@ -1431,6 +1431,19 @@ const QueueControl = observer(
                 모두 예약추가
               </button>
               <button
+                className={`round-button`}
+                style={{ background: '#ef4444', color: '#fff' }}
+                onClick={() => {
+                  appState.pushDialog({
+                    type: 'confirm',
+                    text: '모든 예약(대기 + 준비 중)을 취소할까요?',
+                    callback: () => taskQueueService.removeAllTasks(),
+                  });
+                }}
+              >
+                모든 예약 취소
+              </button>
+              <button
                 className={`round-button back-gray`}
                 onClick={() => appState.exportPackage(type)}
               >

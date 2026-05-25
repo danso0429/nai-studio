@@ -106,7 +106,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
       type: 'select',
       text: `폴더 "${folder}" 작업`,
       items: [
-        { text: '🚀 폴더 안 모든 씬 한 번에 큐 등록', value: 'enqueue-all', color: 'amber' },
+        { text: '🚀 프로젝트 큐 등록', value: 'enqueue-all', color: 'amber' },
         { text: '📦 폴더 전체 내보내기 (이미지)', value: 'export' },
         { text: '💾 폴더 전체 백업 (이미지 포함, 복원 가능)', value: 'backup' },
         { text: '💾 폴더 전체 백업 (이미지 없이, 가볍게)', value: 'backup-light' },
@@ -115,17 +115,38 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
       ],
     });
     if (action === 'enqueue-all') {
-      const projects = folderToProjects.get(folder) ?? [];
-      // 폴더 안 모든 프로젝트의 모든 씬(scene+inpaint) flat. 세션은 sessionService.get
-      // 으로 1회 load (이미 로드되어 있으면 즉시 반환). load 실패한 프로젝트는 skip.
+      const allProjects = folderToProjects.get(folder) ?? [];
+      if (allProjects.length === 0) return;
+      const mode = await appState.pushDialogAsync({
+        type: 'select',
+        text: `폴더 "${folder}" 프로젝트 큐 등록`,
+        items: [
+          { text: `모든 프로젝트 (${allProjects.length}개)`, value: 'all' },
+          { text: '선택한 프로젝트만', value: 'pick' },
+        ],
+      });
+      if (!mode) return;
+      let targetProjects = allProjects;
+      if (mode === 'pick') {
+        const picked = await appState.pushDialogAsync({
+          type: 'checkbox',
+          text: '큐에 등록할 프로젝트를 선택하세요',
+          items: allProjects.map((name) => ({ text: name, value: name })),
+        });
+        if (!picked) return;
+        try {
+          targetProjects = JSON.parse(picked);
+        } catch { return; }
+        if (targetProjects.length === 0) return;
+      }
       const items: Array<{ session: any; scene: any }> = [];
-      for (const projectName of projects) {
+      for (const projectName of targetProjects) {
         const session = await sessionService.get(projectName);
         if (!session) continue;
         for (const scene of session.getScenes('scene')) items.push({ session, scene });
         for (const scene of session.getScenes('inpaint')) items.push({ session, scene });
       }
-      appState.enqueueScenesSequentially(items, `폴더 "${folder}"`);
+      appState.enqueueScenesSequentially(items, `폴더 "${folder}" (${targetProjects.length}개 프로젝트)`);
       return;
     }
     if (action === 'export') {
