@@ -191,6 +191,14 @@ export class AppState {
   @observable accessor exportingProjects: Set<string> = new Set();
 
   // 임포트 시 새 프로젝트 이름 + 저장 폴더 입력 다이얼로그 상태.
+  // FolderBackupImportDialog가 observer로 읽어 렌더. null이면 닫힘.
+  @observable accessor folderBackupImportRequest: {
+    items: { fileName: string; defaultFolderName: string }[];
+    existingFolders: string[];
+    onConfirm: (folderNames: string[]) => void;
+    onCancel: () => void;
+  } | null = null;
+
   // MultiImportNameDialog가 observer로 읽어 렌더. null이면 다이얼로그 닫힘.
   // 단일/다중 .json 임포트 모두 이 dialog를 N≥1로 재사용.
   // 폴더는 사용자가 매번 명시 선택 — value '' = 루트, value '<폴더명>' = 폴더.
@@ -1580,98 +1588,123 @@ export class AppState {
     });
   }
 
-  // 폴더 백업 import. mediaImport의 '🗂️ 폴더 백업' 옵션에서 호출.
-  // 업로드 → 폴더 이름 입력 → importFolderDeep. 충돌 시 auto-suffix, 폴더 없으면 자동 생성.
+  // 폴더 백업 import. 다중 tar 선택 → FolderBackupImportDialog에서 폴더명 일괄 입력 → 순차 복원.
   @action
   async folderBackupImport() {
-    let file: File;
+    let files: File[];
     try {
-      file = (await getFirstFile('.tar,.tar.gz,.tgz')) as File;
+      files = await getFiles('.tar,.tar.gz,.tgz');
     } catch {
       return;
     }
-    const isTar = /\.(tar|tar\.gz|tgz)$/i.test(file.name);
-    if (!isTar) {
+    const tarFiles = files.filter((f) => /\.(tar|tar\.gz|tgz)$/i.test(f.name));
+    if (tarFiles.length === 0) {
       appState.pushMessage('.tar 파일만 받을 수 있습니다.');
       return;
     }
-    const upid = appState.pushProgressDialog('폴더 백업 업로드 중...', 1);
-    let tarPath: string;
-    try {
-      const base64: string = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e: any) => {
-          const result = e.target?.result as string;
-          resolve(result.split(',')[1] || result);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      tarPath = 'tmp/import_folder_' + Date.now() + '_' + file.name;
-      await backend.writeDataFile(tarPath, base64);
-      appState.finishProgressDialog(upid, '✓ 업로드 완료', true);
-    } catch (e: any) {
-      appState.finishProgressDialog(upid, '✗ 업로드 실패: ' + e.message, false);
-      return;
-    }
-    const folderName = await appState.pushDialogAsync({
-      type: 'input-confirm',
-      text: '복원할 폴더 이름을 입력해주세요 (없으면 새로 생성)',
+    const existingFolders = sessionService.listFolders();
+    const defaultNames = tarFiles.map((f) => {
+      let name = f.name;
+      name = name.replace(/\.(tar\.gz|tgz|tar)$/i, '');
+      name = name.replace(/_json$/, '');
+      return name;
     });
-    if (!folderName) return;
-    const ipid = appState.pushProgressDialog('폴더 백업 복원 중...', 4);
-    let result;
-    try {
-      result = await sessionService.importFolderDeep(
-        tarPath,
-        folderName as string,
-        (text, done, total) => {
-          appState.updateProgressDialog(ipid, { text, done, total });
-        },
-      );
-    } catch (e: any) {
-      appState.finishProgressDialog(
-        ipid,
-        '✗ 폴더 백업 임포트 실패: ' + (e?.message ?? e),
-        false,
-      );
-      return;
-    }
-    let summary = `✓ 폴더 "${result.folder}" 복원 (${result.imported.length}개)`;
-    if (result.renamed.length > 0) summary += ` · 이름변경 ${result.renamed.length}`;
-    if (result.skipped.length > 0) summary += ` · 실패 ${result.skipped.length}`;
-    appState.finishProgressDialog(ipid, summary, true);
-    if (result.renamed.length > 0) {
-      const preview = result.renamed
-        .slice(0, 5)
-        .map((r) => `${r.from} → ${r.to}`)
-        .join('\n');
-      const more =
-        result.renamed.length > 5 ? `\n외 ${result.renamed.length - 5}건` : '';
-      appState.pushMessage(`이름 충돌로 자동 변경:\n${preview}${more}`);
-    }
-    if (result.skipped.length > 0) {
-      const preview = result.skipped
-        .slice(0, 5)
-        .map((r) => `${r.name}: ${r.reason}`)
-        .join('\n');
-      const more =
-        result.skipped.length > 5 ? `\n외 ${result.skipped.length - 5}건` : '';
-      appState.pushMessage(`복원 실패:\n${preview}${more}`);
-    }
+    this.folderBackupImportRequest = {
+      items: tarFiles.map((f, i) => ({ fileName: f.name, defaultFolderName: defaultNames[i] })),
+      existingFolders,
+      onConfirm: async (folderNames: string[]) => {
+        this.folderBackupImportRequest = null;
+        for (let i = 0; i < tarFiles.length; i++) {
+          const file = tarFiles[i];
+          const folderName = folderNames[i];
+          const upid = appState.pushProgressDialog(`폴더 백업 업로드 중... (${file.name})`, 1);
+          let tarPath: string;
+          try {
+            const base64: string = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = (e: any) => {
+                const result = e.target?.result as string;
+                resolve(result.split(',')[1] || result);
+              };
+              reader.onerror = reject;
+              reader.readAsDataURL(file);
+            });
+            tarPath = 'tmp/import_folder_' + Date.now() + '_' + file.name;
+            await backend.writeDataFile(tarPath, base64);
+            appState.finishProgressDialog(upid, '✓ 업로드 완료', true);
+          } catch (e: any) {
+            appState.finishProgressDialog(upid, '✗ 업로드 실패: ' + e.message, false);
+            continue;
+          }
+          const ipid = appState.pushProgressDialog(`폴더 백업 복원 중... (${file.name})`, 4);
+          let result;
+          try {
+            result = await sessionService.importFolderDeep(
+              tarPath,
+              folderName,
+              (text, done, total) => {
+                appState.updateProgressDialog(ipid, { text, done, total });
+              },
+            );
+          } catch (e: any) {
+            appState.finishProgressDialog(
+              ipid,
+              '✗ 폴더 백업 임포트 실패: ' + (e?.message ?? e),
+              false,
+            );
+            continue;
+          }
+          let summary = `✓ 폴더 "${result.folder}" 복원 (${result.imported.length}개)`;
+          if (result.renamed.length > 0) summary += ` · 이름변경 ${result.renamed.length}`;
+          if (result.skipped.length > 0) summary += ` · 실패 ${result.skipped.length}`;
+          appState.finishProgressDialog(ipid, summary, true);
+          if (result.renamed.length > 0) {
+            const preview = result.renamed
+              .slice(0, 5)
+              .map((r) => `${r.from} → ${r.to}`)
+              .join('\n');
+            const more =
+              result.renamed.length > 5 ? `\n외 ${result.renamed.length - 5}건` : '';
+            appState.pushMessage(`이름 충돌로 자동 변경:\n${preview}${more}`);
+          }
+          if (result.skipped.length > 0) {
+            const preview = result.skipped
+              .slice(0, 5)
+              .map((r) => `${r.name}: ${r.reason}`)
+              .join('\n');
+            const more =
+              result.skipped.length > 5 ? `\n외 ${result.skipped.length - 5}건` : '';
+            appState.pushMessage(`복원 실패:\n${preview}${more}`);
+          }
+        }
+      },
+      onCancel: () => {
+        this.folderBackupImportRequest = null;
+      },
+    };
   }
 
   @action
   async projectImport() {
-    // 프로젝트(.json)만 허용. iOS Safari/Files 앱은 드래그드롭 안 되니까 multiple
-    // 파일 선택으로 다중 임포트 진입 가능. 단일 파일 선택은 기존 흐름.
+    const choice = await appState.pushDialogAsync({
+      type: 'select',
+      text: '불러올 파일 형식을 선택하세요',
+      items: [
+        { text: '📄 프로젝트 (.json)', value: 'json' },
+        { text: '🗂️ 폴더 백업 (.tar)', value: 'folder-tar' },
+      ],
+    });
+    if (!choice) return;
+    if (choice === 'folder-tar') {
+      await this.folderBackupImport();
+      return;
+    }
     let files: File[];
     try {
       files = await getFiles('.json,application/json');
     } catch {
-      return; // 사용자 취소
+      return;
     }
-    // iOS Safari가 .json에 빈 file.type을 주는 경우 → 확장자 fallback.
     const validFiles = files.filter(
       (f) => f.type === 'application/json' || /\.json$/i.test(f.name),
     );

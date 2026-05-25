@@ -279,7 +279,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
                 type="button"
                 className="px-1 py-1.5 text-xs rounded bg-green-100 dark:bg-green-900 hover:bg-green-200 dark:hover:bg-green-800 flex items-center justify-center gap-1 min-w-0"
                 onClick={() => { setOpen(false); appState.projectImport(); }}
-                title="프로젝트 불러오기 (.json만)"
+                title="프로젝트 또는 폴더 백업 불러오기"
               >
                 <FaDownload size={11} className="flex-shrink-0" />
                 <span className="truncate">불러오기</span>

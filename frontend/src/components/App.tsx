@@ -24,6 +24,7 @@ import PieceEditor, { PieceCell } from './PieceEditor';
 import PromptTooltip from './PromptTooltip';
 import ConfirmWindow from './ConfirmWindow';
 import MultiImportNameDialog from './MultiImportNameDialog';
+import FolderBackupImportDialog from './FolderBackupImportDialog';
 import QueueControl from './SceneQueueControl';
 import { FloatView, FloatViewProvider } from './FloatView';
 import { observer } from 'mobx-react-lite';
@@ -602,6 +603,7 @@ export const App = observer(() => {
         <AlertWindow />
         <ConfirmWindow />
         <MultiImportNameDialog />
+        <FolderBackupImportDialog />
         <GlobalPresetPickerOverlay />
         <ProgressWindow
           dialogs={appState.progressDialogs}
