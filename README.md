@@ -63,6 +63,7 @@
 - **프롬프트 조각** — 자주 쓰는 프롬프트 블록 저장/조립
 - **NAI v4 / v4.5 완전 지원** — 멀티 캐릭터 프롬프트, 캐릭터 레퍼런스, 바이브 트랜스퍼
 - **🆕 캐릭터 프리셋 v2** (v1.6.0, SDStudio v4.8.0 흡수 + v1.7.3에서 v4.8.1/v4.8.2 통합) — 카드 그리드 목록 + 중앙 모달 편집 + 대표 이미지(폴백 체인) + 상세 슬라이더(IS/RS, Strength/Fidelity, 타입/활성화 토글). **JSON Import/Export** (바이브/레퍼런스/대표이미지 base64 포함) + **순차 생성** (프리셋 N × 씬 M 자동 순회, 일시정지/재개/취소). 프리셋 적용 중 vibe/ref 개별 삭제 잠금(`presetLocked`) 안전장치. **v1.7.3**: 삭제 시 적용 중이면 auto-clear, 프로젝트 로드 시 orphan cleanup, 프리셋 교체 시 옛 vibes/refs residue 잔류 fix, 모바일에서 프리셋 적용 중 사람 버튼 클릭 시 [해제]/[관리] 선택 dialog.
+- **🆕 그림체 프리셋 자유 합성** (v1.8.0) — 그림체(프롬프트 프리셋) 적용 시 슬롯 lock(hide) 폐기. 슬롯 항상 보임 + 사용자 텍스트 앞에 프리셋 텍스트 prepend 합치기 + [해제] 즉시 원래대로. sampler params 폐기. 그림체 안에서 `<lib.name>` 조각 참조 가능. 프리셋 영속화(글로벌 기본 + 프로젝트별 override). 배너 축소 + 샘플링 덮어쓰기 토글 + 이름 변경
 
 ### 🌐 웹/모바일 전용 추가 기능
 
@@ -88,13 +89,17 @@
 - **➖ 씬/조합 단위 네거티브** — 프리셋 전체뿐 아니라 씬(`scene.uc`)과 조합 슬롯(`PromptPiece.uc`)에 개별 네거티브
 - **🗑️ 프로젝트 영구 삭제** — 로컬 5폴더 + Drive 5폴더 병렬 purge. 백그라운드 처리 + WS 진행 토스트
 - **📥 다중 프로젝트 임포트** — JSON ≥2개 드래그드롭 / iOS 파일 picker 다중 선택 시 3-way 선택(전부 새 / 일부 머지 / 전부 머지) + 페이지당 4개 이름 입력 UI (원본 이름 라벨 + 빈칸/중복 검증)
-- **🛡️ 네트워크 회복성** — 일시 단절 시 자동 재시도(`ResourceSyncService`), 캐시 fallback, fetch timeout, 클릭 차단 가드
+- **🛡️ 네트워크 회복성** — 일시 단절 시 자동 재시도(`ResourceSyncService`), 캐시 fallback, fetch timeout, 클릭 차단 가드. **v1.8.0**: WS heartbeat 30s ping/pong + visibility catch-up + reconnect refreshBatch
+- **🔖 큐 예약 시스템** (v1.8.0) — 큐 prep 중 새로고침해도 예약 슬롯 유지. 등록 재개 가능. queue.html에 예약 카드 + 트리 표시
+- **🚀 폴더/프로젝트 한 번에 큐 등록** (v1.8.0) — 점세개 메뉴에서 폴더 안 모든 씬 / 프로젝트 안 모든 씬을 한 번에 등록. sceneKey dedup + 진행 toast + 취소
+- **🧹 큐 패널 디스크 정리** (v1.8.0) — outs/exports/tmp/inpaints/vibes 5종 사이즈 표시 + 선택 삭제
+- **🖱️ 데스크탑 ctrl+click 선택** (v1.8.0) — ctrl(Win/Linux)·cmd(macOS)+좌클릭으로 이미지 선택 모드 자동 진입
 
 ---
 
 ## SDStudio PC 버전과의 차이점
 
-> 기준: SDStudio v4.8.2 (v1.7.3 시점). 현재 Remote 버전은 `version.json` 참조 (변경 로그는 `CHANGELOG.md`).
+> 기준: SDStudio v4.8.2 (v1.8.0 시점). 현재 Remote 버전은 `version.json` 참조 (변경 로그는 `CHANGELOG.md`).
 
 | 항목 | SDStudio PC (v4.8.2) | SDStudio Remote |
 | --- | --- | --- |
@@ -110,7 +115,7 @@
 | **태그 DB (Danbooru)** | 앱 내장 | `data/db.csv` 별도 배치 (선택) |
 | **백업** | 사용자가 폴더 복사 | 자동 동기화 (선택, rclone) |
 | **AVIF 최적화** | 미지원 | 지원 (모바일 데이터 절약) |
-| **이미지 썸네일 캐시** | 매번 재생성 | 서버에서 prewarm (200/400/500px) |
+| **이미지 썸네일 캐시** | 매번 재생성 | 서버에서 prewarm (`initialThumbSize` 기반, v1.8.0) |
 | **프로젝트 폴더 분류** | 평면 (폴더 없음) | depth=1 폴더 지원 |
 | **Drive 업로드 실패 처리** | 해당 없음 | exponential backoff 자동 재시도 + 좌측 하단 위젯 + row별 [재시도] 즉시 처리/시각화 (v1.7.3) |
 | **내보내기 다이얼로그 chain** | 매번 옵션 6개 선택 | 프리셋 저장 후 한 번 클릭으로 즉시 (다이얼로그 일체화) + `prefix_ask` 캐릭터 이름 직접 입력 옵션 (v4.8.2 흡수, v1.7.3) |
@@ -120,9 +125,15 @@
 | **큐 영속화** | 미지원 | 서버 재시작에도 보존 (`data/.queue_state.json`) |
 | **폴더 전체 백업/복원** | 미지원 (수동 폴더 복사) | 1 tar로 묶음 + Drive `backups/` 자동 분류 + 폴더 단위 복원 (이름 충돌 auto-suffix) |
 | **이미지 다운로드** | OS 다이얼로그 → 폴더 선택 | "다운로드" 한 번 클릭 → Drive 자동 (미사용시 브라우저 즉시) |
-| **씬 자동 갱신** | 앱 자체 처리 | 큐 진행 중 disk polling으로 자동 갱신 (이벤트 누락 안전망) |
+| **씬 자동 갱신** | 앱 자체 처리 | WS broadcast + App.tsx global listener + scene-job-complete debounce (v1.8.0) |
 | **커스텀 해상도 입력** | 모달 1개 | 한 폼에 width/height 동시 입력 + 64배수 자동 round-up |
 | **로그인 피드백** | 모달 | sticky 토스트 (시도/성공/실패 자동 dismiss) |
+| **그림체 프리셋 합성** | 적용 시 슬롯 lock (hide) | 자유 합성 — 슬롯 항상 보임 + prepend 합치기 + 해제 즉시 복귀 (v1.8.0) |
+| **큐 예약** | 미지원 | reserve/fill — prep 중 새로고침해도 예약 유지 (v1.8.0) |
+| **큐 ETA 정확도** | 단순 평균 × N | 시간대별 cross-hour 시뮬레이션 — NAI 응답 시간 시간대 차이(~3.8x) 반영 (v1.8.0) |
+| **큐 영속화 성능** | 해당 없음 | base64 dedupe — 107MB → 0.9MB, stringify 47x 빠름 (v1.8.0) |
+| **디스크 정리** | 수동 | 큐 패널 안 5종(outs/exports/tmp/inpaints/vibes) 체크박스 + 확인 (v1.8.0) |
+| **WS 안정성** | 기본 | heartbeat ping/pong 30s + visibility catch-up + reconnect refreshBatch (v1.8.0) |
 
 ### 미이식 / 미지원 기능
 
@@ -662,7 +673,7 @@ v1.5.3부터 단일 이미지 "다운로드" 버튼은 Drive 가용 시 자동�
 세부 변경 이력은 [CHANGELOG.md](CHANGELOG.md) (v1.5.0-preview.4까지 누적 기록) + 최근 변경은 `version.json` 의 `notes` 필드 / `git --no-pager log` 로 확인 가능해요.
 
 **최근 변경 (요약)**:
-- **post-v1.7.3 patches (2026-05-22~23)**: 프로젝트 임포트 폴더 dropdown 사용자 강제 선택(자동 default 폐기, MultiImportNameDialog + 단일 N=1 통합) / 큐 잡 사이 지연 fix — 서버 영속화 base64 content-hash dedupe(`.queue_state.json` 67MB → 0.93MB, stringify 188ms → 4ms) + 클라 prepGenInput config 캐시(task당 1회 fetch로 N×roundtrip 제거) / **그림체 프리셋 동작 자유 합성** — 옛 적용 시 front/back/uc 슬롯 lock(hide) + 통째 덮어쓰기 폐기, 새 동작 = 슬롯 항상 보임 + 사용자 슬롯 텍스트 앞에 합쳐서(prepend) 적용 + sampler params 폐기(스탭/샘플러/가이던스/리스케일/노이즈 옵션 제거) + 그림체 안에서 `<lib.name>` 조각 참조 가능(옛 throw 제거) + 모바일 헤더에 조각 편집기 진입점 퍼즐 아이콘 추가 / 데스크탑 ctrl(Win/Linux)·cmd(macOS)+좌클릭으로 이미지 선택 모드 자동 진입 + 선택 / WS application-level heartbeat 30s ping/pong + 10s timeout — iOS Safari WS idle silent stale(`onclose` 미발화) 직접 감지 후 reconnect / 큐 mirror 진행 카운터 30s 폴링 시 0으로 reset되던 부수효과 fix(`_doRestoreMirroredState` done 보존, mock 5/5 PASS) / **씬 카드 우측 하단 카운터/썸네일 stale fix** — restored mirror task가 task.params 빈 placeholder라 `afterGenComplete` 스킵되던 사각지대, `scene-job-complete` listener를 결과 viewer-local에서 App.tsx-global로 이동(view 무관 cover) + 큐 'stop' refreshBatch 안전망 + sceneKey-scoped 1s debounce(burst 150 → 2 refresh = 99% 감소, 모바일 발열 hardening) / `scripts/regen-build-info.sh` helper — direct commit 흐름에서 `public/build-info.json` 누락 사고(P19 #6 재발) 차단 / **폴더 전체 내보내기 outer tar 안에 프로젝트별 inner tar (nested)** — 옛 outer.tar 안에 모든 이미지가 폴더 구조로 평탄 배치였던 것을 `proj1.tar`, `proj2.tar` ... inner tar로 묶음. 프로젝트별 추출이 즉시 가능. 폴더 export만 nested, 단일 프로젝트 export는 옛 동작 그대로 / **데스크탑 Chrome 클립보드 복사 회귀 fix** — `copyImageToClipboard`이 fetch await 후 `clipboard.write` 호출 시 Chrome user activation 만료로 NotAllowedError. `ClipboardItem({'image/png': Promise<Blob>})` 패턴으로 재작성(Chrome이 resolve까지 activation 유지). silent catch 제거 + 호출측 verbatim 에러 토스트 / **씬 안 '이미지 복사' 버튼 OS 클립보드도 함께** — 옛엔 내부 `imageClipboard` state(씬간 paste용)만 갱신해 OS 클립보드는 무관. async 변환 + 첫 장은 OS 클립보드에 PNG 복사, 옛 씬간 paste 동작 그대로 유지 / 새로고침 시 큐 task 분모 deflate fix — `meta.jobTotal`로 originalTotal 복구 / **PC 인페인트 씬 뷰포트 fit-to-viewport** — 옛 고정 0.7× 스케일로 큰 이미지(미러 캔버스 등)가 화면 밖으로 흘러서 브라우저 줌 67%까지 내려야 보이던 페인 해결. 이미지 dimension 확정 시 컨테이너 측정 후 fit scale 자동 계산해서 중앙 배치 + minScale 0.1로 추가 축소 허용 + pan 자유. 모바일은 기존 동작 그대로 / **폴더 전체 백업 (이미지 없이, 가볍게) tar 안 layout 평탄화** — 옛엔 `{프로젝트명}/project.json` (각 프로젝트가 폴더, 그 안에 .json)이었는데 이미지 없으면 폴더로 감쌀 의미 없어서 `{프로젝트명}.json` (폴더 없이 평탄)으로. 이미지 포함 백업은 옛 nested layout 그대로(media dir 들어가야 해서). 옛 light .tar import 호환 유지(마커 `format` 필드 누락 = nested 가정) / **큐 패널 디스크 정리 옵션** — 큐 pill 안에 '🧹 디스크 정리' 섹션 추가. outs / exports / tmp / inpaints / vibes 5종 사이즈·파일수 표시 + 체크박스(default outs/exports/tmp on, inpaints/vibes off — 작업 원본 손실 위험) + confirm dialog 후 폴더 안 통째 rm. `/api/disk/usage` GET + `/api/disk/cleanup` POST (화이트리스트 strict, path traversal 차단). `cleanup_old_files.sh`(7일 cron) / `cleanup-orphans`(비활성 프로젝트) / `diskCleanupStageN`(disk-low 자동)과 별개 즉시 trigger 경로. 큰 폴더(예: exports 3GB+) rm 대비 클라 timeout `FOLDER_DELETE_TIMEOUT_MS`(600s) / **큐 한도 5000 → 7000 증액 + 한도 도달 시 토스트 안내** — 옛엔 한도 도달 시 add-batch가 silent rejected라 사용자가 "UI 카운터 5600 → 새로고침 후 4750으로 줄어듦"을 "사라졌다"고 인지하던 페인. 옛 add 단일은 broadcast 'queue-full' 박혔지만 add-batch에 누락 + 클라 측 listener 부재로 한도 도달 시그널 silent. 처방: 한도 7000(평소 < 5000 + 가끔 5천대 cover), add-batch에 broadcast 추가, 클라 측 `onQueueFull` listener + 토스트 "큐가 가득 차서 N개가 등록 안 됐어요 (한도 7000개)" / **큐 등록 silent throw 안전망** — `addMirroredTask` try-finally에 catch 없어서 prep/queueAddBatch network throw 시 UI 카운터 부풀린 채 잔류 + 새로고침 시 deflate + 재등록 시 부분 성공 잡과 중복 가능. 처방: try-catch-finally, catch에서 sync block에 박은 stats를 task.total 기준 정확 unwind + mirroredTasks/mirrorTaskSceneKeys 등 정리 + throw e (caller `.catch`가 글로벌 토스트). 측정 인프라 [P21-DIAG] console.error 동시 박음 — 다음 사고 시 `pm2 logs | grep '[P21-DIAG]'`로 근본 원인 추적 / **폴더/프로젝트 메뉴 '한 번에 큐 등록'** — 프로젝트 선택 dialog에서 폴더·프로젝트 옆 점세개(⋮) 메뉴에 주황색 '🚀 한 번에 큐 등록' 항목. 폴더는 안의 모든 프로젝트의 모든 씬, 프로젝트는 그 안 모든 씬을 scene+inpaint 통합해서 한 씬씩 await 순차 등록(CHUNK=1, 누락 0) + sceneKey dedup(이미 큐/mirror에 있는 씬은 skip) + 진행 toast ✕ 취소 버튼(취소 시점 이후 잡 안 들어감, 이미 들어간 잡 유지). 부수 — `ConfirmWindow` select item에 per-item `color` 옵션(`amber`/`green`/`red`), `ProgressDialog`에 `onCancel` 필드 + X 버튼 / **큐 ETA 시간대별 정확도 향상** — 옛엔 최근 100건 평균 × 잡 수 단순 곱셈으로 ETA 계산. NAI 응답 시간이 KST 시간대에 따라 최대 3.8배 차이(04~09시 ~3.7s vs 20~01시 ~13s)인데 평균 1개라 22시에 1000개 박을 때 ~2배 underestimate. 시간대별 평균(영구 누적 buckets) + KST hour 경계 cross-hour 점진 시뮬레이션으로 변경 — 22시 11.5s → 00시 13.2s → 04시 3.7s 점진 적용. 큐 진행바 '예상 N분/시간' 표시가 큰 큐(수천 개) + 시간대 cross 케이스에서 정확. server `computeEtaMs` + 클라 `serverQueueEtaMs` accessor + `TaskProgressBar` 우선순위(server etaMs → server avg × remain → 클라 ring buffer). sparse 시간대(n < 20) fallback recentAvg/globalAvg, MAX_ITER=100 안전망. 베리파이: 큐 1291개 / KST 00시 케이스에서 옛 4시간 16분 → 새 3시간 14분(실측 본인 3시간 12분) / **프로젝트 이름 충돌 메시지에 폴더 위치 명시** — basename은 폴더 무관 전역 unique 정책(outs/inpaints/vibes 등 sister 디렉토리가 flat이라 충돌 = 출력물 덮어쓰기 + list 첫 발견 우선이라 invisible 프로젝트 발생). 옛 "이미 존재하는 프로젝트 이름입니다"만 봐서 사용자가 인지 못 한 다른 폴더 옛 잔재로 헷갈리던 페인. 새 메시지: 폴더 안이면 "'폴더명' 폴더에 이미 같은 이름의 프로젝트가 있어요" / 최상위면 "최상위에 이미 같은 이름의 프로젝트가 있어요". 신규 프로젝트 dialog(`SessionSelect`) + 다중 임포트 dialog(`MultiImportNameDialog`) 둘 다 적용. `multiImportRequest.existingFolderMap` 추가로 dialog가 self-contained 유지 / **큐 라벨 'sceneName 1/1' → 씬 그룹 진행 'sceneName N/M'** — 옛 라벨의 `jobIndex/jobTotal`은 task 1개 안 jobs(=samples) 순번이라 samples=1 환경에선 항상 1/1로 표시 무가치. 본인 의도는 *씬의 조합 × samples* 묶음 안 진행(예: 10조합 중 3번째 = 3/10). queueWorkflow 진입 시 `sceneJobTotal = prompts.length × samples` 계산, 각 task에 `sceneGroup` 박아 addMirroredTask가 meta에 sceneJobIndex/sceneJobTotal 추가. queue.html labelFromMeta + 완료 row label 둘 다 sceneJobIndex 우선, 없으면 sceneName만(옛 무가치 1/1 제거). inpaint/i2i/mirror handler는 sceneGroup 미박음(prompts 없음) → sceneName만. 옛 큐 task는 정보 없어 sceneName만, 신규 등록 task부터 N/M 표시 / **prewarm 사이즈 = `initialThumbSize` 1개로** — 옛엔 모든 NAI 이미지에 200/400/500 3사이즈 PNG fastcache 무조건 prewarm. 사용자가 한 사이즈만 쓰면 나머지 2개 dead(디스크 4배 사용). 처방: `prewarmThumbnails`가 `config.initialThumbSize` 읽어 그 값 1개만 prewarm. undefined(auto)면 옛 3사이즈 fallback. ConfigScreen 안내문 보강. 옛 fastcache 보존 — 옛 이미지는 옛 사이즈 hit, 새 이미지부터 새 정책 / **디스크 정리 패널에 outs-thumbnails 카테고리 추가** — 옛 outs 카운트가 원본 + fastcache 합산이라 "5000장 큐 박았는데 20997개" 4배 inflate 헷갈림. 본인 페인 보고 동인. 처방: `outs-thumbnails` 가상 카테고리(`outs/.../fastcache/` 하위만) 추가, 별도 청소 가능. 옛 `outs`(전체 통째)는 유지. UI에 `└` prefix로 부분집합 명시 + totalSelected 중복 합산 회피. 실측: outs 21429개/9.71GB · outs-thumbnails 16059개/3.25GB · 원본 5370개/6.46GB
+- **v1.8.0** stable (2026-05-25): **그림체 프리셋 자유 합성** (slot lock 폐기 + prepend 합치기 + sampler 폐기 + 영속화 + 배너 축소 + 샘플링 덮어쓰기) / **큐 예약(reserve/fill) 시스템** — prep 중 새로고침해도 큐 유지 / 불러오기 선택 다이얼로그 + 폴더 백업 다중 복원 UI / 임포트 폴더 사용자 선택 / 데스크탑 ctrl+click 이미지 선택 / WS heartbeat + visibility catch-up / 큐 패널 디스크 정리 5종 / 폴더·프로젝트 한 번에 큐 등록 / 폴더 내보내기 nested tar / 큐 한도 7000 + toast / 진행 카운터 KST 자정 리셋 / 큐 ETA cross-hour 시뮬레이션 / fastcache prewarm initialThumbSize 기반 + thumbnail 분리. **성능**: 큐 영속화 base64 dedupe(107MB→0.9MB, 47x) + prepGenInput config 캐시 + burst debounce 99%. **수정 20+건**: WS stale/카드 imageMap/Chrome clipboard/인페인트 fit/큐 라벨 N/M/toast 제한 등
 - **v1.7.3** stable (2026-05-21): 프로젝트 다중 내보내기 (트리 picker + 백그라운드 + 4-병렬 + 소프트 락) / Drive 위젯 row별 [재시도] 즉시 처리 + 시각화 (옛 reset+대기 → reset+즉시 통합) / SDStudio upstream v4.8.1+v4.8.2 통합 — 캐릭터 프리셋 orphan cleanup + 교체 시 residue clear + 모바일 해제 dialog + 내보내기 `prefix_ask` 캐릭터 이름 직접 입력 / 업스트림 SDStudio 새 release indigo 펄스 알림(`/api/sdstudio-version-check` + BuildInfo dual pulse). 부수 — clearAppliedCharacterPreset 모든 presetShareds 순회 fix + retry-reset dead code 정리. sdstudioBase 4.8.0 → 4.8.2
 - **v1.7.2** stable (2026-05-21): v1.7.1 dogfood 후속 sanitize sweep — fresh install 안내 정확화 (`~/nai-studio` 경로 정규화, rclone wizard 본문 + 기본값 사실수정), 업데이트 알림/Config 'GitHub' 링크 본인 fork 정정, self-update stderr abs path 마스킹, TLS cert (`*.crt/.key/.pem`) gitignore 가드, default assets metadata 스트립 + `ixy.png` 잔재 삭제
 - **v1.7.1** stable (2026-05-21): WS path strip fix (`WebSocketServer` → `noServer` + server 'upgrade' handler로 `URL_PREFIX` strip을 WS upgrade에도 적용) — path strip 안 하는 reverse proxy (lxc proxy / 직접 포트 / Cloudflare Tunnel / nginx without `proxy_pass /`) 환경에서 WS 끊김 → 폴링 30초 fallback 페인 fix. v1.7.0 이후 4일 누적 (84 commit) — audit 11카테고리 P17 Critical 9건 + P18 High 18건 + Medium/Low ~80건 fix, 큐 race/카운터/cancel ≠ complete 분리, queue.html 폴더 트리 + 단위별 취소, 폴더 백업 동시 + 이미지 미포함 옵션, dead-code 삭제, runtime audit 11 카테고리 인스트럭션 도입

@@ -9,6 +9,79 @@
 
 ---
 
+## v1.8.0 (2026-05-25)
+
+minor. v1.7.3 → v1.8.0. 그림체 프리셋 자유 합성 + 큐 예약 시스템 + 폴더 백업 복원 UI + 큐 성능 대폭 개선 + 20+ 버그 수정.
+
+### 새 기능 — 그림체 프리셋 자유 합성
+
+- **feat(preset)** (`7b99110` → `ac9f491` → `1ebdee9` → `e941fda`): 프롬프트 프리셋 전면 재설계.
+  - **v1 (7b99110)**: 그림체별 front/back/uc + 샘플링(steps/sampler/guidance/rescale/noise) 묶음 프리셋.
+  - **v2 옵션 3 오버라이드 (c1def35)**: 프리셋 적용 시 원본 슬롯 값 보존 + `appliedPromptPreset` id만 기록 + 생성 시점에 사본 override. [해제] = 즉시 원래대로. 프로젝트 swap에도 영구 적용 유지.
+  - **영속화 (1ebdee9)**: 글로벌 기본 프리셋 + 프로젝트별 override. 프로젝트 JSON에 presetId 저장, 서버 재시작해도 유지.
+  - **자유 합성 (ac9f491)**: slot lock(hide) 완전 폐기. 슬롯 항상 보임 + 사용자 텍스트 앞에 프리셋 텍스트 prepend 합치기. sampler params 폐기(steps/sampler/guidance/rescale/noise 옵션 제거). 그림체 안에서 `<lib.name>` 조각 참조 허용(parseWord throw 제거).
+  - **배너 축소 + 샘플링 덮어쓰기 (e941fda)**: 적용 중 배너가 compact. 프리셋 이름 변경 가능. 샘플링 설정(steps/guidance/etc) 선택적 덮어쓰기 토글.
+- **feat(mobile)** (`326b710`): SessionSelect 헤더에 프롬프트조각 진입점 퍼즐 아이콘 추가.
+
+### 새 기능 — 큐 예약 시스템
+
+- **feat(queue)** (`9a54592` → `35915c7` → `965777e`): reserve/fill 예약 시스템.
+  - 큐 prep(등록 준비) 중 새로고침해도 예약 슬롯이 유지돼서 등록 재개 가능.
+  - queue.html에 예약 카드 + 트리 표시. 프로젝트별 예약 현황 확인.
+  - 프로젝트 큐 등록 선택 + 모든 예약 취소 버튼.
+
+### 새 기능 — 불러오기/복원 UI
+
+- **feat(import)** (`2427935`): 프로젝트 .json 임포트 dialog에 저장 폴더 select 추가 — 옛 자동 배정 폐기, 사용자 강제 선택.
+- **feat** (`ac05352`): 불러오기 선택 다이얼로그 + 폴더 백업 다중 복원 UI — 불러오기 버튼 탭 시 프로젝트 JSON / 폴더 백업 tar 선택. 다중 백업 파일 동시 복원 지원.
+
+### 새 기능 — 큐 · 모니터링
+
+- **feat(queue)** (`f7b7483`): 큐 한도 5000 → 7000 증액 + add-batch queue-full broadcast + 클라 토스트.
+- **feat(queue)** (`5fe9dcd` + `3244ddf`): 진행 카운터(completed/failed) KST 자정 리셋 — 전날 완료 누적 초기화. 서버 queueStats KST 자정 리셋.
+- **feat(enqueue-all)** (`9a6f265`): 폴더/프로젝트 점세개 메뉴 '🚀 한 번에 큐 등록' — 씬 dedup + 진행 toast + 취소.
+- **feat(disk-cleanup)** (`fac4a06`): 큐 패널 안 디스크 정리 옵션 — outs/exports/tmp/inpaints/vibes 5종.
+- **feat(viewer)** (`aa6cc80`): 데스크탑 ctrl/cmd+click으로 이미지 선택 모드 자동 진입 + 선택.
+- **feat(ws)** (`3cabc7c`): application-level heartbeat ping/pong 30s — iOS Safari WS idle silent stale 직접 감지 후 reconnect.
+- **feat(ui)** (`c700459`): iOS 홈 화면용 apple-touch-icon — /, /queue 각자 아이콘.
+- **feat(export)** (`beed1ef`): 폴더 전체 내보내기 outer tar 안에 프로젝트별 inner tar (nested).
+- **feat(folder-backup)** (`5687794`): light 백업 tar layout 평탄화 — `{name}.json` (폴더 없이).
+- **feat(fastcache)** (`cb8c13f`): prewarm 사이즈 = `initialThumbSize` 1개로 + 디스크 정리 outs-thumbnails 카테고리 분리.
+- **feat(promptPreset)** (`1ebdee9`): 프롬프트 프리셋 영속화 — 글로벌 기본 + 프로젝트별 override.
+- **feat(queue)** (`238f75f`): 제작자 baseline timing stats (신규 설치 참고).
+
+### 성능
+
+- **perf(queue)** (`84fa129`): 큐 영속화 base64 content-hash dedupe — `.queue_state.json` 107MB → 0.9MB, `JSON.stringify` 188ms → 4ms (~47x).
+- **perf(queue)** (`2e1d4d4`): prepGenInput config 캐시 — task당 1회 fetch로 N×roundtrip 제거.
+- **perf(queue)** (`6fdc315`): ETA cross-hour 시간대별 평균 점진 시뮬레이션. 큐 1291개 / KST 00시 케이스 옛 4h16m → 새 3h14m(실측 3h12m).
+- **perf(image-cache)** (`25f2934`): scene-job-complete sceneKey-scoped 1s debounce — burst refresh 99% 감소.
+
+### 수정
+
+- **fix(ws)** (`d03a3ad` + `c533750` + `0d6dd81`): WS 재연결 시 refreshBatch + visibilitychange 시 refreshBatch + hidden duration 가드 5초.
+- **fix(queue)** (`d0230dd`): `_doRestoreMirroredState` done 보존 — 폴링 시 카운터 0 reset 부수효과 차단.
+- **fix(image-cache)** (`b3d51d7`): App.tsx에 scene-job-complete + 큐 stop listener 추가 — 카드 imageMap stale 차단.
+- **fix(clipboard)** (`19184b9`): 데스크탑 Chrome user activation 보존 (`ClipboardItem Promise<Blob>`) + 씬 안 '복사' 버튼 OS 동시 복사.
+- **fix(queue)** (`9aa3170`): 새로고침 시 task 분모 deflate — `meta.jobTotal`로 복구.
+- **fix(inpaint)** (`d446bc0`): PC 뷰포트 fit-to-viewport — TransformWrapper async dim hook.
+- **fix(project-name)** (`864bc7f`): 프로젝트 이름 충돌 메시지에 폴더 위치 명시.
+- **fix(queue-label)** (`459b0a5`): 'sceneName 1/1' → 씬 그룹 진행 'sceneName N/M'.
+- **fix(queue)** (`d5d03a6`): addMirroredTask try-catch — silent stats inflate + 새로고침 후 사라짐 fix.
+- **fix(toast)** (`a2abeaf`): 상단 알림 동시 표시 최대 4개 제한 — 초과분 drop.
+- **fix(queue.html)** (`df2266d`): 완료 탭 프로젝트별 합치기 — 인터리빙 제거.
+- **fix(queue.html)** (`fc8d8ca`): 완료/실패 카드 제거 + 평균 카드 full 확장.
+
+### Chore / Build
+
+- **chore(queue)** (`37b43cb`): 참고 baseline 시스템 전체 제거.
+- **chore(tools)** (`bd984e9`): /prompt 태그 분류기 페이지 제거 — 미사용.
+- **chore(server)** (`fdbff2a`): private-track plugin slot.
+- **build** (`898d751`): `scripts/regen-build-info.sh` helper.
+- **build**: vite production build ×16회.
+
+---
+
 ## v1.7.3 (2026-05-21)
 
 patch. v1.7.2 → v1.7.3. 다중 프로젝트 내보내기 + Drive 위젯 개별 재시도 시각화 + SDStudio upstream v4.8.1/v4.8.2 통합 + 업스트림 새 release 알림.
