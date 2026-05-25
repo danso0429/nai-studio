@@ -539,6 +539,27 @@
     }
   };
 
+  let showReservedTree = false;
+  const reservedTreeExpanded = new Set();
+  let lastReservedPanelKey = '';
+  window.toggleReservedTree = () => {
+    showReservedTree = !showReservedTree;
+    if (showReservedTree) {
+      fetchFullState().then(() => {
+        lastFullStateFetchAt = Date.now();
+        tick();
+      });
+    } else {
+      tick();
+    }
+  };
+  window.toggleReservedNode = (key) => {
+    if (reservedTreeExpanded.has(key)) reservedTreeExpanded.delete(key);
+    else reservedTreeExpanded.add(key);
+    lastReservedPanelKey = '';
+    renderReservedTreePanel();
+  };
+
   window.toggleTreeNode = (key) => {
     // toggleExpand는 폴더/프로젝트 expand 상태만 바꿈 — label 기반 키 사용
     // (render마다 새 nodeId 발급되지만 expand 상태는 사용자 의도라 label 안정 키로 유지).
@@ -649,7 +670,7 @@
       panel.innerHTML = '<div class="tree-panel"><div class="tree-empty">로딩 중…</div></div>';
       return;
     }
-    const jobs = data.jobs || [];
+    const jobs = (data.jobs || []).filter(j => !j.reserved);
     const folders = data.folders || {};
     const expandedKey = Array.from(treeExpanded).sort().join('|');
     const fp = 'open:' + jobs.length
@@ -748,11 +769,83 @@
     panel.innerHTML = parts.join('');
   }
 
+  function renderReservedTreePanel() {
+    const panel = document.getElementById('q-reserved-panel');
+    if (!panel) return;
+    if (!showReservedTree) {
+      if (lastReservedPanelKey !== '') {
+        panel.innerHTML = '';
+        lastReservedPanelKey = '';
+      }
+      return;
+    }
+    const data = queueFullState;
+    if (!data) {
+      const key = 'open:loading';
+      if (key === lastReservedPanelKey) return;
+      lastReservedPanelKey = key;
+      panel.innerHTML = '<div class="tree-panel"><div class="tree-empty">로딩 중…</div></div>';
+      return;
+    }
+    const jobs = (data.jobs || []).filter(j => j.reserved);
+    const folders = data.folders || {};
+    const expandedKey = Array.from(reservedTreeExpanded).sort().join('|');
+    const fp = 'res:' + jobs.length + ':' + expandedKey;
+    if (fp === lastReservedPanelKey) return;
+    lastReservedPanelKey = fp;
+    if (jobs.length === 0) {
+      panel.innerHTML = '<div class="tree-panel"><div class="tree-empty" style="color:#a78bfa;">📭 예약(준비 중) 잡 없음</div></div>';
+      return;
+    }
+    const folderNodes = buildQueueTree(jobs, folders);
+    const parts = ['<div class="tree-panel">'];
+    folderNodes.forEach((folder, fIdx) => {
+      const fExpandKey = 'rf:' + folder.name;
+      const fOpen = reservedTreeExpanded.has(fExpandKey);
+      const folderIcon = folder.hasFolder ? '📁' : '📂';
+      parts.push(
+        '<div class="tree-row expandable" data-rexpand-key="' + escapeHtml(fExpandKey) + '">'
+        + '<span class="arrow">' + (fOpen ? '▼' : '▶') + '</span>'
+        + '<span class="icon">' + folderIcon + '</span>'
+        + '<span class="name folder-name">' + escapeHtml(folder.name) + '</span>'
+        + '<span class="count" style="background:#2d1f4e; color:#a78bfa;">' + folder.jobIds.length + '</span>'
+        + '</div>'
+      );
+      if (!fOpen) return;
+      const projList = Array.from(folder.projects.values()).sort((a, b) => a.name.localeCompare(b.name));
+      projList.forEach((proj) => {
+        parts.push(
+          '<div class="tree-children-project">'
+          + '<div class="tree-row">'
+          + '<span class="arrow"></span>'
+          + '<span class="icon">🗂</span>'
+          + '<span class="name project-name">' + escapeHtml(proj.name) + '</span>'
+          + '<span class="count" style="background:#2d1f4e; color:#a78bfa;">' + proj.jobIds.length + '</span>'
+          + '</div>'
+          + '</div>'
+        );
+      });
+      if (fIdx < folderNodes.length - 1) parts.push('<div class="tree-divider"></div>');
+    });
+    parts.push('</div>');
+    panel.innerHTML = parts.join('');
+  }
+
   // 트리 panel은 매 render마다 통째 교체되므로 delegated handler를 panel root에 한 번만
   // 부착해서 hot path를 단순화. 폴더/프로젝트 row 클릭 → expand toggle, ✕ 클릭 → cancel.
   document.addEventListener('click', (ev) => {
     const target = ev.target;
     if (!(target instanceof Element)) return;
+    // 예약 트리 expand
+    const rPanel = document.getElementById('q-reserved-panel');
+    if (rPanel && rPanel.contains(target)) {
+      const row = target.closest('.tree-row.expandable[data-rexpand-key]');
+      if (row) {
+        const key = row.getAttribute('data-rexpand-key');
+        if (key) window.toggleReservedNode(key);
+      }
+      return;
+    }
     const panel = document.getElementById('q-tree-panel');
     if (!panel || !panel.contains(target)) return;
     const cancelBtn = target.closest('.cancel-x[data-cancel-id]');
@@ -1010,23 +1103,24 @@
       + '<div class="label">대기 <span id="q-tree-arrow">▶</span></div>'
       + '<div class="value" id="q-pending">0</div>'
       + '</div>'
-      + '<div class="card"><div class="label">완료 / 실패</div><div class="value"><span id="q-completed">0</span> <span class="muted">/</span> <span id="q-failed" class="muted">0</span></div></div>'
-      + '<div class="card" style="cursor: pointer;" onclick="window.toggleTimingHistory()" title="클릭해서 시간대별 통계 보기">'
-      + '<div class="label">평균 (누적) <span id="q-avg-arrow">▶</span></div>'
-      + '<div class="value" id="q-avg-cumul-value"><span class="muted">측정 전</span></div>'
-      + '<div class="small" id="q-avg-cumul-small">총 -건 · raw 0개 (2일)</div>'
-      + '</div>'
-      + '<div class="card"><div class="label">평균 (최근 100건)</div>'
-      + '<div class="value" id="q-avg-recent-value"><span class="muted">측정 전</span></div>'
-      + '<div class="small" id="q-avg-recent-cmp"></div>'
+      + '<div class="card q-pending-card" onclick="window.toggleReservedTree()" title="클릭해서 예약(준비 중) 잡 폴더 트리 보기">'
+      + '<div class="label">예약 <span id="q-reserved-arrow">▶</span></div>'
+      + '<div class="value" id="q-reserved" style="color:#a78bfa;">0</div>'
       + '</div>'
       + '<div class="card full"><div class="label">남은 시간 (최근 평균 기준)</div><div class="value" id="q-eta-dur"><span class="muted">-</span></div></div>'
       + '<div class="card full"><div class="label">완료 예정 시각</div><div class="value" id="q-eta-time"><span class="muted">-</span></div></div>'
       + '<div class="card full"><div class="label">처리 중</div><div class="value" id="q-scene-label"><span class="muted">없음</span></div><div class="small" id="q-project-line"></div></div>'
       + '<div class="card"><div class="label">디스크 여유</div><div class="value" id="q-disk">-</div></div>'
       + '<div class="card"><div class="label">상태</div><div class="value" id="q-status">💤 idle</div></div>'
+      + '<div class="card"><div class="label">완료 / 실패</div><div class="value"><span id="q-completed">0</span> <span class="muted">/</span> <span id="q-failed" class="muted">0</span></div></div>'
+      + '<div class="card" style="cursor: pointer;" onclick="window.toggleTimingHistory()" title="클릭해서 시간대별 통계 보기">'
+      + '<div class="label">평균 (누적) <span id="q-avg-arrow">▶</span></div>'
+      + '<div class="value" id="q-avg-cumul-value"><span class="muted">측정 전</span></div>'
+      + '<div class="small" id="q-avg-cumul-small">총 -건 · raw 0개 (2일)</div>'
+      + '</div>'
       + '</div>'
       + '<div id="q-tree-panel"></div>'
+      + '<div id="q-reserved-panel"></div>'
       + '<div id="q-timing-panel"></div>'
       + '<div id="q-errors-panel"></div>';
   }
@@ -1191,9 +1285,9 @@
       }
       // 대기 트리 펼쳐있고 마지막 fetch가 5초 지났으면 갱신. status의 pending 카운트와
       // 별개로 jobs 전체+folders를 가져옴 (jobs slice(0,20) 한계 안 받음).
-      if (showQueueTree && Date.now() - lastFullStateFetchAt >= FULLSTATE_INTERVAL_MS) {
+      if ((showQueueTree || showReservedTree) && Date.now() - lastFullStateFetchAt >= FULLSTATE_INTERVAL_MS) {
         lastFullStateFetchAt = Date.now();
-        fetchFullState().then(() => renderQueueTreePanel());
+        fetchFullState().then(() => { renderQueueTreePanel(); renderReservedTreePanel(); });
       }
       if (!document.getElementById('q-done')) buildQueueShell();
 
@@ -1229,9 +1323,12 @@
         if (barEl.style.width !== w) barEl.style.width = w;
       }
 
-      // 대기 / 완료 / 실패
+      // 대기 / 예약 / 완료 / 실패
       setText('q-tree-arrow', showQueueTree ? '▼' : '▶');
-      setText('q-pending', d.pending || 0);
+      const reservedCount = d.reserved || 0;
+      setText('q-pending', (d.pending || 0) - reservedCount);
+      setText('q-reserved-arrow', showReservedTree ? '▼' : '▶');
+      setText('q-reserved', reservedCount);
       setText('q-completed', d.completed || 0);
       setText('q-failed', d.failed || 0);
       setCls('q-failed', (d.failed > 0) ? 'red' : 'muted');
@@ -1241,23 +1338,6 @@
       const avgCumul = d.allTimeAvgMs || avg;
       setSlot('q-avg-cumul-value', avgCumul > 0 ? fmtDur(avgCumul) : '<span class="muted">측정 전</span>');
       setText('q-avg-cumul-small', '총 ' + (d.allTimeCount != null ? d.allTimeCount.toLocaleString() : '-') + '건 · raw ' + (d.timingHistoryCount || 0) + '개 (2일)');
-
-      // 평균 (최근 100건)
-      setSlot('q-avg-recent-value', d.recentAvgMs > 0 ? fmtDur(d.recentAvgMs) : '<span class="muted">측정 전</span>');
-      const cur = d.recentAvgMs || 0;
-      const bucket = d.currentBucketAvgMs || 0;
-      let cmpHtml = '';
-      if (cur > 0 && bucket > 0) {
-        const diffSec = (cur - bucket) / 1000;
-        if (Math.abs(diffSec) < 0.05) cmpHtml = '<div class="small muted">현 시간대 평균과 비슷</div>';
-        else {
-          const fast = diffSec < 0;
-          const color = fast ? '#86efac' : '#fbbf24';
-          const sign = fast ? '' : '+';
-          cmpHtml = '<div class="small" style="color:' + color + ';">현 시간대 대비 ' + sign + diffSec.toFixed(2) + '초 (' + (fast ? '빠름' : '느림') + ')</div>';
-        }
-      }
-      setSlot('q-avg-recent-cmp', cmpHtml);
 
       // ETA
       setSlot('q-eta-dur', eta ? fmtDur(eta) : '<span class="muted">-</span>');
@@ -1284,6 +1364,7 @@
       setText('q-status', d.processing ? '🔄 처리 중' : (d.pending > 0 ? '⏸ 대기' : '💤 idle'));
 
       renderQueueTreePanel();
+      renderReservedTreePanel();
       renderTimingPanel();
       renderErrorsPanel(d);
 
