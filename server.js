@@ -193,6 +193,16 @@ let queueProcessing = false;
 let queuePaused = false;
 let pauseRequested = false; // 사용자 명시 pause (대량 삭제 등 race 방지용)
 let queueStats = { completed: 0, failed: 0, totalProcessTimeMs: 0, completedWithTiming: 0 };
+// KST 자정 기준 일간 리셋 — 전날 누적 completed/failed 초기화. pending/ETA는 영향 없음.
+let lastQueueStatsResetDay = Math.floor((Date.now() + 9 * 3600000) / 86400000);
+function resetQueueStatsIfNewDay() {
+  const kstDay = Math.floor((Date.now() + 9 * 3600000) / 86400000);
+  if (kstDay > lastQueueStatsResetDay) {
+    lastQueueStatsResetDay = kstDay;
+    queueStats.completed = 0;
+    queueStats.failed = 0;
+  }
+}
 // 최근 큐 에러 ring buffer (NAI 429, 5xx, 네트워크 등). queue.html 진단용.
 const QUEUE_ERROR_HISTORY_MAX = 20;
 let queueErrorHistory = []; // [{ts, jobId, error, kind: '429'|'5xx'|'other', retried: boolean}, ...]
@@ -1737,6 +1747,7 @@ app.post('/api/queue/add-batch', async (req, res) => {
 });
 
 app.get('/api/queue/status', async (req, res) => {
+  resetQueueStatsIfNewDay();
   const freeGB = await getDiskFreeGB();
   // 누적 평균 (timing 측정한 건수 기준)
   const avgMs = queueStats.completedWithTiming > 0
