@@ -108,7 +108,7 @@ async function api(
   throw lastError;
 }
 
-async function apiJSON(path: string, options?: RequestInit & { timeout?: number }) {
+async function apiJSON(path: string, options?: RequestInit & { timeout?: number; retries?: number }) {
   return (await api(path, options)).json();
 }
 
@@ -236,6 +236,25 @@ export class ServerBackend extends Backend {
       timeout: BINARY_API_TIMEOUT_MS,
     });
     return { jobIds: data.jobIds || [], rejected: data.rejected || 0 };
+  }
+
+  async queueReserve(metas: QueueJobMeta[]): Promise<{ reservationId: string; jobIds: string[]; rejected: number }> {
+    const data = await apiJSON('/queue/reserve', {
+      method: 'POST',
+      body: JSON.stringify({ metas }),
+      retries: 3,
+    });
+    return { reservationId: data.reservationId, jobIds: data.jobIds || [], rejected: data.rejected || 0 };
+  }
+
+  async queueFill(reservationId: string, items: Array<{ params: ImageGenInput; meta?: QueueJobMeta }>): Promise<{ filled: number }> {
+    const data = await apiJSON('/queue/fill', {
+      method: 'POST',
+      body: JSON.stringify({ reservationId, items }),
+      timeout: BINARY_API_TIMEOUT_MS,
+      retries: 3,
+    });
+    return { filled: data.filled || 0 };
   }
 
   async queueGetFullState(): Promise<QueueFullState> {

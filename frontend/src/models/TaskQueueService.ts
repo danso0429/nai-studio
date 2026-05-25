@@ -1000,82 +1000,72 @@ export class TaskQueueService extends EventTarget {
       backend.pauseQueue().catch((e) => console.warn('[TaskQueue] pauseQueue (initial) failed:', e));
     }
 
-    // 호출 순서대로 queueAddBatch 직렬화 — sync 구간에서 chain 슬롯 예약. 이후 prep은
-    // 병렬로 진행되더라도, push 차례는 여기서 캡처한 prevSlot이 풀려야 옴.
+    // 호출 순서대로 직렬화 — sync 구간에서 chain 슬롯 예약.
     const prevSlot = this.addBatchChain;
     let releaseMySlot!: () => void;
     this.addBatchChain = new Promise<void>((resolve) => { releaseMySlot = resolve; });
 
     this.dispatchProgress();
 
-    // items/localOutputs를 try 밖에 두는 이유: finally에서 length=0으로 closure ref 끊으려면
-    // 같은 scope여야 함 (try-block const는 finally에서 ReferenceError).
     const items: Array<{ params: ImageGenInput; meta: QueueJobMeta }> = [];
     const localOutputs: string[] = [];
+    let reservationId: string | null = null;
     try {
-      // prep N번. 같은 run 객체 전달 → cachedVibes/Refs 재사용 (같은 task의 N장은 vibes 동일).
+      // 1단계: 서버에 예약(placeholder) 즉시 생성 — prep 전에 영속화돼서 새로고침해도 안 사라짐.
+      const metas: QueueJobMeta[] = [];
+      for (let i = 0; i < task.total; i++) {
+        metas.push({
+          taskId,
+          cls: task.cls,
+          sceneKey,
+          sceneName: task.params.scene?.name,
+          taskType: task.params.scene?.type,
+          jobIndex: i + 1,
+          jobTotal: task.total,
+          ...(task.sceneGroup ? {
+            sceneJobIndex: task.sceneGroup.sceneJobStartIndex + i,
+            sceneJobTotal: task.sceneGroup.sceneJobTotal,
+          } : {}),
+        });
+      }
+      const reservation = await backend.queueReserve(metas);
+      reservationId = reservation.reservationId;
+      if (reservation.rejected > 0) {
+        console.warn(`[TaskQueue] reserve rejected ${reservation.rejected} of ${task.total} (큐 가득 참)`);
+        this.groupStats[task.cls].total -= reservation.rejected;
+        if (sceneKey && (sceneKey in this.sceneStats)) {
+          this.sceneStats[sceneKey].total -= reservation.rejected;
+        }
+        task.total -= reservation.rejected;
+      }
+      // jobId 매핑 (WS complete 이벤트 수신용)
+      for (let i = 0; i < reservation.jobIds.length; i++) {
+        this.mirroredJobs.set(reservation.jobIds[i], { taskId, outputFilePath: '' });
+      }
+      this.dispatchProgress();
+
+      // 2단계: prep — vibe/ref 인코딩 (시간 소요). 이 사이 새로고침해도 서버에 예약이 남아있음.
       const run: TaskQueueRun = { stopped: false, delayCnt: 0 };
       for (let i = 0; i < task.total; i++) {
         const { arg, outputFilePath } = await handler.prepGenInput(task, run);
         localOutputs.push(outputFilePath);
-        items.push({
-          params: arg,
-          meta: {
-            taskId,
-            cls: task.cls,
-            sceneKey,
-            sceneName: task.params.scene?.name,
-            taskType: task.params.scene?.type,
-            jobIndex: i + 1,
-            jobTotal: task.total,
-            // 씬 그룹(조합 × samples) 진행 카운트. queueWorkflow 진입 시 박힘.
-            // queue.html이 sceneJobIndex/Total 우선 사용해서 'sceneName N/M' 표시.
-            ...(task.sceneGroup ? {
-              sceneJobIndex: task.sceneGroup.sceneJobStartIndex + i,
-              sceneJobTotal: task.sceneGroup.sceneJobTotal,
-            } : {}),
-          },
-        });
+        items.push({ params: arg, meta: metas[i] });
+      }
+      // outputFilePath 매핑 갱신 (prep 후에야 실제 경로 확정)
+      for (let i = 0; i < reservation.jobIds.length && i < localOutputs.length; i++) {
+        this.mirroredJobs.set(reservation.jobIds[i], { taskId, outputFilePath: localOutputs[i] });
       }
 
-      // 앞 scene의 push가 끝날 때까지 대기 → 서버 큐에 scene 호출 순서대로 들어감.
+      // 3단계: 앞 scene의 fill이 끝날 때까지 대기 → 서버 큐에 scene 호출 순서대로 들어감.
       await prevSlot;
 
-      // 서버 batch push
-      const result = await backend.queueAddBatch(items);
-      for (let i = 0; i < result.jobIds.length; i++) {
-        this.mirroredJobs.set(result.jobIds[i], {
-          taskId,
-          outputFilePath: localOutputs[i],
-        });
-      }
-      if (result.rejected > 0) {
-        console.warn(`[TaskQueue] queueAddBatch rejected ${result.rejected} of ${task.total} (큐 가득 참)`);
-        // 등록 실패한 만큼 stats 보정
-        this.groupStats[task.cls].total -= result.rejected;
-        if (sceneKey && (sceneKey in this.sceneStats)) {
-          this.sceneStats[sceneKey].total -= result.rejected;
-        }
-        task.total -= result.rejected;
-      }
+      // 4단계: fill — 예약에 실제 params를 채워 genQueue로 이동.
+      await backend.queueFill(reservationId, items);
+      reservationId = null; // fill 성공 — cleanup 불필요
       this.dispatchProgress();
     } catch (e: any) {
-      // prep(handler.prepGenInput) / queueAddBatch throw — sync block(line 974-985)에서 박은 stats를
-      // task.total 기준 정확 unwind. catch 없던 옛 동작은 throw 시 stats 그대로 → UI 카운터
-      // ("XX개 남음" / 씬 파란 원) 부풀린 채 잔류 + server엔 jobs 0개. 사용자가 새로고침하면
-      // restoreMirroredState가 server jobs 기준 재구성하면서 부풀린 stats deflate → 사용자는
-      // "큐 사라졌다" 인지 → 재등록 → 부분 성공 task의 잔여 jobs와 중복 사고 (본인 페인 P21 #2:
-      // "9개 예약했는데 5개만 들어가고, 새로고침하면 사라지고, 다시 넣으면 중복"). queueAddBatch
-      // 후 throw 가능 경로는 없음 (queueAddBatch await 후 코드 다 sync) → throw 시점은 prep 또는
-      // queueAddBatch network/timeout. 후자의 경우 server에 일부 jobs 들어갔어도 다음
-      // restoreMirroredState(30s 폴링/WS reconnect)가 server snapshot 기준 별도 task로 정확 재구성 →
-      // 본 unwind는 stats 정합 OK.
-      // [P21-DIAG] 진단 로그 — JOURNAL P21 #2 측정 인프라. 측정 종료 시 본 console.error
-      // 줄만 `grep -n '\[P21-DIAG\]' frontend/src/models/TaskQueueService.ts`로 식별 후
-      // 제거 + 빌드. catch block 자체는 fix이므로 유지(정상 흐름 무영향). 측정 보는 법 /
-      // 결과별 처방 / 삭제 절차는 JOURNAL P21 #2 본문 참조.
       console.error(
-        `[P21-DIAG][TaskQueue] addMirroredTask threw — stats unwound (sceneKey=${sceneKey || '(none)'} total=${task.total}):`,
+        `[TaskQueue] addMirroredTask threw — stats unwound (sceneKey=${sceneKey || '(none)'} total=${task.total}):`,
         e?.message || e,
       );
       this.groupStats[task.cls].total -= task.total;
@@ -1090,14 +1080,10 @@ export class TaskQueueService extends EventTarget {
       this.mirrorRunStartTimes.delete(taskId);
       delete this.taskSet[taskId];
       this.dispatchProgress();
-      throw e; // caller(addTask line 948-955)의 .catch가 'error' event dispatch → 글로벌 토스트
+      throw e;
     } finally {
-      // chain backlog에 잡힌 base64 vibe/reference items가 다음 batch 진행 동안 동시 retain.
-      // length=0으로 closure reference 즉시 끊기 (배열 자체는 본 함수 return 시점에 GC 대상이지만
-      // 한 단계 더 빨리 풀어줌 — 대량 vibe 큐에서 동시 보유량 줄여 모바일 OOM 위험 완화).
       items.length = 0;
       localOutputs.length = 0;
-      // 성공/실패 무관하게 다음 슬롯 해제 — 한 scene 실패가 뒤 chain을 deadlock 시키지 않게.
       releaseMySlot();
     }
   }

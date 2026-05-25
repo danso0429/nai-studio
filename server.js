@@ -466,6 +466,26 @@ const QUEUE_MAX_SIZE = 7000;
 const DISK_WARN_GB = 15;
 const DISK_CRIT_GB = 10;
 
+// ─── 예약 큐 (reserve/fill 2단계) ─────────────────────────────────
+// prep(vibe/ref 인코딩) 중 새로고침해도 큐가 안 사라지도록, 서버에 먼저 예약(placeholder)을
+// 만들어 영속화. fill로 실제 params를 채우면 genQueue로 이동해서 처리 시작.
+// reservationId → { jobs: [{ jobId, meta }], createdAt }
+const reservedJobs = new Map();
+const RESERVE_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2시간 — prep이 대량이면 오래 걸릴 수 있어서 넉넉하게
+
+function cleanupExpiredReservations() {
+  const now = Date.now();
+  for (const [rid, res] of reservedJobs) {
+    if (now - res.createdAt > RESERVE_TIMEOUT_MS) {
+      console.log(`[queue] reservation ${rid} expired (${res.jobs.length} jobs)`);
+      reservedJobs.delete(rid);
+      broadcastQueueStatus();
+      saveQueueState();
+    }
+  }
+}
+setInterval(cleanupExpiredReservations, 60 * 1000);
+
 // audit M4 — 옛 broadcastQueueStatus는 매 호출 즉시 발화. 1 job lifecycle에서
 // (start/complete/error/saveQueueState 등) 5+ 호출 × N 클라이언트 = 큰 폭. 250ms
 // debounce로 한 burst 내 1번만 발화. 마지막 값 우선 (가장 최신 상태 반영).
@@ -474,8 +494,11 @@ function broadcastQueueStatus() {
   if (_bcastQTimer) return;
   _bcastQTimer = setTimeout(() => {
     _bcastQTimer = null;
+    let reservedCount = 0;
+    for (const r of reservedJobs.values()) reservedCount += r.jobs.length;
     broadcast('queue-status', {
-      pending: genQueue.length,
+      pending: genQueue.length + reservedCount,
+      reserved: reservedCount,
       processing: queueProcessing,
       paused: queuePaused,
       completed: queueStats.completed,
@@ -536,7 +559,11 @@ function _queueSnapshot() {
       queue[i] = job;
     }
   }
-  return { queue, stats: queueStats, savedAt: Date.now(), blobs };
+  const reserved = {};
+  for (const [rid, res] of reservedJobs) {
+    reserved[rid] = { jobs: res.jobs, createdAt: res.createdAt };
+  }
+  return { queue, stats: queueStats, savedAt: Date.now(), blobs, reserved };
 }
 function _expandBlobsInPlace(state) {
   if (!state || !state.blobs || !state.queue) return;
@@ -605,6 +632,17 @@ function loadQueueState() {
       queueStats.completedWithTiming = state.stats?.completedWithTiming || 0;
       console.log('[NAI Studio] Restored ' + genQueue.length + ' queued jobs from disk');
       processQueue().catch((e) => console.error('[queue] runner crashed (restore):', e));
+    }
+    if (state.reserved) {
+      let restoredReserved = 0;
+      for (const [rid, res] of Object.entries(state.reserved)) {
+        if (Date.now() - res.createdAt > RESERVE_TIMEOUT_MS) continue;
+        reservedJobs.set(rid, res);
+        restoredReserved += res.jobs.length;
+      }
+      if (restoredReserved > 0) {
+        console.log('[NAI Studio] Restored ' + restoredReserved + ' reserved jobs from disk');
+      }
     }
     fss.unlinkSync(QUEUE_STATE_FILE);
   } catch {}
@@ -1746,6 +1784,53 @@ app.post('/api/queue/add-batch', async (req, res) => {
   res.json({ jobIds, rejected });
 });
 
+// 예약 등록 — prep 전에 서버에 placeholder를 먼저 영속화. fill로 실제 params를 채우면 genQueue로 이동.
+app.post('/api/queue/reserve', (req, res) => {
+  const metas = req.body.metas || [];
+  const count = metas.length;
+  if (count === 0) return res.json({ reservationId: null, jobIds: [], rejected: 0 });
+  let reservedTotal = 0;
+  for (const r of reservedJobs.values()) reservedTotal += r.jobs.length;
+  const space = QUEUE_MAX_SIZE - genQueue.length - reservedTotal;
+  const toReserve = metas.slice(0, Math.max(0, space));
+  const rejected = count - toReserve.length;
+  const reservationId = uuidv4();
+  const jobs = toReserve.map((meta) => ({ jobId: uuidv4(), meta: meta || {} }));
+  reservedJobs.set(reservationId, { jobs, createdAt: Date.now() });
+  if (rejected > 0) {
+    broadcast('queue-full', {
+      max: QUEUE_MAX_SIZE,
+      rejected,
+      message: `큐가 가득 차서 ${rejected}개가 예약 안 됐어요 (한도 ${QUEUE_MAX_SIZE}개)`,
+    });
+  }
+  broadcastQueueStatus();
+  saveQueueState();
+  res.json({ reservationId, jobIds: jobs.map((j) => j.jobId), rejected });
+});
+
+// 예약 채우기 — prep 완료된 params를 reserved jobs에 채워 genQueue로 이동.
+app.post('/api/queue/fill', (req, res) => {
+  const { reservationId, items } = req.body;
+  const reservation = reservedJobs.get(reservationId);
+  if (!reservation) return res.status(404).json({ error: 'reservation not found or expired' });
+  const filledJobIds = [];
+  for (let i = 0; i < reservation.jobs.length && i < (items || []).length; i++) {
+    const reserved = reservation.jobs[i];
+    const item = items[i];
+    if (!item || !item.params) continue;
+    genQueue.push({ jobId: reserved.jobId, params: item.params, meta: { ...reserved.meta, ...item.meta }, priority: reserved.meta?.priority });
+    filledJobIds.push(reserved.jobId);
+  }
+  reservedJobs.delete(reservationId);
+  broadcastQueueStatus();
+  if (filledJobIds.length > 0) {
+    setImmediate(() => processQueue().catch((e) => console.error('[queue] runner crashed:', e)));
+  }
+  saveQueueState();
+  res.json({ filled: filledJobIds.length });
+});
+
 app.get('/api/queue/status', async (req, res) => {
   resetQueueStatsIfNewDay();
   const freeGB = await getDiskFreeGB();
@@ -1778,15 +1863,18 @@ app.get('/api/queue/status', async (req, res) => {
         return parts[0] === 'outs' && parts[1] === currentProjectName;
       }).length
     : 0;
+  let reservedCount = 0;
+  for (const r of reservedJobs.values()) reservedCount += r.jobs.length;
   res.json({
-    pending: genQueue.length,
+    pending: genQueue.length + reservedCount,
+    reserved: reservedCount,
     processing: queueProcessing,
     paused: queuePaused,
     completed: queueStats.completed,
     failed: queueStats.failed,
     diskFreeGB: parseFloat(freeGB.toFixed(1)),
     jobs: genQueue.slice(0, 20).map(j => ({ jobId: j.jobId, outputFilePath: j.params.outputFilePath, meta: j.meta || {} })),
-    totalJobs: genQueue.length,
+    totalJobs: genQueue.length + reservedCount,
     currentProjectName,
     currentProjectQueueCount,
     avgProcessTimeMs: Math.round(avgMs),
@@ -1835,17 +1923,26 @@ app.get('/api/queue/full-state', async (req, res) => {
   } catch (e) {
     console.warn('[full-state] folder map walk failed:', e.message);
   }
+  const reservedList = [];
+  for (const [rid, res] of reservedJobs) {
+    for (const j of res.jobs) {
+      reservedList.push({ jobId: j.jobId, meta: j.meta || {}, reserved: true, reservationId: rid });
+    }
+  }
   res.json({
-    pending: genQueue.length,
+    pending: genQueue.length + reservedList.length,
     processing: queueProcessing,
     paused: queuePaused,
     pauseRequested,
-    jobs: genQueue.map((j) => ({
-      jobId: j.jobId,
-      meta: j.meta || {},
-      outputFilePath: j.params && j.params.outputFilePath,
-      priority: !!j.priority,
-    })),
+    jobs: [
+      ...genQueue.map((j) => ({
+        jobId: j.jobId,
+        meta: j.meta || {},
+        outputFilePath: j.params && j.params.outputFilePath,
+        priority: !!j.priority,
+      })),
+      ...reservedList,
+    ],
     folders,
   });
 });
@@ -1982,8 +2079,10 @@ try {
 }
 
 app.post('/api/queue/cancel', (req, res) => {
-  const cancelled = genQueue.length;
+  let cancelled = genQueue.length;
   genQueue.length = 0;
+  for (const r of reservedJobs.values()) cancelled += r.jobs.length;
+  reservedJobs.clear();
   broadcastQueueStatus();
   saveQueueState();
   res.json({ ok: true, cancelled });
@@ -1999,6 +2098,12 @@ app.post('/api/queue/cancel-by-task-ids', (req, res) => {
     if (tid && taskIds.has(tid)) {
       genQueue.splice(i, 1);
     }
+  }
+  // reserved에서도 해당 taskId 제거
+  for (const [rid, res] of reservedJobs) {
+    const filtered = res.jobs.filter(j => !(j.meta && j.meta.taskId && taskIds.has(j.meta.taskId)));
+    if (filtered.length === 0) reservedJobs.delete(rid);
+    else if (filtered.length < res.jobs.length) res.jobs = filtered;
   }
   const cancelled = before - genQueue.length;
   broadcastQueueStatus();
@@ -2019,6 +2124,12 @@ app.post('/api/queue/cancel-by-job-ids', (req, res) => {
     if (jobIds.has(genQueue[i].jobId)) {
       genQueue.splice(i, 1);
     }
+  }
+  // reserved에서도 해당 jobId 제거
+  for (const [rid, rv] of reservedJobs) {
+    const filtered = rv.jobs.filter(j => !jobIds.has(j.jobId));
+    if (filtered.length === 0) reservedJobs.delete(rid);
+    else if (filtered.length < rv.jobs.length) rv.jobs = filtered;
   }
   const cancelled = before - genQueue.length;
   broadcastQueueStatus();
