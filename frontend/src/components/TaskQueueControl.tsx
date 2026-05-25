@@ -479,11 +479,26 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
 
   const projKey = (folder: string, project: string) => folder + '\0' + project;
 
+  const lastResetDayRef = useRef<number>(
+    Math.floor((Date.now() + 9 * 3600000) / 86400000),
+  );
+
   const syncFromService = () => {
     const commits = taskCommitsRef.current;
     const scenes = sceneSnapsRef.current;
     const projects = projectSnapsRef.current;
     const folders = folderSnapsRef.current;
+
+    // KST 0시 기준 일간 리셋 — 완료 누적 카운터 초기화, 활성 task는 rebuild에서 복원.
+    const kstDay = Math.floor((Date.now() + 9 * 3600000) / 86400000);
+    if (kstDay > lastResetDayRef.current) {
+      lastResetDayRef.current = kstDay;
+      commits.clear();
+      scenes.clear();
+      projects.clear();
+      folders.clear();
+    }
+
     const current = new Map<string, Task>();
     for (const t of taskQueueService.queue) {
       if (t && t.id) current.set(t.id, t);
