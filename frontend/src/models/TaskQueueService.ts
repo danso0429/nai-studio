@@ -552,7 +552,7 @@ class GenerateImageTaskHandler implements TaskHandler {
     if (job.steps > 28) {
       res.push({
         scene: name,
-        text: '스탭 수 28개 초과',
+        text: '스텝 수 28개 초과',
       });
     }
     const resolution = job.overrideResolution

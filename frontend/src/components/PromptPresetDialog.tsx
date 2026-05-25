@@ -17,7 +17,25 @@ import ModalOverlay from './ModalOverlay';
 import PromptEditTextArea from './PromptEditTextArea';
 import { promptPresetService } from '../models';
 import { appState } from '../models/AppService';
-import { IPromptPreset } from '../models/PromptPresetService';
+import { IPromptPreset, IPromptPresetSamplingOverrides } from '../models/PromptPresetService';
+import { Sampling, NoiseSchedule } from '../backends/imageGen';
+
+const SAMPLER_LABELS: Record<string, string> = {
+  [Sampling.KEulerAncestral]: 'Euler Ancestral',
+  [Sampling.KEuler]: 'Euler',
+  [Sampling.KDPMPP2SAncestral]: 'DPM++ 2S Ancestral',
+  [Sampling.KDPMPP2MSDE]: 'DPM++ 2M SDE',
+  [Sampling.KDPMPP2M]: 'DPM++ 2M',
+  [Sampling.KDPMPPSDE]: 'DPM++ SDE',
+  [Sampling.DDIM]: 'DDIM',
+};
+
+const NOISE_SCHEDULE_LABELS: Record<string, string> = {
+  [NoiseSchedule.Native]: 'Native',
+  [NoiseSchedule.Karras]: 'Karras',
+  [NoiseSchedule.Exponential]: 'Exponential',
+  [NoiseSchedule.Polyexponential]: 'Polyexponential',
+};
 
 // ─── 편집/신규 폼 ────────────────────────────────────────────
 interface PromptPresetFormProps {
@@ -25,12 +43,14 @@ interface PromptPresetFormProps {
   initialFrontPrompt: string;
   initialBackPrompt: string;
   initialUc: string;
+  initialSamplingOverrides?: IPromptPresetSamplingOverrides;
   isNew: boolean;
   onSave: (
     name: string,
     frontPrompt: string,
     backPrompt: string,
     uc: string,
+    samplingOverrides?: IPromptPresetSamplingOverrides,
   ) => void;
   onCancel: () => void;
 }
@@ -41,6 +61,7 @@ const PromptPresetForm = observer(
     initialFrontPrompt,
     initialBackPrompt,
     initialUc,
+    initialSamplingOverrides,
     isNew,
     onSave,
     onCancel,
@@ -50,13 +71,43 @@ const PromptPresetForm = observer(
     const [backPrompt, setBackPrompt] = useState(initialBackPrompt);
     const [uc, setUc] = useState(initialUc);
 
+    const [stepsEnabled, setStepsEnabled] = useState(initialSamplingOverrides?.steps != null);
+    const [stepsStr, setStepsStr] = useState(initialSamplingOverrides?.steps != null ? String(initialSamplingOverrides.steps) : '');
+    const [guidanceEnabled, setGuidanceEnabled] = useState(initialSamplingOverrides?.promptGuidance != null);
+    const [guidanceStr, setGuidanceStr] = useState(initialSamplingOverrides?.promptGuidance != null ? String(initialSamplingOverrides.promptGuidance) : '');
+    const [rescaleEnabled, setRescaleEnabled] = useState(initialSamplingOverrides?.cfgRescale != null);
+    const [rescaleStr, setRescaleStr] = useState(initialSamplingOverrides?.cfgRescale != null ? String(initialSamplingOverrides.cfgRescale) : '');
+    const [samplerEnabled, setSamplerEnabled] = useState(initialSamplingOverrides?.sampling != null);
+    const [sampler, setSampler] = useState(initialSamplingOverrides?.sampling ?? Sampling.KEulerAncestral);
+    const [scheduleEnabled, setScheduleEnabled] = useState(initialSamplingOverrides?.noiseSchedule != null);
+    const [schedule, setSchedule] = useState(initialSamplingOverrides?.noiseSchedule ?? NoiseSchedule.Karras);
+
+    const parseNum = (s: string): number | undefined => {
+      const trimmed = s.trim();
+      if (!trimmed) return undefined;
+      const n = Number(trimmed);
+      return isNaN(n) ? undefined : n;
+    };
+
+    const buildOverrides = (): IPromptPresetSamplingOverrides | undefined => {
+      const o: IPromptPresetSamplingOverrides = {};
+      if (stepsEnabled) { const v = parseNum(stepsStr); if (v != null) o.steps = v; }
+      if (guidanceEnabled) { const v = parseNum(guidanceStr); if (v != null) o.promptGuidance = v; }
+      if (rescaleEnabled) { const v = parseNum(rescaleStr); if (v != null) o.cfgRescale = v; }
+      if (samplerEnabled) o.sampling = sampler;
+      if (scheduleEnabled) o.noiseSchedule = schedule;
+      return Object.keys(o).length > 0 ? o : undefined;
+    };
+
     const handleSave = () => {
       if (!name.trim()) {
         appState.pushMessage('프리셋 이름을 입력해주세요');
         return;
       }
-      onSave(name, frontPrompt, backPrompt, uc);
+      onSave(name, frontPrompt, backPrompt, uc, buildOverrides());
     };
+
+    const selectClass = 'w-full px-2 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400';
 
     return (
       <div className="flex flex-col gap-3">
@@ -118,6 +169,83 @@ const PromptPresetForm = observer(
             />
           </div>
         </div>
+
+        {/* 샘플링 설정 덮어쓰기 */}
+        <div className="border-t border-gray-200 dark:border-gray-600 pt-3">
+          <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            샘플링 설정 덮어쓰기
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+            체크한 항목만 프리셋 적용 시 덮어써요. 빈칸이면 프로젝트 설정 그대로.
+          </div>
+          <div className="flex flex-col gap-2">
+            {/* 스텝 수 */}
+            <div className="flex items-center gap-2">
+              <input type="checkbox" checked={stepsEnabled} onChange={(e) => setStepsEnabled(e.target.checked)} />
+              <span className="text-sm w-40 flex-none">스텝 수</span>
+              <input
+                type="text" inputMode="numeric"
+                className={selectClass + ' flex-1'}
+                placeholder="1~50"
+                value={stepsStr} onChange={(e) => setStepsStr(e.target.value)}
+                disabled={!stepsEnabled}
+              />
+            </div>
+            {/* 프롬프트 가이던스 */}
+            <div className="flex items-center gap-2">
+              <input type="checkbox" checked={guidanceEnabled} onChange={(e) => setGuidanceEnabled(e.target.checked)} />
+              <span className="text-sm w-40 flex-none">프롬프트 가이던스</span>
+              <input
+                type="text" inputMode="decimal"
+                className={selectClass + ' flex-1'}
+                placeholder="0~10"
+                value={guidanceStr} onChange={(e) => setGuidanceStr(e.target.value)}
+                disabled={!guidanceEnabled}
+              />
+            </div>
+            {/* Prompt Guidance Rescale */}
+            <div className="flex items-center gap-2">
+              <input type="checkbox" checked={rescaleEnabled} onChange={(e) => setRescaleEnabled(e.target.checked)} />
+              <span className="text-sm w-40 flex-none">Prompt Guidance Rescale</span>
+              <input
+                type="text" inputMode="decimal"
+                className={selectClass + ' flex-1'}
+                placeholder="0~1"
+                value={rescaleStr} onChange={(e) => setRescaleStr(e.target.value)}
+                disabled={!rescaleEnabled}
+              />
+            </div>
+            {/* 샘플러 */}
+            <div className="flex items-center gap-2">
+              <input type="checkbox" checked={samplerEnabled} onChange={(e) => setSamplerEnabled(e.target.checked)} />
+              <span className="text-sm w-40 flex-none">샘플러</span>
+              <select
+                className={selectClass + ' flex-1'}
+                value={sampler} onChange={(e) => setSampler(e.target.value)}
+                disabled={!samplerEnabled}
+              >
+                {Object.values(Sampling).map((v) => (
+                  <option key={v} value={v}>{SAMPLER_LABELS[v] ?? v}</option>
+                ))}
+              </select>
+            </div>
+            {/* 노이즈 스케줄 */}
+            <div className="flex items-center gap-2">
+              <input type="checkbox" checked={scheduleEnabled} onChange={(e) => setScheduleEnabled(e.target.checked)} />
+              <span className="text-sm w-40 flex-none">노이즈 스케줄</span>
+              <select
+                className={selectClass + ' flex-1'}
+                value={schedule} onChange={(e) => setSchedule(e.target.value)}
+                disabled={!scheduleEnabled}
+              >
+                {Object.values(NoiseSchedule).map((v) => (
+                  <option key={v} value={v}>{NOISE_SCHEDULE_LABELS[v] ?? v}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
         <div className="flex gap-2 pt-2 border-t border-gray-200 dark:border-gray-600">
           <button
             className="flex-1 px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-sm font-medium transition-colors"
@@ -227,6 +355,7 @@ export const PromptPresetDialog = observer(
               currentFrontPrompt,
               currentBackPrompt,
               currentUc,
+              preset.samplingOverrides,
             );
             appState.setAppliedPromptPreset(preset.id);
             appState.pushMessage(`"${preset.name}" 덮어씀`);
@@ -272,9 +401,9 @@ export const PromptPresetDialog = observer(
               initialBackPrompt=""
               initialUc=""
               isNew={true}
-              onSave={(name, fp, bp, uc) => {
+              onSave={(name, fp, bp, uc, so) => {
                 try {
-                  const entry = promptPresetService.add(name, fp, bp, uc);
+                  const entry = promptPresetService.add(name, fp, bp, uc, so);
                   setNewName('');
                   appState.pushMessage(`"${entry.name}" 프리셋 저장됨`);
                   setMode({ kind: 'list' });
@@ -309,13 +438,14 @@ export const PromptPresetDialog = observer(
               initialFrontPrompt={target.frontPrompt}
               initialBackPrompt={target.backPrompt}
               initialUc={target.uc}
+              initialSamplingOverrides={target.samplingOverrides}
               isNew={false}
-              onSave={(name, fp, bp, uc) => {
+              onSave={(name, fp, bp, uc, so) => {
                 try {
                   if (name.trim() !== target.name) {
                     promptPresetService.rename(target.id, name);
                   }
-                  promptPresetService.update(target.id, fp, bp, uc);
+                  promptPresetService.update(target.id, fp, bp, uc, so);
                   appState.pushMessage(`"${name.trim()}" 저장됨`);
                   setMode({ kind: 'list' });
                 } catch (e) {
@@ -470,6 +600,18 @@ export const PromptPresetDialog = observer(
                           <em className="text-gray-400">(비어있음)</em>
                         )}
                       </div>
+                      {preset.samplingOverrides && Object.keys(preset.samplingOverrides).length > 0 && (
+                        <div className="truncate text-teal-600 dark:text-teal-400">
+                          <span className="font-medium">설정:</span>{' '}
+                          {[
+                            preset.samplingOverrides.steps != null && `스텝 ${preset.samplingOverrides.steps}`,
+                            preset.samplingOverrides.promptGuidance != null && `가이던스 ${preset.samplingOverrides.promptGuidance}`,
+                            preset.samplingOverrides.cfgRescale != null && `리스케일 ${preset.samplingOverrides.cfgRescale}`,
+                            preset.samplingOverrides.sampling != null && (SAMPLER_LABELS[preset.samplingOverrides.sampling] ?? preset.samplingOverrides.sampling),
+                            preset.samplingOverrides.noiseSchedule != null && (NOISE_SCHEDULE_LABELS[preset.samplingOverrides.noiseSchedule] ?? preset.samplingOverrides.noiseSchedule),
+                          ].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -510,35 +652,27 @@ export const PromptPresetButton = observer(
       <>
         {appliedPreset ? (
           <div className={`mb-2 rounded-lg text-white shadow-md ${isProjectOverride ? 'bg-teal-500' : 'bg-sky-500'}`}>
-            <div className="p-3 flex items-center gap-3 flex-wrap">
-              <FaBookmark size={18} className="flex-none" />
-              <div className="flex-1 min-w-0">
-                <div className="text-xs uppercase tracking-wider opacity-80 font-medium">
-                  프롬프트 프리셋 적용 중 ({sourceLabel})
-                </div>
-                <div className="text-base font-semibold truncate">
-                  {appliedPreset.name}
-                </div>
-                <div className="text-xs opacity-90 mt-0.5">
-                  생성 시 상위/하위/네거티브 슬롯 값 앞에 합쳐서 적용 · 슬롯은 자유 편집 가능
-                </div>
+            <div className="px-3 py-1.5 flex items-center gap-2">
+              <FaBookmark size={14} className="flex-none opacity-80" />
+              <div className="flex-1 min-w-0 text-sm font-semibold truncate">
+                {appliedPreset.name}
               </div>
-              <div className="flex gap-2 flex-none flex-wrap">
+              <div className="flex gap-1.5 flex-none">
                 <button
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/20 hover:bg-white/30 transition-colors"
+                  className="px-2 py-1 rounded text-xs bg-white/20 hover:bg-white/30 transition-colors"
                   onClick={() => setShowContent(!showContent)}
                 >
-                  {showContent ? '내용 닫기 ▲' : '내용 보기 ▼'}
+                  {showContent ? '닫기' : '내용'}
                 </button>
                 <button
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/20 hover:bg-white/30 transition-colors"
+                  className="px-2 py-1 rounded text-xs bg-white/20 hover:bg-white/30 transition-colors"
                   onClick={() => setOpen(true)}
                 >
                   관리
                 </button>
                 {isProjectOverride && (
                   <button
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/20 hover:bg-white/30 transition-colors"
+                    className="px-2 py-1 rounded text-xs bg-white/20 hover:bg-white/30 transition-colors"
                     title="프로젝트 전용 해제 → 기본 프리셋으로 되돌리기"
                     onClick={() => appState.revertToGlobalPreset()}
                   >
@@ -546,7 +680,7 @@ export const PromptPresetButton = observer(
                   </button>
                 )}
                 <button
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/20 hover:bg-white/30 transition-colors"
+                  className="px-2 py-1 rounded text-xs bg-white/20 hover:bg-white/30 transition-colors"
                   title="이 프로젝트에서 프리셋 해제 (슬롯 값은 그대로)"
                   onClick={() => appState.clearAppliedPromptPreset()}
                 >
@@ -568,6 +702,20 @@ export const PromptPresetButton = observer(
                   <span className="font-semibold opacity-80">네거티브:</span>{' '}
                   <span className="opacity-95">{appliedPreset.uc || <em className="opacity-70">(비어있음)</em>}</span>
                 </div>
+                {appliedPreset.samplingOverrides && Object.keys(appliedPreset.samplingOverrides).length > 0 && (
+                  <div className="break-all">
+                    <span className="font-semibold opacity-80">설정 덮어쓰기:</span>{' '}
+                    <span className="opacity-95">
+                      {[
+                        appliedPreset.samplingOverrides.steps != null && `스텝 ${appliedPreset.samplingOverrides.steps}`,
+                        appliedPreset.samplingOverrides.promptGuidance != null && `가이던스 ${appliedPreset.samplingOverrides.promptGuidance}`,
+                        appliedPreset.samplingOverrides.cfgRescale != null && `리스케일 ${appliedPreset.samplingOverrides.cfgRescale}`,
+                        appliedPreset.samplingOverrides.sampling != null && (SAMPLER_LABELS[appliedPreset.samplingOverrides.sampling] ?? appliedPreset.samplingOverrides.sampling),
+                        appliedPreset.samplingOverrides.noiseSchedule != null && (NOISE_SCHEDULE_LABELS[appliedPreset.samplingOverrides.noiseSchedule] ?? appliedPreset.samplingOverrides.noiseSchedule),
+                      ].filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>

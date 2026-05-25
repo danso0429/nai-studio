@@ -67,7 +67,7 @@ const SDImageGenUI = wfiStack([
   wfiInlineInput('캐릭터 프롬프트', 'characterPrompts', 'preset', 'flex-none'),
   wfiGroup('샘플링/모델 설정', [
     wfiPush('top'),
-    wfiInlineInput('스탭 수', 'steps', 'preset', 'flex-none'),
+    wfiInlineInput('스텝 수', 'steps', 'preset', 'flex-none'),
     wfiInlineInput(
       '프롬프트 가이던스',
       'promptGuidance',
@@ -76,7 +76,7 @@ const SDImageGenUI = wfiStack([
     ),
     wfiInlineInput('샘플링', 'sampling', 'preset', 'flex-none'),
     wfiInlineInput('노이즈 스케줄', 'noiseSchedule', 'preset', 'flex-none'),
-    wfiInlineInput('CFG 리스케일', 'cfgRescale', 'preset', 'flex-none'),
+    wfiInlineInput('Prompt Guidance Rescale', 'cfgRescale', 'preset', 'flex-none'),
     wfiInlineInput('캐릭터 위치 지정', 'useCoords', 'preset', 'flex-none'),
     wfiInlineInput(
       'Legacy Prompt Conditioning 모드',
@@ -141,7 +141,7 @@ const SDImageGenEasyInnerUI = wfiStack([
   wfiInlineInput('네거티브 프롬프트', 'uc', 'preset', 'flex-1'),
   wfiGroup('샘플링/모델 설정', [
     wfiPush('top'),
-    wfiInlineInput('스탭 수', 'steps', 'preset', 'flex-none'),
+    wfiInlineInput('스텝 수', 'steps', 'preset', 'flex-none'),
     wfiInlineInput(
       '프롬프트 가이던스',
       'promptGuidance',
@@ -150,7 +150,7 @@ const SDImageGenEasyInnerUI = wfiStack([
     ),
     wfiInlineInput('샘플링', 'sampling', 'preset', 'flex-none'),
     wfiInlineInput('노이즈 스케줄', 'noiseSchedule', 'preset', 'flex-none'),
-    wfiInlineInput('CFG 리스케일', 'cfgRescale', 'preset', 'flex-none'),
+    wfiInlineInput('Prompt Guidance Rescale', 'cfgRescale', 'preset', 'flex-none'),
     wfiInlineInput('캐릭터 위치 지정', 'useCoords', 'preset', 'flex-none'),
     wfiInlineInput(
       'Legacy Prompt Conditioning 모드',
@@ -176,8 +176,7 @@ const SDImageGenEasyInnerUI = wfiStack([
 
 // 프롬프트 프리셋 오버라이드 — appliedPromptPreset이 있으면 그 프리셋의 front/back/uc
 // 텍스트를 사용자 슬롯 텍스트의 *앞에 합쳐서* 반환. preset 객체 자체는 mutation X.
-// 옛 동작(통째 덮어쓰기 + slot lock)을 폐기 — 사용자가 chunk와 다른 태그 조합을 함께
-// 쓸 수 있도록 합치기 방식으로 전환. sampler params는 폐기 (본인 결정, 2026-05-22).
+// samplingOverrides가 있으면 해당 값으로 덮어씀.
 function applyPromptPresetOverride(preset: any): any {
   const id = appState.appliedPromptPreset;
   if (!id) return preset;
@@ -194,6 +193,14 @@ function applyPromptPresetOverride(preset: any): any {
   out.frontPrompt = join(applied.frontPrompt, preset.frontPrompt || '');
   out.backPrompt = join(applied.backPrompt, preset.backPrompt || '');
   out.uc = join(applied.uc, preset.uc || '');
+  const so = applied.samplingOverrides;
+  if (so) {
+    if (so.steps != null) out.steps = so.steps;
+    if (so.promptGuidance != null) out.promptGuidance = so.promptGuidance;
+    if (so.cfgRescale != null) out.cfgRescale = so.cfgRescale;
+    if (so.sampling != null) out.sampling = so.sampling;
+    if (so.noiseSchedule != null) out.noiseSchedule = so.noiseSchedule;
+  }
   return out;
 }
 
@@ -389,7 +396,7 @@ const SDInpaintUI = wfiStack([
   wfiInlineInput('캐릭터 프롬프트', 'characterPrompts', 'preset', 'flex-none'),
   wfiGroup('샘플링/모델 설정', [
     wfiPush('top'),
-    wfiInlineInput('스탭 수', 'steps', 'preset', 'flex-none'),
+    wfiInlineInput('스텝 수', 'steps', 'preset', 'flex-none'),
     wfiInlineInput(
       '프롬프트 가이던스',
       'promptGuidance',
@@ -398,7 +405,7 @@ const SDInpaintUI = wfiStack([
     ),
     wfiInlineInput('샘플링', 'sampling', 'preset', 'flex-none'),
     wfiInlineInput('노이즈 스케줄', 'noiseSchedule', 'preset', 'flex-none'),
-    wfiInlineInput('CFG 리스케일', 'cfgRescale', 'preset', 'flex-none'),
+    wfiInlineInput('Prompt Guidance Rescale', 'cfgRescale', 'preset', 'flex-none'),
     wfiInlineInput('캐릭터 위치 지정', 'useCoords', 'preset', 'flex-none'),
     wfiInlineInput(
       'Legacy Prompt Conditioning 모드',
@@ -540,7 +547,7 @@ const SDI2IUI = wfiStack([
   wfiInlineInput('캐릭터 프롬프트', 'characterPrompts', 'preset', 'flex-none'),
   wfiGroup('샘플링/모델 설정', [
     wfiPush('top'),
-    wfiInlineInput('스탭 수', 'steps', 'preset', 'flex-none'),
+    wfiInlineInput('스텝 수', 'steps', 'preset', 'flex-none'),
     wfiInlineInput(
       '프롬프트 가이던스',
       'promptGuidance',
@@ -549,7 +556,7 @@ const SDI2IUI = wfiStack([
     ),
     wfiInlineInput('샘플링', 'sampling', 'preset', 'flex-none'),
     wfiInlineInput('노이즈 스케줄', 'noiseSchedule', 'preset', 'flex-none'),
-    wfiInlineInput('CFG 리스케일', 'cfgRescale', 'preset', 'flex-none'),
+    wfiInlineInput('Prompt Guidance Rescale', 'cfgRescale', 'preset', 'flex-none'),
     wfiInlineInput('캐릭터 위치 지정', 'useCoords', 'preset', 'flex-none'),
     wfiInlineInput(
       'Legacy Prompt Conditioning 모드',
@@ -785,7 +792,7 @@ const SDMirrorUI = wfiStack([
   wfiInlineInput('캐릭터 프롬프트', 'characterPrompts', 'preset', 'flex-none'),
   wfiGroup('샘플링/모델 설정', [
     wfiPush('top'),
-    wfiInlineInput('스탭 수', 'steps', 'preset', 'flex-none'),
+    wfiInlineInput('스텝 수', 'steps', 'preset', 'flex-none'),
     wfiInlineInput(
       '프롬프트 가이던스',
       'promptGuidance',
@@ -794,7 +801,7 @@ const SDMirrorUI = wfiStack([
     ),
     wfiInlineInput('샘플링', 'sampling', 'preset', 'flex-none'),
     wfiInlineInput('노이즈 스케줄', 'noiseSchedule', 'preset', 'flex-none'),
-    wfiInlineInput('CFG 리스케일', 'cfgRescale', 'preset', 'flex-none'),
+    wfiInlineInput('Prompt Guidance Rescale', 'cfgRescale', 'preset', 'flex-none'),
     wfiInlineInput('캐릭터 위치 지정', 'useCoords', 'preset', 'flex-none'),
     wfiInlineInput(
       'Legacy Prompt Conditioning 모드',

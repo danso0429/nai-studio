@@ -4,12 +4,21 @@ import { backend } from '.';
 
 const PROMPT_PRESETS_FILE = 'prompt_presets.json';
 
+export interface IPromptPresetSamplingOverrides {
+  steps?: number;
+  promptGuidance?: number;
+  cfgRescale?: number;
+  sampling?: string;
+  noiseSchedule?: string;
+}
+
 export interface IPromptPreset {
   id: string;
   name: string;
   frontPrompt: string;
   backPrompt: string;
   uc: string;
+  samplingOverrides?: IPromptPresetSamplingOverrides;
   createdAt: number;
   updatedAt: number;
 }
@@ -144,6 +153,7 @@ export class PromptPresetService extends EventTarget {
     frontPrompt: string,
     backPrompt: string,
     uc: string,
+    samplingOverrides?: IPromptPresetSamplingOverrides,
   ): IPromptPreset {
     name = name.trim();
     if (!name) throw new Error('이름을 입력해 주세요');
@@ -154,6 +164,7 @@ export class PromptPresetService extends EventTarget {
       frontPrompt,
       backPrompt,
       uc,
+      samplingOverrides,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -169,12 +180,14 @@ export class PromptPresetService extends EventTarget {
     frontPrompt: string,
     backPrompt: string,
     uc: string,
+    samplingOverrides?: IPromptPresetSamplingOverrides,
   ): void {
     const entry = this.get(id);
     if (!entry) throw new Error('프리셋을 찾을 수 없습니다');
     entry.frontPrompt = frontPrompt;
     entry.backPrompt = backPrompt;
     entry.uc = uc;
+    entry.samplingOverrides = samplingOverrides;
     entry.updatedAt = Date.now();
     this.presets = [...this.presets];
     this.scheduleSave();
