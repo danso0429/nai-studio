@@ -186,6 +186,7 @@ export const App = observer(() => {
       setDarkMode(!conf.whiteMode);
       appState.classicSceneCard = conf.classicSceneCard ?? false;
       appState.initialThumbSize = conf.initialThumbSize;
+      appState.globalPromptPresetId = conf.promptPresetId;
     };
     refreshDarkMode();
     sessionService.addEventListener('config-changed', refreshDarkMode);
@@ -342,6 +343,9 @@ export const App = observer(() => {
       sessionService.reloadPieceLibraryDB(appState.curSession);
       imageService.refreshBatch(appState.curSession);
       appState.cleanupOrphanedPresetApplication();
+      appState.resolvePromptPreset();
+    } else {
+      appState.appliedPromptPreset = undefined;
     }
     return () => {
       window.curSession = undefined;

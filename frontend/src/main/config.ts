@@ -49,4 +49,5 @@ export interface Config {
   // 크기로 출발 + 데스크탑 큰 화면 PC는 그대로 유지. 자동 override는 ConfigScreen.
   // 후보 값: 80 / 200 / 400 / 500.
   initialThumbSize?: number;
+  promptPresetId?: string;
 }

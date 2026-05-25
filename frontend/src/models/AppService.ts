@@ -6,6 +6,7 @@ import {
   imageService,
   isMobile,
   localAIService,
+  promptPresetService,
   sessionService,
   taskQueueService,
   workFlowService,
@@ -238,6 +239,7 @@ export class AppState {
   @observable accessor externalImage: string | undefined = undefined;
   @observable accessor appliedCharacterPreset: string | undefined = undefined; // 현재 적용된 캐릭터 프리셋 이름
   @observable accessor appliedPromptPreset: string | undefined = undefined; // 현재 적용된 프롬프트 프리셋 id
+  @observable accessor globalPromptPresetId: string | undefined = undefined; // config.json 캐시
 
   // 이미지 클립보드
   @observable accessor imageClipboard: string[] = [];
@@ -3638,11 +3640,74 @@ export class AppState {
   @action
   setAppliedPromptPreset(id: string | undefined) {
     this.appliedPromptPreset = id;
+    if (this.curSession && id) {
+      this.curSession.promptPresetId = id;
+    }
   }
 
   @action
   clearAppliedPromptPreset() {
     this.appliedPromptPreset = undefined;
+    if (this.curSession) {
+      this.curSession.promptPresetId = null;
+    }
+  }
+
+  @action
+  async setGlobalPromptPreset(id: string) {
+    this.globalPromptPresetId = id;
+    this.appliedPromptPreset = id;
+    if (this.curSession) {
+      this.curSession.promptPresetId = undefined;
+    }
+    const config = await backend.getConfig();
+    await backend.setConfig({ ...config, promptPresetId: id });
+  }
+
+  @action
+  async clearGlobalPromptPreset() {
+    this.globalPromptPresetId = undefined;
+    if (this.curSession && this.curSession.promptPresetId === undefined) {
+      this.appliedPromptPreset = undefined;
+    }
+    const config = await backend.getConfig();
+    const { promptPresetId: _, ...rest } = config;
+    await backend.setConfig(rest);
+  }
+
+  @action
+  revertToGlobalPreset() {
+    if (!this.curSession) return;
+    this.curSession.promptPresetId = undefined;
+    this.resolvePromptPreset();
+  }
+
+  @action
+  resolvePromptPreset() {
+    if (!this.curSession) {
+      this.appliedPromptPreset = undefined;
+      return;
+    }
+    const sessionVal = this.curSession.promptPresetId;
+    if (sessionVal === null) {
+      this.appliedPromptPreset = undefined;
+      return;
+    }
+    if (sessionVal) {
+      if (promptPresetService.get(sessionVal)) {
+        this.appliedPromptPreset = sessionVal;
+      } else {
+        this.curSession.promptPresetId = undefined;
+        this.appliedPromptPreset = undefined;
+      }
+      return;
+    }
+    const gid = this.globalPromptPresetId;
+    if (gid && promptPresetService.get(gid)) {
+      this.appliedPromptPreset = gid;
+    } else {
+      this.appliedPromptPreset = undefined;
+    }
   }
 
   @action

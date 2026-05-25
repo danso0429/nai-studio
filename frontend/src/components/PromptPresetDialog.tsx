@@ -10,6 +10,8 @@ import {
   FaBookmark,
   FaPlus,
   FaArrowLeft,
+  FaStar,
+  FaGlobe,
 } from 'react-icons/fa';
 import ModalOverlay from './ModalOverlay';
 import PromptEditTextArea from './PromptEditTextArea';
@@ -185,10 +187,33 @@ export const PromptPresetDialog = observer(
       }
     };
 
-    const handleApply = (preset: IPromptPreset) => {
-      onApply(preset.id);
-      appState.pushMessage(`"${preset.name}" 프리셋 적용됨`);
+    const globalPresetId = appState.globalPromptPresetId;
+
+    const handleApplyGlobal = (preset: IPromptPreset) => {
+      const currentGlobal = globalPresetId
+        ? promptPresetService.get(globalPresetId)
+        : undefined;
+      if (currentGlobal && currentGlobal.id !== preset.id) {
+        appState.pushDialog({
+          type: 'confirm',
+          text: `현재 "${currentGlobal.name}" 프리셋이 기본 적용 중입니다.\n"${preset.name}"(으)로 변경하시겠습니까?`,
+          callback: async () => {
+            onClose();
+            appState.pushMessage(`"${preset.name}" 기본 프리셋으로 설정됨 (모든 프로젝트)`);
+            await appState.setGlobalPromptPreset(preset.id);
+          },
+        });
+        return;
+      }
       onClose();
+      appState.pushMessage(`"${preset.name}" 기본 프리셋으로 설정됨 (모든 프로젝트)`);
+      appState.setGlobalPromptPreset(preset.id);
+    };
+
+    const handleApplyProject = (preset: IPromptPreset) => {
+      onClose();
+      onApply(preset.id);
+      appState.pushMessage(`"${preset.name}" 이 프로젝트에 적용됨`);
     };
 
     const handleOverwrite = (preset: IPromptPreset) => {
@@ -216,9 +241,12 @@ export const PromptPresetDialog = observer(
       appState.pushDialog({
         type: 'confirm',
         text: `"${preset.name}" 프리셋을 삭제할까요?`,
-        callback: () => {
+        callback: async () => {
           if (appState.appliedPromptPreset === preset.id) {
             appState.clearAppliedPromptPreset();
+          }
+          if (globalPresetId === preset.id) {
+            await appState.clearGlobalPromptPreset();
           }
           promptPresetService.delete(preset.id);
           appState.pushMessage(`"${preset.name}" 삭제됨`);
@@ -312,7 +340,9 @@ export const PromptPresetDialog = observer(
         <div className="text-default flex flex-col gap-3">
           {/* 안내 */}
           <div className="text-xs text-gray-500 dark:text-gray-400">
-            상위/하위/네거티브 프롬프트 셋을 묶어서 저장. 적용하면 현재 슬롯 값 앞에 합쳐져요(덮어쓰기 X). 슬롯에 다른 태그를 자유롭게 박을 수 있어요.
+            상위/하위/네거티브 프롬프트 셋을 묶어서 저장. 적용하면 현재 슬롯 값 앞에 합쳐져요(덮어쓰기 X).
+            <br />
+            <strong>기본 적용</strong> = 모든 프로젝트에 적용 (껐다 켜도 유지) · <strong>프로젝트 적용</strong> = 이 프로젝트만
           </div>
 
           {/* 새 프리셋 추가 */}
@@ -369,6 +399,12 @@ export const PromptPresetDialog = observer(
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <span className="font-medium text-sm flex-1 min-w-0 truncate">
                         {preset.name}
+                        {globalPresetId === preset.id && (
+                          <span className="ml-2 text-xs text-amber-500">
+                            <FaStar className="inline mr-0.5" size={9} />
+                            기본
+                          </span>
+                        )}
                         {isApplied && (
                           <span className="ml-2 text-xs text-sky-500">
                             적용 중
@@ -377,9 +413,18 @@ export const PromptPresetDialog = observer(
                       </span>
                       <button
                         className="px-3 py-1 rounded-lg text-xs bg-sky-500 hover:bg-sky-600 text-white"
-                        onClick={() => handleApply(preset)}
+                        title="모든 프로젝트 기본으로 설정"
+                        onClick={() => handleApplyGlobal(preset)}
                       >
-                        적용
+                        <FaGlobe className="inline mr-1" size={9} />
+                        기본 적용
+                      </button>
+                      <button
+                        className="px-3 py-1 rounded-lg text-xs bg-teal-500 hover:bg-teal-600 text-white"
+                        title="이 프로젝트에만 적용"
+                        onClick={() => handleApplyProject(preset)}
+                      >
+                        프로젝트 적용
                       </button>
                       <button
                         className="px-2 py-1 rounded-lg text-xs bg-orange-500 hover:bg-orange-600 text-white"
@@ -458,15 +503,18 @@ export const PromptPresetButton = observer(
     const appliedPreset = appliedId
       ? promptPresetService.get(appliedId)
       : undefined;
+    const session = appState.curSession;
+    const isProjectOverride = session ? typeof session.promptPresetId === 'string' : false;
+    const sourceLabel = isProjectOverride ? '프로젝트 전용' : '기본';
     return (
       <>
         {appliedPreset ? (
-          <div className="mb-2 rounded-lg bg-sky-500 text-white shadow-md">
+          <div className={`mb-2 rounded-lg text-white shadow-md ${isProjectOverride ? 'bg-teal-500' : 'bg-sky-500'}`}>
             <div className="p-3 flex items-center gap-3 flex-wrap">
               <FaBookmark size={18} className="flex-none" />
               <div className="flex-1 min-w-0">
                 <div className="text-xs uppercase tracking-wider opacity-80 font-medium">
-                  프롬프트 프리셋 적용 중
+                  프롬프트 프리셋 적용 중 ({sourceLabel})
                 </div>
                 <div className="text-base font-semibold truncate">
                   {appliedPreset.name}
@@ -488,9 +536,18 @@ export const PromptPresetButton = observer(
                 >
                   관리
                 </button>
+                {isProjectOverride && (
+                  <button
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/20 hover:bg-white/30 transition-colors"
+                    title="프로젝트 전용 해제 → 기본 프리셋으로 되돌리기"
+                    onClick={() => appState.revertToGlobalPreset()}
+                  >
+                    기본으로
+                  </button>
+                )}
                 <button
                   className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/20 hover:bg-white/30 transition-colors"
-                  title="적용 해제 (슬롯 값은 그대로)"
+                  title="이 프로젝트에서 프리셋 해제 (슬롯 값은 그대로)"
                   onClick={() => appState.clearAppliedPromptPreset()}
                 >
                   해제
