@@ -29,6 +29,9 @@ import { WordTag, calcGapMatch } from '../models/Tags';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 interface PromptEditTextAreaProps {
   value: string;
   className?: string;
@@ -904,6 +907,8 @@ interface PromptEditTextAreaProps {
   disabled?: boolean;
   lineHighlight?: boolean;
   onChange: (value: string) => void;
+  lockedPrefix?: string;
+  lockedBgClass?: string;
 }
 
 function useLatest(value: any) {
@@ -945,6 +950,7 @@ function replaceMiddleWord(str: string, newWord: string) {
 interface EditTextAreaProps {
   value: string;
   disabled?: boolean;
+  lockedPrefixLength?: number;
   highlight: (
     text: string,
     curWord: string,
@@ -1115,6 +1121,7 @@ const NativeEditTextArea = observer(
       {
         value,
         disabled,
+        lockedPrefixLength,
         highlight,
         onUpdated,
         history,
@@ -1132,6 +1139,7 @@ const NativeEditTextArea = observer(
       const highlightRef = useRef<any>(null);
       const containerRef = useRef<any>(null);
       const isAutoComplete = useRef(false);
+      const lockedPrefix = lockedPrefixLength ? value.slice(0, lockedPrefixLength) : '';
 
       const getCurWord = () => {
         const start = textareaRef.current.selectionStart;
@@ -1193,13 +1201,36 @@ const NativeEditTextArea = observer(
       useEffect(() => {
         if (!textareaRef.current || !highlightRef.current) return;
         const handleInput = () => {
-          const text = textareaRef.current.value;
+          let text = textareaRef.current.value;
+          if (lockedPrefixLength && !text.startsWith(lockedPrefix)) {
+            textareaRef.current.value = lockedPrefix + text.slice(
+              Math.max(0, text.length - (value.length - lockedPrefixLength))
+            );
+            text = textareaRef.current.value;
+            const pos = lockedPrefixLength;
+            textareaRef.current.selectionStart = pos;
+            textareaRef.current.selectionEnd = pos;
+          }
           renderText();
           pushHistory();
           onUpdated(text);
         };
 
+        const handleSelect = () => {
+          if (!lockedPrefixLength) return;
+          const start = textareaRef.current.selectionStart;
+          const end = textareaRef.current.selectionEnd;
+          if (start < lockedPrefixLength && end <= lockedPrefixLength) {
+            textareaRef.current.selectionStart = lockedPrefixLength;
+            textareaRef.current.selectionEnd = lockedPrefixLength;
+          } else if (start < lockedPrefixLength) {
+            textareaRef.current.selectionStart = lockedPrefixLength;
+          }
+        };
+
         textareaRef.current.addEventListener('input', handleInput);
+        textareaRef.current.addEventListener('select', handleSelect);
+        textareaRef.current.addEventListener('click', handleSelect);
         textareaRef.current.addEventListener('focus', onFocus);
 
         // 초기 렌더링 (자동완성 트리거 없이 하이라이트만)
@@ -1219,6 +1250,8 @@ const NativeEditTextArea = observer(
           window.removeEventListener('mousedown', handleWindowMouseDown);
           if (!textareaRef.current) return;
           textareaRef.current.removeEventListener('input', handleInput);
+          textareaRef.current.removeEventListener('select', handleSelect);
+          textareaRef.current.removeEventListener('click', handleSelect);
           textareaRef.current.removeEventListener('focus', onFocus);
         };
       }, []);
@@ -1325,6 +1358,8 @@ const PromptEditTextArea = observer(
     whiteBg,
     lineHighlight,
     innerRef,
+    lockedPrefix,
+    lockedBgClass,
   }: PromptEditTextAreaProps) => {
     const { curSession } = appState;
     const editorRef = useRef<EditTextAreaRef | null>(null);
@@ -1344,6 +1379,11 @@ const PromptEditTextArea = observer(
     const EditTextAreaImpl = isMobile
       ? NativeEditTextArea
       : EmulatedEditTextArea;
+
+    const prefixSep = ', ';
+    const fullPrefix = lockedPrefix ? lockedPrefix + prefixSep : '';
+    const displayValue = lockedPrefix ? fullPrefix + value : value;
+    const lockedPrefixRef = useLatest(fullPrefix);
 
     const closeAutoComplete = () => {
       setTags([]);
@@ -1367,7 +1407,16 @@ const PromptEditTextArea = observer(
       closeAutoComplete();
     };
     const onUpdated = (text: string) => {
-      onChange(text);
+      const fp = lockedPrefixRef.current;
+      if (fp) {
+        if (text.startsWith(fp)) {
+          onChange(text.slice(fp.length));
+        } else {
+          onChange(value);
+        }
+      } else {
+        onChange(text);
+      }
     };
     const highlight = (
       text: string,
@@ -1398,6 +1447,13 @@ const PromptEditTextArea = observer(
             }
           });
         }
+      }
+      const fp = lockedPrefixRef.current;
+      if (fp && text.startsWith(fp)) {
+        const bgClass = lockedBgClass || 'bg-sky-500/20 dark:bg-sky-500/30';
+        const prefixHtml = `<span class="${bgClass} rounded px-0.5" style="-webkit-text-stroke:0.4px currentColor;text-shadow:0 0 2px currentColor">${escapeHtml(fp.slice(0, -prefixSep.length))}</span>${escapeHtml(prefixSep)}`;
+        const rest = text.slice(fp.length);
+        return prefixHtml + highlightPrompt(curSession!, rest, lineHighlight ?? false);
       }
       return highlightPrompt(curSession!, text, lineHighlight ?? false);
     };
@@ -1469,8 +1525,9 @@ const PromptEditTextArea = observer(
         </div>
         <EditTextAreaImpl
           ref={editorRef}
-          value={value}
+          value={displayValue}
           disabled={disabled}
+          lockedPrefixLength={fullPrefix.length || undefined}
           highlight={highlight}
           onUpdated={onUpdated}
           history={historyRef.current}

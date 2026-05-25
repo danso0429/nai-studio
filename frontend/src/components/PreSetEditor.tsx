@@ -45,6 +45,7 @@ import {
   promptService,
   taskQueueService,
   workFlowService,
+  promptPresetService,
   isMobile,
 } from '../models';
 import { toPARR } from '../models/PromptService';
@@ -2229,11 +2230,39 @@ const WFRInline = observer(({ element }: WFElementProps) => {
     }
   }
   const key = `${type}_${preset.name}_${input.field}`;
+  const _presetId = appState.appliedPromptPreset;
+  const _presetObj = _presetId ? promptPresetService.get(_presetId) : undefined;
+  const _samplingLocked = (() => {
+    if (!_presetObj?.samplingOverrides) return false;
+    const so = _presetObj.samplingOverrides;
+    if (input.field === 'steps' && so.steps != null) return true;
+    if (input.field === 'promptGuidance' && so.promptGuidance != null) return true;
+    if (input.field === 'cfgRescale' && so.cfgRescale != null) return true;
+    if (input.field === 'sampling' && so.sampling != null) return true;
+    if (input.field === 'noiseSchedule' && so.noiseSchedule != null) return true;
+    return false;
+  })();
+  const _isProjectOverride = appState.curSession ? typeof appState.curSession.promptPresetId === 'string' : false;
+  const _lockBorderClass = _samplingLocked
+    ? (_isProjectOverride ? 'ring-2 ring-teal-400/50 rounded-lg' : 'ring-2 ring-sky-400/50 rounded-lg')
+    : '';
   switch (field.type) {
     case 'prompt': {
       const showPresetBtn =
         input.field === 'frontPrompt' &&
         (type === 'SDImageGen' || type === 'SDImageGenEasy');
+      const appliedId = appState.appliedPromptPreset;
+      const appliedPreset = appliedId ? promptPresetService.get(appliedId) : undefined;
+      let lockedPrefix: string | undefined;
+      if (appliedPreset) {
+        if (input.field === 'frontPrompt') lockedPrefix = appliedPreset.frontPrompt || undefined;
+        else if (input.field === 'backPrompt') lockedPrefix = appliedPreset.backPrompt || undefined;
+        else if (input.field === 'uc') lockedPrefix = appliedPreset.uc || undefined;
+      }
+      const isProjectOverride = appState.curSession ? typeof appState.curSession.promptPresetId === 'string' : false;
+      const lockedBgClass = lockedPrefix
+        ? (isProjectOverride ? 'bg-teal-500/20 dark:bg-teal-500/30 text-teal-900 dark:text-teal-100' : 'bg-sky-500/20 dark:bg-sky-500/30 text-sky-900 dark:text-sky-100')
+        : undefined;
       return (
         <>
           {showPresetBtn && (
@@ -2242,9 +2271,6 @@ const WFRInline = observer(({ element }: WFElementProps) => {
               getBackPrompt={() => preset.backPrompt || ''}
               getUc={() => preset.uc || ''}
               onApply={(id) => {
-                // 적용 = appliedPromptPreset id 저장. preset 객체 mutation X.
-                // 생성 시점에 SDWorkFlow applyPromptPresetOverride가 chunk + 사용자 슬롯
-                // 합쳐서 사본 반환 (덮어쓰기 X, 합치기).
                 appState.setAppliedPromptPreset(id);
               }}
             />
@@ -2255,6 +2281,8 @@ const WFRInline = observer(({ element }: WFElementProps) => {
               value={getField()}
               disabled={false}
               onChange={setField}
+              lockedPrefix={lockedPrefix}
+              lockedBgClass={lockedBgClass}
             ></PromptEditTextArea>
           </EditorField>
         </>
@@ -2266,7 +2294,7 @@ const WFRInline = observer(({ element }: WFElementProps) => {
           <DropdownSelect
             key={key}
             selectedOption={getField()}
-            disabled={false}
+            disabled={_samplingLocked}
             menuPlacement={input.menuPlacement}
             options={field.options.map((x) => ({
               label: x.label,
@@ -2309,51 +2337,57 @@ const WFRInline = observer(({ element }: WFElementProps) => {
       );
     case 'int':
       return (
-        <IntSliderInput
-          label={input.label}
-          value={getField()}
-          onChange={setField}
-          disabled={false}
-          min={field.min}
-          max={field.max}
-          step={field.step}
-          key={key}
-        />
+        <div className={_lockBorderClass}>
+          <IntSliderInput
+            label={input.label}
+            value={getField()}
+            onChange={setField}
+            disabled={_samplingLocked}
+            min={field.min}
+            max={field.max}
+            step={field.step}
+            key={key}
+          />
+        </div>
       );
     case 'sampling':
       return (
         <InlineEditorField label={input.label}>
-          <DropdownSelect
-            key={key}
-            selectedOption={getField()}
-            disabled={false}
-            menuPlacement="auto"
-            options={Object.values(Sampling).map((x) => ({
-              label: x,
-              value: x,
-            }))}
-            onSelect={(opt) => {
-              setField(opt.value);
-            }}
-          />
+          <div className={_lockBorderClass}>
+            <DropdownSelect
+              key={key}
+              selectedOption={getField()}
+              disabled={_samplingLocked}
+              menuPlacement="auto"
+              options={Object.values(Sampling).map((x) => ({
+                label: x,
+                value: x,
+              }))}
+              onSelect={(opt) => {
+                setField(opt.value);
+              }}
+            />
+          </div>
         </InlineEditorField>
       );
     case 'noiseSchedule':
       return (
         <InlineEditorField label={input.label}>
-          <DropdownSelect
-            key={key}
-            selectedOption={getField()}
-            disabled={false}
-            menuPlacement="auto"
-            options={Object.values(NoiseSchedule).map((x) => ({
-              label: x,
-              value: x,
-            }))}
-            onSelect={(opt) => {
-              setField(opt.value);
-            }}
-          />
+          <div className={_lockBorderClass}>
+            <DropdownSelect
+              key={key}
+              selectedOption={getField()}
+              disabled={_samplingLocked}
+              menuPlacement="auto"
+              options={Object.values(NoiseSchedule).map((x) => ({
+                label: x,
+                value: x,
+              }))}
+              onSelect={(opt) => {
+                setField(opt.value);
+              }}
+            />
+          </div>
         </InlineEditorField>
       );
     case 'image':
