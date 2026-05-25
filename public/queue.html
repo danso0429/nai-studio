@@ -1112,8 +1112,7 @@
       + '<div class="card full"><div class="label">처리 중</div><div class="value" id="q-scene-label"><span class="muted">없음</span></div><div class="small" id="q-project-line"></div></div>'
       + '<div class="card"><div class="label">디스크 여유</div><div class="value" id="q-disk">-</div></div>'
       + '<div class="card"><div class="label">상태</div><div class="value" id="q-status">💤 idle</div></div>'
-      + '<div class="card"><div class="label">완료 / 실패</div><div class="value"><span id="q-completed">0</span> <span class="muted">/</span> <span id="q-failed" class="muted">0</span></div></div>'
-      + '<div class="card" style="cursor: pointer;" onclick="window.toggleTimingHistory()" title="클릭해서 시간대별 통계 보기">'
+      + '<div class="card full" style="cursor: pointer;" onclick="window.toggleTimingHistory()" title="클릭해서 시간대별 통계 보기">'
       + '<div class="label">평균 (누적) <span id="q-avg-arrow">▶</span></div>'
       + '<div class="value" id="q-avg-cumul-value"><span class="muted">측정 전</span></div>'
       + '<div class="small" id="q-avg-cumul-small">총 -건 · raw 0개 (2일)</div>'
@@ -1329,9 +1328,6 @@
       setText('q-pending', (d.pending || 0) - reservedCount);
       setText('q-reserved-arrow', showReservedTree ? '▼' : '▶');
       setText('q-reserved', reservedCount);
-      setText('q-completed', d.completed || 0);
-      setText('q-failed', d.failed || 0);
-      setCls('q-failed', (d.failed > 0) ? 'red' : 'muted');
 
       // 평균 (누적) — 펼침 화살표 + 값
       setText('q-avg-arrow', showTimingHistory ? '▼' : '▶');
