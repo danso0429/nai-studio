@@ -394,12 +394,12 @@
 
   // (탭 시스템 제거 — 2026-05-13 본인 요청으로 현재/완료를 한 페이지에 표시)
 
-  // 완료 batch 펼침 상태 (batchIdx → bool)
+  // 완료 batch 펼침 상태 (project name → bool)
   const expandedBatches = {};
   // 완료 entries 변경 안 됐으면 매 tick 같은 정렬+render skip. toggle 시엔 강제 무효화.
   let lastCompletedFingerprint = null;
-  window.toggleBatch = (idx) => {
-    expandedBatches[idx] = !expandedBatches[idx];
+  window.toggleBatch = (key) => {
+    expandedBatches[key] = !expandedBatches[key];
     lastCompletedFingerprint = null;
     tickCompleted();
   };
@@ -420,28 +420,23 @@
   }
 
   function groupBatches(entries) {
-    // 같은 프로젝트 + 30분 이내 인접 → 같은 batch. 시간 끊김 또는 다른 프로젝트면 새 batch.
-    const GAP = 30 * 60 * 1000;
-    const batches = [];
+    // 프로젝트별로 합침 (인터리빙 무관). 프로젝트 순서는 가장 최근 완료 기준.
+    const map = new Map();
     for (const e of entries) {
       if (!e || typeof e !== 'object') continue;
       const project = extractProject(e);
       const completedAt = e.completedAt || 0;
-      const last = batches[batches.length - 1];
-      if (last && last.project === project && Math.abs(last.lastAt - completedAt) <= GAP) {
-        last.jobs.push(e);
-        last.firstAt = Math.min(last.firstAt, completedAt);
-        last.lastAt = Math.max(last.lastAt, completedAt);
+      if (!map.has(project)) {
+        map.set(project, { project, firstAt: completedAt, lastAt: completedAt, jobs: [e] });
       } else {
-        batches.push({
-          project,
-          firstAt: completedAt,
-          lastAt: completedAt,
-          jobs: [e],
-        });
+        const b = map.get(project);
+        b.jobs.push(e);
+        b.firstAt = Math.min(b.firstAt, completedAt);
+        b.lastAt = Math.max(b.lastAt, completedAt);
       }
     }
-    return batches;
+    // entries는 이미 completedAt 내림차순 — 각 그룹의 lastAt이 큰 순서로 정렬.
+    return Array.from(map.values()).sort((a, b) => b.lastAt - a.lastAt);
   }
 
   function fmtTime(ts) {
@@ -473,24 +468,22 @@
         return;
       }
       const batches = groupBatches(entries);
-      const html = batches.map((b, idx) => {
-        const open = !!expandedBatches[idx];
+      const html = batches.map((b) => {
+        const key = b.project;
+        const open = !!expandedBatches[key];
         const timeLabel = b.firstAt === b.lastAt ? fmtTime(b.firstAt) : (fmtTime(b.firstAt) + '~' + fmtTime(b.lastAt));
-        const shown = b.jobs.slice(0, 10);
+        const shown = b.jobs.slice(0, 50);
         const more = b.jobs.length - shown.length;
         const body = open ? (
           '<div class="batch-body">'
           + shown.map((j) => {
             const jmeta = j && j.meta;
             let sn = (jmeta && jmeta.sceneName) || null;
-            // 폴백: outputFilePath에서 sceneName 추출 (outs/project/scene/file.png)
             if (!sn && j && j.outputFilePath) {
               const parts = String(j.outputFilePath).split('/');
               if (parts.length >= 3 && parts[0] === 'outs') sn = parts[parts.length - 2];
             }
             sn = sn || '(unknown)';
-            // 씬 그룹 진행(N개 조합 중 i번째) 우선 — jobIndex(task 내 jobs 순번 = samples=1이면 항상 1/1)는
-            // 표시상 무가치라 fallback 안 함. sceneJobIndex 없으면 라벨 생략.
             const idx = jmeta && jmeta.sceneJobIndex && jmeta.sceneJobTotal
               ? ' ' + jmeta.sceneJobIndex + '/' + jmeta.sceneJobTotal
               : '';
@@ -500,8 +493,9 @@
           + (more > 0 ? '<div class="scene-row" style="color:#6a6f78; justify-content:center;">+ ' + more + '개 더</div>' : '')
           + '</div>'
         ) : '';
+        const safeKey = escapeHtml(key).replace(/'/g, "\\'");
         return '<div class="batch">'
-          + '<div class="batch-head" onclick="window.toggleBatch(' + idx + ')">'
+          + '<div class="batch-head" onclick="window.toggleBatch(\'' + safeKey + '\')">'
           + '<div class="batch-project">' + (open ? '▼ ' : '▶ ') + escapeHtml(b.project) + '</div>'
           + '<div class="batch-meta">' + timeLabel + ' · ' + b.jobs.length + '장</div>'
           + '</div>'
