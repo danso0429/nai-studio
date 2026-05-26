@@ -1,6 +1,6 @@
 {
-  "version": "1.8.1",
-  "sdstudioBase": "4.8.2",
+  "version": "1.8.2",
+  "sdstudioBase": "4.9.0",
   "released": "2026-05-27",
-  "notes": "patch. v1.8.0 → v1.8.1. orphan reserved 재예약 시스템(서버 재시작 후 유실된 예약 자동 감지 + 재예약 다이얼로그) / 프리셋 session 기반 resolve(appState 전역 의존 제거) / 씬 순서 변경 UI(reorder 모드 토글 + 좌우 이동 버튼) / 프로젝트 단위 예약 취소 / 프로젝트 이름 충돌 _2_2 방지 / addMirroredTask 취소 시 이중 차감 방지."
+  "notes": "patch. v1.8.1 → v1.8.2. SDStudio v4.9.0 흡수 — 캐릭터 프리셋 다중 캐릭터 지원(fromPreset 태그 기반) / 프로젝트 브라우저 카드 그리드 뷰 / 다른 프로젝트로 씬 복사(개별+일괄) / 트루 다크 모드(3택 테마) / 캐릭터 위치 좌표평면 드래그 UI / 초기 로딩 최적화(autoCleanup 지연, ResourceSync 병렬화) / 바이브 손상 건너뛰기 / 순차 생성 쿨다운 / 조합 에디터 도움말+1열1행 삭제 방지 / FindReplace 새 열 추가. 자체: queue.html 직전 소요 vs 시간대 평균 비교 카드 / 트루 다크 queue.html CSS 변수 체계."
 }

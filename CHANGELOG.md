@@ -9,6 +9,37 @@
 
 ---
 
+## v1.8.2 (2026-05-27)
+
+patch. v1.8.1 → v1.8.2. SDStudio v4.9.0 흡수 + 트루 다크 모드 + queue.html 직전 소요 비교. sdstudioBase 4.8.2 → 4.9.0.
+
+### 새 기능 — SDStudio v4.9.0 흡수
+
+- **feat(preset)**: 캐릭터 프리셋 다중 캐릭터 지원 — `fromPreset` 태그 기반으로 프리셋 적용 시 기존 바이브/레퍼런스 유지 + 프리셋 것만 추가/제거. 해제 시 프리셋 항목만 정리.
+- **feat(ui)**: 프로젝트 브라우저 카드 그리드 뷰 — 썸네일, 검색, 최근 프로젝트, 즐겨찾기 정렬. SessionSelect에 격자 아이콘 탐색 버튼 추가.
+- **feat(scene)**: 다른 프로젝트로 씬 복사 — 개별(컨텍스트 메뉴) + 일괄(대량 작업 메뉴). 이미지 포함/설정만 선택 가능.
+- **feat(theme)**: 트루 다크 모드 — 순수 검정 배경. 다크/트루 다크/화이트 3택 라디오. queue.html CSS 변수 체계 + 자동 적용.
+- **feat(editor)**: 캐릭터 위치 지정 좌표평면 드래그 UI — 기존 X/Y 슬라이더 대체. 9등분 격자 + 색상 넘버 마커.
+- **feat(editor)**: 조합 에디터 도움말 툴팁 + 1열1행 삭제 방지.
+- **feat(editor)**: FindReplaceDialog 새 열 추가 기능.
+
+### 새 기능 — 자체
+
+- **feat(queue)**: queue.html 직전 소요 vs 시간대 평균 비교 카드 (`lastJobDurationMs`). 색상으로 ±10% 범위 표시.
+
+### 개선
+
+- **perf(init)**: autoCleanup 10초 지연 실행 — 앱 시작 블로킹 제거.
+- **perf(init)**: ResourceSyncService `update()`/`saveAll()` `Promise.allSettled` 병렬화.
+- **perf(export)**: `gameService.refreshList` 병렬 처리.
+- **fix(vibe)**: 바이브 이미지 손상 시 생성 오류 대신 건너뛰기 + 사용자 안내 메시지.
+- **fix(cycling)**: 순차 생성 프리셋 전환 시 5초 쿨다운 추가 (API 레이트 리밋 방지).
+- **fix(dnd)**: SceneCell DnD 카드 너비 보정 (cardWidth 캡처).
+- **style(mobile)**: TobBar 모바일 환경설정+크레딧 세로 배치, 스크롤바 축소.
+- **style(dark)**: 트루 다크 모드 커스텀 UI 오버라이드 — SessionTreePicker, react-select, gray-input, confirm-window 등.
+
+---
+
 ## v1.8.1 (2026-05-27)
 
 patch. v1.8.0 → v1.8.1. orphan reserved 재예약 + 프리셋 session 기반 resolve + 씬 순서 변경 UI.
