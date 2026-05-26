@@ -174,11 +174,12 @@ const SDImageGenEasyInnerUI = wfiStack([
   ]),
 ]);
 
-// 프롬프트 프리셋 오버라이드 — appliedPromptPreset이 있으면 그 프리셋의 front/back/uc
-// 텍스트를 사용자 슬롯 텍스트의 *앞에 합쳐서* 반환. preset 객체 자체는 mutation X.
-// samplingOverrides가 있으면 해당 값으로 덮어씀.
-function applyPromptPresetOverride(preset: any): any {
-  const id = appState.appliedPromptPreset;
+// 프롬프트 프리셋 오버라이드 — session.promptPresetId에서 프리셋 ID를 직접 resolve.
+// appState 전역 UI 상태에 의존하지 않아서, 재예약 등 비-UI 경로에서도 정확히 적용됨.
+function applyPromptPresetOverride(preset: any, session: Session): any {
+  const pid = session.promptPresetId;
+  const id = pid === null ? undefined
+    : pid || appState.globalPromptPresetId;
   if (!id) return preset;
   const applied = promptPresetService.get(id);
   if (!applied) return preset;
@@ -218,9 +219,7 @@ const SDImageGenHandler = async (
   extraUc?: string,
   sceneGroup?: { sceneJobTotal: number; sceneJobStartIndex: number },
 ) => {
-  // 옵션 3 — 프롬프트 프리셋 적용 중이면 preset의 그림체 영역만 교체한 사본 사용.
-  // preset 객체 자체는 mutation X.
-  preset = applyPromptPresetOverride(preset);
+  preset = applyPromptPresetOverride(preset, session);
   // 씬 전용 캐릭터 프롬프트 사용 여부 확인
   const sceneObj = scene as Scene;
   const useSceneCharacterPrompts = sceneObj.useSceneCharacterPrompts &&
@@ -319,7 +318,7 @@ const SDCreatePrompt = async (
   shared: any,
 ) => {
   // 옵션 3 — 프리셋 적용 중이면 override한 사본으로 prompt 합성.
-  return await createSDPrompts(session, applyPromptPresetOverride(preset), shared, scene as Scene);
+  return await createSDPrompts(session, applyPromptPresetOverride(preset, session), shared, scene as Scene);
 };
 
 const SDCreateCharacterPrompts = async (

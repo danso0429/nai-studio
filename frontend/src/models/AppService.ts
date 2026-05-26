@@ -1072,10 +1072,12 @@ export class AppState {
     const defaultNames: string[] = [];
     for (const s of sessions) {
       let name = s.origName;
-      let n = 2;
-      while (occupied.has(name) || defaultNames.includes(name)) {
-        name = `${s.origName}_${n}`;
-        n++;
+      if (occupied.has(name) || defaultNames.includes(name)) {
+        const m = s.origName.match(/^(.+)_(\d+)$/);
+        const root = m && (occupied.has(m[1]) || defaultNames.includes(m[1])) ? m[1] : s.origName;
+        let n = 2;
+        while (occupied.has(root + '_' + n) || defaultNames.includes(root + '_' + n)) n++;
+        name = root + '_' + n;
       }
       defaultNames.push(name);
     }

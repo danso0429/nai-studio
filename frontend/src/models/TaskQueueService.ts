@@ -931,6 +931,61 @@ export class TaskQueueService extends EventTarget {
     this.dispatchProgress();
   }
 
+  waitForPendingFills(): Promise<void> {
+    return this.addBatchChain;
+  }
+
+  removeTasksFromProject(session: Session) {
+    const prefix = session.name + '/';
+    // legacy queue
+    const oldQueue = this.queue;
+    this.queue = new CircularQueue<Task>();
+    while (!oldQueue.isEmpty()) {
+      const task = oldQueue.peek();
+      oldQueue.dequeue();
+      this.removeTaskInternal(task);
+      if (task.params.session !== session) {
+        this.addTaskInternal(task);
+      }
+    }
+    // mirror: sceneKey prefix 매칭
+    const matchedTaskIds: string[] = [];
+    for (const taskId of this.mirroredTasks.keys()) {
+      const sk = this.mirrorTaskSceneKeys.get(taskId) ?? '';
+      if (sk.startsWith(prefix)) {
+        matchedTaskIds.push(taskId);
+      }
+    }
+    if (matchedTaskIds.length > 0) {
+      backend.cancelQueueByTaskIds(matchedTaskIds).catch((e) =>
+        console.warn('[TaskQueue] cancelQueueByTaskIds failed:', e),
+      );
+      for (const taskId of matchedTaskIds) {
+        const mtask = this.mirroredTasks.get(taskId)!;
+        this.groupStats[mtask.cls].total -= mtask.total;
+        this.groupStats[mtask.cls].done -= mtask.done;
+        const sceneKey = this.mirrorTaskSceneKeys.get(taskId);
+        if (sceneKey && sceneKey in this.sceneStats) {
+          this.sceneStats[sceneKey].total -= mtask.total;
+          this.sceneStats[sceneKey].done -= mtask.done;
+          if (this.sceneStats[sceneKey].total <= 0 && this.sceneStats[sceneKey].done <= 0) {
+            delete this.sceneStats[sceneKey];
+          }
+        }
+        for (const [jobId, jobInfo] of this.mirroredJobs) {
+          if (jobInfo.taskId === taskId) {
+            this.mirroredJobs.delete(jobId);
+          }
+        }
+        this.mirroredTasks.delete(taskId);
+        this.mirrorTaskSceneKeys.delete(taskId);
+        this.mirrorRunStartTimes.delete(taskId);
+        delete this.taskSet[taskId];
+      }
+    }
+    this.dispatchProgress();
+  }
+
   // sync void 반환 — caller 즉시 return + addMirroredTask는 background.
   // sync block(line 968-997)의 stats += task.total + dispatchProgress는 동기적으로
   // 즉시 fire이라 UI 카운터 instant 점프 보존. prep + queueAddBatch는 background.
@@ -1064,23 +1119,29 @@ export class TaskQueueService extends EventTarget {
       reservationId = null; // fill 성공 — cleanup 불필요
       this.dispatchProgress();
     } catch (e: any) {
-      console.error(
-        `[TaskQueue] addMirroredTask threw — stats unwound (sceneKey=${sceneKey || '(none)'} total=${task.total}):`,
-        e?.message || e,
-      );
-      this.groupStats[task.cls].total -= task.total;
-      if (sceneKey && sceneKey in this.sceneStats) {
-        this.sceneStats[sceneKey].total -= task.total;
-        if (this.sceneStats[sceneKey].total <= 0 && this.sceneStats[sceneKey].done <= 0) {
-          delete this.sceneStats[sceneKey];
+      // removeAllTasks / removeTasksFromScene가 이미 이 task를 정리했으면
+      // stats가 이미 unwind된 상태 — 이중 차감하면 음수 카운트 발생.
+      // 취소로 인한 fill 404는 에러 토스트 불필요.
+      if (this.mirroredTasks.has(taskId)) {
+        console.error(
+          `[TaskQueue] addMirroredTask threw — stats unwound (sceneKey=${sceneKey || '(none)'} total=${task.total}):`,
+          e?.message || e,
+        );
+        this.groupStats[task.cls].total -= task.total;
+        if (sceneKey && sceneKey in this.sceneStats) {
+          this.sceneStats[sceneKey].total -= task.total;
+          if (this.sceneStats[sceneKey].total <= 0 && this.sceneStats[sceneKey].done <= 0) {
+            delete this.sceneStats[sceneKey];
+          }
         }
+        this.mirroredTasks.delete(taskId);
+        this.mirrorTaskSceneKeys.delete(taskId);
+        this.mirrorRunStartTimes.delete(taskId);
+        delete this.taskSet[taskId];
+        this.dispatchProgress();
+        throw e;
       }
-      this.mirroredTasks.delete(taskId);
-      this.mirrorTaskSceneKeys.delete(taskId);
-      this.mirrorRunStartTimes.delete(taskId);
-      delete this.taskSet[taskId];
       this.dispatchProgress();
-      throw e;
     } finally {
       items.length = 0;
       localOutputs.length = 0;

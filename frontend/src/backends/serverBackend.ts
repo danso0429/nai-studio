@@ -275,6 +275,22 @@ export class ServerBackend extends Backend {
     return { cancelled: data.cancelled || 0 };
   }
 
+  async cancelReserved(): Promise<{ cancelled: number }> {
+    const data = await apiJSON('/queue/cancel-reserved', { method: 'POST' });
+    return { cancelled: data.cancelled || 0 };
+  }
+
+  async getReservedSummary(): Promise<{
+    scenes: Array<{
+      sceneKey: string; projectName: string; sceneName: string; sceneType: string;
+      taskGroups: Array<{ samples: number; taskCount: number }>;
+      totalJobs: number;
+    }>;
+    totalReserved: number;
+  }> {
+    return apiJSON('/queue/reserved-summary');
+  }
+
   async cancelQueueByTaskIds(taskIds: string[]): Promise<{ cancelled: number }> {
     const data = await apiJSON('/queue/cancel-by-task-ids', {
       method: 'POST',

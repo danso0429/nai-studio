@@ -589,12 +589,16 @@ export class SessionService extends ResourceSyncService<Session> {
     }
 
     // 충돌 회피 — 같은 이름이 활성 목록에 있으면 _2, _3 ... suffix.
+    // base가 이미 _N suffix를 가진 경우(예: "세인 pen_2"), 원본 base("세인 pen")가
+    // existing에 있으면 suffix를 떼고 다음 번호로 ("세인 pen_3"). _2_2 방지.
     const existing = new Set(this.resourceList);
     const allocateName = (base: string): string => {
       if (!existing.has(base)) return base;
+      const m = base.match(/^(.+)_(\d+)$/);
+      const root = m && existing.has(m[1]) ? m[1] : base;
       let i = 2;
-      while (existing.has(base + '_' + i)) i++;
-      return base + '_' + i;
+      while (existing.has(root + '_' + i)) i++;
+      return root + '_' + i;
     };
 
     const imported: string[] = [];

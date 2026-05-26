@@ -10,7 +10,7 @@ import {
 import { extractApiError } from '../models/util';
 import SessionSelect from './SessionSelect';
 import PreSetEditor from './PreSetEditor';
-import { SceneCell } from './SceneQueueControl';
+import { SceneCell, queueScene } from './SceneQueueControl';
 import TaskQueueControl, { TaskQueueProgress, TaskQueueControls } from './TaskQueueControl';
 import TobBar from './TobBar';
 import AlertWindow from './AlertWindow';
@@ -450,6 +450,75 @@ export const App = observer(() => {
     return () => {
       document.removeEventListener('visibilitychange', onVisChange);
     };
+  }, []);
+
+  // orphan reserved 감지 — 서버 재시작 후 fill 못 한 예약 복구 제안
+  useEffect(() => {
+    let cancelled = false;
+    const checkOrphanReserved = async () => {
+      await new Promise((r) => setTimeout(r, 1000));
+      if (cancelled) return;
+      try {
+        const summary = await backend.getReservedSummary();
+        if (summary.totalReserved === 0 || cancelled) return;
+        const lines = summary.scenes.map(
+          (s) => `${s.projectName} / ${s.sceneName} (${s.totalJobs}개)`,
+        );
+        appState.pushDialog({
+          type: 'confirm',
+          text:
+            `서버 재시작으로 예약 준비 중이던 ${summary.totalReserved}개 항목이 유실됐어요.\n` +
+            `다시 예약할까요?\n\n` +
+            lines.slice(0, 10).join('\n') +
+            (lines.length > 10 ? `\n외 ${lines.length - 10}건` : ''),
+          callback: async () => {
+            try {
+              await backend.cancelReserved();
+              await taskQueueService.restoreMirroredState();
+              let queued = 0;
+              let failed = 0;
+              for (const entry of summary.scenes) {
+                const session = await sessionService.get(entry.projectName).catch(() => null);
+                if (!session) { failed += entry.totalJobs; continue; }
+                const scenes = session.getScenes(entry.sceneType);
+                const scene = scenes.find((s) => s.name === entry.sceneName);
+                if (!scene) { failed += entry.totalJobs; continue; }
+                let tasksPerCall = 1;
+                if (scene.type === 'scene' && session.selectedWorkflow) {
+                  try {
+                    const [, preset, shared, def] = session.getCommonSetup(session.selectedWorkflow);
+                    if (def.createPrompt) {
+                      const prompts = await def.createPrompt(session, scene, preset, shared);
+                      tasksPerCall = prompts.length || 1;
+                    }
+                  } catch { /* fallback 1 */ }
+                }
+                for (const group of entry.taskGroups) {
+                  const numCalls = Math.max(1, Math.ceil(group.taskCount / tasksPerCall));
+                  for (let i = 0; i < numCalls; i++) {
+                    try {
+                      await queueScene(session, scene, group.samples);
+                      queued += group.samples * tasksPerCall;
+                    } catch (e: any) {
+                      console.warn('[orphan-requeue] failed:', entry.sceneKey, e);
+                      failed += group.samples * tasksPerCall;
+                    }
+                  }
+                  await taskQueueService.waitForPendingFills();
+                }
+              }
+              let msg = `✓ ${queued}개 재예약 완료`;
+              if (failed > 0) msg += ` (${failed}개 실패 — 씬/프로젝트 없음)`;
+              appState.pushMessage(msg);
+            } catch (e: any) {
+              appState.pushMessage('재예약 실패: ' + (e?.message || e));
+            }
+          },
+        });
+      } catch {}
+    };
+    checkOrphanReserved();
+    return () => { cancelled = true; };
   }, []);
 
   // 글로벌 프리셋 손상 복구 알림

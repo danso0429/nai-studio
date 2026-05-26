@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { FloatView } from './FloatView';
 import SceneEditor from './SceneEditor';
-import { FaBookmark, FaBroom, FaEdit, FaExchangeAlt, FaFileImage, FaPlus, FaRegCalendarTimes, FaSearch, FaStar, FaTimes, FaTrash, FaTrashRestore } from 'react-icons/fa';
+import { FaBookmark, FaBroom, FaChevronLeft, FaChevronRight, FaEdit, FaExchangeAlt, FaFileImage, FaPlus, FaRegCalendarTimes, FaSearch, FaSort, FaStar, FaTimes, FaTrash, FaTrashRestore } from 'react-icons/fa';
 import ResultViewer from './ResultViewer';
 import InPaintEditor from './InPaintEditor';
 import { useDrag, useDrop } from 'react-dnd';
@@ -64,7 +64,7 @@ const createMissingPiecesForSession = (
   sessionService.reloadPieceLibraryDB(session);
 };
 
-const queueScene = async (
+export const queueScene = async (
   session: Session,
   scene: GenericScene,
   samples: number,
@@ -106,6 +106,8 @@ interface SceneCellProps {
   setDisplayScene?: (scene: GenericScene) => void;
   setEditingScene?: (scene: GenericScene) => void;
   moveScene?: (scene: GenericScene, index: number) => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
   style?: React.CSSProperties;
   isBookmarked?: boolean;
   onToggleBookmark?: () => void;
@@ -119,6 +121,8 @@ export const SceneCell = observer(
     getImage,
     setDisplayScene,
     moveScene,
+    onMoveUp,
+    onMoveDown,
     setEditingScene,
     curSession,
     cellSize,
@@ -155,11 +159,13 @@ export const SceneCell = observer(
     const cellSizes = aspectClass
       ? Array(3).fill(`w-full ${aspectClass}`)
       : ['w-full h-36', 'w-full h-48', 'w-full h-72'];
+    const canDrag = !!moveScene;
     const curIndex = curSession.getScenes(scene.type).indexOf(scene);
     const [{ isDragging }, drag, preview] = useDrag(
       () => ({
         type: 'scene',
         item: { scene, curIndex, getImage, curSession, cellSize },
+        canDrag: () => canDrag,
         collect: (monitor) => {
           const diff = monitor.getDifferenceFromInitialOffset();
           if (diff) {
@@ -173,15 +179,14 @@ export const SceneCell = observer(
           };
         },
         end: (item, monitor) => {
-          // if (!isMobile) return;
           const { scene: droppedScene, curIndex: droppedIndex } = item;
           const didDrop = monitor.didDrop();
           if (!didDrop) {
-            moveScene!(droppedScene, droppedIndex);
+            moveScene?.(droppedScene, droppedIndex);
           }
         },
       }),
-      [curIndex, scene, cellSize],
+      [curIndex, scene, cellSize, canDrag],
     );
 
     useEffect(() => {
@@ -191,7 +196,7 @@ export const SceneCell = observer(
     const [{ isOver }, drop] = useDrop<any, any, any>(
       () => ({
         accept: 'scene',
-        canDrop: () => true,
+        canDrop: () => canDrag,
         collect: (monitor) => {
           if (monitor.isOver()) {
             return {
@@ -203,10 +208,10 @@ export const SceneCell = observer(
         drop: (item: any, monitor) => {
           const { scene: droppedScene, curIndex: droppedIndex } = item;
           const overIndex = curSession.getScenes(scene.type).indexOf(scene);
-          moveScene!(droppedScene, overIndex);
+          moveScene?.(droppedScene, overIndex);
         },
       }),
-      [moveScene],
+      [moveScene, canDrag],
     );
 
     const addToQueue = async (scene: GenericScene) => {
@@ -327,8 +332,21 @@ export const SceneCell = observer(
       const green = overlay ? 'bg-green-500 text-white' : 'back-green';
       const gray = overlay ? 'bg-gray-500 text-white' : 'back-gray';
       const orange = overlay ? 'bg-orange-500 text-white' : 'back-orange';
+      const sky = overlay ? 'bg-sky-500 text-white' : 'back-sky';
       return (
         <>
+          {onMoveUp && (
+            <button className={`${btnClass} ${sky}`}
+              onClick={(e) => { e.stopPropagation(); onMoveUp(); }}>
+              <FaChevronLeft size={14} />
+            </button>
+          )}
+          {onMoveDown && (
+            <button className={`${btnClass} ${sky}`}
+              onClick={(e) => { e.stopPropagation(); onMoveDown(); }}>
+              <FaChevronRight size={14} />
+            </button>
+          )}
           <Tooltip content="예약 추가">
           <button className={`${btnClass} ${green}`}
             onClick={(e) => { e.stopPropagation(); addToQueue(scene); }}>
@@ -1388,6 +1406,7 @@ const QueueControl = observer(
       });
     }, []);
 
+    const [reorderMode, setReorderMode] = useState(false);
     const moveScene = (draggingScene: GenericScene, targetIndex: number) => {
       curSession!.moveScene(draggingScene, targetIndex);
     };
@@ -1436,8 +1455,8 @@ const QueueControl = observer(
                 onClick={() => {
                   appState.pushDialog({
                     type: 'confirm',
-                    text: '모든 예약(대기 + 준비 중)을 취소할까요?',
-                    callback: () => taskQueueService.removeAllTasks(),
+                    text: '이 프로젝트의 모든 예약(대기 + 준비 중)을 취소할까요?',
+                    callback: () => taskQueueService.removeTasksFromProject(curSession),
                   });
                 }}
               >
@@ -1521,6 +1540,14 @@ const QueueControl = observer(
                 onClick={() => setShowSceneTrash(true)}
               >
                 <FaTrash size={18} />
+              </button>
+              </Tooltip>
+              <Tooltip content="씬 순서 변경">
+              <button
+                className={`round-button ${reorderMode ? 'back-sky' : 'back-gray'}`}
+                onClick={() => setReorderMode((v) => !v)}
+              >
+                <FaSort size={18} />
               </button>
               </Tooltip>
               <Tooltip content="모든 씬 내 삭제한 이미지 일괄 비우기">
@@ -1633,7 +1660,10 @@ const QueueControl = observer(
                   alignContent: 'start',
                 } : undefined}
               >
-                {renderedScenes.map((scene, sceneIdx) => (
+                {renderedScenes.map((scene, sceneIdx) => {
+                    const allScenes = curSession.getScenes(scene.type);
+                    const realIdx = allScenes.indexOf(scene);
+                    return (
                     <SceneCell
                       cellSize={effectiveCellSize}
                       key={scene.name}
@@ -1641,14 +1671,17 @@ const QueueControl = observer(
                       getImage={getImage}
                       setDisplayScene={setDisplayScene}
                       setEditingScene={setEditingScene}
-                      moveScene={moveScene}
+                      moveScene={reorderMode ? moveScene : undefined}
+                      onMoveUp={reorderMode && realIdx > 0 ? () => moveScene(scene, realIdx - 1) : undefined}
+                      onMoveDown={reorderMode && realIdx < allScenes.length - 1 ? () => moveScene(scene, realIdx + 1) : undefined}
                       curSession={curSession}
                       isBookmarked={sessionService.isSceneBookmarked(curSession.name, scene.name)}
                       onToggleBookmark={() => sessionService.toggleSceneBookmark(curSession.name, scene.name, scene.type)}
                       disableHover={!!(editingScene || displayScene)}
                       isFocused={focusedSceneIndex === sceneIdx}
                     />
-                  ))}
+                    );
+                  })}
               </div>
             );
           })()}

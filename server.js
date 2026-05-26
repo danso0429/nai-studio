@@ -2078,6 +2078,69 @@ try {
   }
 }
 
+// orphan 감지용 — 현재 reserved 요약 (sceneKey별 taskGroups + totalJobs)
+app.get('/api/queue/reserved-summary', (req, res) => {
+  // 1단계: taskId별 unique task 추출 (같은 taskId의 job은 한 task)
+  const taskMap = new Map();
+  let totalReserved = 0;
+  for (const [, rv] of reservedJobs) {
+    for (const job of rv.jobs) {
+      totalReserved++;
+      const meta = job.meta || {};
+      const taskId = meta.taskId;
+      const sceneKey = meta.sceneKey;
+      if (!taskId || !sceneKey) continue;
+      if (!taskMap.has(taskId)) {
+        taskMap.set(taskId, {
+          sceneKey,
+          jobTotal: meta.jobTotal || 1,
+          projectName: sceneKey.split('/')[0],
+          sceneName: meta.sceneName || sceneKey.split('/')[2],
+          sceneType: meta.taskType || sceneKey.split('/')[1],
+        });
+      }
+    }
+  }
+  // 2단계: sceneKey별 그룹핑 → taskGroups (samples별 task 수)
+  const sceneMap = {};
+  for (const [, t] of taskMap) {
+    if (!sceneMap[t.sceneKey]) {
+      sceneMap[t.sceneKey] = {
+        projectName: t.projectName,
+        sceneName: t.sceneName,
+        sceneType: t.sceneType,
+        taskGroups: {},
+        totalJobs: 0,
+      };
+    }
+    const s = t.jobTotal;
+    sceneMap[t.sceneKey].taskGroups[s] = (sceneMap[t.sceneKey].taskGroups[s] || 0) + 1;
+    sceneMap[t.sceneKey].totalJobs += s;
+  }
+  const scenes = Object.entries(sceneMap).map(([key, v]) => ({
+    sceneKey: key,
+    projectName: v.projectName,
+    sceneName: v.sceneName,
+    sceneType: v.sceneType,
+    taskGroups: Object.entries(v.taskGroups).map(([samples, taskCount]) => ({
+      samples: Number(samples),
+      taskCount,
+    })),
+    totalJobs: v.totalJobs,
+  }));
+  res.json({ scenes, totalReserved });
+});
+
+// reserved만 cancel (genQueue는 유지). orphan 정리 후 재예약용.
+app.post('/api/queue/cancel-reserved', (req, res) => {
+  let cancelled = 0;
+  for (const r of reservedJobs.values()) cancelled += r.jobs.length;
+  reservedJobs.clear();
+  broadcastQueueStatus();
+  saveQueueState();
+  res.json({ ok: true, cancelled });
+});
+
 app.post('/api/queue/cancel', (req, res) => {
   let cancelled = genQueue.length;
   genQueue.length = 0;
