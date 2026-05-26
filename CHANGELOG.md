@@ -9,6 +9,27 @@
 
 ---
 
+## v1.8.1 (2026-05-27)
+
+patch. v1.8.0 → v1.8.1. orphan reserved 재예약 + 프리셋 session 기반 resolve + 씬 순서 변경 UI.
+
+### 새 기능
+
+- **feat(queue)** (`993aef0`): orphan reserved 재예약 시스템 — 서버 재시작 후 fill 못 한 예약 자동 감지 + 재예약 다이얼로그. 씬 단위 순차 fill (`waitForPendingFills`)로 브라우저 연결 풀 포화 방지.
+- **feat(scene)** (`993aef0`): 씬 순서 변경 UI — reorder 모드 토글(FaSort) + 좌/우 이동 버튼(FaChevronLeft/Right). reorder 모드 off 시 drag 비활성화.
+- **feat(queue)** (`993aef0`): 프로젝트 단위 예약 취소 (`removeTasksFromProject`) — "모든 예약 취소" → "이 프로젝트의 예약 취소"로 범위 변경.
+
+### 개선
+
+- **refactor(preset)** (`993aef0`): `applyPromptPresetOverride`가 `appState.appliedPromptPreset`(전역 UI 캐시) 대신 `session.promptPresetId`에서 직접 resolve. 재예약 등 비-UI 경로에서도 프리셋 정확 적용.
+
+### 수정
+
+- **fix(queue)** (`993aef0`): `addMirroredTask` catch 블록 — `removeAllTasks`/`removeTasksFromProject`가 이미 정리한 task의 stats 이중 차감 방지.
+- **fix(import)** (`993aef0`): 프로젝트 이름 충돌 시 `_2_2` 중복 suffix 방지 — root 이름 추출 후 다음 번호 할당.
+
+---
+
 ## v1.8.0 (2026-05-25)
 
 minor. v1.7.3 → v1.8.0. 그림체 프리셋 자유 합성 + 큐 예약 시스템 + 폴더 백업 복원 UI + 큐 성능 대폭 개선 + 20+ 버그 수정.

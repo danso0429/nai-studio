@@ -1,6 +1,6 @@
 {
-  "version": "1.8.0",
+  "version": "1.8.1",
   "sdstudioBase": "4.8.2",
-  "released": "2026-05-25",
-  "notes": "minor. v1.7.3 → v1.8.0. 그림체 프리셋 자유 합성(slot lock 폐기 + prepend 합치기 + sampler 폐기 + 영속화 + 배너 축소 + 샘플링 덮어쓰기) / 큐 예약(reserve/fill) 시스템 — prep 중 새로고침해도 큐 유지 / 불러오기 선택 다이얼로그 + 폴더 백업 다중 복원 UI / 임포트 폴더 사용자 선택 / 데스크탑 ctrl+click 이미지 선택 / WS heartbeat ping/pong / 큐 패널 디스크 정리 5종 / 폴더·프로젝트 한 번에 큐 등록 / 폴더 내보내기 nested tar / 큐 한도 7000 + toast / 진행 카운터 KST 자정 리셋 / 큐 ETA cross-hour 시간대별 시뮬레이션 / fastcache prewarm initialThumbSize 기반 + thumbnail 분리. 성능 — 큐 영속화 base64 dedupe(107MB→0.9MB) + prepGenInput config 캐시 + scene-job-complete burst debounce. 수정 — WS visibility refresh + done 보존 + 카드 imageMap stale(App.tsx global) + Chrome clipboard activation + 인페인트 PC fit-to-viewport + 프로젝트 이름 충돌 폴더 명시 + 큐 라벨 sceneName N/M + toast 최대 4개 + queue.html 완료 탭 인터리빙 제거."
+  "released": "2026-05-27",
+  "notes": "patch. v1.8.0 → v1.8.1. orphan reserved 재예약 시스템(서버 재시작 후 유실된 예약 자동 감지 + 재예약 다이얼로그) / 프리셋 session 기반 resolve(appState 전역 의존 제거) / 씬 순서 변경 UI(reorder 모드 토글 + 좌우 이동 버튼) / 프로젝트 단위 예약 취소 / 프로젝트 이름 충돌 _2_2 방지 / addMirroredTask 취소 시 이중 차감 방지."
 }

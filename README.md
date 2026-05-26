@@ -122,7 +122,7 @@
 | **프로젝트 다중 내보내기 (.json)** | 1개씩만 | 트리 picker로 N개 동시, 백그라운드 + 4-병렬 큐 등록, 진행 중 delete/rename 소프트 락 (v1.7.3) |
 | **업스트림 SDStudio 알림** | 해당 없음 | fork update orange 펄스(🔄)와 별개로 업스트림 indigo 펄스(🔧) (v1.7.3) |
 | **진행 상황 표시** | 모달 다이얼로그 | 상단 진행 알약 + 다중 progress |
-| **큐 영속화** | 미지원 | 서버 재시작에도 보존 (`data/.queue_state.json`) |
+| **큐 영속화** | 미지원 | 서버 재시작에도 보존 (`data/.queue_state.json`) + orphan 자동 감지·재예약 (v1.8.1) |
 | **폴더 전체 백업/복원** | 미지원 (수동 폴더 복사) | 1 tar로 묶음 + Drive `backups/` 자동 분류 + 폴더 단위 복원 (이름 충돌 auto-suffix) |
 | **이미지 다운로드** | OS 다이얼로그 → 폴더 선택 | "다운로드" 한 번 클릭 → Drive 자동 (미사용시 브라우저 즉시) |
 | **씬 자동 갱신** | 앱 자체 처리 | WS broadcast + App.tsx global listener + scene-job-complete debounce (v1.8.0) |
