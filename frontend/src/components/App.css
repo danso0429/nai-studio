@@ -806,3 +806,105 @@ input[type='number']::-webkit-outer-spin-button {
     transform: none;
   }
 }
+
+/* ── 트루 다크 모드 ── */
+.true-dark {
+  --td-bg: #000000;
+  --td-surface: #0a0a0a;
+  --td-surface2: #111111;
+  --td-border: #1a1a1a;
+}
+
+.true-dark,
+.true-dark .dark\:bg-slate-900 {
+  background-color: var(--td-bg) !important;
+}
+.true-dark .dark\:bg-slate-800 {
+  background-color: var(--td-surface) !important;
+}
+.true-dark .dark\:bg-slate-700 {
+  background-color: var(--td-surface2) !important;
+}
+.true-dark .dark\:border-slate-600,
+.true-dark .dark\:border-slate-700 {
+  border-color: var(--td-border) !important;
+}
+.true-dark .line-color {
+  border-color: var(--td-border) !important;
+}
+/* gray 계열 (SessionTreePicker, 기타) */
+.true-dark .dark\:bg-gray-700 {
+  background-color: var(--td-surface2) !important;
+}
+.true-dark .dark\:bg-gray-800 {
+  background-color: var(--td-surface) !important;
+}
+.true-dark .dark\:bg-gray-900,
+.true-dark .dark\:bg-gray-900\/40 {
+  background-color: var(--td-bg) !important;
+}
+.true-dark .dark\:border-gray-600,
+.true-dark .dark\:border-gray-700 {
+  border-color: var(--td-border) !important;
+}
+.true-dark .dark\:hover\:bg-gray-800:hover,
+.true-dark .dark\:hover\:bg-slate-600:hover {
+  background-color: var(--td-surface2) !important;
+}
+/* 커스텀 입력/컨트롤 */
+.true-dark .gray-input {
+  background-color: var(--td-surface2) !important;
+  border-color: var(--td-border) !important;
+}
+.true-dark .back-lllgray {
+  background-color: rgba(255,255,255,0.06) !important;
+}
+.true-dark .back-lgray {
+  background-color: rgba(255,255,255,0.08) !important;
+}
+/* react-select */
+.true-dark .my-react-select__control {
+  background-color: var(--td-surface2) !important;
+  border-color: var(--td-border) !important;
+}
+.true-dark .my-react-select__menu {
+  background-color: var(--td-surface) !important;
+  border-color: var(--td-border) !important;
+}
+.true-dark .my-react-select__option {
+  background-color: var(--td-surface) !important;
+}
+.true-dark .my-react-select__option:hover,
+.true-dark .my-react-select__option--is-focused {
+  background-color: var(--td-surface2) !important;
+}
+/* 다이얼로그/모달 배경 */
+.true-dark .confirm-window {
+  background-color: rgba(0, 0, 0, 0.9) !important;
+}
+/* 스플리터 */
+.true-dark .dark\:hover\:bg-slate-700:hover {
+  background-color: var(--td-surface2) !important;
+}
+/* 스크롤바 */
+.true-dark ::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12) !important;
+}
+.true-dark ::-webkit-scrollbar-track {
+  background: var(--td-bg) !important;
+}
+
+/* ── 모바일 스크롤바 축소 ── */
+@media (max-width: 767px) {
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0.3);
+    border-radius: 2px;
+  }
+}

@@ -1,17 +1,20 @@
 import { useRef, useState } from 'react';
 import SessionTreePicker from './SessionTreePicker';
-import { FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaRegBookmark } from 'react-icons/fa';
+import { FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaRegBookmark, FaThLarge } from 'react-icons/fa';
+import ProjectBrowser, { pushRecentProject } from './ProjectBrowser';
 import Tooltip from './Tooltip';
 import { sessionService, imageService, workFlowService, isMobile } from '../models';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { CharacterPresetFloatEditor } from './CharacterPresetEditor';
-import { CharacterPreset, VibeItem, ReferenceItem } from '../models/types';
+import { CharacterPreset, CharacterPrompt, VibeItem, ReferenceItem } from '../models/types';
+import { v4 as uuidv4 } from 'uuid';
 import { formatProjectNameConflict } from '../models/util';
 import { runInAction } from 'mobx';
 
 const SessionSelect = observer(() => {
   const [showCharacterPresets, setShowCharacterPresets] = useState(false);
+  const [showProjectBrowser, setShowProjectBrowser] = useState(false);
   // 진행 중인 선택 가드. 인터넷 느릴 때 사용자 연타로 race 방지.
   const pendingSelectionRef = useRef<string | null>(null);
   const addSession = () => {
@@ -57,6 +60,7 @@ const SessionSelect = observer(() => {
         if (session) {
           imageService.refreshBatch(session);
           appState.curSession = session;
+          pushRecentProject(name);
         } else {
           // throwOnError로 실패 시 catch에서 처리됨. 여기 도달은 이론상
           // 캐시 hit 직후 resources[name]이 비어있는 race 정도.
@@ -102,27 +106,53 @@ const SessionSelect = observer(() => {
               curSession.presetShareds.set(workflowType, shared);
             }
             
-            // MobX runInAction으로 모든 변경사항을 한 번에 적용
             runInAction(() => {
-              // 이전 프리셋 데이터를 먼저 초기화한 뒤 새 프리셋 적용 —
-              // 옛 conditional set은 새 프리셋이 빈 vibes/refs/prompts일 때 잔류했음.
-              // upstream SDStudio v4.8.2 patch port.
-              shared.vibes = preset.vibes && preset.vibes.length > 0
-                ? preset.vibes.map((v: VibeItem) => VibeItem.fromJSON(v.toJSON()))
-                : [];
-              shared.characterReferences = preset.characterReferences && preset.characterReferences.length > 0
-                ? preset.characterReferences.map((r: ReferenceItem) => ReferenceItem.fromJSON(r.toJSON()))
-                : [];
+              // 이전 프리셋에서 추가된 항목 제거 (사용자 직접 추가 항목은 유지)
+              const prevVibes = (shared.vibes || []).filter((v: VibeItem) => !v.fromPreset);
+              const prevRefs = (shared.characterReferences || []).filter((r: ReferenceItem) => !r.fromPreset);
+
+              // 프리셋의 바이브/레퍼런스를 태그 붙여서 추가
+              const presetVibes = (preset.vibes || []).map((v: VibeItem) => {
+                const item = VibeItem.fromJSON(v.toJSON());
+                item.fromPreset = preset.name;
+                return item;
+              });
+              const presetRefs = (preset.characterReferences || []).map((r: ReferenceItem) => {
+                const item = ReferenceItem.fromJSON(r.toJSON());
+                item.fromPreset = preset.name;
+                return item;
+              });
+
+              shared.vibes = [...prevVibes, ...presetVibes];
+              shared.characterReferences = [...prevRefs, ...presetRefs];
 
               if (workflowType === 'SDImageGenEasy') {
                 shared.characterPrompt = preset.characterPrompt || '';
                 shared.backgroundPrompt = preset.backgroundPrompt || '';
                 shared.uc = preset.characterUC || '';
+              } else {
+                // 이전 프리셋 캐릭터 프롬프트 제거 (사용자 항목 유지)
+                const prevPrompts = (shared.characterPrompts || []).filter(
+                  (cp: CharacterPrompt) => !cp.fromPreset
+                );
+                if (preset.characterPrompt || preset.characterUC) {
+                  const newEntry: CharacterPrompt = {
+                    id: uuidv4(),
+                    prompt: preset.characterPrompt || '',
+                    uc: preset.characterUC || '',
+                    position: { x: 0.5, y: 0.5 },
+                    enabled: true,
+                    fromPreset: preset.name,
+                  };
+                  shared.characterPrompts = [...prevPrompts, newEntry];
+                } else {
+                  shared.characterPrompts = prevPrompts;
+                }
               }
 
               appState.setAppliedCharacterPreset(preset.name);
             });
-            
+
             setShowCharacterPresets(false);
             appState.pushMessage(`"${preset.name}" 프리셋이 적용되었습니다`);
           }}
@@ -204,6 +234,14 @@ const SessionSelect = observer(() => {
         <span className="hidden md:inline text-sm">이름</span>
       </button>
       </Tooltip>
+      <Tooltip content="프로젝트 탐색 (카드 그리드 뷰)">
+      <button
+        className={`icon-button nback-purple mx-1`}
+        onClick={() => setShowProjectBrowser(true)}
+      >
+        <FaThLarge size={14} />
+      </button>
+      </Tooltip>
       <Tooltip content="백업(.tar) 또는 이미지(.png) 불러오기">
       <button
         className={`icon-button nback-teal mx-1`}
@@ -237,6 +275,9 @@ const SessionSelect = observer(() => {
         <span className="hidden md:inline text-sm">프롬프트조각</span>
       </button>
       </Tooltip>
+      {showProjectBrowser && (
+        <ProjectBrowser onClose={() => setShowProjectBrowser(false)} />
+      )}
     </div>
   );
 });

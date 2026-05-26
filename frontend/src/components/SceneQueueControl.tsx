@@ -136,6 +136,7 @@ export const SceneCell = observer(
       id: ContextMenuType.Scene,
     });
     const [image, setImage] = useState<string | undefined>(undefined);
+    const cardElRef = useRef<HTMLDivElement | null>(null);
     let emoji = '';
     if (scene.type === 'inpaint') {
       const def = workFlowService.getDef(scene.workflowType);
@@ -164,7 +165,14 @@ export const SceneCell = observer(
     const [{ isDragging }, drag, preview] = useDrag(
       () => ({
         type: 'scene',
-        item: { scene, curIndex, getImage, curSession, cellSize },
+        item: () => ({
+          scene,
+          curIndex,
+          getImage,
+          curSession,
+          cellSize,
+          cardWidth: cardElRef.current?.offsetWidth,
+        }),
         canDrag: () => canDrag,
         collect: (monitor) => {
           const diff = monitor.getDifferenceFromInitialOffset();
@@ -317,7 +325,10 @@ export const SceneCell = observer(
       // refetch X. 다른 값이면 새 ref → refetch + 새 썸네일로 갈아끼움.
     }, [scene, getImage]);
 
-    const cardRef = (node: any) => drag(drop(node));
+    const cardRef = (node: any) => {
+      cardElRef.current = node;
+      drag(drop(node));
+    };
     const onContext = (e: any) => {
       show({ event: e, props: { ctx: { type: 'scene', scene } } });
     };

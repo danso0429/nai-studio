@@ -489,10 +489,12 @@ const OrphanCleanupSection = () => {
 /* ── 탭 4: 기타 설정 ── */
 const OtherTab = ({
   whiteMode, setWhiteMode,
+  trueDark, setTrueDark,
   delayTime, setDelayTime,
   classicSceneCard, setClassicSceneCard,
   fullWordAc, setFullWordAc,
   initialThumbSize, setInitialThumbSize,
+  exportConcurrency, setExportConcurrency,
 }: any) => {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
 
@@ -534,10 +536,25 @@ const OtherTab = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <input type="checkbox" id="cfgWhite" checked={whiteMode}
-          onChange={(e) => setWhiteMode(e.target.checked)} />
-        <label htmlFor="cfgWhite" className="text-sm gray-label">화이트 모드 켜기</label>
+      <div>
+        <label className="block text-sm font-semibold gray-label mb-2">테마</label>
+        <div className="flex flex-col gap-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="theme" checked={!whiteMode && !trueDark}
+              onChange={() => { setWhiteMode(false); setTrueDark(false); }} />
+            <span className="text-sm gray-label">다크 모드</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="theme" checked={!whiteMode && trueDark}
+              onChange={() => { setWhiteMode(false); setTrueDark(true); }} />
+            <span className="text-sm gray-label">트루 다크 모드 (OLED)</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="theme" checked={whiteMode}
+              onChange={() => { setWhiteMode(true); setTrueDark(false); }} />
+            <span className="text-sm gray-label">화이트 모드</span>
+          </label>
+        </div>
       </div>
       <hr className="border-gray-200 dark:border-slate-600" />
       <div className="flex items-center gap-2">
@@ -591,6 +608,21 @@ const OtherTab = ({
             className="flex-1" />
           <span className="text-sm gray-label w-14 text-right">{delayTime}ms</span>
         </div>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div>
+        <label className="block text-sm gray-label mb-1">
+          내보내기 동시 처리 수 (1~4)
+        </label>
+        <div className="flex items-center gap-2">
+          <input type="range" min={1} max={4} step={1}
+            value={exportConcurrency} onChange={(e) => setExportConcurrency(parseInt(e.target.value))}
+            className="flex-1" />
+          <span className="text-sm gray-label w-8 text-right">{exportConcurrency}</span>
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          이미지 내보내기 시 동시에 처리할 파일 수. 높을수록 빠르지만 서버 부하 증가.
+        </p>
       </div>
       <hr className="border-gray-200 dark:border-slate-600" />
       <FolderCleanupSection folder="exports" label="exports 폴더 정리" />
@@ -864,6 +896,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const [imageEditor, setImageEditor] = useState('');
   const [useGPU, setUseGPU] = useState(false);
   const [whiteMode, setWhiteMode] = useState(false);
+  const [trueDark, setTrueDark] = useState(false);
+  const [exportConcurrency, setExportConcurrency] = useState(1);
   const [delayTime, setDelayTime] = useState(0);
   const [classicSceneCard, setClassicSceneCard] = useState(false);
   // 0 = 자동 (화면 폭 기반), 그 외 = 명시 크기.
@@ -885,6 +919,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     (async () => {
       const config = await backend.getConfig();
       setWhiteMode(config.whiteMode ?? false);
+      setTrueDark(config.trueDark ?? false);
+      setExportConcurrency(config.exportConcurrency ?? 1);
       setImageEditor(config.imageEditor ?? 'photoshop');
       setUseGPU(config.useCUDA ?? false);
       setQuality(config.removeBgQuality ?? 'normal');
@@ -1008,6 +1044,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       removeBgQuality: quality as RemoveBgQuality,
       refreshImage: refreshImage,
       whiteMode: whiteMode,
+      trueDark: trueDark,
+      exportConcurrency: exportConcurrency,
       useLocalBgRemoval: useLocalBgRemoval,
       delayTime: delayTime,
       classicSceneCard: classicSceneCard,
@@ -1046,7 +1084,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       case 2:
         return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage }} />;
       case 3:
-        return <OtherTab {...{ whiteMode, setWhiteMode, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize }} />;
+        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, exportConcurrency, setExportConcurrency }} />;
       case 4:
         return <KeyBindingsTab />;
       default:

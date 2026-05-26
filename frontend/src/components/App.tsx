@@ -175,16 +175,19 @@ export const App = observer(() => {
   }, []);
 
   const [darkMode, setDarkMode] = useState(false);
+  const [trueDark, setTrueDark] = useState(false);
   // portal로 document.body에 렌더되는 자식(TaskQueueList, Tooltip 등)은 App inner div의
   // dark 클래스 ancestor 범위 밖이라 Tailwind `dark:` variant가 안 먹는다. documentElement에
   // 같이 토글해서 portal까지 ancestor 매칭이 닿게 한다.
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
-  }, [darkMode]);
+    document.documentElement.classList.toggle('true-dark', darkMode && trueDark);
+  }, [darkMode, trueDark]);
   useEffect(() => {
     const refreshDarkMode = async () => {
       const conf = await backend.getConfig();
       setDarkMode(!conf.whiteMode);
+      setTrueDark(conf.trueDark ?? false);
       appState.classicSceneCard = conf.classicSceneCard ?? false;
       appState.initialThumbSize = conf.initialThumbSize;
       appState.globalPromptPresetId = conf.promptPresetId;
@@ -568,7 +571,8 @@ export const App = observer(() => {
       <div
         className={
           'flex flex-col relative h-full w-full bg-white dark:bg-slate-900 ' +
-          (darkMode ? 'dark' : '')
+          (darkMode ? 'dark' : '') +
+          (darkMode && trueDark ? ' true-dark' : '')
         }
       >
         <div className="z-[3000]">

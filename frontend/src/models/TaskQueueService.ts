@@ -1,4 +1,5 @@
 import { v4 } from 'uuid';
+import { appState } from './AppService';
 import {
   CharacterReference,
   convertResolution,
@@ -286,55 +287,68 @@ class GenerateImageTaskHandler implements TaskHandler {
       run.lastSessionName = currentSessionName;
     }
 
-    // 바이브 이미지 처리 - 캐싱 적용
-    const vibes = await Promise.all(
+    // 바이브 이미지 처리 - 캐싱 적용 + 손상 시 건너뛰기
+    const allVibes = await Promise.all(
       job.vibes.map(async (vibe) => {
-        const cacheKey = `${vibe.path}:${vibe.info}`;
-        
-        // 캐시에서 먼저 확인
-        if (run.cachedVibes!.has(cacheKey)) {
-          const cached = run.cachedVibes!.get(cacheKey)!;
-          return {
-            image: cached.image,
-            info: vibe.info,
-            strength: vibe.strength,
-          };
-        }
+        try {
+          const cacheKey = `${vibe.path}:${vibe.info}`;
 
-        // 캐시에 없으면 로딩
-        const isEncoded = await imageService.checkEncodedVibeImage(
-          task.params.session,
-          vibe.path,
-          vibe.info,
-        );
-        if (!isEncoded) {
-          await imageService.encodeVibeImage(
+          // 캐시에서 먼저 확인
+          if (run.cachedVibes!.has(cacheKey)) {
+            const cached = run.cachedVibes!.get(cacheKey)!;
+            return {
+              image: cached.image,
+              info: vibe.info,
+              strength: vibe.strength,
+            };
+          }
+
+          // 캐시에 없으면 로딩
+          const isEncoded = await imageService.checkEncodedVibeImage(
             task.params.session,
             vibe.path,
             vibe.info,
           );
+          if (!isEncoded) {
+            await imageService.encodeVibeImage(
+              task.params.session,
+              vibe.path,
+              vibe.info,
+            );
+          }
+          let encoded =
+            (await imageService.fetchEncodedVibeImage(
+              task.params.session,
+              vibe.path,
+              vibe.info,
+            )) || '';
+          if (!encoded) {
+            console.warn('[prepGenInput] 바이브 이미지 인코딩 실패 (파일 손상 가능):', vibe.path);
+            appState.pushMessage(`바이브 이미지를 불러올 수 없습니다 (${vibe.path}). 이미지를 다시 첨부해주세요.`);
+            return null;
+          }
+          encoded = dataUriToBase64(encoded);
+
+          // 캐시에 저장
+          run.cachedVibes!.set(cacheKey, {
+            image: encoded,
+            info: vibe.info,
+            strength: vibe.strength,
+          });
+
+          return {
+            image: encoded,
+            info: vibe.info,
+            strength: vibe.strength,
+          };
+        } catch (e) {
+          console.warn('[prepGenInput] 바이브 이미지 처리 실패, 건너뜀:', vibe.path, e);
+          return null;
         }
-        let encoded =
-          (await imageService.fetchEncodedVibeImage(
-            task.params.session,
-            vibe.path,
-            vibe.info,
-          )) || '';
-        encoded = dataUriToBase64(encoded);
-
-        // 캐시에 저장
-        run.cachedVibes!.set(cacheKey, {
-          image: encoded,
-          info: vibe.info,
-          strength: vibe.strength,
-        });
-
-        return {
-          image: encoded,
-          info: vibe.info,
-          strength: vibe.strength,
-        };
       }),
+    );
+    const vibes = allVibes.filter(
+      (v): v is NonNullable<typeof v> => v !== null && !!v.image && v.image.length > 0,
     );
 
     // 캐릭터 레퍼런스 이미지 처리 - 캐싱 적용

@@ -41,6 +41,7 @@ import {
   PromptPiece,
   Scene,
   Session,
+  genericSceneFromJSON,
 } from './types';
 import { apiUrl, extractApiError, extractPromptDataFromBase64, getFiles, getFirstFile, josaIGa, josaRo, josaEulReul } from './util';
 import { DriveRetryStatus } from '../backend';
@@ -1980,8 +1981,11 @@ export class AppState {
     const finalExt = opt === 'original' ? '.png' : (opt === 'avif' ? '.avif' : '.webp');
     const scenes = selected ?? session.getScenes(type);
     const replacer = buildSpecialCharReplacer(charsToReplace);
+    // refreshList 병렬 처리 — 각 씬 독립적
+    await Promise.allSettled(
+      scenes.map((s) => gameService.refreshList(session, s)),
+    );
     for (const scene of scenes) {
-      await gameService.refreshList(session, scene);
       const cands = gameService.getOutputs(session, scene);
       const candSet = new Set(cands);
       const images: string[] = [];
@@ -3309,6 +3313,7 @@ export class AppState {
         { text: '❌ 즐겨찾기 전부 해제', value: 'removeAllFav' },
         { text: '⭐ 상위 n등 즐겨찾기 지정', value: 'setFav' },
         { text: '📋 씬 내용 복제', value: 'copySceneContent' },
+        { text: '📦 다른 프로젝트로 씬 복사', value: 'copyToProject' },
         { text: '📝 씬 이름 내보내기', value: 'exportSceneNames' },
         { text: '🗂️ 씬 일괄 삭제', value: 'deleteScenes' },
         { text: '🔤 씬 이름순 정렬', value: 'sortScenes' },
@@ -3447,6 +3452,66 @@ export class AppState {
                         appState.pushMessage(`${selected.length}개 씬에 내용이 복제되었습니다.`);
                       },
                     });
+                  },
+                });
+              },
+            });
+            return;
+          }
+          if (value === 'copyToProject') {
+            const allProjects = sessionService.list().filter((n) => n !== this.curSession!.name);
+            if (allProjects.length === 0) {
+              appState.pushMessage('복사할 대상 프로젝트가 없습니다.');
+              return;
+            }
+            setBatchPicker({
+              type: type,
+              text: '📦 다른 프로젝트로 복사할 씬 선택',
+              callback: (selected) => {
+                setBatchPicker(undefined);
+                if (selected.length === 0) return;
+                appState.pushDialog({
+                  type: 'dropdown',
+                  text: '씬을 복사할 대상 프로젝트를 선택하세요',
+                  items: allProjects.map((n) => ({ text: n, value: n })),
+                  callback: async (targetName) => {
+                    if (!targetName) return;
+                    const srcSession = this.curSession;
+                    if (!srcSession) return;
+                    try {
+                      const targetSession = await sessionService.get(targetName);
+                      if (!targetSession) {
+                        appState.pushMessage('대상 프로젝트를 불러올 수 없습니다.');
+                        return;
+                      }
+                      let count = 0;
+                      for (const scene of selected) {
+                        const newScene = genericSceneFromJSON(scene.toJSON());
+                        let name = newScene.name;
+                        let cnt = 0;
+                        const mkName = () => name + '_copy' + (cnt === 0 ? '' : cnt.toString());
+                        while (targetSession.hasScene(newScene.type, mkName())) cnt++;
+                        newScene.name = mkName();
+                        targetSession.addScene(newScene);
+
+                        const srcDir = imageService.getOutputDir(srcSession, scene);
+                        const dstDir = imageService.getOutputDir(targetSession, newScene);
+                        try {
+                          const files = await backend.listFiles(srcDir);
+                          for (const f of files) {
+                            if (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.webp')) {
+                              await backend.copyFile(srcDir + '/' + f, dstDir + '/' + f);
+                            }
+                          }
+                        } catch {
+                          // 이미지 없는 씬이면 무시
+                        }
+                        count++;
+                      }
+                      appState.pushMessage(`${count}개 씬이 "${targetName}" 프로젝트로 복사되었습니다.`);
+                    } catch (e: any) {
+                      appState.pushMessage('씬 복사 실패: ' + (e?.message || e));
+                    }
                   },
                 });
               },
@@ -3748,20 +3813,27 @@ export class AppState {
   @action
   clearAppliedCharacterPreset() {
     if (!this.curSession) return;
-    // 모든 워크플로우 shared 순회 — 사용자가 EASY에서 preset 'A' 적용 → SD에서 'B'
-    // 적용 → SD에서 [×] 누르면 옛 코드는 SD shared만 clear, EASY의 A residue stuck.
-    // [재명: cleanupOrphanedPresetApplication과 동일 iteration 패턴 — preset 적용 명목이
-    // 해제됐으면 모든 workflow의 residue도 함께 해제. F6 follow-up.]
-    for (const [workflowType, shared] of this.curSession.presetShareds) {
-      if (!shared) continue;
-      shared.vibes = [];
-      shared.characterReferences = [];
-      if (workflowType === 'SDImageGenEasy') {
-        shared.characterPrompt = '';
-        shared.backgroundPrompt = '';
-        shared.uc = '';
-      }
+
+    const workflowType = this.curSession.selectedWorkflow?.workflowType;
+    if (!workflowType) return;
+
+    const shared = this.curSession.presetShareds.get(workflowType);
+    if (!shared) return;
+
+    // 프리셋에서 추가된 항목만 제거 (사용자 직접 추가 항목은 유지)
+    shared.vibes = (shared.vibes || []).filter((v: any) => !v.fromPreset);
+    shared.characterReferences = (shared.characterReferences || []).filter((r: any) => !r.fromPreset);
+    if (shared.characterPrompts) {
+      shared.characterPrompts = shared.characterPrompts.filter((cp: any) => !cp.fromPreset);
     }
+
+    if (workflowType === 'SDImageGenEasy') {
+      shared.characterPrompt = '';
+      shared.backgroundPrompt = '';
+      shared.uc = '';
+    }
+
+    shared._appliedPresetName = '';
     this.appliedCharacterPreset = undefined;
     this.pushMessage('캐릭터 프리셋이 해제되었습니다');
   }
@@ -3777,19 +3849,35 @@ export class AppState {
    */
   @action
   cleanupOrphanedPresetApplication() {
-    if (!this.curSession || !this.appliedCharacterPreset) return;
-    if (this.curSession.hasCharacterPreset(this.appliedCharacterPreset)) return;
-    // 적용된 프리셋이 삭제된 상태 — 모든 워크플로우 shared의 residual 일괄 clear.
-    for (const [workflowType, shared] of this.curSession.presetShareds) {
+    if (!this.curSession) return;
+
+    for (const [, shared] of this.curSession.presetShareds) {
       if (!shared) continue;
-      shared.vibes = [];
-      shared.characterReferences = [];
-      if (workflowType === 'SDImageGenEasy') {
-        shared.characterPrompt = '';
-        shared.backgroundPrompt = '';
-        shared.uc = '';
+
+      const presetName = shared._appliedPresetName;
+
+      if (presetName && !this.curSession.hasCharacterPreset(presetName)) {
+        // 존재하지 않는 프리셋이 적용 중 → 프리셋 태그 항목만 정리
+        shared.vibes = (shared.vibes || []).filter((v: any) => !v.fromPreset);
+        shared.characterReferences = (shared.characterReferences || []).filter((r: any) => !r.fromPreset);
+        if (shared.characterPrompts) {
+          shared.characterPrompts = shared.characterPrompts.filter((cp: any) => !cp.fromPreset);
+        }
+        shared._appliedPresetName = '';
+      }
+
+      // 캐릭터 프롬프트 중복 제거 (이전 버전 오염 데이터 정리)
+      if (shared.characterPrompts && shared.characterPrompts.length > 1) {
+        const seen = new Set<string>();
+        shared.characterPrompts = shared.characterPrompts.filter((cp: any) => {
+          const key = (cp.prompt || '') + '\0' + (cp.uc || '');
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
       }
     }
+
     this.appliedCharacterPreset = undefined;
   }
 

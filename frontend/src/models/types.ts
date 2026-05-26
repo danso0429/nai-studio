@@ -28,12 +28,14 @@ export interface IVibeItem {
   path: string;
   info: number;
   strength: number;
+  fromPreset?: string;
 }
 
 export class VibeItem implements IVibeItem {
   @observable accessor path: string = '';
   @observable accessor info: number = 0;
   @observable accessor strength: number = 0;
+  @observable accessor fromPreset: string | undefined = undefined;
 
   static fromJSON(json: IVibeItem): VibeItem {
     const item = new VibeItem();
@@ -46,6 +48,7 @@ export class VibeItem implements IVibeItem {
       path: this.path,
       info: this.info,
       strength: this.strength,
+      fromPreset: this.fromPreset,
     };
   }
 }
@@ -885,6 +888,7 @@ export interface CharacterPrompt<T = string> {
   uc: string;
   position: CharacterPosition;
   enabled?: boolean;
+  fromPreset?: string;
 }
 
 export interface CharacterPosition {
@@ -899,6 +903,7 @@ export interface IReferenceItem {
   fidelity: number;
   referenceType: 'character' | 'style' | 'character&style';
   enabled?: boolean;
+  fromPreset?: string;
 }
 
 export class ReferenceItem implements IReferenceItem {
@@ -908,6 +913,7 @@ export class ReferenceItem implements IReferenceItem {
   @observable accessor fidelity: number = 1.0;
   @observable accessor referenceType: 'character' | 'style' | 'character&style' = 'character';
   @observable accessor enabled: boolean = true;
+  @observable accessor fromPreset: string | undefined = undefined;
 
   static fromJSON(json: IReferenceItem): ReferenceItem {
     const item = new ReferenceItem();
@@ -918,6 +924,7 @@ export class ReferenceItem implements IReferenceItem {
       item.fidelity = json.fidelity ?? 1.0;
       item.referenceType = json.referenceType || 'character';
       item.enabled = json.enabled ?? true;
+      item.fromPreset = json.fromPreset;
     }
     return item;
   }
@@ -930,6 +937,7 @@ export class ReferenceItem implements IReferenceItem {
       fidelity: this.fidelity,
       referenceType: this.referenceType,
       enabled: this.enabled,
+      fromPreset: this.fromPreset,
     };
   }
 }

@@ -85,15 +85,13 @@ const TobBar = () => {
       >
         환경설정
       </button>
-      <p className="md:hidden ml-2 titlebar-no-drag">
+      <div className="md:hidden ml-2 titlebar-no-drag flex flex-col items-end gap-0.5">
         {!loggedIn ? (
-          <span className={`round-tag back-red`}>로그인 필요</span>
+          <span className={`round-tag back-red text-xs`}>로그인 필요</span>
         ) : (
-          <>
-            <span className={`round-tag back-yellow mr-2`}>{credits}</span>
-          </>
+          <span className={`round-tag back-yellow text-xs`}>{credits}</span>
         )}
-      </p>
+      </div>
       <div className="ml-auto block md:hidden titlebar-no-drag">
         <SessionSelect />
       </div>

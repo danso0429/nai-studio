@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import {
   TextAreaWithUndo,
   NumberSelect,
@@ -187,8 +187,8 @@ export const VibeEditor = observer(({ disabled }: VibeEditorProps) => {
     useContext(WFElementContext)!;
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
-  // 캐릭터 프리셋 적용 중 + shared(공용) field면 개별 삭제/추가 잠금 (안전장치)
-  const presetLocked = !!appState.appliedCharacterPreset && editVibe?.fieldType === 'shared';
+  // 캐릭터 프리셋 적용 중 + shared(공용) field면 프리셋 출처 아이템 개별 잠금
+  const isPresetActive = !!appState.appliedCharacterPreset && editVibe?.fieldType === 'shared';
 
   const getField = () => {
     if (editVibe!.fieldType === 'preset') return preset[editVibe!.field];
@@ -394,7 +394,7 @@ export const VibeEditor = observer(({ disabled }: VibeEditorProps) => {
                     </div>
                   </div>
                   <div className="flex-none flex ml-auto mt-auto">
-                    {presetLocked ? (
+                    {isPresetActive && vibe.fromPreset ? (
                       <div className="text-xs text-gray-400 dark:text-gray-500 px-2">🔒 프리셋 잠금</div>
                     ) : (
                       <Tooltip content="바이브 삭제">
@@ -425,13 +425,11 @@ export const VibeEditor = observer(({ disabled }: VibeEditorProps) => {
             </div>
           )}
           <div className="flex gap-2 items-center">
-            {!presetLocked && (
-              <FileUploadBase64
-                notext
-                disabled={disabled}
-                onFileSelect={vibeChange}
-              ></FileUploadBase64>
-            )}
+            <FileUploadBase64
+              notext
+              disabled={disabled}
+              onFileSelect={vibeChange}
+            ></FileUploadBase64>
             <button
               className={`round-button back-gray h-8 w-full`}
               onClick={() => {
@@ -572,8 +570,8 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [showDefaults, setShowDefaults] = useState(false);
   const [refDefaults, setRefDefaults] = useState(getRefDefaults);
-  // 캐릭터 프리셋 적용 중 + shared(공용) field면 개별 삭제/추가 잠금 (안전장치)
-  const presetLocked = !!appState.appliedCharacterPreset && editCharacterReference?.fieldType === 'shared';
+  // 캐릭터 프리셋 적용 중 + shared(공용) field면 프리셋 출처 아이템 개별 잠금
+  const isPresetActive = !!appState.appliedCharacterPreset && editCharacterReference?.fieldType === 'shared';
 
   const updateDefault = (key: string, value: string) => {
     localStorage.setItem(key, value);
@@ -804,7 +802,7 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
                 <div className="flex flex-col gap-2 w-full">
                   <div className="flex w-full items-center justify-between">
                     <div className="flex gap-2 items-center">
-                      {presetLocked ? (
+                      {isPresetActive && reference.fromPreset ? (
                         <div className="text-xs text-gray-400 dark:text-gray-500">🔒 프리셋 잠금</div>
                       ) : (
                         <button
@@ -820,7 +818,7 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
                         </button>
                       )}
                     </div>
-                    {!presetLocked && (
+                    {!(isPresetActive && reference.fromPreset) && (
                       <Tooltip content="레퍼런스 삭제">
                       <button
                         className={
@@ -955,13 +953,11 @@ export const CharacterReferenceEditor = observer(({ disabled }: CharacterReferen
             </div>
           )}
           <div className="flex gap-2 items-center">
-            {!presetLocked && (
-              <FileUploadBase64
-                notext
-                disabled={disabled}
-                onFileSelect={referenceChange}
-              ></FileUploadBase64>
-            )}
+            <FileUploadBase64
+              notext
+              disabled={disabled}
+              onFileSelect={referenceChange}
+            ></FileUploadBase64>
             <button
               className={`round-button back-gray h-8 w-full`}
               onClick={() => {
@@ -1935,6 +1931,11 @@ const WFRPush = observer(({ element }: WFElementProps) => {
   }
 });
 
+const charColors = [
+  '#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7',
+  '#ec4899', '#f97316', '#06b6d4', '#6366f1', '#14b8a6',
+];
+
 const CharacterPromptEditor = observer(
   ({ input }: { input: WFIInlineInput }) => {
     const {
@@ -1948,6 +1949,10 @@ const CharacterPromptEditor = observer(
       getCharacterMiddlePrompt,
       onCharacterMiddlePromptChange,
     } = useContext(WFElementContext)!;
+
+    const [showCoordMap, setShowCoordMap] = useState(false);
+    const coordMapRef = useRef<SVGSVGElement | null>(null);
+    const [draggingId, setDraggingId] = useState<string | null>(null);
 
     const getField = () => {
       if (input.fieldType === 'preset') return preset[input.field] || [];
@@ -1993,21 +1998,132 @@ const CharacterPromptEditor = observer(
       setField(characters);
     };
 
+    const handleCoordPointer = (e: React.PointerEvent<SVGSVGElement>) => {
+      if (!draggingId) return;
+      const svg = coordMapRef.current;
+      if (!svg) return;
+      const rect = svg.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      updateCharacter(draggingId, { position: { x: parseFloat(x.toFixed(2)), y: parseFloat(y.toFixed(2)) } });
+    };
+
     if (editCharacters !== input.field) {
       return null;
     }
+
+    const characters = getField();
 
     return (
       <div className="w-full h-full overflow-hidden flex flex-col">
         <div className="flex-1 overflow-hidden">
           <div className="h-full overflow-auto">
-            {getField().map((character: CharacterPrompt, i: number) => (
+            {/* useCoords 체크박스 */}
+            <div className="flex items-center gap-2 px-3 pt-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={preset.useCoords || false}
+                  onChange={(e) => {
+                    preset.useCoords = e.target.checked;
+                  }}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm gray-label">캐릭터 위치 지정 사용</span>
+              </label>
+            </div>
+
+            {/* 좌표평면 UI */}
+            {preset.useCoords && characters.length > 0 && (
+              <div className="px-3 pt-2">
+                <button
+                  className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex items-center gap-1 mb-1"
+                  onClick={() => setShowCoordMap(!showCoordMap)}
+                >
+                  {showCoordMap ? '▾' : '▸'} 좌표평면
+                </button>
+                {showCoordMap && (
+                  <div className="relative border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
+                    style={{ width: '100%', aspectRatio: '1 / 1', maxWidth: 280 }}>
+                    <svg
+                      ref={coordMapRef}
+                      viewBox="0 0 100 100"
+                      className="w-full h-full cursor-crosshair select-none"
+                      style={{ touchAction: 'none' }}
+                      onPointerDown={(e) => {
+                        const svg = coordMapRef.current;
+                        if (!svg) return;
+                        const rect = svg.getBoundingClientRect();
+                        const px = (e.clientX - rect.left) / rect.width;
+                        const py = (e.clientY - rect.top) / rect.height;
+                        // 가장 가까운 캐릭터 찾기
+                        let closest: string | null = null;
+                        let minDist = Infinity;
+                        for (const c of characters) {
+                          if (c.enabled === false) continue;
+                          const dx = (c.position?.x ?? 0.5) - px;
+                          const dy = (c.position?.y ?? 0.5) - py;
+                          const dist = dx * dx + dy * dy;
+                          if (dist < minDist) {
+                            minDist = dist;
+                            closest = c.id;
+                          }
+                        }
+                        if (closest) {
+                          setDraggingId(closest);
+                          svg.setPointerCapture(e.pointerId);
+                        }
+                      }}
+                      onPointerMove={handleCoordPointer}
+                      onPointerUp={(e) => {
+                        if (draggingId) {
+                          handleCoordPointer(e);
+                          setDraggingId(null);
+                          coordMapRef.current?.releasePointerCapture(e.pointerId);
+                        }
+                      }}
+                    >
+                      {/* 배경 */}
+                      <rect x="0" y="0" width="100" height="100" fill="currentColor" className="text-gray-100 dark:text-slate-700" />
+                      {/* 9등분 격자선 */}
+                      <line x1="33.33" y1="0" x2="33.33" y2="100" stroke="currentColor" className="text-gray-300 dark:text-gray-600" strokeWidth="0.5" />
+                      <line x1="66.67" y1="0" x2="66.67" y2="100" stroke="currentColor" className="text-gray-300 dark:text-gray-600" strokeWidth="0.5" />
+                      <line x1="0" y1="33.33" x2="100" y2="33.33" stroke="currentColor" className="text-gray-300 dark:text-gray-600" strokeWidth="0.5" />
+                      <line x1="0" y1="66.67" x2="100" y2="66.67" stroke="currentColor" className="text-gray-300 dark:text-gray-600" strokeWidth="0.5" />
+                      {/* 캐릭터 마커 */}
+                      {characters.map((c: CharacterPrompt, idx: number) => {
+                        if (c.enabled === false) return null;
+                        const cx = (c.position?.x ?? 0.5) * 100;
+                        const cy = (c.position?.y ?? 0.5) * 100;
+                        const color = charColors[idx % charColors.length];
+                        return (
+                          <g key={c.id}>
+                            <circle cx={cx} cy={cy} r="5" fill={color} stroke="white" strokeWidth="1" opacity={draggingId === c.id ? 0.8 : 1} />
+                            <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fill="white" fontSize="5" fontWeight="bold" style={{ pointerEvents: 'none' }}>
+                              {idx + 1}
+                            </text>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {characters.map((character: CharacterPrompt, i: number) => (
               <div
                 key={character.id}
                 className={`border rounded-md mt-3 p-3 ${character.enabled === false ? 'opacity-60 border-gray-300' : 'border-sky-500 bg-sky-50 dark:bg-sky-900/20'}`}
               >
                 <div className="flex justify-between items-center mb-2">
                   <div className="flex items-center gap-2 gray-label">
+                    <span
+                      className="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-xs font-bold"
+                      style={{ backgroundColor: charColors[i % charColors.length] }}
+                    >
+                      {i + 1}
+                    </span>
                     캐릭터 프롬프트
                   </div>
                   <div className="flex items-center gap-2">
@@ -2069,51 +2185,9 @@ const CharacterPromptEditor = observer(
                   />
                 </div>
                 {preset.useCoords && (
-                  <div className="flex w-full items-center md:flex-row flex-col gap-2">
-                    <GrayLabel>X 위치:</GrayLabel>
-                    <div className="flex flex-1 md:w-auto w-full gap-1">
-                      <input
-                        className="flex-1"
-                        type="range"
-                        step="0.01"
-                        min="0"
-                        max="1"
-                        value={character.position?.x}
-                        onChange={(e) =>
-                          updateCharacter(character.id, {
-                            position: {
-                              ...character.position,
-                              x: parseFloat(e.target.value),
-                            },
-                          })
-                        }
-                      />
-                      <div className="w-11 flex-none text-lg text-center back-lllgray">
-                        {character.position?.x?.toFixed(2)}
-                      </div>
-                    </div>
-                    <GrayLabel>Y 위치:</GrayLabel>
-                    <div className="flex flex-1 md:w-auto w-full gap-1">
-                      <input
-                        className="flex-1"
-                        type="range"
-                        step="0.01"
-                        min="0"
-                        max="1"
-                        value={character.position?.y}
-                        onChange={(e) =>
-                          updateCharacter(character.id, {
-                            position: {
-                              ...character.position,
-                              y: parseFloat(e.target.value),
-                            },
-                          })
-                        }
-                      />
-                      <div className="w-11 flex-none text-lg text-center back-lllgray">
-                        {character.position?.y?.toFixed(2)}
-                      </div>
-                    </div>
+                  <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                    <FaArrowsAlt className="text-xs" />
+                    <span>위치: ({character.position?.x?.toFixed(2)}, {character.position?.y?.toFixed(2)})</span>
                   </div>
                 )}
               </div>

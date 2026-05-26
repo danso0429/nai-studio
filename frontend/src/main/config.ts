@@ -50,4 +50,6 @@ export interface Config {
   // 후보 값: 80 / 200 / 400 / 500.
   initialThumbSize?: number;
   promptPresetId?: string;
+  trueDark?: boolean;
+  exportConcurrency?: number;
 }

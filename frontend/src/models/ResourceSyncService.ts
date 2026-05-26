@@ -222,34 +222,38 @@ export abstract class ResourceSyncService<
     // Models M: dirty entry는 write 성공한 것만 clear. 옛 코드는 마지막에 `this.dirty = {}`로
     // 전체 wipe — write 실패한 entry도 같이 잃어버려 다음 update까지 누락. edge-case data loss.
     const names = Object.keys(this.dirty);
-    for (const name of names) {
+    const writes = names.map((name) => {
       if (!(name in this.resources)) {
         delete this.dirty[name];
-        continue;
+        return null;
       }
       const l = this.getFast(name);
-      if (l) {
-        try {
-          await backend.writeFile(this.getPath(name), JSON.stringify(l.toJSON()));
+      if (!l) {
+        delete this.dirty[name];
+        return null;
+      }
+      return backend
+        .writeFile(this.getPath(name), JSON.stringify(l.toJSON()))
+        .then(() => {
           delete this.dirty[name];
-        } catch (e) {
+        })
+        .catch((e) => {
           // dirty 유지 — 다음 update에서 재시도. log만.
           console.warn('[ResourceSync] write failed, retain dirty:', name, e);
-        }
-      } else {
-        delete this.dirty[name];
-      }
-    }
+        });
+    }).filter(Boolean);
+    await Promise.allSettled(writes);
     this.resourceList = await this.getList();
     this.saveCache();
     this.dispatchEvent(new CustomEvent('listupdated', {}));
   }
 
   async saveAll() {
-    for (const name of Object.keys(this.resources)) {
+    const writes = Object.keys(this.resources).map((name) => {
       const l = this.resources[name];
-      await backend.writeFile(this.getPath(name), JSON.stringify(l.toJSON()));
-    }
+      return backend.writeFile(this.getPath(name), JSON.stringify(l.toJSON()));
+    });
+    await Promise.allSettled(writes);
   }
 
   async createFrom(name: string, value: any) {

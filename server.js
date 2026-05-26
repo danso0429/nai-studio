@@ -1892,6 +1892,7 @@ app.get('/api/queue/status', async (req, res) => {
       return b.count > 0 ? Math.round(b.totalMs / b.count) : 0;
     })(),
     etaMs,
+    lastJobDurationMs: timingHistory.length > 0 ? timingHistory[timingHistory.length - 1][1] : null,
     recentErrors: queueErrorHistory.slice(-10), // 최근 10개 (queue.html 표시용)
   });
 });

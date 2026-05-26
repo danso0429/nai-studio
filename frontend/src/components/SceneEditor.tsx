@@ -21,6 +21,7 @@ import {
   FaUser,
   FaToggleOn,
   FaToggleOff,
+  FaQuestionCircle,
 } from 'react-icons/fa';
 import PromptEditTextArea from './PromptEditTextArea';
 import { UnionPreSetEditor } from './PreSetEditor';
@@ -529,7 +530,16 @@ interface SceneCharacterPromptEditorProps {
   scene: Scene;
 }
 
+const sceneCharColors = [
+  '#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7',
+  '#ec4899', '#f97316', '#06b6d4', '#6366f1', '#14b8a6',
+];
+
 const SceneCharacterPromptEditor = observer(({ scene }: SceneCharacterPromptEditorProps) => {
+  const [showCoordMap, setShowCoordMap] = useState(false);
+  const coordMapRef = useRef<SVGSVGElement | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
   const addCharacter = () => {
     const newCharacter: CharacterPrompt = {
       id: uuidv4(),
@@ -563,6 +573,16 @@ const SceneCharacterPromptEditor = observer(({ scene }: SceneCharacterPromptEdit
       const target = arr.find(c => c.id === id);
       if (target) target.enabled = target.enabled === false ? true : false;
     });
+  };
+
+  const handleCoordPointer = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!draggingId) return;
+    const svg = coordMapRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    updateCharacter(draggingId, { position: { x: parseFloat(x.toFixed(2)), y: parseFloat(y.toFixed(2)) } });
   };
 
   const characters = scene.sceneCharacterPrompts || [];
@@ -605,6 +625,84 @@ const SceneCharacterPromptEditor = observer(({ scene }: SceneCharacterPromptEdit
         )}
       </div>
 
+      {/* 좌표평면 UI */}
+      {characters.length > 0 && (
+        <div className="flex-none mb-3">
+          <button
+            className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex items-center gap-1 mb-1"
+            onClick={() => setShowCoordMap(!showCoordMap)}
+          >
+            {showCoordMap ? '▾' : '▸'} 좌표평면
+          </button>
+          {showCoordMap && (
+            <div className="relative border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
+              style={{ width: '100%', aspectRatio: '1 / 1', maxWidth: 280 }}>
+              <svg
+                ref={coordMapRef}
+                viewBox="0 0 100 100"
+                className="w-full h-full cursor-crosshair select-none"
+                style={{ touchAction: 'none' }}
+                onPointerDown={(e) => {
+                  const svg = coordMapRef.current;
+                  if (!svg) return;
+                  const rect = svg.getBoundingClientRect();
+                  const px = (e.clientX - rect.left) / rect.width;
+                  const py = (e.clientY - rect.top) / rect.height;
+                  // 가장 가까운 캐릭터 찾기
+                  let closest: string | null = null;
+                  let minDist = Infinity;
+                  for (const c of characters) {
+                    if (c.enabled === false) continue;
+                    const dx = (c.position?.x ?? 0.5) - px;
+                    const dy = (c.position?.y ?? 0.5) - py;
+                    const dist = dx * dx + dy * dy;
+                    if (dist < minDist) {
+                      minDist = dist;
+                      closest = c.id;
+                    }
+                  }
+                  if (closest) {
+                    setDraggingId(closest);
+                    svg.setPointerCapture(e.pointerId);
+                  }
+                }}
+                onPointerMove={handleCoordPointer}
+                onPointerUp={(e) => {
+                  if (draggingId) {
+                    handleCoordPointer(e);
+                    setDraggingId(null);
+                    coordMapRef.current?.releasePointerCapture(e.pointerId);
+                  }
+                }}
+              >
+                {/* 배경 */}
+                <rect x="0" y="0" width="100" height="100" fill="currentColor" className="text-gray-100 dark:text-slate-700" />
+                {/* 9등분 격자선 */}
+                <line x1="33.33" y1="0" x2="33.33" y2="100" stroke="currentColor" className="text-gray-300 dark:text-gray-600" strokeWidth="0.5" />
+                <line x1="66.67" y1="0" x2="66.67" y2="100" stroke="currentColor" className="text-gray-300 dark:text-gray-600" strokeWidth="0.5" />
+                <line x1="0" y1="33.33" x2="100" y2="33.33" stroke="currentColor" className="text-gray-300 dark:text-gray-600" strokeWidth="0.5" />
+                <line x1="0" y1="66.67" x2="100" y2="66.67" stroke="currentColor" className="text-gray-300 dark:text-gray-600" strokeWidth="0.5" />
+                {/* 캐릭터 마커 */}
+                {characters.map((c: CharacterPrompt, idx: number) => {
+                  if (c.enabled === false) return null;
+                  const cx = (c.position?.x ?? 0.5) * 100;
+                  const cy = (c.position?.y ?? 0.5) * 100;
+                  const color = sceneCharColors[idx % sceneCharColors.length];
+                  return (
+                    <g key={c.id}>
+                      <circle cx={cx} cy={cy} r="5" fill={color} stroke="white" strokeWidth="1" opacity={draggingId === c.id ? 0.8 : 1} />
+                      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fill="white" fontSize="5" fontWeight="bold" style={{ pointerEvents: 'none' }}>
+                        {idx + 1}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex-1 overflow-auto">
         {characters.length === 0 ? (
           <div className="text-center text-gray-500 py-8">
@@ -625,6 +723,12 @@ const SceneCharacterPromptEditor = observer(({ scene }: SceneCharacterPromptEdit
               >
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
+                    <span
+                      className="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-xs font-bold"
+                      style={{ backgroundColor: sceneCharColors[index % sceneCharColors.length] }}
+                    >
+                      {index + 1}
+                    </span>
                     <span className="font-medium">캐릭터 {index + 1}</span>
                     <button
                       className={`round-button h-7 px-3 text-sm ${
@@ -673,49 +777,8 @@ const SceneCharacterPromptEditor = observer(({ scene }: SceneCharacterPromptEdit
                   />
                 </div>
 
-                <div className="flex gap-4">
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium mb-1 gray-label">
-                      X 위치: {character.position?.x?.toFixed(2) || '0.50'}
-                    </label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={character.position?.x || 0.5}
-                      onChange={(e) =>
-                        updateCharacter(character.id, {
-                          position: {
-                            ...character.position,
-                            x: parseFloat(e.target.value),
-                          },
-                        })
-                      }
-                      className="w-full"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium mb-1 gray-label">
-                      Y 위치: {character.position?.y?.toFixed(2) || '0.50'}
-                    </label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={character.position?.y || 0.5}
-                      onChange={(e) =>
-                        updateCharacter(character.id, {
-                          position: {
-                            ...character.position,
-                            y: parseFloat(e.target.value),
-                          },
-                        })
-                      }
-                      className="w-full"
-                    />
-                  </div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  위치: ({character.position?.x?.toFixed(2) || '0.50'}, {character.position?.y?.toFixed(2) || '0.50'})
                 </div>
               </div>
             ))}
@@ -733,7 +796,7 @@ const SceneCharacterPromptEditor = observer(({ scene }: SceneCharacterPromptEdit
             캐릭터 추가
           </button>
         </div>
-        
+
         {/* 씬 전용 캐릭터 네거티브 프롬프트 (전체) */}
         <div className="mt-4">
           <label className="block text-sm font-medium mb-1 gray-label">
@@ -777,9 +840,14 @@ export const SlotEditor = observer(({ scene }: SlotEditorProps) => {
   const formula = enabledPerSlot.length > 0 ? enabledPerSlot.join(' × ') : '0';
 
   const removePiece = (slot: PromptPieceSlot, pieceIndex: number) => {
+    const slotIndex = scene.slots.indexOf(slot);
+    if (slotIndex === 0 && pieceIndex === 0) {
+      appState.pushMessage('첫 번째 열의 첫 번째 행은 삭제할 수 없습니다');
+      return;
+    }
     slot.splice(pieceIndex, 1);
     if (slot.length === 0) {
-      scene.slots.splice(scene.slots.indexOf(slot), 1);
+      scene.slots.splice(slotIndex, 1);
     }
   };
 
@@ -818,6 +886,9 @@ export const SlotEditor = observer(({ scene }: SlotEditorProps) => {
         {enabledPerSlot.length > 0 && (
           <span className="text-gray-400 dark:text-gray-500">({formula})</span>
         )}
+        <Tooltip content="각 열의 프롬프트를 조합하여 열x행의 모든 경우의 수만큼 이미지를 생성합니다. 열 추가: 오른쪽 + 버튼 | 행 추가: 열 하단 + 버튼">
+          <FaQuestionCircle className="text-gray-400 dark:text-gray-500 cursor-help" />
+        </Tooltip>
       </div>
       <div className="flex flex-col md:flex-row w-full">
         {scene.slots.map((slot, slotIndex) => (

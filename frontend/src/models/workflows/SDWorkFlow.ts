@@ -77,7 +77,7 @@ const SDImageGenUI = wfiStack([
     wfiInlineInput('샘플링', 'sampling', 'preset', 'flex-none'),
     wfiInlineInput('노이즈 스케줄', 'noiseSchedule', 'preset', 'flex-none'),
     wfiInlineInput('Prompt Guidance Rescale', 'cfgRescale', 'preset', 'flex-none'),
-    wfiInlineInput('캐릭터 위치 지정', 'useCoords', 'preset', 'flex-none'),
+
     wfiInlineInput(
       'Legacy Prompt Conditioning 모드',
       'legacyPromptConditioning',
@@ -151,7 +151,7 @@ const SDImageGenEasyInnerUI = wfiStack([
     wfiInlineInput('샘플링', 'sampling', 'preset', 'flex-none'),
     wfiInlineInput('노이즈 스케줄', 'noiseSchedule', 'preset', 'flex-none'),
     wfiInlineInput('Prompt Guidance Rescale', 'cfgRescale', 'preset', 'flex-none'),
-    wfiInlineInput('캐릭터 위치 지정', 'useCoords', 'preset', 'flex-none'),
+
     wfiInlineInput(
       'Legacy Prompt Conditioning 모드',
       'legacyPromptConditioning',
@@ -231,9 +231,10 @@ const SDImageGenHandler = async (
   let finalCharacterPrompts: PromptNode[];
   
   if (useSceneCharacterPrompts) {
-    // 씬 전용 캐릭터 프롬프트 사용
-    allCharacterPrompts = sceneObj.sceneCharacterPrompts || [];
-    // 씬 전용 캐릭터 프롬프트도 toPARR + parseWord를 통해 프롬프트조각(<group.name>) 확장
+    // 씬 전용 + shared(프리셋) 캐릭터 프롬프트 병합
+    const sceneCPs = sceneObj.sceneCharacterPrompts || [];
+    const sharedCPs = shared.characterPrompts || [];
+    allCharacterPrompts = [...sceneCPs, ...sharedCPs];
     finalCharacterPrompts = allCharacterPrompts.map(cp => {
       const tokens = toPARR(cp.prompt);
       const node: PromptNode = {
@@ -243,10 +244,10 @@ const SDImageGenHandler = async (
       return node;
     });
   } else {
-    // 기존 공유/프리셋 캐릭터 프롬프트 사용
-    allCharacterPrompts = shared.type === 'SDImageGenEasy'
-      ? shared.characterPrompts
-      : preset.characterPrompts;
+    // 프리셋 + 공유 캐릭터 프롬프트 병합 (다중 캐릭터 지원)
+    const presetCPs = preset.characterPrompts || [];
+    const sharedCPs = shared.characterPrompts || [];
+    allCharacterPrompts = [...presetCPs, ...sharedCPs];
     finalCharacterPrompts = characterPrompts;
   }
   
@@ -405,7 +406,7 @@ const SDInpaintUI = wfiStack([
     wfiInlineInput('샘플링', 'sampling', 'preset', 'flex-none'),
     wfiInlineInput('노이즈 스케줄', 'noiseSchedule', 'preset', 'flex-none'),
     wfiInlineInput('Prompt Guidance Rescale', 'cfgRescale', 'preset', 'flex-none'),
-    wfiInlineInput('캐릭터 위치 지정', 'useCoords', 'preset', 'flex-none'),
+
     wfiInlineInput(
       'Legacy Prompt Conditioning 모드',
       'legacyPromptConditioning',
@@ -556,7 +557,7 @@ const SDI2IUI = wfiStack([
     wfiInlineInput('샘플링', 'sampling', 'preset', 'flex-none'),
     wfiInlineInput('노이즈 스케줄', 'noiseSchedule', 'preset', 'flex-none'),
     wfiInlineInput('Prompt Guidance Rescale', 'cfgRescale', 'preset', 'flex-none'),
-    wfiInlineInput('캐릭터 위치 지정', 'useCoords', 'preset', 'flex-none'),
+
     wfiInlineInput(
       'Legacy Prompt Conditioning 모드',
       'legacyPromptConditioning',
@@ -801,7 +802,7 @@ const SDMirrorUI = wfiStack([
     wfiInlineInput('샘플링', 'sampling', 'preset', 'flex-none'),
     wfiInlineInput('노이즈 스케줄', 'noiseSchedule', 'preset', 'flex-none'),
     wfiInlineInput('Prompt Guidance Rescale', 'cfgRescale', 'preset', 'flex-none'),
-    wfiInlineInput('캐릭터 위치 지정', 'useCoords', 'preset', 'flex-none'),
+
     wfiInlineInput(
       'Legacy Prompt Conditioning 모드',
       'legacyPromptConditioning',

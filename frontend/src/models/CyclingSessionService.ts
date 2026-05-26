@@ -81,7 +81,7 @@ export class CyclingSessionService {
   }
 
   @action
-  private advanceToNextPreset() {
+  private async advanceToNextPreset() {
     this.currentPresetIndex++;
 
     if (this.currentPresetIndex >= this.presetQueue.length) {
@@ -101,6 +101,13 @@ export class CyclingSessionService {
     // 프리셋 적용
     this.applyPreset(preset);
 
+    // 프리셋 전환 쿨다운 (첫 프리셋 제외 — API 레이트 리밋 방지)
+    if (this.currentPresetIndex > 0) {
+      appState.pushMessage(`다음 프리셋 "${preset.name}" 준비 중 (5초 대기)...`);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      if (this.state !== 'running') return;
+    }
+
     // 씬 큐잉 + 실행
     this.queueAllScenes();
   }
@@ -114,34 +121,42 @@ export class CyclingSessionService {
       this.session.presetShareds.set(this.workflowType, shared);
     }
 
-    // 바이브 복사
-    if (preset.vibes && preset.vibes.length > 0) {
-      shared.vibes = preset.vibes.map((v: VibeItem) =>
-        VibeItem.fromJSON(v.toJSON()),
-      );
-    } else {
-      shared.vibes = [];
-    }
+    // 이전 프리셋 항목 제거 (사용자 직접 추가 항목 유지)
+    const prevVibes = (shared.vibes || []).filter((v: VibeItem) => !v.fromPreset);
+    const prevRefs = (shared.characterReferences || []).filter((r: ReferenceItem) => !r.fromPreset);
 
-    // 레퍼런스 복사
-    if (preset.characterReferences && preset.characterReferences.length > 0) {
-      shared.characterReferences = preset.characterReferences.map(
-        (r: ReferenceItem) => ReferenceItem.fromJSON(r.toJSON()),
-      );
-    } else {
-      shared.characterReferences = [];
-    }
+    // 프리셋 바이브/레퍼런스를 태그 붙여서 추가
+    const presetVibes = (preset.vibes || []).map((v: VibeItem) => {
+      const item = VibeItem.fromJSON(v.toJSON());
+      item.fromPreset = preset.name;
+      return item;
+    });
+    const presetRefs = (preset.characterReferences || []).map((r: ReferenceItem) => {
+      const item = ReferenceItem.fromJSON(r.toJSON());
+      item.fromPreset = preset.name;
+      return item;
+    });
 
-    // 캐릭터 프롬프트 모드 (모든 워크플로우 호환)
-    shared.characterPrompts = [
-      {
+    shared.vibes = [...prevVibes, ...presetVibes];
+    shared.characterReferences = [...prevRefs, ...presetRefs];
+
+    // 이전 프리셋 캐릭터 프롬프트 제거 (사용자 항목 유지)
+    const prevPrompts = (shared.characterPrompts || []).filter(
+      (cp: any) => !cp.fromPreset
+    );
+    if (preset.characterPrompt || preset.characterUC) {
+      const newEntry = {
         id: uuidv4(),
         prompt: preset.characterPrompt || '',
         uc: preset.characterUC || '',
-        position: { x: 0, y: 0 },
+        position: { x: 0.5, y: 0.5 },
         enabled: true,
-      },
-    ];
+        fromPreset: preset.name,
+      };
+      shared.characterPrompts = [...prevPrompts, newEntry];
+    } else {
+      shared.characterPrompts = prevPrompts;
+    }
 
     shared._appliedPresetName = preset.name;
   }

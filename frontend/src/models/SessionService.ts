@@ -131,7 +131,12 @@ export class SessionService extends ResourceSyncService<Session> {
     const { trashService } = await import('.');
     // trash.json은 legacy data (씬 휴지통이 아직 사용 중) — 로드 유지
     await trashService.loadTrash();
-    await trashService.autoCleanup();
+    // autoCleanup은 앱 시작을 블로킹하지 않도록 지연 실행
+    setTimeout(() => {
+      trashService.autoCleanup().catch((e) => {
+        console.error('휴지통 자동 정리 실패:', e);
+      });
+    }, 10000);
     await super.run();
   }
 
