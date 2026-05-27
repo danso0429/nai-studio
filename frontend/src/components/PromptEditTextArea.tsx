@@ -659,6 +659,7 @@ class CursorMemorizeEditor {
   }
 
   async handleBeforeInput(e: any) {
+    if (e.inputType === 'insertFromPaste' || e.inputType === 'insertFromDrop') return;
     e.preventDefault();
     await mutex.runExclusive(async () => {
       const koreanRegex = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g;
