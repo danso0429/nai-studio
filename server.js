@@ -827,9 +827,12 @@ function rcloneCopytoOnce(localPath, remotePath, timeoutMs) {
     // command injection 면역. (이전 exec + JSON.stringify는 bash double-quote 안의
     // $ 확장을 막지 못함 — P13 5/15 보안 감사 발견.)
     const args = ['copyto', localPath, remotePath, '--log-level', 'INFO'];
-    execFile('rclone', args, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err) => {
-      if (err) resolve({ ok: false, error: err.message });
-      else resolve({ ok: true });
+    execFile('rclone', args, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err, _stdout, stderr) => {
+      if (err) {
+        const fileName = path.basename(localPath);
+        const reason = stderr ? stderr.trim().split('\n').pop() : (err.killed ? 'timeout' : `exit ${err.code}`);
+        resolve({ ok: false, error: `rclone failed: ${fileName} — ${reason}` });
+      } else resolve({ ok: true });
     });
   });
 }
