@@ -680,7 +680,16 @@ input[type='number']::-webkit-outer-spin-button {
 }
 
 .native-text-area-container {
-  font-family: monospace, 'Noto Sans Mono';
+  /* iOS Safari에서 generic `monospace` keyword가 <textarea>와 <div>에서 서로 다른
+     실제 폰트로 resolve되어 caret(textarea 내부)과 보이는 글씨(highlight div) 위치가
+     문자별 metric 차이로 누적 drift되는 문제를 회피하려고 explicit 스택을 사용한다.
+     Menlo는 iOS/macOS 기본, Courier New는 모든 플랫폼 fallback. */
+  font-family: 'Menlo', 'Courier New', monospace;
+  font-feature-settings: "kern" 0;
+  font-variant-ligatures: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  tab-size: 4;
   position: relative;
   text-align: left;
   box-sizing: border-box;
@@ -696,6 +705,7 @@ input[type='number']::-webkit-outer-spin-button {
   box-sizing: inherit;
   display: inherit;
   font-family: inherit;
+  font-feature-settings: inherit;
   font-size: inherit;
   font-style: inherit;
   font-variant-ligatures: inherit;
@@ -722,6 +732,10 @@ input[type='number']::-webkit-outer-spin-button {
   height: 100%;
   opacity: 0.8;
   overflow: hidden;
+  padding: 0;
+  border: 0;
+  -webkit-appearance: none;
+  appearance: none;
   -moz-osx-font-smoothing: grayscale;
   -webkit-font-smoothing: antialiased;
   -webkit-text-fill-color: transparent;
