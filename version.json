@@ -2,5 +2,5 @@
   "version": "1.8.3-experimental.1",
   "sdstudioBase": "4.9.0",
   "released": "2026-05-27",
-  "notes": "experimental. v1.8.2 → v1.8.3-experimental.1. fix: NAI 429 Cloudflare HTML 에러 메시지 치환 / rclone 에러 메시지 간결화 / Firefox 계열 브라우저 contentEditable paste 호환성 수정 (beforeinput preventDefault가 paste 이벤트 차단하던 문제) / 트루 다크 모드에서 react-select 드롭다운 메뉴 글씨가 검은색이라 안 보이던 문제 (portal cascade 보완) / iPhone Safari에서 프롬프트 편집 칸 caret 위치와 보이는 글씨 어긋남 (font-family generic monospace가 textarea/div에서 다르게 resolve되던 문제 — explicit Menlo stack + ligature/kerning/text-size-adjust 고정)."
+  "notes": "experimental. v1.8.2 → v1.8.3-experimental.1. fix: NAI 429 Cloudflare HTML 에러 메시지 치환 / rclone 에러 메시지 간결화 / Firefox 계열 브라우저 contentEditable paste 호환성 수정 (beforeinput preventDefault가 paste 이벤트 차단하던 문제) / 트루 다크 모드에서 react-select 드롭다운 메뉴 글씨가 검은색이라 안 보이던 문제 (portal cascade 보완). 안전망: 모바일 프롬프트 편집 칸 NativeEditTextArea의 explicit font stack(Menlo+Courier New) + ligature/kerning/text-size-adjust 고정 — 본인 iPhone caret drift 페인 시도였지만 실제 원인은 아니었음(잘라내기+다시 붙여넣기로 회복 = invisible char 잔류 가설), 미래 iOS 버전 quirk 회피용 잠재 안전망으로 유지."
 }
