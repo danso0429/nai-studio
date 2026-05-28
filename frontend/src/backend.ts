@@ -213,6 +213,8 @@ export abstract class Backend {
   abstract unwatchImage(inputPath: string): Promise<void>;
   abstract loadModel(modelPath: string): Promise<void>;
   abstract copyImageToClipboard(imagePath: string): Promise<void>;
+  // 좌우 반전 — 같은 파일에 덮어쓰기 (PNG NAI metadata 보존). 비-PNG는 거부.
+  abstract flipImageHorizontal(path: string): Promise<void>;
   abstract spawnLocalAI(): Promise<void>;
   abstract isLocalAIRunning(): Promise<boolean>;
   abstract getRemainCredits(): Promise<number>;

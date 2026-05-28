@@ -21,6 +21,7 @@ import Tournament from './Tournament';
 import {
   FaArrowLeft,
   FaArrowRight,
+  FaArrowsAltH,
   FaBookmark,
   FaCalendarTimes,
   FaCheck,
@@ -70,7 +71,7 @@ import { dataUriToBase64, deleteImageFiles } from '../models/ImageService';
 import { getThumbURL } from '../backends/serverBackend';
 import { getResultDirectory } from '../models/SessionService';
 import { getSceneKey, queueI2IWorkflow, queueWorkflow } from '../models/TaskQueueService';
-import { extractPromptDataFromBase64 } from '../models/util';
+import { extractApiError, extractPromptDataFromBase64 } from '../models/util';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { DownloadDialog } from './DownloadDialog';
@@ -1088,6 +1089,20 @@ const ResultDetailView = observer(
             >
               <FaCopy className="mr-1" />
               이미지 복사
+            </button>
+            <button
+              className={`round-button back-gray`}
+              onClick={async () => {
+                try {
+                  await backend.flipImageHorizontal(paths[selectedIndex]);
+                  appState.pushMessage('좌우 반전 완료');
+                } catch (e) {
+                  appState.pushMessage('좌우 반전 실패: ' + extractApiError(e));
+                }
+              }}
+            >
+              <FaArrowsAltH className="mr-1" />
+              좌우 반전
             </button>
             {buttons.map((button, index) => (
               <button

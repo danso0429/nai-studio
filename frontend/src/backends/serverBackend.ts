@@ -569,6 +569,10 @@ export class ServerBackend extends Backend {
     ]);
   }
 
+  async flipImageHorizontal(path: string): Promise<void> {
+    await api('/image/flip-horizontal', { method: 'POST', body: JSON.stringify({ path }) });
+  }
+
   async spawnLocalAI(): Promise<void> {}
   async isLocalAIRunning(): Promise<boolean> { return false; }
 

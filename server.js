@@ -160,6 +160,77 @@ try {
   console.warn('[NAI Studio] sharp not available, image resize disabled');
 }
 
+// ─── PNG chunk-level helpers (NAI metadata 보존용) ──────────────────
+// sharp의 .flop()이나 다른 변형 후 png().toBuffer()를 그대로 쓰면 PNG의 tEXt/iTXt/zTXt
+// chunk가 손실됨. NAI 생성 이미지는 그 chunk 안에 prompt/seed/sampler 같은 metadata가
+// 박혀 있어서 잃으면 추후 같은 prompt로 재생성 불가. 처방: PNG chunk를 직접 parse해서
+// flip된 새 PNG의 pixel chunks(IHDR/PLTE/tRNS/IDAT)와 원본의 text chunks를 합침.
+// 의존성 0 — PNG spec 따라 30줄.
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+const _crc32Table = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c;
+  }
+  return t;
+})();
+function _pngCrc32(buf) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) c = _crc32Table[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function _parsePngChunks(buf) {
+  if (buf.length < 8 || !buf.slice(0, 8).equals(PNG_SIGNATURE)) {
+    throw new Error('not a PNG file');
+  }
+  const chunks = [];
+  let off = 8;
+  while (off + 12 <= buf.length) {
+    const len = buf.readUInt32BE(off);
+    const type = buf.toString('ascii', off + 4, off + 8);
+    const data = buf.slice(off + 8, off + 8 + len);
+    chunks.push({ type, data });
+    off += 12 + len;
+    if (type === 'IEND') break;
+  }
+  return chunks;
+}
+function _encodePngChunks(chunks) {
+  const parts = [PNG_SIGNATURE];
+  for (const ch of chunks) {
+    const lenBuf = Buffer.alloc(4);
+    lenBuf.writeUInt32BE(ch.data.length);
+    const typeBuf = Buffer.from(ch.type, 'ascii');
+    const crcBuf = Buffer.alloc(4);
+    crcBuf.writeUInt32BE(_pngCrc32(Buffer.concat([typeBuf, ch.data])));
+    parts.push(lenBuf, typeBuf, ch.data, crcBuf);
+  }
+  return Buffer.concat(parts);
+}
+async function flipPngHorizontalPreservingMetadata(inputBuf) {
+  if (!sharp) throw new Error('sharp not available');
+  const origChunks = _parsePngChunks(inputBuf);
+  const flippedBuf = await sharp(inputBuf, { failOn: 'none' }).flop().png({ compressionLevel: 9 }).toBuffer();
+  const flippedChunks = _parsePngChunks(flippedBuf);
+  const TEXT_TYPES = new Set(['tEXt', 'zTXt', 'iTXt']);
+  const result = [];
+  // PNG spec: IHDR 첫 chunk, IEND 마지막. ancillary text는 중간 어디든 OK.
+  const ihdr = flippedChunks.find((c) => c.type === 'IHDR');
+  if (!ihdr) throw new Error('missing IHDR in flipped output');
+  result.push(ihdr);
+  for (const ch of origChunks) {
+    if (TEXT_TYPES.has(ch.type)) result.push(ch);
+  }
+  const SKIP_FOR_PIXELS = new Set(['IHDR', 'IEND', 'tEXt', 'zTXt', 'iTXt']);
+  for (const ch of flippedChunks) {
+    if (!SKIP_FOR_PIXELS.has(ch.type)) result.push(ch);
+  }
+  result.push({ type: 'IEND', data: Buffer.alloc(0) });
+  return _encodePngChunks(result);
+}
+
 // Prewarm thumbnails into the file's fastcache/ sibling. 옛엔 무조건 200/400/500
 // 3개 다 prewarm — initialThumbSize 설정 1개만 쓰는 사용자에겐 나머지 2개가 dead
 // (디스크 4배 사용). 처방: config.initialThumbSize 있으면 그 값 1개만, 없으면
@@ -3898,6 +3969,46 @@ app.post('/api/image/resize', async (req, res) => {
 
 app.post('/api/image/remove-bg', async (req, res) => {
   res.status(501).json({ error: 'Background removal not available in server mode' });
+});
+
+// 좌우 반전 — PNG metadata(NAI prompt/seed) 보존하며 같은 파일에 덮어쓰기.
+// sharp의 .flop()이 PNG tEXt chunk를 잃으니 chunk-level 합성 필요.
+app.post('/api/image/flip-horizontal', async (req, res) => {
+  try {
+    if (!sharp) return res.status(501).json({ error: 'sharp not available' });
+    const relPath = req.body && req.body.path;
+    if (!relPath || typeof relPath !== 'string') {
+      return res.status(400).json({ error: 'path required' });
+    }
+    const absPath = resolvePath(relPath);
+    const ext = path.extname(absPath).toLowerCase();
+    if (ext !== '.png') {
+      return res.status(400).json({ error: 'PNG only (other formats lose NAI metadata)' });
+    }
+    const orig = await fs.readFile(absPath);
+    const flipped = await flipPngHorizontalPreservingMetadata(orig);
+    await atomicWriteFile(absPath, flipped);
+
+    // fastcache 안 옛 썸네일(같은 baseName으로 시작) 제거 — 새 썸네일은 다음 요청 시 재생성.
+    const dir = path.dirname(absPath);
+    const baseName = path.basename(absPath, '.png');
+    const fastcacheDir = path.join(dir, 'fastcache');
+    try {
+      const cached = await fs.readdir(fastcacheDir);
+      const suffix = '_' + baseName + '.webp';
+      await Promise.all(
+        cached
+          .filter((f) => f.endsWith(suffix))
+          .map((f) => fs.unlink(path.join(fastcacheDir, f)).catch(() => {}))
+      );
+    } catch {} // fastcache 디렉토리 없으면 skip
+
+    broadcast('image-changed', relPath);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('flip-horizontal error:', e && e.message);
+    res.status(500).json({ error: e && e.message });
+  }
 });
 
 app.post('/api/image/encode-vibe', async (req, res) => {
