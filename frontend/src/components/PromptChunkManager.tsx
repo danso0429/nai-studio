@@ -1,0 +1,430 @@
+import React, { useState } from 'react';
+import { observer } from 'mobx-react-lite';
+import {
+  FaPlus,
+  FaPen,
+  FaTrash,
+  FaFolderPlus,
+  FaChevronRight,
+  FaChevronDown,
+} from 'react-icons/fa';
+import ModalOverlay from './ModalOverlay';
+import { promptChunkService } from '../models';
+import {
+  DEFAULT_CHUNK_COLOR,
+  IPromptChunk,
+  IPromptChunkFolder,
+} from '../models/PromptChunkService';
+import { appState } from '../models/AppService';
+
+// 1a: hex 입력 + 프리셋 색 팔레트. 2D/hue 슬라이더는 1b에서 고도화.
+const PALETTE = [
+  '#d4d4d8', // 연회색 (기본)
+  '#f87171', // red
+  '#fb923c', // orange
+  '#fbbf24', // amber
+  '#a3e635', // lime
+  '#34d399', // emerald
+  '#22d3ee', // cyan
+  '#60a5fa', // blue
+  '#a78bfa', // violet
+  '#f472b6', // pink
+];
+
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+
+// chunk/폴더 추가·수정 폼.
+const ChunkForm = observer(
+  ({
+    mode,
+    onClose,
+  }: {
+    mode:
+      | { kind: 'add-chunk' }
+      | { kind: 'edit-chunk'; chunk: IPromptChunk }
+      | { kind: 'add-folder' }
+      | { kind: 'edit-folder'; folder: IPromptChunkFolder };
+    onClose: () => void;
+  }) => {
+    const isChunk = mode.kind === 'add-chunk' || mode.kind === 'edit-chunk';
+    const editing =
+      mode.kind === 'edit-chunk'
+        ? mode.chunk
+        : mode.kind === 'edit-folder'
+          ? mode.folder
+          : null;
+    const [name, setName] = useState(editing?.name ?? '');
+    const [content, setContent] = useState(
+      mode.kind === 'edit-chunk' ? mode.chunk.content : '',
+    );
+    const [category, setCategory] = useState<string | null>(
+      mode.kind === 'edit-chunk' ? mode.chunk.category : null,
+    );
+    const [color, setColor] = useState(editing?.color ?? DEFAULT_CHUNK_COLOR);
+
+    const folders = promptChunkService.listFolders();
+    const colorValid = HEX_RE.test(color);
+
+    const save = () => {
+      const nm = name.trim();
+      if (!nm) {
+        appState.pushMessage('이름을 입력해 주세요');
+        return;
+      }
+      const col = colorValid ? color : DEFAULT_CHUNK_COLOR;
+      try {
+        if (mode.kind === 'add-chunk') {
+          promptChunkService.add(nm, content, category, col);
+        } else if (mode.kind === 'edit-chunk') {
+          promptChunkService.update(mode.chunk.id, {
+            name: nm,
+            content,
+            category,
+            color: col,
+          });
+        } else if (mode.kind === 'add-folder') {
+          promptChunkService.addFolder(nm, col);
+        } else if (mode.kind === 'edit-folder') {
+          promptChunkService.updateFolder(mode.folder.id, { name: nm, color: col });
+        }
+        onClose();
+      } catch (e: any) {
+        appState.pushMessage(e?.message || String(e));
+      }
+    };
+
+    const del = () => {
+      if (mode.kind === 'edit-chunk') {
+        appState.pushDialog({
+          type: 'confirm',
+          text: `chunk "${mode.chunk.name}"를 삭제할까요?`,
+          callback: () => {
+            promptChunkService.remove(mode.chunk.id);
+            onClose();
+          },
+        });
+      } else if (mode.kind === 'edit-folder') {
+        appState.pushDialog({
+          type: 'confirm',
+          text: `폴더 "${mode.folder.name}"를 삭제할까요? 안의 chunk는 미분류로 이동돼요.`,
+          callback: () => {
+            promptChunkService.removeFolder(mode.folder.id);
+            onClose();
+          },
+        });
+      }
+    };
+
+    const title =
+      mode.kind === 'add-chunk'
+        ? 'chunk 추가'
+        : mode.kind === 'edit-chunk'
+          ? 'chunk 수정'
+          : mode.kind === 'add-folder'
+            ? '폴더 추가'
+            : '폴더 수정';
+
+    return (
+      <ModalOverlay isOpen={true} onClose={onClose} title={title}>
+        <div className="text-default flex flex-col gap-4">
+          {/* 이름 */}
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              이름
+            </label>
+            <input
+              type="text"
+              className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
+          </div>
+
+          {/* content (chunk만) */}
+          {isChunk && (
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                태그 (content)
+              </label>
+              <textarea
+                className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 min-h-24 resize-y"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="예: 1girl, masterpiece, best quality"
+              />
+            </div>
+          )}
+
+          {/* category (chunk만) */}
+          {isChunk && (
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                폴더
+              </label>
+              <select
+                className="px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 text-sm"
+                value={category ?? ''}
+                onChange={(e) => setCategory(e.target.value || null)}
+              >
+                <option value="">미분류</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* color (hex + 팔레트) */}
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              색
+            </label>
+            <div className="flex items-center gap-2">
+              <span
+                className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 flex-none"
+                style={{ backgroundColor: colorValid ? color : DEFAULT_CHUNK_COLOR }}
+              />
+              <input
+                type="text"
+                className={
+                  'flex-1 px-3 py-2 rounded-lg border bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 ' +
+                  (colorValid
+                    ? 'border-gray-300 dark:border-gray-600'
+                    : 'border-red-400')
+                }
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+                placeholder="#d4d4d8"
+              />
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {PALETTE.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={
+                    'w-7 h-7 rounded border-2 ' +
+                    (color.toLowerCase() === c.toLowerCase()
+                      ? 'border-sky-500'
+                      : 'border-transparent')
+                  }
+                  style={{ backgroundColor: c }}
+                  onClick={() => setColor(c)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* 버튼 */}
+          <div className="flex gap-2">
+            {editing && (
+              <button
+                className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-medium transition-colors"
+                onClick={del}
+              >
+                삭제
+              </button>
+            )}
+            <button
+              className="px-4 py-2 rounded-lg bg-gray-200 dark:bg-slate-600 hover:bg-gray-300 dark:hover:bg-slate-500 text-gray-700 dark:text-gray-200 text-sm font-medium transition-colors ml-auto"
+              onClick={onClose}
+            >
+              취소
+            </button>
+            <button
+              className="px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-sm font-medium transition-colors"
+              onClick={save}
+            >
+              저장
+            </button>
+          </div>
+        </div>
+      </ModalOverlay>
+    );
+  },
+);
+
+// chunk 1개 행 (목록).
+const ChunkRow = observer(
+  ({ chunk, onEdit }: { chunk: IPromptChunk; onEdit: () => void }) => (
+    <div
+      className="flex items-center gap-2 px-2 py-1.5 rounded border"
+      style={{
+        backgroundColor: chunk.color + '33', // 배경 옅게
+        borderColor: chunk.color,
+      }}
+    >
+      <span className="text-sm text-gray-900 dark:text-slate-100 flex-1 truncate">
+        {chunk.name}
+      </span>
+      <button
+        className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+        onClick={onEdit}
+      >
+        <FaPen size={12} />
+      </button>
+    </div>
+  ),
+);
+
+const PromptChunkManager = observer(
+  ({ onClose }: { onClose: () => void }) => {
+    const [formMode, setFormMode] = useState<any>(null);
+    const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+    const chunks = promptChunkService.list();
+    const folders = promptChunkService
+      .listFolders()
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const uncategorized = chunks.filter((c) => !c.category);
+
+    const toggleFolder = (id: string) =>
+      setCollapsed((s) => {
+        const n = new Set(s);
+        if (n.has(id)) n.delete(id);
+        else n.add(id);
+        return n;
+      });
+
+    return (
+      <>
+        <ModalOverlay
+          isOpen={true}
+          onClose={onClose}
+          title="프롬프트 chunk"
+          width="max-w-2xl"
+        >
+          <div className="text-default flex flex-col gap-3">
+            {/* 상단 액션 */}
+            <div className="flex gap-2">
+              <button
+                className="px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-sm font-medium flex items-center gap-1.5"
+                onClick={() => setFormMode({ kind: 'add-chunk' })}
+              >
+                <FaPlus size={11} /> chunk 추가
+              </button>
+              <button
+                className="px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-slate-600 hover:bg-gray-300 dark:hover:bg-slate-500 text-gray-700 dark:text-gray-200 text-sm font-medium flex items-center gap-1.5"
+                onClick={() => setFormMode({ kind: 'add-folder' })}
+              >
+                <FaFolderPlus size={11} /> 폴더 추가
+              </button>
+            </div>
+
+            {chunks.length === 0 && folders.length === 0 ? (
+              <div className="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
+                저장된 chunk가 없어요. chunk를 추가해보세요.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3 max-h-[55vh] overflow-y-auto">
+                {/* 폴더별 */}
+                {folders.map((f) => {
+                  const inFolder = chunks.filter((c) => c.category === f.id);
+                  const isCollapsed = collapsed.has(f.id);
+                  return (
+                    <div key={f.id} className="flex flex-col gap-1">
+                      <div
+                        className="flex items-center gap-2 px-2 py-1 rounded"
+                        style={{ backgroundColor: f.color + '33' }}
+                      >
+                        <button
+                          className="text-gray-600 dark:text-gray-300"
+                          onClick={() => toggleFolder(f.id)}
+                        >
+                          {isCollapsed ? (
+                            <FaChevronRight size={11} />
+                          ) : (
+                            <FaChevronDown size={11} />
+                          )}
+                        </button>
+                        <span className="text-sm font-medium text-gray-800 dark:text-gray-100 flex-1 truncate">
+                          {f.name}
+                        </span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          {inFolder.length}
+                        </span>
+                        <button
+                          className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                          onClick={() =>
+                            setFormMode({ kind: 'edit-folder', folder: f })
+                          }
+                        >
+                          <FaPen size={11} />
+                        </button>
+                      </div>
+                      {!isCollapsed && (
+                        <div className="flex flex-col gap-1 pl-5">
+                          {inFolder.length === 0 ? (
+                            <div className="text-xs text-gray-400 dark:text-gray-500 py-1">
+                              비어 있음
+                            </div>
+                          ) : (
+                            inFolder.map((c) => (
+                              <ChunkRow
+                                key={c.id}
+                                chunk={c}
+                                onEdit={() =>
+                                  setFormMode({ kind: 'edit-chunk', chunk: c })
+                                }
+                              />
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* 미분류 */}
+                {uncategorized.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    {folders.length > 0 && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400 px-2">
+                        미분류
+                      </div>
+                    )}
+                    {uncategorized.map((c) => (
+                      <ChunkRow
+                        key={c.id}
+                        chunk={c}
+                        onEdit={() =>
+                          setFormMode({ kind: 'edit-chunk', chunk: c })
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 전체 삭제 */}
+            {(chunks.length > 0 || folders.length > 0) && (
+              <button
+                className="text-xs text-red-500 hover:text-red-600 self-start mt-1"
+                onClick={() =>
+                  appState.pushDialog({
+                    type: 'confirm',
+                    text: '모든 chunk와 폴더를 삭제할까요? (되돌릴 수 없어요)',
+                    callback: () => promptChunkService.clearAll(),
+                  })
+                }
+              >
+                전체 삭제
+              </button>
+            )}
+          </div>
+        </ModalOverlay>
+
+        {formMode && (
+          <ChunkForm mode={formMode} onClose={() => setFormMode(null)} />
+        )}
+      </>
+    );
+  },
+);
+
+export default PromptChunkManager;

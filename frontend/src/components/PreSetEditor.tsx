@@ -24,6 +24,7 @@ import {
   FaToggleOn,
   FaToggleOff,
   FaFolderOpen,
+  FaLayerGroup,
 } from 'react-icons/fa';
 import { FloatView } from './FloatView';
 import { v4 } from 'uuid';
@@ -68,6 +69,7 @@ import {
 import { StackFixed, StackGrow, VerticalStack } from './LayoutComponents';
 import Tooltip from './Tooltip';
 import ModalOverlay from './ModalOverlay';
+import PromptChunkManager from './PromptChunkManager';
 import { FaCloudUploadAlt } from 'react-icons/fa';
 import { ModelVersion } from '../backends/imageGen';
 
@@ -1659,6 +1661,7 @@ const PreSetSelect = observer(({ workflowType }: { workflowType: string }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
+  const [chunkOpen, setChunkOpen] = useState(false);
   const clicked = React.useRef(false);
   const presets = curSession.presets.get(workflowType)!;
   const { preset } = useContext(WFElementContext)!;
@@ -1747,6 +1750,14 @@ const PreSetSelect = observer(({ workflowType }: { workflowType: string }) => {
           <FaTrashAlt />
         </button>
       </Tooltip>
+      <Tooltip content="프롬프트 chunk 관리">
+        <button className={`icon-button`} onClick={() => setChunkOpen(true)}>
+          <FaLayerGroup />
+        </button>
+      </Tooltip>
+      {chunkOpen && (
+        <PromptChunkManager onClose={() => setChunkOpen(false)} />
+      )}
       {copyOpen && preset && (
         <PromptCopyDialog
           workflowType={workflowType}

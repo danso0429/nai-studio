@@ -14,6 +14,7 @@ import { CyclingSessionService } from './CyclingSessionService';
 import { GlobalPieceService } from './GlobalPieceService';
 import { GlobalPresetService } from './GlobalPresetService';
 import { PromptPresetService } from './PromptPresetService';
+import { PromptChunkService } from './PromptChunkService';
 
 export const backend = new ServerBackend();
 
@@ -80,6 +81,9 @@ globalPresetService.load();
 export const promptPresetService = new PromptPresetService();
 promptPresetService.load();
 
+export const promptChunkService = new PromptChunkService();
+promptChunkService.load();
+
 export const promptService = new PromptService();
 
 export const taskQueueService = new TaskQueueService(taskHandlers);
@@ -101,6 +105,7 @@ export const cyclingSessionService = new CyclingSessionService();
 (window as any).loginService = loginService;
 (window as any).globalPresetService = globalPresetService;
 (window as any).promptPresetService = promptPresetService;
+(window as any).promptChunkService = promptChunkService;
 
 backend.onClose(() => {
   (async () => {
