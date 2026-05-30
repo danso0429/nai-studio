@@ -1,6 +1,6 @@
 {
-  "version": "1.8.3-experimental.1",
+  "version": "1.8.3-experimental.2",
   "sdstudioBase": "4.9.0",
-  "released": "2026-05-27",
-  "notes": "experimental. v1.8.2 → v1.8.3-experimental.1. fix: NAI 429 Cloudflare HTML 에러 메시지 치환 / rclone 에러 메시지 간결화 / Firefox 계열 브라우저 contentEditable paste 호환성 수정 (beforeinput preventDefault가 paste 이벤트 차단하던 문제) / 트루 다크 모드에서 react-select 드롭다운 메뉴 글씨가 검은색이라 안 보이던 문제 (portal cascade 보완). 안전망: 모바일 프롬프트 편집 칸 NativeEditTextArea의 explicit font stack(Menlo+Courier New) + ligature/kerning/text-size-adjust 고정 — 본인 iPhone caret drift 페인 시도였지만 실제 원인은 아니었음(잘라내기+다시 붙여넣기로 회복 = invisible char 잔류 가설), 미래 iOS 버전 quirk 회피용 잠재 안전망으로 유지."
+  "released": "2026-05-30",
+  "notes": "experimental. v1.8.3-experimental.1 → .2. 데스크탑 Firefox 프롬프트 에디터 fix 2건: (1) 붙여넣기 무시 — handlePaste가 clipboardData를 mutex await 이후 읽어 Firefox가 무효화한 값을 읽던 문제, 동기 시점 읽기로 수정 (exp.1의 beforeinput shim은 실제 원인이 아니었음 — 정정). (2) 텍스트 중간 클릭 시 caret이 맨 앞으로 튐 — 에디터 wrapper의 draggable={true}를 Firefox가 드래그로 잡아 native caret 배치를 막던 문제, draggable 제거(onDragStart preventDefault는 유지). 설정 UI: 트루다크에서 씬 썸네일 크기 select 글씨 색 명시 + 내보내기 동시 처리 수 slider→1/2/3/4 세그먼트 버튼."
 }
