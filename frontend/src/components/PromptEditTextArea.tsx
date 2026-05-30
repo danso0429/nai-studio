@@ -824,7 +824,9 @@ class CursorMemorizeEditor {
       const [start, end] = this.getCaretPosition();
       const collapsed = range.collapsed;
       this.shuffling = true;
-      this.clipboard.focus();
+      // preventScroll: iOS는 focus 시 element(화면 좌상단 clipboard)를 보이게 페이지를
+      // 스크롤해 한글 조합마다 출렁임 → 스크롤 억제. 데스크탑 무해.
+      this.clipboard.focus({ preventScroll: true });
       this.shuffling = false;
       await new Promise((resolve) => requestAnimationFrame(resolve));
       await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -1658,9 +1660,12 @@ const PromptEditTextArea = observer(
         promptChunkService.removeEventListener('loaded', onChunkChange);
       };
     }, []);
-    const EditTextAreaImpl = isMobile
-      ? NativeEditTextArea
-      : EmulatedEditTextArea;
+    // 모바일도 데스크탑 엔진(EmulatedEditTextArea, contentEditable) 사용 — chunk 알약
+    // 원자화/커서/2단삭제 위해. 본인 결정(완전 교체, 2026-05-31). NativeEditTextArea는
+    // 롤백용 보존. iOS 입력 안정성(한글 IME/소프트키보드 blur/focus)은 L3 최우선 검증.
+    const useNativeEditor = false; // iOS 회귀 시 true로 즉시 롤백
+    const EditTextAreaImpl =
+      useNativeEditor && isMobile ? NativeEditTextArea : EmulatedEditTextArea;
 
     const prefixSep = ', ';
     const fullPrefix = lockedPrefix ? lockedPrefix + prefixSep : '';
