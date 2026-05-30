@@ -57,6 +57,14 @@ export function stripDeadChunkTokens(text: string): string {
   return out;
 }
 
+// 모든 chunk 토큰 제거(살아있든 죽었든) + 인접 쉼표 정리. 일괄복사 시 chunk를 빼고
+// 사용자가 쓴 텍스트만 대상에 복사하는 용도(본인 결정: "chunk 제외, 내가 쓴 텍스트만").
+export function stripAllChunkTokens(text: string): string {
+  if (!text || text.indexOf('⟦c:') === -1) return text;
+  const out = text.replace(/[ \t]*,?[ \t]*⟦c:[0-9a-fA-F-]+⟧/g, '');
+  return out.replace(/^[ \t]*,[ \t]*/, '').replace(/\n[ \t]*,[ \t]*/g, '\n');
+}
+
 /**
  * ##주석## 블록 제거.
  * - 여러 줄, 콤마 포함 가능 (non-greedy)

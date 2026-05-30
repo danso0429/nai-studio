@@ -49,7 +49,7 @@ import {
   promptPresetService,
   isMobile,
 } from '../models';
-import { toPARR } from '../models/PromptService';
+import { toPARR, stripAllChunkTokens } from '../models/PromptService';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import {
@@ -1488,7 +1488,8 @@ const PromptCopyDialog = observer(
             continue;
           }
           for (const key of selectedKeys) {
-            targetPreset[key] = sourcePreset[key] || '';
+            // chunk 토큰 제외하고 사용자가 쓴 텍스트만 복사 (본인 결정).
+            targetPreset[key] = stripAllChunkTokens(sourcePreset[key] || '');
           }
           ok++;
         }
