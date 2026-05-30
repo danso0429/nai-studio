@@ -1443,47 +1443,57 @@ const PromptCopyDialog = observer(
       backPrompt: true,
       uc: true,
     });
-    const [target, setTarget] = useState<string>('');
+    const [selectedTargets, setSelectedTargets] = useState<Set<string>>(
+      new Set(),
+    );
     const [busy, setBusy] = useState(false);
-    // 같은 워크플로우 preset을 가진 다른 프로젝트만 대상.
+    // 다른 프로젝트만 대상 (워크플로우 일치 여부는 복사 시점에 개별 검사).
     const targets = sessionService
       .list()
       .filter((n) => n !== curSession.name);
 
     const selectedKeys = FIELDS.filter((f) => checked[f.key]).map((f) => f.key);
+    const toggleTarget = (n: string) =>
+      setSelectedTargets((s) => {
+        const next = new Set(s);
+        if (next.has(n)) next.delete(n);
+        else next.add(n);
+        return next;
+      });
 
     const doCopy = async () => {
-      if (!target || selectedKeys.length === 0 || busy) return;
+      if (selectedTargets.size === 0 || selectedKeys.length === 0 || busy) return;
       setBusy(true);
       try {
-        const targetSession = await sessionService.get(target);
-        if (!targetSession) {
-          appState.pushMessage('대상 프로젝트를 불러올 수 없습니다.');
-          setBusy(false);
-          return;
+        let ok = 0;
+        const skipped: string[] = [];
+        for (const name of selectedTargets) {
+          const targetSession = await sessionService.get(name);
+          if (!targetSession) {
+            skipped.push(`${name}(불러오기 실패)`);
+            continue;
+          }
+          const flow = targetSession.selectedWorkflow;
+          if (!flow || flow.workflowType !== workflowType) {
+            skipped.push(`${name}(워크플로우 다름)`);
+            continue;
+          }
+          const targetPreset =
+            flow.presetName &&
+            targetSession.getPreset(workflowType, flow.presetName);
+          if (!targetPreset) {
+            skipped.push(`${name}(사전세팅 없음)`);
+            continue;
+          }
+          for (const key of selectedKeys) {
+            targetPreset[key] = sourcePreset[key] || '';
+          }
+          ok++;
         }
-        const flow = targetSession.selectedWorkflow;
-        if (!flow || flow.workflowType !== workflowType) {
-          appState.pushMessage(
-            '대상 프로젝트의 워크플로우가 달라요. 같은 워크플로우끼리만 복사할 수 있어요.',
-          );
-          setBusy(false);
-          return;
-        }
-        const targetPreset =
-          flow.presetName && targetSession.getPreset(workflowType, flow.presetName);
-        if (!targetPreset) {
-          appState.pushMessage('대상 프로젝트의 사전세팅을 찾을 수 없습니다.');
-          setBusy(false);
-          return;
-        }
-        for (const key of selectedKeys) {
-          targetPreset[key] = sourcePreset[key] || '';
-        }
-        appState.pushMessage(
-          `"${target}" 프로젝트로 ${selectedKeys.length}개 프롬프트를 복사했어요.`,
-        );
-        onClose();
+        let msg = `${ok}개 프로젝트로 프롬프트를 복사했어요.`;
+        if (skipped.length) msg += ` 건너뜀: ${skipped.join(', ')}`;
+        appState.pushMessage(msg);
+        if (ok > 0) onClose();
       } catch (e: any) {
         appState.pushMessage('복사 실패: ' + (e?.message || e));
       } finally {
@@ -1495,8 +1505,8 @@ const PromptCopyDialog = observer(
       <ModalOverlay isOpen={true} onClose={onClose} title="다른 프로젝트로 프롬프트 복사">
         <div className="text-default flex flex-col gap-4">
           <div className="text-xs text-gray-500 dark:text-gray-400">
-            현재 프로젝트의 프롬프트를 다른 프로젝트의 같은 워크플로우 사전세팅에
-            <strong> 덮어쓰기</strong> 해요. 적용된 그림체 프리셋(prefix)은 제외돼요.
+            현재 프로젝트의 프롬프트를 선택한 프로젝트들의 같은 워크플로우 사전세팅에
+            <strong> 덮어쓰기</strong> 해요.
           </div>
 
           {/* 복사할 항목 */}
@@ -1521,10 +1531,10 @@ const PromptCopyDialog = observer(
             ))}
           </div>
 
-          {/* 대상 프로젝트 */}
+          {/* 대상 프로젝트 (다중 선택) */}
           <div className="flex flex-col gap-2">
             <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              대상 프로젝트
+              대상 프로젝트 (여러 개 선택 가능)
             </div>
             {targets.length === 0 ? (
               <div className="text-sm text-gray-500 dark:text-gray-400 py-2">
@@ -1538,10 +1548,9 @@ const PromptCopyDialog = observer(
                     className="flex items-center gap-2 cursor-pointer text-sm gray-label p-2 rounded hover:bg-gray-100 dark:hover:bg-slate-700"
                   >
                     <input
-                      type="radio"
-                      name="copy-target"
-                      checked={target === n}
-                      onChange={() => setTarget(n)}
+                      type="checkbox"
+                      checked={selectedTargets.has(n)}
+                      onChange={() => toggleTarget(n)}
                     />
                     {n}
                   </label>
@@ -1553,11 +1562,11 @@ const PromptCopyDialog = observer(
           {/* 실행 */}
           <button
             className="w-full px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-sm font-medium transition-colors disabled:opacity-50"
-            disabled={!target || selectedKeys.length === 0 || busy}
+            disabled={selectedTargets.size === 0 || selectedKeys.length === 0 || busy}
             onClick={() => {
               appState.pushDialog({
                 type: 'confirm',
-                text: `"${target}" 프로젝트의 사전세팅에 선택한 프롬프트를 덮어쓸까요? (기존 내용 대체)`,
+                text: `${selectedTargets.size}개 프로젝트의 사전세팅에 선택한 프롬프트를 덮어쓸까요? (기존 내용 대체)`,
                 callback: doCopy,
               });
             }}
@@ -1570,10 +1579,86 @@ const PromptCopyDialog = observer(
   },
 );
 
+// 현재 프로젝트의 상위/하위/네거티브 프롬프트(체크한 칸)를 비우기. 복사와 같은 UI.
+// preset 필드를 빈 문자열로 = makeAutoObservable이라 자동 저장.
+const PromptClearDialog = observer(
+  ({
+    sourcePreset,
+    onClose,
+  }: {
+    sourcePreset: any;
+    onClose: () => void;
+  }) => {
+    const FIELDS: { key: 'frontPrompt' | 'backPrompt' | 'uc'; label: string }[] = [
+      { key: 'frontPrompt', label: '상위 프롬프트' },
+      { key: 'backPrompt', label: '하위 프롬프트' },
+      { key: 'uc', label: '네거티브 프롬프트' },
+    ];
+    const [checked, setChecked] = useState<Record<string, boolean>>({
+      frontPrompt: true,
+      backPrompt: true,
+      uc: true,
+    });
+    const selectedKeys = FIELDS.filter((f) => checked[f.key]).map((f) => f.key);
+
+    const doClear = () => {
+      for (const key of selectedKeys) {
+        sourcePreset[key] = '';
+      }
+      appState.pushMessage(`${selectedKeys.length}개 프롬프트를 비웠어요.`);
+      onClose();
+    };
+
+    return (
+      <ModalOverlay isOpen={true} onClose={onClose} title="프롬프트 전체 삭제">
+        <div className="text-default flex flex-col gap-4">
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            현재 프로젝트의 선택한 프롬프트 칸을 <strong>전부 비워요</strong>.
+          </div>
+          <div className="flex flex-col gap-2">
+            <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              삭제할 항목
+            </div>
+            {FIELDS.map((f) => (
+              <label
+                key={f.key}
+                className="flex items-center gap-2 cursor-pointer text-sm gray-label"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked[f.key]}
+                  onChange={(e) =>
+                    setChecked((c) => ({ ...c, [f.key]: e.target.checked }))
+                  }
+                />
+                {f.label}
+              </label>
+            ))}
+          </div>
+          <button
+            className="w-full px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-medium transition-colors disabled:opacity-50"
+            disabled={selectedKeys.length === 0}
+            onClick={() => {
+              appState.pushDialog({
+                type: 'confirm',
+                text: `선택한 ${selectedKeys.length}개 프롬프트를 비울까요? (되돌릴 수 없어요)`,
+                callback: doClear,
+              });
+            }}
+          >
+            비우기
+          </button>
+        </div>
+      </ModalOverlay>
+    );
+  },
+);
+
 const PreSetSelect = observer(({ workflowType }: { workflowType: string }) => {
   const curSession = appState.curSession!;
   const [isOpen, setIsOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
   const clicked = React.useRef(false);
   const presets = curSession.presets.get(workflowType)!;
   const { preset } = useContext(WFElementContext)!;
@@ -1648,11 +1733,31 @@ const PreSetSelect = observer(({ workflowType }: { workflowType: string }) => {
           <FaCopy />
         </button>
       </Tooltip>
+      <Tooltip content="프롬프트 전체 삭제">
+        <button
+          className={`icon-button`}
+          onClick={() => {
+            if (!preset) {
+              appState.pushMessage('삭제할 사전세팅이 없어요.');
+              return;
+            }
+            setClearOpen(true);
+          }}
+        >
+          <FaTrashAlt />
+        </button>
+      </Tooltip>
       {copyOpen && preset && (
         <PromptCopyDialog
           workflowType={workflowType}
           sourcePreset={preset}
           onClose={() => setCopyOpen(false)}
+        />
+      )}
+      {clearOpen && preset && (
+        <PromptClearDialog
+          sourcePreset={preset}
+          onClose={() => setClearOpen(false)}
         />
       )}
       {isOpen && (
