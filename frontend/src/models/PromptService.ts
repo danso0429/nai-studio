@@ -774,20 +774,32 @@ export const highlightPrompt = (
             classNames.push('syntax-strong');
           }
 
-          // chunk 토큰 ⟦c:uuid⟧ → 알약(이름 + color). raw 토큰 대신 chunk 이름 표시.
-          const chunkMatch = pword.match(/^⟦c:([0-9a-fA-F-]+)⟧$/);
-          if (chunkMatch) {
-            const chunk = promptChunkService.get(chunkMatch[1]);
-            const leadingC = escapeHtmlText(word.substring(0, leftTrimPos));
-            const trailingC = escapeHtmlText(
-              word.substring(rightTrimPos + 1, word.length),
-            );
-            offset += word.length + 1;
-            if (!chunk) {
-              // 삭제된 chunk — 회색 "삭제됨" 알약.
-              return `${leadingC}<span class="syntax-chunk syntax-chunk-deleted" data-chunk-id="${escapeJsInAttr(chunkMatch[1])}">(삭제된 chunk)</span>${trailingC}`;
+          // chunk 토큰 ⟦c:uuid⟧ → 알약(이름 + color). 토큰 앞뒤에 문자가 붙어 한 word가
+          // 되어도(예: ⟦c:id⟧tall, hair⟦c:id⟧) 토큰만 알약, 사이/앞뒤 텍스트는 그대로 유지.
+          // word 단위 split이 쉼표만 분리해 토큰+문자가 한 단어가 되는 케이스 cover.
+          if (word.indexOf('⟦c:') !== -1) {
+            const tokenRe = /⟦c:([0-9a-fA-F-]+)⟧/g;
+            let m: RegExpExecArray | null;
+            let last = 0;
+            let chunkOut = '';
+            let matched = false;
+            while ((m = tokenRe.exec(word)) !== null) {
+              matched = true;
+              chunkOut += escapeHtmlText(word.substring(last, m.index));
+              const chunk = promptChunkService.get(m[1]);
+              if (!chunk) {
+                // 삭제된 chunk — 회색 "삭제됨" 알약.
+                chunkOut += `<span class="syntax-chunk syntax-chunk-deleted" contenteditable="false" data-chunk-id="${escapeJsInAttr(m[1])}">(삭제된 chunk)</span>`;
+              } else {
+                chunkOut += `<span class="syntax-chunk" contenteditable="false" data-chunk-id="${escapeJsInAttr(chunk.id)}" style="background-color:${chunk.color}33;border-color:${chunk.color}">${escapeHtmlText(chunk.name)}</span>`;
+              }
+              last = m.index + m[0].length;
             }
-            return `${leadingC}<span class="syntax-chunk" data-chunk-id="${escapeJsInAttr(chunk.id)}" style="background-color:${chunk.color}33;border-color:${chunk.color}">${escapeHtmlText(chunk.name)}</span>${trailingC}`;
+            if (matched) {
+              chunkOut += escapeHtmlText(word.substring(last));
+              offset += word.length + 1;
+              return chunkOut;
+            }
           }
 
           if (pword.startsWith('<') && pword.endsWith('>')) {

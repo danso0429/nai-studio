@@ -120,6 +120,24 @@ const getWordBounds = (
   return [startIdx, endIdx];
 };
 
+// prompt chunk 알약: contenteditable=false span을 토큰 원문 길이의 atomic 덩어리로 caret
+// 매핑. DOM textContent(이름, 짧음) 대신 ⟦c:uuid⟧(김) 길이를 써야 curText offset과 정합.
+const isChunkEl = (n: any): boolean =>
+  !!n && n.nodeType === 1 && n.classList && n.classList.contains('syntax-chunk');
+const chunkTokenLen = (n: any): number =>
+  makeChunkToken((n.getAttribute && n.getAttribute('data-chunk-id')) || '').length;
+// 노드 서브트리의 curText 길이: 알약은 토큰 원문 길이, BR은 1, 그 외 텍스트는 글자수.
+// 전체선택(Ctrl+A) 등 caret range가 줄 span을 끝점으로 잡을 때 알약 품은 span을 정확히 환산.
+const subtreeTextLen = (node: any): number => {
+  if (node.nodeType === 3) return node.textContent.length;
+  if (isChunkEl(node)) return chunkTokenLen(node);
+  if (node.nodeName === 'BR') return 1;
+  let s = 0;
+  const kids = node.childNodes;
+  for (let k = 0; k < kids.length; k++) s += subtreeTextLen(kids[k]);
+  return s;
+};
+
 class CursorMemorizeEditor {
   compositionBuffer: string[];
   previousRange: number[] | undefined;
@@ -223,22 +241,29 @@ class CursorMemorizeEditor {
       [endContainer, endOffset],
     ];
     while ((currentNode = nodeIterator.nextNode())) {
+      // 알약 내부 텍스트노드는 알약 span 단위로 카운트하므로 개별 누적에서 제외.
+      const insideChunk =
+        currentNode.nodeType === 3 && isChunkEl(currentNode.parentNode);
       for (let i = 0; i < pairs.length; i++) {
         const [container, offset] = pairs[i];
         if (currentNode === container) {
           if (container.nodeType === 3) {
             res[i] += offset;
+          } else if (isChunkEl(container)) {
+            // caret이 알약 경계: offset 0=앞, >=1=뒤 → 토큰 원문 길이만큼.
+            if (offset >= 1) res[i] += chunkTokenLen(container);
           } else if ((container as any).tagName !== 'BR') {
             for (let j = 0; j < offset; j++) {
-              const child = container.childNodes[j];
-              res[i] += (child as any).textContent.length;
-              if ((child as any).tagName === 'BR') res[i]++;
+              // 알약을 품은 줄 span도 정확히 환산 (textContent는 알약 이름이라 짧음).
+              res[i] += subtreeTextLen(container.childNodes[j]);
             }
           }
           done[i] = true;
         } else {
           if (!done[i]) {
-            if (currentNode.nodeType === 3) {
+            if (isChunkEl(currentNode)) {
+              res[i] += chunkTokenLen(currentNode);
+            } else if (currentNode.nodeType === 3 && !insideChunk) {
               res[i] += currentNode.textContent!.length;
             }
             if (currentNode.nodeName === 'BR') {
@@ -277,7 +302,27 @@ class CursorMemorizeEditor {
           }
           offset += 1;
         }
+        // 알약: 토큰 원문 길이의 atomic 덩어리. caret은 알약 앞/뒤 경계에만.
+        if (isChunkEl(currentNode)) {
+          const nodeLength = chunkTokenLen(currentNode);
+          if (offset + nodeLength >= pos[i]) {
+            const after = pos[i] > offset; // 알약 안/뒤면 뒤 경계로
+            if (i === 0) {
+              if (after) range.setStartAfter(currentNode);
+              else range.setStartBefore(currentNode);
+            } else {
+              if (after) range.setEndAfter(currentNode);
+              else range.setEndBefore(currentNode);
+              foundNode = currentNode;
+            }
+            break;
+          }
+          offset += nodeLength;
+          continue;
+        }
         if (currentNode.nodeType === 3) {
+          // 알약 내부 텍스트노드는 알약 span에서 이미 카운트 → skip.
+          if (isChunkEl(currentNode.parentNode)) continue;
           let nodeLength = currentNode.textContent!.length;
           if (offset + nodeLength >= pos[i]) {
             if (i === 0) {
