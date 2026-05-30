@@ -247,24 +247,24 @@ const ChunkForm = observer(
   },
 );
 
-// chunk 1개 행 (목록).
+// chunk 1개 칩 (목록). NovelAI처럼 이름+수정버튼 크기만 — 내용에 맞게 inline.
 const ChunkRow = observer(
   ({ chunk, onEdit }: { chunk: IPromptChunk; onEdit: () => void }) => (
     <div
-      className="flex items-center gap-2 px-2 py-1.5 rounded border"
+      className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded border max-w-full"
       style={{
         backgroundColor: chunk.color + '33', // 배경 옅게
         borderColor: chunk.color,
       }}
     >
-      <span className="text-sm text-gray-900 dark:text-slate-100 flex-1 truncate">
+      <span className="text-sm text-gray-900 dark:text-slate-100 truncate">
         {chunk.name}
       </span>
       <button
-        className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+        className="p-0.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-none"
         onClick={onEdit}
       >
-        <FaPen size={12} />
+        <FaPen size={11} />
       </button>
     </div>
   ),
@@ -357,7 +357,7 @@ const PromptChunkManager = observer(
                         </button>
                       </div>
                       {!isCollapsed && (
-                        <div className="flex flex-col gap-1 pl-5">
+                        <div className="flex flex-wrap gap-1.5 pl-5">
                           {inFolder.length === 0 ? (
                             <div className="text-xs text-gray-400 dark:text-gray-500 py-1">
                               비어 있음
@@ -387,15 +387,17 @@ const PromptChunkManager = observer(
                         미분류
                       </div>
                     )}
-                    {uncategorized.map((c) => (
-                      <ChunkRow
-                        key={c.id}
-                        chunk={c}
-                        onEdit={() =>
-                          setFormMode({ kind: 'edit-chunk', chunk: c })
-                        }
-                      />
-                    ))}
+                    <div className="flex flex-wrap gap-1.5">
+                      {uncategorized.map((c) => (
+                        <ChunkRow
+                          key={c.id}
+                          chunk={c}
+                          onEdit={() =>
+                            setFormMode({ kind: 'edit-chunk', chunk: c })
+                          }
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
