@@ -1418,9 +1418,162 @@ const IntSliderInput = ({
   );
 };
 
+// 현재 프로젝트의 상위/하위/네거티브 프롬프트(prefix=적용 그림체 프리셋 제외분)를
+// 다른 프로젝트로 통째 복사. prefix는 appliedPromptPreset override라 preset 객체엔
+// 저장 안 됨 → preset의 frontPrompt/backPrompt/uc 원본을 그대로 복사하면 자동으로 제외.
+// 대상 preset 필드는 makeAutoObservable이라 수정 시 onAdded reaction이 자동 저장.
+const PromptCopyDialog = observer(
+  ({
+    workflowType,
+    sourcePreset,
+    onClose,
+  }: {
+    workflowType: string;
+    sourcePreset: any;
+    onClose: () => void;
+  }) => {
+    const curSession = appState.curSession!;
+    const FIELDS: { key: 'frontPrompt' | 'backPrompt' | 'uc'; label: string }[] = [
+      { key: 'frontPrompt', label: '상위 프롬프트' },
+      { key: 'backPrompt', label: '하위 프롬프트' },
+      { key: 'uc', label: '네거티브 프롬프트' },
+    ];
+    const [checked, setChecked] = useState<Record<string, boolean>>({
+      frontPrompt: true,
+      backPrompt: true,
+      uc: true,
+    });
+    const [target, setTarget] = useState<string>('');
+    const [busy, setBusy] = useState(false);
+    // 같은 워크플로우 preset을 가진 다른 프로젝트만 대상.
+    const targets = sessionService
+      .list()
+      .filter((n) => n !== curSession.name);
+
+    const selectedKeys = FIELDS.filter((f) => checked[f.key]).map((f) => f.key);
+
+    const doCopy = async () => {
+      if (!target || selectedKeys.length === 0 || busy) return;
+      setBusy(true);
+      try {
+        const targetSession = await sessionService.get(target);
+        if (!targetSession) {
+          appState.pushMessage('대상 프로젝트를 불러올 수 없습니다.');
+          setBusy(false);
+          return;
+        }
+        const flow = targetSession.selectedWorkflow;
+        if (!flow || flow.workflowType !== workflowType) {
+          appState.pushMessage(
+            '대상 프로젝트의 워크플로우가 달라요. 같은 워크플로우끼리만 복사할 수 있어요.',
+          );
+          setBusy(false);
+          return;
+        }
+        const targetPreset =
+          flow.presetName && targetSession.getPreset(workflowType, flow.presetName);
+        if (!targetPreset) {
+          appState.pushMessage('대상 프로젝트의 사전세팅을 찾을 수 없습니다.');
+          setBusy(false);
+          return;
+        }
+        for (const key of selectedKeys) {
+          targetPreset[key] = sourcePreset[key] || '';
+        }
+        appState.pushMessage(
+          `"${target}" 프로젝트로 ${selectedKeys.length}개 프롬프트를 복사했어요.`,
+        );
+        onClose();
+      } catch (e: any) {
+        appState.pushMessage('복사 실패: ' + (e?.message || e));
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    return (
+      <ModalOverlay isOpen={true} onClose={onClose} title="다른 프로젝트로 프롬프트 복사">
+        <div className="text-default flex flex-col gap-4">
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            현재 프로젝트의 프롬프트를 다른 프로젝트의 같은 워크플로우 사전세팅에
+            <strong> 덮어쓰기</strong> 해요. 적용된 그림체 프리셋(prefix)은 제외돼요.
+          </div>
+
+          {/* 복사할 항목 */}
+          <div className="flex flex-col gap-2">
+            <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              복사할 항목
+            </div>
+            {FIELDS.map((f) => (
+              <label
+                key={f.key}
+                className="flex items-center gap-2 cursor-pointer text-sm gray-label"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked[f.key]}
+                  onChange={(e) =>
+                    setChecked((c) => ({ ...c, [f.key]: e.target.checked }))
+                  }
+                />
+                {f.label}
+              </label>
+            ))}
+          </div>
+
+          {/* 대상 프로젝트 */}
+          <div className="flex flex-col gap-2">
+            <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              대상 프로젝트
+            </div>
+            {targets.length === 0 ? (
+              <div className="text-sm text-gray-500 dark:text-gray-400 py-2">
+                복사할 다른 프로젝트가 없어요.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1 max-h-[40vh] overflow-y-auto">
+                {targets.map((n) => (
+                  <label
+                    key={n}
+                    className="flex items-center gap-2 cursor-pointer text-sm gray-label p-2 rounded hover:bg-gray-100 dark:hover:bg-slate-700"
+                  >
+                    <input
+                      type="radio"
+                      name="copy-target"
+                      checked={target === n}
+                      onChange={() => setTarget(n)}
+                    />
+                    {n}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 실행 */}
+          <button
+            className="w-full px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-sm font-medium transition-colors disabled:opacity-50"
+            disabled={!target || selectedKeys.length === 0 || busy}
+            onClick={() => {
+              appState.pushDialog({
+                type: 'confirm',
+                text: `"${target}" 프로젝트의 사전세팅에 선택한 프롬프트를 덮어쓸까요? (기존 내용 대체)`,
+                callback: doCopy,
+              });
+            }}
+          >
+            {busy ? '복사 중…' : '복사'}
+          </button>
+        </div>
+      </ModalOverlay>
+    );
+  },
+);
+
 const PreSetSelect = observer(({ workflowType }: { workflowType: string }) => {
   const curSession = appState.curSession!;
   const [isOpen, setIsOpen] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
   const clicked = React.useRef(false);
   const presets = curSession.presets.get(workflowType)!;
   const { preset } = useContext(WFElementContext)!;
@@ -1480,6 +1633,27 @@ const PreSetSelect = observer(({ workflowType }: { workflowType: string }) => {
             <FaStar />
           </button>
         </Tooltip>
+      )}
+      <Tooltip content="다른 프로젝트로 프롬프트 복사">
+        <button
+          className={`icon-button`}
+          onClick={() => {
+            if (!preset) {
+              appState.pushMessage('복사할 사전세팅이 없어요.');
+              return;
+            }
+            setCopyOpen(true);
+          }}
+        >
+          <FaCopy />
+        </button>
+      </Tooltip>
+      {copyOpen && preset && (
+        <PromptCopyDialog
+          workflowType={workflowType}
+          sourcePreset={preset}
+          onClose={() => setCopyOpen(false)}
+        />
       )}
       {isOpen && (
         <ul className="left-0 top-10 absolute max-h-60 z-20 w-full mt-1 bg-white border-2 border-gray-300 dark:border-slate-600 rounded-md shadow-lg overflow-auto dark:bg-slate-700">
