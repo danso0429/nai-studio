@@ -688,9 +688,12 @@ class CursorMemorizeEditor {
 
   async handlePaste(e: any) {
     e.preventDefault();
+    // Firefox는 paste 이벤트 dispatch가 끝나면 clipboardData를 무효화함.
+    // mutex.runExclusive의 await(microtask)를 지나기 전, 동기 시점에 미리 읽어둠.
+    // Chrome은 await 이후에도 읽히지만 Firefox는 빈 문자열이 되어 paste가 무시됨.
+    const text = e.clipboardData.getData('text');
     await mutex.runExclusive(async () => {
       this.pushHistory();
-      const text = e.clipboardData.getData('text');
       const selection = window.getSelection()!;
       const [start, end] = this.getCaretPosition();
       let cursor = start;
