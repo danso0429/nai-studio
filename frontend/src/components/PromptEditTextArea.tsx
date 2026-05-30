@@ -24,7 +24,7 @@ import { FaPerson, FaStar } from 'react-icons/fa6';
 import { FixedSizeList as List } from 'react-window';
 import getCaretCoordinates from 'textarea-caret';
 import { isMobile, backend, promptChunkService } from '../models';
-import { highlightPrompt, makeChunkToken } from '../models/PromptService';
+import { highlightPrompt, makeChunkToken, stripDeadChunkTokens } from '../models/PromptService';
 import { WordTag, calcGapMatch } from '../models/Tags';
 import { appState } from '../models/AppService';
 import ModalOverlay from './ModalOverlay';
@@ -1624,6 +1624,21 @@ const PromptEditTextArea = observer(
       const sep = cur.trim() === '' ? '' : cur.trim().endsWith(',') ? ' ' : ', ';
       onChangeRef.current(cur + sep + token);
     };
+
+    // chunk 라이브러리에서 chunk 삭제 시(+ 이 칸이 처음 뜰 때) 죽은 토큰 자동 정리.
+    // 토큰은 PromptEditTextArea에서만 삽입되므로, 보이는 칸은 즉시 / 다른 칸·프로젝트는
+    // 열릴 때 정리된다. (세션 순회·migrate 불필요, chunk 로드 타이밍 문제 회피)
+    useEffect(() => {
+      const cleanup = () => {
+        const cur = valueRef.current || '';
+        if (cur.indexOf('⟦c:') === -1) return;
+        const stripped = stripDeadChunkTokens(cur);
+        if (stripped !== cur) onChangeRef.current(stripped);
+      };
+      cleanup(); // 마운트 시 1회 (이 칸 열릴 때 lazy 정리)
+      promptChunkService.addEventListener('changed', cleanup);
+      return () => promptChunkService.removeEventListener('changed', cleanup);
+    }, []);
     const EditTextAreaImpl = isMobile
       ? NativeEditTextArea
       : EmulatedEditTextArea;

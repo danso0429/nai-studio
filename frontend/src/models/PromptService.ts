@@ -39,6 +39,24 @@ export function expandChunkTokens(text: string): string {
   });
 }
 
+// 죽은 chunk 토큰(현재 라이브러리에 없는 id)을 제거 + 인접 쉼표/공백 정리.
+// chunk 삭제 시 프롬프트에서 그 알약을 진짜 없애는 용도. 살아있는 토큰은 보존.
+// 변화 없으면 원본 문자열 그대로 반환(===로 no-op 판정 가능).
+export function stripDeadChunkTokens(text: string): string {
+  if (!text || text.indexOf('⟦c:') === -1) return text;
+  let changed = false;
+  // 토큰 + 바로 앞 쉼표/공백을 함께 매칭 → 죽은 것만 통째 제거.
+  let out = text.replace(/[ \t]*,?[ \t]*⟦c:([0-9a-fA-F-]+)⟧/g, (m, id) => {
+    if (promptChunkService.get(id)) return m; // 살아있음 — 보존
+    changed = true;
+    return '';
+  });
+  if (!changed) return text;
+  // 토큰이 줄/문장 맨 앞이었던 경우 남는 선두 쉼표 정리.
+  out = out.replace(/^[ \t]*,[ \t]*/, '').replace(/\n[ \t]*,[ \t]*/g, '\n');
+  return out;
+}
+
 /**
  * ##주석## 블록 제거.
  * - 여러 줄, 콤마 포함 가능 (non-greedy)
