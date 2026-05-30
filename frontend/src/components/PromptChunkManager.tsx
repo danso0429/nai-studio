@@ -317,18 +317,29 @@ const ChunkForm = observer(
                 className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 flex-none"
                 style={{ backgroundColor: colorValid ? color : DEFAULT_CHUNK_COLOR }}
               />
-              <input
-                type="text"
-                className={
-                  'flex-1 px-3 py-2 rounded-lg border bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 ' +
-                  (colorValid
-                    ? 'border-gray-300 dark:border-gray-600'
-                    : 'border-red-400')
-                }
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                placeholder="#d4d4d8"
-              />
+              {/* hex 입력 — # 없이 0-9/a-f 6자리만. 6자리 되면 자동 적용. */}
+              <div className="flex-1 flex items-center rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 focus-within:ring-2 focus-within:ring-sky-400 overflow-hidden">
+                <span className="pl-3 text-gray-400 dark:text-gray-500 text-sm select-none">
+                  #
+                </span>
+                <input
+                  type="text"
+                  inputMode="text"
+                  maxLength={6}
+                  className="flex-1 min-w-0 pl-1 pr-3 py-2 bg-transparent text-gray-900 dark:text-slate-100 text-sm focus:outline-none font-mono"
+                  value={color.replace(/^#/, '')}
+                  onChange={(e) => {
+                    // 0-9/a-f만 남기고 소문자 + 6자 cap.
+                    const hx = e.target.value
+                      .toLowerCase()
+                      .replace(/[^0-9a-f]/g, '')
+                      .slice(0, 6);
+                    if (hx.length === 6) setColor('#' + hx);
+                    else setColor(hx ? '#' + hx : ''); // 미완성은 # + 부분 (invalid 표시)
+                  }}
+                  placeholder="d4d4d8"
+                />
+              </div>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {PALETTE.map((c) => (
