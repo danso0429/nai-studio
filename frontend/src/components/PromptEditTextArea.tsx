@@ -141,6 +141,7 @@ class CursorMemorizeEditor {
   historyBuf: any;
   redoBuf: any;
   shuffling: boolean;
+  lockedPrefixLength: number;
   constructor(
     container: HTMLElement,
     editor: HTMLElement,
@@ -157,6 +158,7 @@ class CursorMemorizeEditor {
     onDownArrow: () => void,
     onEnter: () => void,
     onEsc: () => void,
+    lockedPrefixLength: number = 0,
   ) {
     this.container = container;
     this.compositionBuffer = [];
@@ -175,6 +177,28 @@ class CursorMemorizeEditor {
     this.onEnter = onEnter;
     this.onEsc = onEsc;
     this.shuffling = false;
+    this.lockedPrefixLength = lockedPrefixLength;
+  }
+
+  // 프리셋 prefix 보호: caret/선택 영역이 lockedPrefixLength 경계를 넘지 못하게 clamp.
+  // 모바일(NativeEditTextArea)의 handleSelect 가드와 동등한 데스크탑 버전.
+  // 반환: [clampedStart, clampedEnd] — prefix 안이면 경계값으로 당김.
+  clampToLock(start: number, end: number): [number, number] {
+    const lp = this.lockedPrefixLength;
+    if (!lp) return [start, end];
+    return [Math.max(start, lp), Math.max(end, lp)];
+  }
+
+  // 클릭 등으로 caret이 prefix 안에 들어가면 경계로 이동. 모바일 handleSelect 대응.
+  async enforceCaretLock() {
+    const lp = this.lockedPrefixLength;
+    if (!lp) return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const [start, end] = this.getCaretPosition();
+    if (start < lp || end < lp) {
+      await this.setCaretPosition([Math.max(start, lp), Math.max(end, lp)]);
+    }
   }
 
   getCaretPosition() {
@@ -347,7 +371,10 @@ class CursorMemorizeEditor {
   ) {
     this.pushHistory();
     const koreanRegex = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g;
-    const [start, end] = pos ? pos : this.getCaretPosition();
+    // 프리셋 prefix 보호: 삽입/삭제 지점이 prefix 안이면 경계로 당김.
+    const [start, end] = this.clampToLock(
+      ...(pos ? pos : this.getCaretPosition()) as [number, number],
+    );
     this.updateCurText(
       this.curText.substring(0, start) + this.curText.substring(end),
       false,
@@ -449,8 +476,51 @@ class CursorMemorizeEditor {
       const koreanRegex = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g;
       const selection = window.getSelection()!;
       const range = selection.getRangeAt(0);
-      const [start, end] = this.getCaretPosition();
+      let [start, end] = this.getCaretPosition();
       const collapsed = range.collapsed;
+      // ── 프리셋 prefix 보호 (데스크탑) ──
+      // 선택이 prefix를 걸치면 [lp, end]로 clamp → 삭제/잘라내기/복사가 prefix 외만 대상.
+      // caret(선택 없음)이 prefix 안이면 경계로 밀고 입력/삭제 무시. 네비/복사/붙여넣기는 통과.
+      const lp = this.lockedPrefixLength;
+      if (lp) {
+        const ctrlKey = e.metaKey || e.ctrlKey;
+        const isNav =
+          e.key === 'ArrowLeft' ||
+          e.key === 'ArrowRight' ||
+          e.key === 'ArrowUp' ||
+          e.key === 'ArrowDown' ||
+          ((e.key === 'a' || e.key === 'A') && ctrlKey);
+        const isCopy = (e.key === 'c' || e.key === 'C') && ctrlKey;
+        const isPaste = (e.key === 'v' || e.key === 'V') && ctrlKey;
+        // 선택 범위를 prefix 밖으로 clamp (Delete/Backspace/cut이 이 start,end 사용)
+        if (!collapsed) {
+          start = Math.max(start, lp);
+          end = Math.max(end, lp);
+        }
+        // 복사: prefix 걸친 선택이어도 prefix 외 구간만 클립보드에 (native 복사 가로채기).
+        // 선택이 완전히 prefix 안이면 clamp 후 start>=end라 빈 복사 — prefix 절대 안 나감.
+        if (isCopy) {
+          e.preventDefault();
+          if (start < end) {
+            await navigator.clipboard.writeText(
+              this.curText.substring(start, end),
+            );
+          }
+          this.flushCompositon(this.previousRange);
+          return;
+        }
+        // caret이 prefix 안 → 경계로 이동 + 입력/삭제 무시
+        if (collapsed && start < lp && !isNav && !isCopy && !isPaste) {
+          e.preventDefault();
+          await this.setCaretPosition([lp, lp]);
+          return;
+        }
+        // 경계 직후 Backspace로 prefix 마지막 글자 지우기 차단
+        if (e.key === 'Backspace' && collapsed && start <= lp) {
+          e.preventDefault();
+          return;
+        }
+      }
       if (koreanRegex.test(e.key || '')) {
         e.preventDefault();
         this.shuffling = true;
@@ -695,7 +765,8 @@ class CursorMemorizeEditor {
     await mutex.runExclusive(async () => {
       this.pushHistory();
       const selection = window.getSelection()!;
-      const [start, end] = this.getCaretPosition();
+      // 프리셋 prefix 보호: 붙여넣기 지점이 prefix 안이면 경계로 당김.
+      const [start, end] = this.clampToLock(...this.getCaretPosition() as [number, number]);
       let cursor = start;
       if (this.flushCompositon(this.previousRange)) {
         cursor++;
@@ -985,6 +1056,7 @@ const EmulatedEditTextArea = observer(
       {
         value,
         disabled,
+        lockedPrefixLength,
         highlight,
         onUpdated,
         history,
@@ -1016,6 +1088,7 @@ const EmulatedEditTextArea = observer(
           onDownArrow,
           onEnter,
           onEsc,
+          lockedPrefixLength || 0,
         );
         editorModelRef.current = editor;
         editor.updateCurText(value);
@@ -1034,6 +1107,9 @@ const EmulatedEditTextArea = observer(
         }
         const handlePaste = (e: any) => editor.handlePaste(e);
         editorRef.current.addEventListener('paste', handlePaste);
+        // 프리셋 prefix 보호: 클릭으로 caret이 prefix 안에 들어가면 경계로 이동.
+        const handleClickLock = () => editor.enforceCaretLock();
+        editorRef.current.addEventListener('click', handleClickLock);
         const handleWindowMouseDown = (e: any) => {
           closeAutoComplete();
           editor.handleWindowMouseDown(e);
@@ -1054,6 +1130,7 @@ const EmulatedEditTextArea = observer(
             );
           }
           editorRef.current.removeEventListener('paste', handlePaste);
+          editorRef.current.removeEventListener('click', handleClickLock);
         };
       }, []);
 
@@ -1092,6 +1169,13 @@ const EmulatedEditTextArea = observer(
           editorModelRef.current.updateDOM(value, 0, false);
         }
       }, [value]);
+
+      // 프리셋 적용/해제로 prefix 길이가 바뀌면 에디터(once 생성)에 반영.
+      useEffect(() => {
+        if (editorModelRef.current) {
+          editorModelRef.current.lockedPrefixLength = lockedPrefixLength || 0;
+        }
+      }, [lockedPrefixLength]);
 
       return (
         <>
@@ -1224,11 +1308,13 @@ const NativeEditTextArea = observer(
           if (!lockedPrefixLength) return;
           const start = textareaRef.current.selectionStart;
           const end = textareaRef.current.selectionEnd;
-          if (start < lockedPrefixLength && end <= lockedPrefixLength) {
+          // 선택 시작이 prefix 안이면 경계로 당김 → 전체선택(Ctrl+A) 포함 모든 선택이
+          // prefix 외만 대상. native 복사/잘라내기/삭제가 prefix를 못 건드림.
+          if (start < lockedPrefixLength) {
             textareaRef.current.selectionStart = lockedPrefixLength;
-            textareaRef.current.selectionEnd = lockedPrefixLength;
-          } else if (start < lockedPrefixLength) {
-            textareaRef.current.selectionStart = lockedPrefixLength;
+            if (end < lockedPrefixLength) {
+              textareaRef.current.selectionEnd = lockedPrefixLength;
+            }
           }
         };
 
