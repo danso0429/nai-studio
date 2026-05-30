@@ -1120,6 +1120,7 @@ interface EditTextAreaProps {
 }
 
 interface EditTextAreaRef {
+  refreshHighlight: () => void;
   onCloseAutoComplete: () => void;
   onOpenAutoComplete: () => void;
   setCurWord: (word: string) => void;
@@ -1212,6 +1213,10 @@ const EmulatedEditTextArea = observer(
       }, []);
 
       useImperativeHandle(ref, () => ({
+        refreshHighlight: () => {
+          const m = editorModelRef.current;
+          if (m) m.updateDOM(m.curText, 0, false);
+        },
         onCloseAutoComplete: () => {
           editorModelRef.current.autocomplete = false;
         },
@@ -1424,6 +1429,7 @@ const NativeEditTextArea = observer(
       }, []);
 
       useImperativeHandle(ref, () => ({
+        refreshHighlight: () => renderText(),
         onCloseAutoComplete: () => {
           isAutoComplete.current = false;
         },
@@ -1464,6 +1470,11 @@ const NativeEditTextArea = observer(
 
       useEffect(() => {
         if (!textareaRef.current || !highlightRef.current) return;
+        // 외부 value 변경(chunk 삽입/정리 등)을 uncontrolled textarea에 반영.
+        // 직접 타이핑은 textarea가 이미 최신이라 같은 값이면 skip(무해).
+        if (textareaRef.current.value !== value) {
+          textareaRef.current.value = value;
+        }
         const text = textareaRef.current.value;
         highlightRef.current.innerHTML =
           highlight(text, getCurWord(), false) + '<span></span><br>';
@@ -1629,15 +1640,23 @@ const PromptEditTextArea = observer(
     // 토큰은 PromptEditTextArea에서만 삽입되므로, 보이는 칸은 즉시 / 다른 칸·프로젝트는
     // 열릴 때 정리된다. (세션 순회·migrate 불필요, chunk 로드 타이밍 문제 회피)
     useEffect(() => {
-      const cleanup = () => {
+      const onChunkChange = () => {
         const cur = valueRef.current || '';
         if (cur.indexOf('⟦c:') === -1) return;
         const stripped = stripDeadChunkTokens(cur);
-        if (stripped !== cur) onChangeRef.current(stripped);
+        if (stripped !== cur) {
+          onChangeRef.current(stripped); // 죽은 토큰 제거 → value 변경 → 재렌더
+        } else {
+          editorRef.current?.refreshHighlight(); // 살아있는 chunk 표시 갱신(로드/수정)
+        }
       };
-      cleanup(); // 마운트 시 1회 (이 칸 열릴 때 lazy 정리)
-      promptChunkService.addEventListener('changed', cleanup);
-      return () => promptChunkService.removeEventListener('changed', cleanup);
+      onChunkChange(); // 마운트 시 1회 (이 칸 열릴 때 lazy 정리)
+      promptChunkService.addEventListener('changed', onChunkChange);
+      promptChunkService.addEventListener('loaded', onChunkChange); // 비동기 로드 완료 시
+      return () => {
+        promptChunkService.removeEventListener('changed', onChunkChange);
+        promptChunkService.removeEventListener('loaded', onChunkChange);
+      };
     }, []);
     const EditTextAreaImpl = isMobile
       ? NativeEditTextArea
