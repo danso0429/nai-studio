@@ -1565,7 +1565,6 @@ const PromptEditTextArea = observer(
               ref={innerRef}
               onClick={handleClick}
               spellCheck={false}
-              draggable={true}
               onDragStart={(event) => event.preventDefault()}
               className={
                 bgColor +
@@ -1606,7 +1605,6 @@ const PromptEditTextArea = observer(
           ref={innerRef}
           onClick={handleClick}
           spellCheck={false}
-          draggable={true}
           onDragStart={(event) => event.preventDefault()}
           className={bgColor + ' overflow-hidden h-full relative rounded-md'}
         >
