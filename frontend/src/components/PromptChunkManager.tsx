@@ -33,6 +33,132 @@ const PALETTE = [
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
+// ─── color 변환 (HSV ↔ hex). picker용. ───
+// h: 0~360, s: 0~1, v: 0~1
+function hsvToHex(h: number, s: number, v: number): string {
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+  let r = 0,
+    g = 0,
+    b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const to2 = (n: number) =>
+    Math.round((n + m) * 255)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${to2(r)}${to2(g)}${to2(b)}`;
+}
+
+function hexToHsv(hex: string): { h: number; s: number; v: number } | null {
+  if (!HEX_RE.test(hex)) return null;
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  const s = max === 0 ? 0 : d / max;
+  return { h, s, v: max };
+}
+
+// 2D 채도/명도 슬라이더 + hue 슬라이더. 포인터 드래그 지원.
+const ColorPicker2D = ({
+  color,
+  onChange,
+}: {
+  color: string;
+  onChange: (hex: string) => void;
+}) => {
+  const hsv = hexToHsv(color) ?? { h: 0, s: 0, v: 0.83 };
+  const svRef = React.useRef<HTMLDivElement>(null);
+  const hueRef = React.useRef<HTMLDivElement>(null);
+
+  const handleSV = (clientX: number, clientY: number) => {
+    const el = svRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const s = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const v = Math.min(1, Math.max(0, 1 - (clientY - rect.top) / rect.height));
+    onChange(hsvToHex(hsv.h, s, v));
+  };
+  const handleHue = (clientX: number) => {
+    const el = hueRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const h = Math.min(360, Math.max(0, ((clientX - rect.left) / rect.width) * 360));
+    onChange(hsvToHex(h, hsv.s, hsv.v));
+  };
+  // 포인터 다운 → 드래그 추적 (move/up). SV/hue 공용.
+  const startDrag = (
+    e: React.PointerEvent,
+    move: (x: number, y: number) => void,
+  ) => {
+    e.preventDefault();
+    move(e.clientX, e.clientY);
+    const onMove = (ev: PointerEvent) => move(ev.clientX, ev.clientY);
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  const hueColor = hsvToHex(hsv.h, 1, 1);
+
+  return (
+    <div className="flex flex-col gap-2">
+      {/* 2D 채도/명도 */}
+      <div
+        ref={svRef}
+        className="relative w-full h-32 rounded cursor-crosshair touch-none"
+        style={{
+          background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hueColor})`,
+        }}
+        onPointerDown={(e) => startDrag(e, handleSV)}
+      >
+        <div
+          className="absolute w-3 h-3 rounded-full border-2 border-white shadow -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+          style={{
+            left: `${hsv.s * 100}%`,
+            top: `${(1 - hsv.v) * 100}%`,
+            backgroundColor: color,
+          }}
+        />
+      </div>
+      {/* hue */}
+      <div
+        ref={hueRef}
+        className="relative w-full h-4 rounded cursor-pointer touch-none"
+        style={{
+          background:
+            'linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%)',
+        }}
+        onPointerDown={(e) => startDrag(e, (x) => handleHue(x))}
+      >
+        <div
+          className="absolute top-1/2 w-2 h-5 rounded border-2 border-white shadow -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+          style={{ left: `${(hsv.h / 360) * 100}%` }}
+        />
+      </div>
+    </div>
+  );
+};
+
 // chunk/폴더 추가·수정 폼.
 const ChunkForm = observer(
   ({
@@ -177,11 +303,15 @@ const ChunkForm = observer(
             </div>
           )}
 
-          {/* color (hex + 팔레트) */}
+          {/* color (2D/hue 슬라이더 + hex + 팔레트) */}
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
               색
             </label>
+            <ColorPicker2D
+              color={colorValid ? color : DEFAULT_CHUNK_COLOR}
+              onChange={setColor}
+            />
             <div className="flex items-center gap-2">
               <span
                 className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 flex-none"
