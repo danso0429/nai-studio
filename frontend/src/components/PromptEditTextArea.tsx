@@ -1465,7 +1465,16 @@ const PromptEditTextArea = observer(
     const cntRef = useRef(0);
     const selectedTagRef = useLatest(selectedTag);
     const curWordRef = useLatest(curWord);
+    const valueRef = useLatest(value);
+    const onChangeRef = useLatest(onChange);
     const [fullScreen, setFullScreen] = useState(false);
+
+    // chunk 삽입 (단계 2 최소 버전) — 현재 값 끝에 토큰 추가. caret 위치 정밀 삽입은 단계 3.
+    const insertChunkToken = (token: string) => {
+      const cur = valueRef.current || '';
+      const sep = cur.trim() === '' ? '' : cur.trim().endsWith(',') ? ' ' : ', ';
+      onChangeRef.current(cur + sep + token);
+    };
     const EditTextAreaImpl = isMobile
       ? NativeEditTextArea
       : EmulatedEditTextArea;
@@ -1568,6 +1577,8 @@ const PromptEditTextArea = observer(
     };
 
     const onFoucs = () => {
+      // chunk 삽입 타겟 등록 — 이 칸이 포커스되면 chunk 모달의 삽입 대상이 됨.
+      if (!disabled) appState.setChunkInsertTarget(insertChunkToken);
       if (isMobile) {
         setFullScreen(true);
       }

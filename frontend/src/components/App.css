@@ -609,6 +609,24 @@ input[type='number']::-webkit-outer-spin-button {
   word-break: inherit;
 }
 
+/* prompt chunk 알약 — 칸 안에서 이름만 보이는 작은 칩. color는 inline style. */
+.syntax-chunk {
+  display: inline;
+  border: 1px solid;
+  border-radius: 4px;
+  padding: 0 4px;
+  margin: 0 1px;
+  color: inherit;
+  white-space: inherit;
+  word-break: inherit;
+}
+.syntax-chunk-deleted {
+  background-color: rgba(150, 150, 150, 0.2);
+  border-color: #888;
+  color: #999;
+  font-style: italic;
+}
+
 .bg-checkboard {
   background: repeating-conic-gradient(#e0e0e0 0% 25%, transparent 0% 50%) 50% /
     10px 10px;

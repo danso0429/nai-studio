@@ -1,4 +1,10 @@
-import { backend, isMobile, promptService, globalPieceService } from '.';
+import {
+  backend,
+  isMobile,
+  promptService,
+  globalPieceService,
+  promptChunkService,
+} from '.';
 import {
   InpaintScene,
   PARR,
@@ -14,6 +20,25 @@ function cleanPARR(parr: PARR): PARR {
   return parr.map((p) => p.trim());
 }
 
+// ─── prompt chunk 토큰 ───
+// chunk를 프롬프트 문자열 안에 id 기반 토큰으로 박음. 쉼표/개행 없어 toPARR 한 단어로 유지.
+// 화면엔 알약(이름+color)으로 렌더(highlightPrompt), 생성 시 content로 펼침(expandChunkTokens).
+// 형식: ⟦c:<uuid>⟧ — 사용자가 실수로 칠 일 없는 특수 괄호.
+const CHUNK_TOKEN_RE = /⟦c:([0-9a-fA-F-]+)⟧/g;
+
+export function makeChunkToken(id: string): string {
+  return `⟦c:${id}⟧`;
+}
+
+// 문자열의 chunk 토큰을 각 chunk content로 치환. 삭제된 chunk 토큰은 제거(빈 문자열).
+export function expandChunkTokens(text: string): string {
+  if (!text || text.indexOf('⟦c:') === -1) return text;
+  return text.replace(CHUNK_TOKEN_RE, (_m, id) => {
+    const chunk = promptChunkService.get(id);
+    return chunk ? chunk.content : '';
+  });
+}
+
 /**
  * ##주석## 블록 제거.
  * - 여러 줄, 콤마 포함 가능 (non-greedy)
@@ -25,8 +50,10 @@ function stripPromptComments(str: string): string {
 }
 
 export function toPARR(str: string) {
+  // chunk 토큰을 content로 펼친 뒤 파싱 (생성·전송 경로). highlightPrompt는 toPARR을
+  // 안 쓰므로 화면 알약 렌더엔 영향 없음.
   return cleanPARR(
-    stripPromptComments(str).replace('\n', ',').split(','),
+    expandChunkTokens(stripPromptComments(str)).replace('\n', ',').split(','),
   ).filter((x) => x !== '');
 }
 
@@ -745,6 +772,22 @@ export const highlightPrompt = (
           }
           if (pword.startsWith('{') && pword.endsWith('}')) {
             classNames.push('syntax-strong');
+          }
+
+          // chunk 토큰 ⟦c:uuid⟧ → 알약(이름 + color). raw 토큰 대신 chunk 이름 표시.
+          const chunkMatch = pword.match(/^⟦c:([0-9a-fA-F-]+)⟧$/);
+          if (chunkMatch) {
+            const chunk = promptChunkService.get(chunkMatch[1]);
+            const leadingC = escapeHtmlText(word.substring(0, leftTrimPos));
+            const trailingC = escapeHtmlText(
+              word.substring(rightTrimPos + 1, word.length),
+            );
+            offset += word.length + 1;
+            if (!chunk) {
+              // 삭제된 chunk — 회색 "삭제됨" 알약.
+              return `${leadingC}<span class="syntax-chunk syntax-chunk-deleted" data-chunk-id="${escapeJsInAttr(chunkMatch[1])}">(삭제된 chunk)</span>${trailingC}`;
+            }
+            return `${leadingC}<span class="syntax-chunk" data-chunk-id="${escapeJsInAttr(chunk.id)}" style="background-color:${chunk.color}33;border-color:${chunk.color}">${escapeHtmlText(chunk.name)}</span>${trailingC}`;
           }
 
           if (pword.startsWith('<') && pword.endsWith('>')) {
