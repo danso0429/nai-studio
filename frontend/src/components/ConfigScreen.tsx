@@ -574,7 +574,7 @@ const OtherTab = ({
           씬 그리드 초기 썸네일 크기
         </label>
         <select
-          className="rounded border border-gray-400 dark:border-slate-500 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 px-2 py-1 text-sm"
+          className="rounded border border-gray-400 dark:border-slate-500 bg-white dark:bg-slate-800 px-2 py-1 text-sm"
           value={initialThumbSize ?? 0}
           onChange={(e) => setInitialThumbSize(parseInt(e.target.value))}
         >
