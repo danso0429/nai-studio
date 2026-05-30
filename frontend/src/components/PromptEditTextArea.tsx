@@ -137,6 +137,20 @@ const subtreeTextLen = (node: any): number => {
   for (let k = 0; k < kids.length; k++) s += subtreeTextLen(kids[k]);
   return s;
 };
+// caret pos 직전에 끝나는 chunk 토큰의 시작 인덱스 (없으면 -1). Backspace 2단 삭제용.
+const chunkTokenBefore = (text: string, pos: number): number => {
+  if (pos <= 0 || text[pos - 1] !== '⟧') return -1;
+  const open = text.lastIndexOf('⟦c:', pos - 1);
+  if (open === -1) return -1;
+  return /^⟦c:[0-9a-fA-F-]+⟧$/.test(text.substring(open, pos)) ? open : -1;
+};
+// caret pos에서 시작하는 chunk 토큰의 끝 인덱스 (없으면 -1). Delete 2단 삭제용.
+const chunkTokenAfter = (text: string, pos: number): number => {
+  if (text[pos] !== '⟦') return -1;
+  const close = text.indexOf('⟧', pos);
+  if (close === -1) return -1;
+  return /^⟦c:[0-9a-fA-F-]+⟧$/.test(text.substring(pos, close + 1)) ? close + 1 : -1;
+};
 
 class CursorMemorizeEditor {
   compositionBuffer: string[];
@@ -678,6 +692,13 @@ class CursorMemorizeEditor {
         e.preventDefault();
         let newPos = start;
         if (range.collapsed) {
+          // chunk 알약: 첫 Delete = 알약 선택(강조). 두 번째는 collapsed=false라 아래
+          // 선택 삭제 분기로 흘러 토큰 통째 제거.
+          const te = chunkTokenAfter(this.curText, start);
+          if (te !== -1) {
+            await this.setCaretPosition([start, te]);
+            return;
+          }
           if (start !== this.curText.length) {
             this.pushHistory();
             this.flushCompositon(this.previousRange);
@@ -703,6 +724,15 @@ class CursorMemorizeEditor {
         e.preventDefault();
         let newPos = start;
         if (range.collapsed) {
+          // chunk 알약: 첫 Backspace = 알약 선택(강조). 두 번째는 collapsed=false라 아래
+          // 선택 삭제 분기로 흘러 토큰 통째 제거. prefix 안 토큰은 lock 보호라 선택 X.
+          if (!e.shiftKey && !e.metaKey) {
+            const ts = chunkTokenBefore(this.curText, start);
+            if (ts !== -1 && ts >= this.lockedPrefixLength) {
+              await this.setCaretPosition([ts, start]);
+              return;
+            }
+          }
           let delAmount = 1;
           const massDel = e.shiftKey || e.metaKey;
           if (massDel) {
