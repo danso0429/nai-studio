@@ -250,14 +250,6 @@ export class AppState {
   @observable accessor appliedPromptPreset: string | undefined = undefined; // 현재 적용된 프롬프트 프리셋 id
   @observable accessor globalPromptPresetId: string | undefined = undefined; // config.json 캐시
 
-  // chunk 삽입 타겟 — 포커스된 프롬프트 칸이 자기 삽입 함수를 등록. chunk 관리 모달에서
-  // chunk 클릭 시 이 함수를 호출해 현재 칸 caret 위치에 토큰 삽입. (단계 2 최소 삽입)
-  // observable 아님 — 호출 콜백 ref라 reactive 불필요.
-  chunkInsertTarget: ((token: string) => void) | null = null;
-  setChunkInsertTarget(fn: ((token: string) => void) | null) {
-    this.chunkInsertTarget = fn;
-  }
-
   // 이미지 클립보드
   @observable accessor imageClipboard: string[] = [];
 

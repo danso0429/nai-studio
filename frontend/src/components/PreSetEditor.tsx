@@ -2647,6 +2647,7 @@ const WFRInline = observer(({ element }: WFElementProps) => {
               onChange={setField}
               lockedPrefix={lockedPrefix}
               lockedBgClass={lockedBgClass}
+              chunkInsert={true}
             ></PromptEditTextArea>
           </EditorField>
         </>

@@ -16,7 +16,6 @@ import {
   IPromptChunkFolder,
 } from '../models/PromptChunkService';
 import { appState } from '../models/AppService';
-import { makeChunkToken } from '../models/PromptService';
 
 // 1a: hex 입력 + 프리셋 색 팔레트. 2D/hue 슬라이더는 1b에서 고도화.
 const PALETTE = [
@@ -389,40 +388,23 @@ const ChunkForm = observer(
   },
 );
 
-// chunk 1개 칩 (목록). NovelAI처럼 이름+수정버튼 크기만 — 내용에 맞게 inline.
-// 이름 클릭 = 프롬프트 칸에 삽입(NovelAI 흐름), 연필 = 수정.
+// chunk 1개 칩 (관리 목록). 칩 클릭 = 수정. 삽입은 프롬프트 칸의 +chunk 버튼에서.
 const ChunkRow = observer(
-  ({
-    chunk,
-    onEdit,
-    onInsert,
-  }: {
-    chunk: IPromptChunk;
-    onEdit: () => void;
-    onInsert: () => void;
-  }) => (
-    <div
-      className="inline-flex items-center gap-1 pl-1 pr-1 py-0.5 rounded border max-w-full"
+  ({ chunk, onEdit }: { chunk: IPromptChunk; onEdit: () => void }) => (
+    <button
+      className="inline-flex items-center gap-1 pl-2 pr-2 py-0.5 rounded border max-w-full hover:opacity-70"
       style={{
         backgroundColor: chunk.color + '33', // 배경 옅게
         borderColor: chunk.color,
       }}
+      onClick={onEdit}
+      title="수정"
     >
-      <button
-        className="text-sm text-gray-900 dark:text-slate-100 truncate px-1 hover:opacity-70"
-        onClick={onInsert}
-        title="프롬프트 칸에 삽입"
-      >
+      <span className="text-sm text-gray-900 dark:text-slate-100 truncate">
         {chunk.name}
-      </button>
-      <button
-        className="p-0.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-none"
-        onClick={onEdit}
-        title="수정"
-      >
-        <FaPen size={11} />
-      </button>
-    </div>
+      </span>
+      <FaPen size={10} className="text-gray-500 dark:text-gray-400 flex-none" />
+    </button>
   ),
 );
 
@@ -446,19 +428,7 @@ const PromptChunkManager = observer(
         return n;
       });
 
-    // chunk 클릭 → 포커스됐던 프롬프트 칸에 토큰 삽입 + 모달 닫기.
-    const insertChunk = (id: string) => {
-      const target = appState.chunkInsertTarget;
-      if (!target) {
-        appState.pushMessage(
-          '먼저 프롬프트 칸을 한 번 누른 뒤 chunk를 선택해 주세요.',
-        );
-        return;
-      }
-      target(makeChunkToken(id));
-      onClose();
-    };
-
+    // 관리 전용 — 삽입은 프롬프트 칸의 +chunk 버튼에서. 여기선 추가/수정/삭제만.
     return (
       <>
         <ModalOverlay
@@ -539,7 +509,6 @@ const PromptChunkManager = observer(
                                 onEdit={() =>
                                   setFormMode({ kind: 'edit-chunk', chunk: c })
                                 }
-                                onInsert={() => insertChunk(c.id)}
                               />
                             ))
                           )}
@@ -565,7 +534,6 @@ const PromptChunkManager = observer(
                           onEdit={() =>
                             setFormMode({ kind: 'edit-chunk', chunk: c })
                           }
-                          onInsert={() => insertChunk(c.id)}
                         />
                       ))}
                     </div>

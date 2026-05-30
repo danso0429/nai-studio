@@ -23,10 +23,11 @@ import {
 import { FaPerson, FaStar } from 'react-icons/fa6';
 import { FixedSizeList as List } from 'react-window';
 import getCaretCoordinates from 'textarea-caret';
-import { isMobile, backend } from '../models';
-import { highlightPrompt } from '../models/PromptService';
+import { isMobile, backend, promptChunkService } from '../models';
+import { highlightPrompt, makeChunkToken } from '../models/PromptService';
 import { WordTag, calcGapMatch } from '../models/Tags';
 import { appState } from '../models/AppService';
+import ModalOverlay from './ModalOverlay';
 import { observer } from 'mobx-react-lite';
 
 const escapeHtml = (s: string): string =>
@@ -984,6 +985,7 @@ interface PromptEditTextAreaProps {
   onChange: (value: string) => void;
   lockedPrefix?: string;
   lockedBgClass?: string;
+  chunkInsert?: boolean; // true면 우상단에 +chunk 버튼 표시 (상위/하위/네거티브 칸용)
 }
 
 function useLatest(value: any) {
@@ -1440,6 +1442,76 @@ const NativeEditTextArea = observer(
   ),
 );
 
+// chunk 삽입 시트 — +chunk 버튼 클릭 시 chunk 목록(폴더별, 이름 클릭=삽입).
+// 관리(추가/수정)는 사전세팅 줄의 chunk 관리 버튼에서. 여기선 고르기만.
+const ChunkInsertSheet = observer(
+  ({
+    onPick,
+    onClose,
+  }: {
+    onPick: (id: string) => void;
+    onClose: () => void;
+  }) => {
+    const chunks = promptChunkService.list();
+    const folders = promptChunkService
+      .listFolders()
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const uncategorized = chunks.filter((c) => !c.category);
+
+    const chip = (c: any) => (
+      <button
+        key={c.id}
+        className="inline-flex items-center pl-2 pr-2 py-0.5 rounded border text-sm text-gray-900 dark:text-slate-100 hover:opacity-70 max-w-full truncate"
+        style={{ backgroundColor: c.color + '33', borderColor: c.color }}
+        onClick={() => onPick(c.id)}
+        title={c.content}
+      >
+        {c.name}
+      </button>
+    );
+
+    return (
+      <ModalOverlay isOpen={true} onClose={onClose} title="chunk 삽입" width="max-w-lg">
+        {chunks.length === 0 ? (
+          <div className="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
+            저장된 chunk가 없어요. 사전세팅 줄의 chunk 관리에서 먼저 추가해 주세요.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3 max-h-[55vh] overflow-y-auto text-default">
+            {folders.map((f) => {
+              const inFolder = chunks.filter((c) => c.category === f.id);
+              if (inFolder.length === 0) return null;
+              return (
+                <div key={f.id} className="flex flex-col gap-1">
+                  <div className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                    {f.name}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">{inFolder.map(chip)}</div>
+                </div>
+              );
+            })}
+            {uncategorized.length > 0 && (
+              <div className="flex flex-col gap-1">
+                {folders.some(
+                  (f) => chunks.filter((c) => c.category === f.id).length > 0,
+                ) && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    미분류
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {uncategorized.map(chip)}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </ModalOverlay>
+    );
+  },
+);
+
 const PromptEditTextArea = observer(
   ({
     value,
@@ -1450,6 +1522,7 @@ const PromptEditTextArea = observer(
     innerRef,
     lockedPrefix,
     lockedBgClass,
+    chunkInsert,
   }: PromptEditTextAreaProps) => {
     const { curSession } = appState;
     const editorRef = useRef<EditTextAreaRef | null>(null);
@@ -1468,8 +1541,9 @@ const PromptEditTextArea = observer(
     const valueRef = useLatest(value);
     const onChangeRef = useLatest(onChange);
     const [fullScreen, setFullScreen] = useState(false);
+    const [chunkSheetOpen, setChunkSheetOpen] = useState(false);
 
-    // chunk 삽입 (단계 2 최소 버전) — 현재 값 끝에 토큰 추가. caret 위치 정밀 삽입은 단계 3.
+    // chunk 삽입 (단계 2 — 현재 값 끝에 토큰 추가). caret 위치 정밀 삽입은 단계 3.
     const insertChunkToken = (token: string) => {
       const cur = valueRef.current || '';
       const sep = cur.trim() === '' ? '' : cur.trim().endsWith(',') ? ' ' : ', ';
@@ -1577,8 +1651,6 @@ const PromptEditTextArea = observer(
     };
 
     const onFoucs = () => {
-      // chunk 삽입 타겟 등록 — 이 칸이 포커스되면 chunk 모달의 삽입 대상이 됨.
-      if (!disabled) appState.setChunkInsertTarget(insertChunkToken);
       if (isMobile) {
         setFullScreen(true);
       }
@@ -1614,16 +1686,34 @@ const PromptEditTextArea = observer(
     const splitMode = fullScreen && tags.length > 0;
     const textareaInner = (
       <>
-        <div className="absolute right-0 top-0 z-10">
+        <div className="absolute right-0 top-0 z-10 flex items-center gap-1.5 mr-1 mt-1">
+          {chunkInsert && !disabled && (
+            <button
+              onClick={() => setChunkSheetOpen(true)}
+              className="text-gray-500 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300 opacity-50 text-xs font-bold"
+              title="chunk 삽입"
+            >
+              +chunk
+            </button>
+          )}
           <button
             onClick={() => {
               if (!disabled) setFullScreen(!fullScreen);
             }}
-            className="text-gray-500 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300 opacity-50 mr-1 mt-1"
+            className="text-gray-500 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300 opacity-50"
           >
             {!fullScreen ? <FaExpand></FaExpand> : <FaTimes></FaTimes>}
           </button>
         </div>
+        {chunkSheetOpen && (
+          <ChunkInsertSheet
+            onPick={(id) => {
+              insertChunkToken(makeChunkToken(id));
+              setChunkSheetOpen(false);
+            }}
+            onClose={() => setChunkSheetOpen(false)}
+          />
+        )}
         <EditTextAreaImpl
           ref={editorRef}
           value={displayValue}
