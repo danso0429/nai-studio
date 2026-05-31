@@ -234,6 +234,28 @@ class CursorMemorizeEditor {
     }
   }
 
+  // 클릭 보정: 알약(chunk, contenteditable=false)을 클릭하면 Firefox가 caret을
+  // 알약 직후가 아니라 뒤 단어 끝에 두는 경향 → 알약 바로 뒤로 명시 배치.
+  // 알약이 아닌 곳(텍스트/단어) 클릭은 기존 enforceCaretLock(prefix lock)만.
+  handleClick(e: any) {
+    const el = e && e.target && e.target.closest
+      ? e.target.closest('.syntax-chunk')
+      : null;
+    if (el) {
+      const sel = window.getSelection();
+      if (sel) {
+        const range = document.createRange();
+        range.setStartAfter(el);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        this.previousRange = this.getCaretPosition();
+      }
+      return;
+    }
+    this.enforceCaretLock();
+  }
+
   getCaretPosition() {
     const selection = window.getSelection()!;
     let res = [0, 0];
@@ -1237,7 +1259,7 @@ const EmulatedEditTextArea = observer(
         const handlePaste = (e: any) => editor.handlePaste(e);
         editorRef.current.addEventListener('paste', handlePaste);
         // 프리셋 prefix 보호: 클릭으로 caret이 prefix 안에 들어가면 경계로 이동.
-        const handleClickLock = () => editor.enforceCaretLock();
+        const handleClickLock = (e: any) => editor.handleClick(e);
         editorRef.current.addEventListener('click', handleClickLock);
         const handleWindowMouseDown = (e: any) => {
           closeAutoComplete();
