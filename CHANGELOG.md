@@ -11,7 +11,7 @@
 
 ## v1.9.0 (2026-05-31)
 
-minor. v1.8.2 → v1.9.0. **프롬프트 chunk 시스템 도입 + 그림체(프롬프트) 프리셋 폐기·대체.** sdstudioBase 4.9.0 유지.
+minor. v1.8.2 → v1.9.0. **프롬프트 chunk 시스템 도입 + 그림체(프롬프트) 프리셋 폐기·대체 + 조합 에디터 drag UX 개선 + 씬 토글 그룹.** sdstudioBase 4.9.0 유지.
 
 ### 새 기능 — 프롬프트 chunk 시스템
 
@@ -37,6 +37,12 @@ minor. v1.8.2 → v1.9.0. **프롬프트 chunk 시스템 도입 + 그림체(프�
 - **fix(prompt-editor)**: 데스크탑 Firefox 붙여넣기 무시(clipboardData를 mutex await 전 동기 읽기) + 클릭 caret 맨앞 튐(draggable 제거). (v1.8.3-experimental에서 stable로 승격)
 - **feat(result-viewer)**: 좌우 반전 버튼 — PNG 덮어쓰기 + NAI metadata 보존.
 - **fix(config)**: 트루다크 씬 썸네일 크기 select 글씨 색 명시 + 내보내기 동시 처리 수 1/2/3/4 세그먼트 버튼.
+
+### 새 기능 — 조합 에디터 drag UX + 씬 토글 그룹
+
+- **feat(scene)**: 조합 에디터 drag UX — 열 단위 drop zone(빈 열 포함 어디든 자유 이동, drag 시작 시 끝에 "새 열" 영역 펼침), ⠿ 핸들 전용 drag(칸 본문 클릭 caret 보존), 빈 열 + 버튼 생성 / 빨간 휴지통 삭제(slot 있으면 불가).
+- **feat(scene)**: 씬 토글 그룹 — 조합 piece에 박힌 충돌 태그(예: nude 복장과 부딪히는 `fully clothed female`)를 묶어 on/off. OFF면 생성 시 그 태그만 빠짐(piece 원본 불변, 최종 조합 태그에서 trim+소문자 exact 매칭 제거).
+- **feat(scene)**: 토글 그룹 정의(이름/태그)는 "씬 이름" 키로 전역 공유(`toggle_groups.json` + `ToggleGroupService`) — 같은 이름 씬이면 다른 프로젝트에서도 동일 그룹이 보임. on/off만 프로젝트별(`scene.toggleGroupStates`, 값 없으면 기본 ON).
 
 ---
 
