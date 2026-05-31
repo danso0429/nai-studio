@@ -9,6 +9,36 @@
 
 ---
 
+## v1.9.0 (2026-05-31)
+
+minor. v1.8.2 → v1.9.0. **프롬프트 chunk 시스템 도입 + 그림체(프롬프트) 프리셋 폐기·대체.** sdstudioBase 4.9.0 유지.
+
+### 새 기능 — 프롬프트 chunk 시스템
+
+- **feat(chunk)**: chunk = 이름 붙인 순수 태그 묶음 (전역 저장 `prompt_chunks.json`, NovelAI prompt chunk식). 조각(`<lib.piece>`)과 별개 — 펼침/랜덤 없이 content가 그대로 들어감.
+- **feat(chunk)**: 관리 UI (`설정 > 프롬프트 chunk`) — 폴더 분류, 2D 채도/명도 + hue 색상 피커, hex 입력.
+- **feat(chunk)**: 프롬프트 칸에 알약으로 삽입/표시 — `⟦c:uuid⟧` 토큰, `highlightPrompt`가 이름+색 알약 렌더, 생성 시 `expandChunkTokens`로 content 펼침.
+- **feat(chunk)**: 알약 원자화 — `contenteditable=false` + caret을 토큰 원문 길이의 atomic 덩어리로 매핑. Backspace/Delete 2단 삭제(첫 키=선택, 두 번째=제거).
+- **feat(chunk)**: 알약 경계 자동 구분자 — 알약 직후/직전 일반 문자 입력 시 `, ` 자동(태그 오염 방지).
+- **feat(chunk)**: 커서 위치 삽입 — +chunk 버튼 mousedown에 caret 저장 → 그 위치에 삽입(앞/뒤 구분자 자동).
+- **feat(chunk)**: chunk 삭제 시 프롬프트의 죽은 토큰 자동 정리(에디터 마운트 + 'changed' 구독, 모든 칸 lazy).
+- **feat(chunk)**: 데스크탑 호버 시 chunk 내용 미리보기(fixed 박스, 모바일 제외). +chunk 버튼/삽입 시트 제목 칸별 표시.
+- **feat(sampling)**: 샘플링 프리셋 별도 시스템 — steps/promptGuidance/cfgRescale/sampler/noiseSchedule을 이름 붙여 저장·적용/해제(적용 시 값 표시 + 잠금).
+- **feat(copy)**: 다른 프로젝트로 프롬프트 복사 — 대상 폴더 트리(폴더별 그룹 + 전체 토글) + chunk 포함/제외 옵션(전역이라 토큰 그대로 유효).
+
+### 제거
+
+- **remove(preset)**: 그림체(프롬프트) 프리셋 시스템 제거 — chunk + 샘플링 프리셋이 대체. `PromptPresetService`/`PromptPresetDialog` 삭제, `applyPromptPresetOverride`, `appliedPromptPreset`/`globalPromptPresetId`/`promptPresetId` 제거. 기존 프리셋 내용은 `data/exports/`에 텍스트 백업.
+
+### Fix / 기타
+
+- **fix(editor)**: `getCaretPosition`이 알약 경계에서 텍스트 길이를 초과하는 offset 반환 → `handleInput`에서 caret≤길이 불변식 clamp.
+- **fix(prompt-editor)**: 데스크탑 Firefox 붙여넣기 무시(clipboardData를 mutex await 전 동기 읽기) + 클릭 caret 맨앞 튐(draggable 제거). (v1.8.3-experimental에서 stable로 승격)
+- **feat(result-viewer)**: 좌우 반전 버튼 — PNG 덮어쓰기 + NAI metadata 보존.
+- **fix(config)**: 트루다크 씬 썸네일 크기 select 글씨 색 명시 + 내보내기 동시 처리 수 1/2/3/4 세그먼트 버튼.
+
+---
+
 ## v1.8.2 (2026-05-27)
 
 patch. v1.8.1 → v1.8.2. SDStudio v4.9.0 흡수 + 트루 다크 모드 + queue.html 직전 소요 비교. sdstudioBase 4.8.2 → 4.9.0.
