@@ -103,7 +103,9 @@ export const PieceCell = observer(
         style={style ? { ...style, width: width } : {}}
         ref={(node) => {
           if (movePiece) {
-            drag(drop(node));
+            // drop만 slot 전체에 — drag는 제목(핸들)로 분리. slot 전체가 draggable이면
+            // 그 안 프롬프트 칸 클릭을 Firefox가 드래그로 잡아 caret이 튐(P26 동일 원리).
+            drop(node);
             containerRef.current = node;
           }
           return null;
@@ -111,7 +113,9 @@ export const PieceCell = observer(
       >
         <div className="flex pb-2">
           <div
-            className="font-bold text-default"
+            ref={movePiece ? (drag as any) : undefined}
+            className={'font-bold text-default ' + (movePiece ? 'cursor-move select-none' : '')}
+            title={movePiece ? '드래그해서 이동' : undefined}
             onDoubleClick={() => {
               if (!movePiece) return;
               appState.pushDialog({

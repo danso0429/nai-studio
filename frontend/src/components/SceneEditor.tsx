@@ -433,7 +433,7 @@ export const SlotPiece = observer(
 
     return (
       <div
-        ref={(node) => drag(drop(node))}
+        ref={(node) => drop(node)}
         style={style}
         className={
           'p-3 m-2 bg-gray-200 dark:bg-slate-600 rounded-xl ' +
@@ -441,6 +441,17 @@ export const SlotPiece = observer(
           (isOver ? ' outline outline-sky-500' : '')
         }
       >
+        {/* drag 핸들 — slot 전체가 draggable이면 안쪽 프롬프트 칸 클릭을 Firefox가
+            드래그로 잡아 caret이 튐(P26 원리). 핸들만 drag source, 칸은 편집 전용. */}
+        {moveSlotPiece && (
+          <div
+            ref={drag as any}
+            className="cursor-move select-none text-center text-gray-400 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-200 text-lg leading-none -mt-1 mb-1"
+            title="드래그해서 다른 칸으로 이동"
+          >
+            ⠿
+          </div>
+        )}
         {showCharacterPrompts && (
           <FloatView
             priority={0}
