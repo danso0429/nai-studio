@@ -9,6 +9,21 @@
 
 ---
 
+## v1.9.2 (2026-06-01)
+
+patch. v1.9.1 → v1.9.2. **캐릭터 프롬프트에 chunk 삽입 + 네거티브 칸 태그 자동완성.** sdstudioBase 4.9.0 유지.
+
+### 새 기능 — 캐릭터 프롬프트 chunk
+
+- **feat(chunk)**: 캐릭터 프롬프트 / 캐릭터 네거티브 프롬프트 칸 우상단에 **+chunk 버튼** 추가 — 메인 프롬프트(상위/하위/네거)와 동일하게 chunk 알약을 커서 위치에 삽입, 생성 시 `expandChunkTokens`로 content 펼침. (씬 에디터 "캐릭터 추가" 캐릭터 + 프리셋/조합 에디터 preset-level 캐릭터 섹션 둘 다.)
+- **구현**: `SceneEditor`(`SceneCharacterPromptEditor`)와 `PreSetEditor`(`InnerPreSetEditor`)의 캐릭터 `PromptEditTextArea`에 `chunkInsert`/`chunkLabel` prop 전달. 펼침 경로(`toPARR`/`expandPieces` → `expandChunkTokens`)는 기존대로 적용.
+
+### 개선 — 네거티브 칸 태그 자동완성
+
+- **feat(autocomplete)**: **조합 네거티브** + **씬 전용 네거티브** 칸을 단순 텍스트 `<input>`에서 **db.csv 태그 자동완성 에디터**(`PromptEditTextArea`)로 교체 — 조합 프롬프트 칸과 동일하게 입력 중 태그 추천.
+
+---
+
 ## v1.9.1 (2026-05-31)
 
 patch. v1.9.0 → v1.9.1. **프롬프트 찾기 (검색창에서 씬 이름 + 상위/하위/네거티브 태그 하이라이트).** sdstudioBase 4.9.0 유지.
