@@ -191,6 +191,7 @@ export const App = observer(() => {
       appState.classicSceneCard = conf.classicSceneCard ?? false;
       appState.initialThumbSize = conf.initialThumbSize;
       appState.globalPromptPresetId = conf.promptPresetId;
+      appState.globalSamplingPresetId = conf.samplingPresetId;
     };
     refreshDarkMode();
     sessionService.addEventListener('config-changed', refreshDarkMode);
@@ -348,8 +349,10 @@ export const App = observer(() => {
       imageService.refreshBatch(appState.curSession);
       appState.cleanupOrphanedPresetApplication();
       appState.resolvePromptPreset();
+      appState.resolveSamplingPreset();
     } else {
       appState.appliedPromptPreset = undefined;
+      appState.appliedSamplingPreset = undefined;
     }
     return () => {
       window.curSession = undefined;

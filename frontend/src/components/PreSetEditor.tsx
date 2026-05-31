@@ -10,6 +10,7 @@ import {
 import { NoiseSchedule, Resolution, Sampling } from '../backends/imageGen';
 import PromptEditTextArea from './PromptEditTextArea';
 import { PromptPresetButton } from './PromptPresetDialog';
+import { SamplingPresetButton } from './SamplingPresetDialog';
 import {
   FaCopy,
   FaFont,
@@ -47,6 +48,7 @@ import {
   taskQueueService,
   workFlowService,
   promptPresetService,
+  samplingPresetService,
   isMobile,
 } from '../models';
 import { toPARR, stripAllChunkTokens } from '../models/PromptService';
@@ -2595,22 +2597,32 @@ const WFRInline = observer(({ element }: WFElementProps) => {
     }
   }
   const key = `${type}_${preset.name}_${input.field}`;
+  // 샘플링 필드 잠금 — 그림체 프리셋 samplingOverrides + 샘플링 프리셋 둘 다 본다.
+  // 샘플링 프리셋이 우선(생성 시 applySamplingPresetOverride가 나중 적용).
+  // 잠금 시 화면에 override 값을 표시 + disabled — 해제하면 원본 값 복귀(override 모델).
+  const _samplingFieldNames = ['steps', 'promptGuidance', 'cfgRescale', 'sampling', 'noiseSchedule'];
+  const _isSamplingField = _samplingFieldNames.includes(input.field);
   const _presetId = appState.appliedPromptPreset;
   const _presetObj = _presetId ? promptPresetService.get(_presetId) : undefined;
-  const _samplingLocked = (() => {
-    if (!_presetObj?.samplingOverrides) return false;
-    const so = _presetObj.samplingOverrides;
-    if (input.field === 'steps' && so.steps != null) return true;
-    if (input.field === 'promptGuidance' && so.promptGuidance != null) return true;
-    if (input.field === 'cfgRescale' && so.cfgRescale != null) return true;
-    if (input.field === 'sampling' && so.sampling != null) return true;
-    if (input.field === 'noiseSchedule' && so.noiseSchedule != null) return true;
-    return false;
-  })();
+  const _promptSO: any = _presetObj?.samplingOverrides;
+  const _samplingPresetId = appState.appliedSamplingPreset;
+  const _samplingPresetObj: any = _samplingPresetId ? samplingPresetService.get(_samplingPresetId) : undefined;
+  const _overrideFromSampling = _isSamplingField && _samplingPresetObj && _samplingPresetObj[input.field] != null
+    ? _samplingPresetObj[input.field]
+    : undefined;
+  const _overrideFromPrompt = _isSamplingField && _promptSO && _promptSO[input.field] != null
+    ? _promptSO[input.field]
+    : undefined;
+  const _overrideValue = _overrideFromSampling !== undefined ? _overrideFromSampling : _overrideFromPrompt;
+  const _samplingLocked = _overrideValue !== undefined;
+  const _lockedBySampling = _overrideFromSampling !== undefined;
+  const _isSamplingProjectOverride = appState.curSession ? typeof appState.curSession.samplingPresetId === 'string' : false;
   const _isProjectOverride = appState.curSession ? typeof appState.curSession.promptPresetId === 'string' : false;
-  const _lockBorderClass = _samplingLocked
-    ? (_isProjectOverride ? 'ring-2 ring-teal-400/50 rounded-lg' : 'ring-2 ring-sky-400/50 rounded-lg')
-    : '';
+  const _lockBorderClass = !_samplingLocked
+    ? ''
+    : _lockedBySampling
+      ? (_isSamplingProjectOverride ? 'ring-2 ring-teal-400/50 rounded-lg' : 'ring-2 ring-indigo-400/50 rounded-lg')
+      : (_isProjectOverride ? 'ring-2 ring-teal-400/50 rounded-lg' : 'ring-2 ring-sky-400/50 rounded-lg');
   switch (field.type) {
     case 'prompt': {
       const showPresetBtn =
@@ -2637,6 +2649,20 @@ const WFRInline = observer(({ element }: WFElementProps) => {
               getUc={() => preset.uc || ''}
               onApply={(id) => {
                 appState.setAppliedPromptPreset(id);
+              }}
+            />
+          )}
+          {showPresetBtn && (
+            <SamplingPresetButton
+              getCurrent={() => ({
+                steps: preset.steps,
+                promptGuidance: preset.promptGuidance,
+                cfgRescale: preset.cfgRescale,
+                sampling: preset.sampling,
+                noiseSchedule: preset.noiseSchedule,
+              })}
+              onApply={(id) => {
+                appState.setAppliedSamplingPreset(id);
               }}
             />
           )}
@@ -2706,7 +2732,7 @@ const WFRInline = observer(({ element }: WFElementProps) => {
         <div className={_lockBorderClass}>
           <IntSliderInput
             label={input.label}
-            value={getField()}
+            value={_samplingLocked ? _overrideValue : getField()}
             onChange={setField}
             disabled={_samplingLocked}
             min={field.min}
@@ -2722,7 +2748,7 @@ const WFRInline = observer(({ element }: WFElementProps) => {
           <div className={_lockBorderClass}>
             <DropdownSelect
               key={key}
-              selectedOption={getField()}
+              selectedOption={_samplingLocked ? _overrideValue : getField()}
               disabled={_samplingLocked}
               menuPlacement="auto"
               options={Object.values(Sampling).map((x) => ({
@@ -2742,7 +2768,7 @@ const WFRInline = observer(({ element }: WFElementProps) => {
           <div className={_lockBorderClass}>
             <DropdownSelect
               key={key}
-              selectedOption={getField()}
+              selectedOption={_samplingLocked ? _overrideValue : getField()}
               disabled={_samplingLocked}
               menuPlacement="auto"
               options={Object.values(NoiseSchedule).map((x) => ({

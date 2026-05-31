@@ -7,6 +7,7 @@ import {
   isMobile,
   localAIService,
   promptPresetService,
+  samplingPresetService,
   sessionService,
   taskQueueService,
   workFlowService,
@@ -249,6 +250,8 @@ export class AppState {
   @observable accessor appliedCharacterPreset: string | undefined = undefined; // 현재 적용된 캐릭터 프리셋 이름
   @observable accessor appliedPromptPreset: string | undefined = undefined; // 현재 적용된 프롬프트 프리셋 id
   @observable accessor globalPromptPresetId: string | undefined = undefined; // config.json 캐시
+  @observable accessor appliedSamplingPreset: string | undefined = undefined; // 현재 적용된 샘플링 프리셋 id
+  @observable accessor globalSamplingPresetId: string | undefined = undefined; // config.json 캐시
 
   // 이미지 클립보드
   @observable accessor imageClipboard: string[] = [];
@@ -3807,6 +3810,80 @@ export class AppState {
       this.appliedPromptPreset = gid;
     } else {
       this.appliedPromptPreset = undefined;
+    }
+  }
+
+  // ─── 샘플링 프리셋 (프롬프트 프리셋과 평행 구조, override 모델) ───
+  @action
+  setAppliedSamplingPreset(id: string | undefined) {
+    this.appliedSamplingPreset = id;
+    if (this.curSession && id) {
+      this.curSession.samplingPresetId = id;
+    }
+  }
+
+  @action
+  clearAppliedSamplingPreset() {
+    this.appliedSamplingPreset = undefined;
+    if (this.curSession) {
+      this.curSession.samplingPresetId = null;
+    }
+  }
+
+  @action
+  async setGlobalSamplingPreset(id: string) {
+    this.globalSamplingPresetId = id;
+    this.appliedSamplingPreset = id;
+    if (this.curSession) {
+      this.curSession.samplingPresetId = undefined;
+    }
+    const config = await backend.getConfig();
+    await backend.setConfig({ ...config, samplingPresetId: id });
+  }
+
+  @action
+  async clearGlobalSamplingPreset() {
+    this.globalSamplingPresetId = undefined;
+    if (this.curSession && this.curSession.samplingPresetId === undefined) {
+      this.appliedSamplingPreset = undefined;
+    }
+    const config = await backend.getConfig();
+    const { samplingPresetId: _, ...rest } = config;
+    await backend.setConfig(rest);
+  }
+
+  @action
+  revertToGlobalSamplingPreset() {
+    if (!this.curSession) return;
+    this.curSession.samplingPresetId = undefined;
+    this.resolveSamplingPreset();
+  }
+
+  @action
+  resolveSamplingPreset() {
+    if (!this.curSession) {
+      this.appliedSamplingPreset = undefined;
+      return;
+    }
+    const sessionVal = this.curSession.samplingPresetId;
+    if (sessionVal === null) {
+      this.appliedSamplingPreset = undefined;
+      return;
+    }
+    if (sessionVal) {
+      if (samplingPresetService.get(sessionVal)) {
+        this.appliedSamplingPreset = sessionVal;
+      } else {
+        this.curSession.samplingPresetId = undefined;
+        this.appliedSamplingPreset = undefined;
+      }
+      return;
+    }
+    const gid = this.globalSamplingPresetId;
+    if (gid && samplingPresetService.get(gid)) {
+      this.appliedSamplingPreset = gid;
+    } else {
+      this.appliedSamplingPreset = undefined;
     }
   }
 

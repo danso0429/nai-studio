@@ -15,6 +15,7 @@ import { GlobalPieceService } from './GlobalPieceService';
 import { GlobalPresetService } from './GlobalPresetService';
 import { PromptPresetService } from './PromptPresetService';
 import { PromptChunkService } from './PromptChunkService';
+import { SamplingPresetService } from './SamplingPresetService';
 
 export const backend = new ServerBackend();
 
@@ -84,6 +85,9 @@ promptPresetService.load();
 export const promptChunkService = new PromptChunkService();
 promptChunkService.load();
 
+export const samplingPresetService = new SamplingPresetService();
+samplingPresetService.load();
+
 export const promptService = new PromptService();
 
 export const taskQueueService = new TaskQueueService(taskHandlers);
@@ -106,6 +110,7 @@ export const cyclingSessionService = new CyclingSessionService();
 (window as any).globalPresetService = globalPresetService;
 (window as any).promptPresetService = promptPresetService;
 (window as any).promptChunkService = promptChunkService;
+(window as any).samplingPresetService = samplingPresetService;
 
 backend.onClose(() => {
   (async () => {
