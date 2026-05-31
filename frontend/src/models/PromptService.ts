@@ -633,7 +633,9 @@ export const highlightPrompt = (
   session: Session,
   text: string,
   lineHighlight: boolean = false,
+  searchQuery: string = '',
 ) => {
+  const searchLower = searchQuery.trim().toLowerCase();
   const escapeHtmlText = (s: string): string =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const escapeJsInAttr = (s: string): string =>
@@ -819,6 +821,10 @@ export const highlightPrompt = (
           if (pword.startsWith('{') && pword.endsWith('}')) {
             classNames.push('syntax-strong');
           }
+          // 찾기(검색) 매칭 — 태그(단어) 텍스트에 검색어가 포함되면 형광 강조.
+          if (searchLower && pword.toLowerCase().includes(searchLower)) {
+            classNames.push('syntax-search-hit');
+          }
 
           // chunk 토큰 ⟦c:uuid⟧ → 알약(이름 + color). 토큰 앞뒤에 문자가 붙어 한 word가
           // 되어도(예: ⟦c:id⟧tall, hair⟦c:id⟧) 토큰만 알약, 사이/앞뒤 텍스트는 그대로 유지.
@@ -837,7 +843,12 @@ export const highlightPrompt = (
                 // 삭제된 chunk — 회색 "삭제됨" 알약.
                 chunkOut += `<span class="syntax-chunk syntax-chunk-deleted" contenteditable="false" data-chunk-id="${escapeJsInAttr(m[1])}">(삭제된 chunk)</span>`;
               } else {
-                chunkOut += `<span class="syntax-chunk" contenteditable="false" data-chunk-id="${escapeJsInAttr(chunk.id)}" data-chunk-content="${escapeJsInAttr(chunk.content)}" style="background-color:${chunk.color}33;border-color:${chunk.color}">${escapeHtmlText(chunk.name)}</span>`;
+                // 찾기 매칭 — chunk 내용/이름에 검색어가 있으면 알약 자체를 강조.
+                const chunkHit =
+                  !!searchLower &&
+                  (chunk.content.toLowerCase().includes(searchLower) ||
+                    chunk.name.toLowerCase().includes(searchLower));
+                chunkOut += `<span class="syntax-chunk${chunkHit ? ' syntax-search-hit' : ''}" contenteditable="false" data-chunk-id="${escapeJsInAttr(chunk.id)}" data-chunk-content="${escapeJsInAttr(chunk.content)}" style="background-color:${chunk.color}33;border-color:${chunk.color}">${escapeHtmlText(chunk.name)}</span>`;
               }
               last = m.index + m[0].length;
             }

@@ -432,6 +432,12 @@ export class AppState {
   @observable accessor imageGridFocusable: boolean = false;
   @observable accessor configScreenOpen: boolean = false;
 
+  // 프롬프트 찾기 — 상위/하위/네거티브 칸에서 태그/알약을 하이라이트. 검색어 + 현재
+  // 포커스된 매칭 인덱스(다음/이전 네비). 빈 문자열이면 하이라이트 없음.
+  @observable accessor promptSearchQuery: string = '';
+  @observable accessor promptSearchActiveIndex: number = 0;
+  @observable accessor promptSearchMatchCount: number = 0;
+
   @action
   incrementFloatView() {
     this.floatViewCount++;

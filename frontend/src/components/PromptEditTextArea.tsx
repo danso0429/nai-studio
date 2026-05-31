@@ -1128,6 +1128,7 @@ interface PromptEditTextAreaProps {
   lockedBgClass?: string;
   chunkInsert?: boolean; // true면 우상단에 +chunk 버튼 표시 (상위/하위/네거티브 칸용)
   chunkLabel?: string; // +chunk 버튼 title에 넣을 칸 이름 (예: "상위 프롬프트")
+  searchEnabled?: boolean; // true면 appState.promptSearchQuery로 태그/알약 하이라이트(찾기)
 }
 
 function useLatest(value: any) {
@@ -1741,6 +1742,7 @@ const PromptEditTextArea = observer(
     lockedBgClass,
     chunkInsert,
     chunkLabel,
+    searchEnabled,
   }: PromptEditTextAreaProps) => {
     const { curSession } = appState;
     const editorRef = useRef<EditTextAreaRef | null>(null);
@@ -1803,6 +1805,13 @@ const PromptEditTextArea = observer(
         promptChunkService.removeEventListener('loaded', onChunkChange);
       };
     }, []);
+
+    // 찾기 검색어 변경 시 하이라이트 갱신 (searchEnabled 칸만). deps 배열이 렌더 중
+    // 평가되며 appState.promptSearchQuery를 읽어 observer가 변경을 추적 → 재렌더 → refresh.
+    useEffect(() => {
+      if (searchEnabled) editorRef.current?.refreshHighlight();
+    }, [searchEnabled, appState.promptSearchQuery]);
+
     // 모바일도 데스크탑 엔진(EmulatedEditTextArea, contentEditable) 사용 — chunk 알약
     // 원자화/커서/2단삭제 위해. 본인 결정(완전 교체, 2026-05-31). NativeEditTextArea는
     // 롤백용 보존. iOS 입력 안정성(한글 IME/소프트키보드 blur/focus)은 L3 최우선 검증.
@@ -1878,14 +1887,16 @@ const PromptEditTextArea = observer(
           });
         }
       }
+      // 찾기(검색) — searchEnabled 칸(상위/하위/네거티브)에서만 검색어로 태그/알약 강조.
+      const sq = searchEnabled ? appState.promptSearchQuery : '';
       const fp = lockedPrefixRef.current;
       if (fp && text.startsWith(fp)) {
         const bgClass = lockedBgClass || 'bg-sky-500/20 dark:bg-sky-500/30';
         const prefixHtml = `<span class="${bgClass} rounded px-0.5" style="-webkit-text-stroke:0.4px currentColor;text-shadow:0 0 2px currentColor">${escapeHtml(fp.slice(0, -prefixSep.length))}</span>${escapeHtml(prefixSep)}`;
         const rest = text.slice(fp.length);
-        return prefixHtml + highlightPrompt(curSession!, rest, lineHighlight ?? false);
+        return prefixHtml + highlightPrompt(curSession!, rest, lineHighlight ?? false, sq);
       }
-      return highlightPrompt(curSession!, text, lineHighlight ?? false);
+      return highlightPrompt(curSession!, text, lineHighlight ?? false, sq);
     };
     const onEnter = () => {
       if (tagsRef.current.length === 0) return;

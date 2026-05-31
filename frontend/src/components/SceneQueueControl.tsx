@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { FloatView } from './FloatView';
 import SceneEditor from './SceneEditor';
-import { FaBookmark, FaBroom, FaChevronLeft, FaChevronRight, FaEdit, FaExchangeAlt, FaFileImage, FaPlus, FaRegCalendarTimes, FaSearch, FaSort, FaStar, FaTimes, FaTrash, FaTrashRestore } from 'react-icons/fa';
+import { FaBookmark, FaBroom, FaChevronDown, FaChevronLeft, FaChevronRight, FaChevronUp, FaEdit, FaExchangeAlt, FaFileImage, FaPlus, FaRegCalendarTimes, FaSearch, FaSort, FaStar, FaTimes, FaTrash, FaTrashRestore } from 'react-icons/fa';
 import ResultViewer from './ResultViewer';
 import InPaintEditor from './InPaintEditor';
 import { useDrag, useDrop } from 'react-dnd';
@@ -686,6 +686,47 @@ const QueueControl = observer(
     const [showSceneSearch, setShowSceneSearch] = useState(false);
     const sceneSearchRef = useRef<HTMLInputElement>(null);
 
+    // activeIndex번째 매칭(.syntax-search-hit)에 active 클래스 + 그 위치로 스크롤.
+    // 매칭 DOM은 searchEnabled 칸(상위/하위/네거티브)에만 생기므로 전역 쿼리로 수집.
+    const updateSearchActive = useCallback((idx: number) => {
+      const hits = Array.from(
+        document.querySelectorAll('.syntax-search-hit'),
+      );
+      hits.forEach((el, i) =>
+        el.classList.toggle('syntax-search-hit-active', i === idx),
+      );
+      hits[idx]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, []);
+
+    // 검색창 검색어 → 전역(appState.promptSearchQuery) 동기화 → 상위/하위/네거티브 칸이
+    // 구독해 하이라이트. refresh 후(rAF) 매칭 개수 카운트 + 첫 매칭 active/스크롤.
+    useEffect(() => {
+      const q = showSceneSearch ? sceneSearchQuery : '';
+      appState.promptSearchQuery = q;
+      const id = requestAnimationFrame(() => {
+        const count = q
+          ? document.querySelectorAll('.syntax-search-hit').length
+          : 0;
+        appState.promptSearchMatchCount = count;
+        appState.promptSearchActiveIndex = 0;
+        if (count > 0) updateSearchActive(0);
+      });
+      return () => cancelAnimationFrame(id);
+    }, [sceneSearchQuery, showSceneSearch, updateSearchActive]);
+
+    // 다음/이전 매칭으로 이동 (순환).
+    const gotoMatch = useCallback(
+      (delta: number) => {
+        const count = appState.promptSearchMatchCount;
+        if (count === 0) return;
+        const next =
+          (appState.promptSearchActiveIndex + delta + count) % count;
+        appState.promptSearchActiveIndex = next;
+        updateSearchActive(next);
+      },
+      [updateSearchActive],
+    );
+
     useEffect(() => {
       const onProgressUpdated = () => {
         rerender({});
@@ -786,6 +827,9 @@ const QueueControl = observer(
         const action = (e as CustomEvent).detail?.action;
         if (action === 'queue-all-scenes') {
           addAllToQueue();
+        } else if (action === 'scene-search') {
+          setShowSceneSearch(true);
+          setTimeout(() => sceneSearchRef.current?.focus(), 50);
         }
       };
       window.addEventListener('shortcut-action', handler);
@@ -793,6 +837,8 @@ const QueueControl = observer(
     }, [curSession, type]);
 
     // --- 씬 카드 키보드 네비게이션 ---
+    // 씬 목록 검색은 씬 이름만. (상위/하위/네거티브 프롬프트는 PreSetEditor 칸 안에서
+    // 태그를 하이라이트하는 별개 기능 — 씬 목록 필터와 무관.)
     const getFilteredScenes = useCallback(() => {
       return curSession
         .getScenes(type)
@@ -1613,16 +1659,42 @@ const QueueControl = observer(
               ref={sceneSearchRef}
               type="text"
               className="flex-1 px-2 py-1 border border-gray-300 dark:border-slate-500 rounded bg-white dark:bg-slate-700 text-default outline-none focus:border-sky-500"
-              placeholder="씬 이름 검색..."
+              placeholder="씬 이름·상위/하위/네거티브 검색..."
               value={sceneSearchQuery}
               onChange={(e) => setSceneSearchQuery(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') {
                   setSceneSearchQuery('');
                   setShowSceneSearch(false);
+                } else if (e.key === 'Enter') {
+                  e.preventDefault();
+                  gotoMatch(e.shiftKey ? -1 : 1); // Enter=다음, Shift+Enter=이전
                 }
               }}
             />
+            {sceneSearchQuery && (
+              <span className="flex-none text-xs text-gray-500 dark:text-gray-400 tabular-nums select-none min-w-[2.5rem] text-center">
+                {appState.promptSearchMatchCount > 0
+                  ? `${appState.promptSearchActiveIndex + 1}/${appState.promptSearchMatchCount}`
+                  : '0/0'}
+              </span>
+            )}
+            <button
+              className="round-button back-gray disabled:opacity-40"
+              disabled={appState.promptSearchMatchCount === 0}
+              onClick={() => gotoMatch(-1)}
+              title="이전 매칭 (Shift+Enter)"
+            >
+              <FaChevronUp />
+            </button>
+            <button
+              className="round-button back-gray disabled:opacity-40"
+              disabled={appState.promptSearchMatchCount === 0}
+              onClick={() => gotoMatch(1)}
+              title="다음 매칭 (Enter)"
+            >
+              <FaChevronDown />
+            </button>
             <button
               className="round-button back-gray"
               onClick={() => {

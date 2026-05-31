@@ -627,6 +627,25 @@ input[type='number']::-webkit-outer-spin-button {
   color: #999;
   font-style: italic;
 }
+/* 찾기(검색) 매칭 강조 — 일반 태그는 형광 배경, chunk 알약은 외곽선으로(배경색 유지). */
+.syntax-search-hit {
+  background-color: #fde047 !important;
+  color: #1e293b !important;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px #facc15;
+}
+.syntax-chunk.syntax-search-hit {
+  background-color: inherit !important;
+  color: inherit !important;
+  outline: 2px solid #f59e0b;
+  outline-offset: 1px;
+  box-shadow: none;
+}
+/* 현재 포커스된(다음/이전으로 선택된) 매칭 — 더 진하게. */
+.syntax-search-hit-active {
+  background-color: #fb923c !important;
+  box-shadow: 0 0 0 2px #ea580c;
+}
 /* chunk 내용 미리보기 박스는 JS(fixed div, 데스크탑만)로 렌더 — 칸 overflow/stacking
    에 갇히지 않게. PromptEditTextArea의 hoverChunk 참조. */
 

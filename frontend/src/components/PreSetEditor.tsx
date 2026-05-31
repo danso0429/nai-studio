@@ -2680,6 +2680,7 @@ const WFRInline = observer(({ element }: WFElementProps) => {
               onChange={setField}
               chunkInsert={true}
               chunkLabel={input.label}
+              searchEnabled={true}
             ></PromptEditTextArea>
           </EditorField>
         </>
