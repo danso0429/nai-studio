@@ -204,13 +204,14 @@ export const BigPromptEditor = observer(
                 <label className="text-xs text-red-500 dark:text-red-400 select-none block mb-1">
                   씬 전용 네거티브
                 </label>
-                <input
-                  type="text"
-                  className="w-full px-2 py-1 text-xs rounded bg-white dark:bg-slate-700 dark:text-white border border-gray-300 dark:border-slate-500 placeholder:text-gray-400"
-                  placeholder="(없음)"
-                  value={sceneUc || ''}
-                  onChange={(e) => onSceneUcChange(e.currentTarget.value)}
-                />
+                {/* 2026-06-01: 조합 네거티브와 동일하게 PromptEditTextArea로 교체 — db.csv 태그 자동완성. */}
+                <div className="h-16">
+                  <PromptEditTextArea
+                    whiteBg
+                    value={sceneUc || ''}
+                    onChange={onSceneUcChange}
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -231,13 +232,14 @@ export const BigPromptEditor = observer(
                 <label className="text-xs text-red-500 dark:text-red-400 select-none block mb-1">
                   씬 전용 네거티브
                 </label>
-                <input
-                  type="text"
-                  className="w-full px-2 py-1 text-xs rounded bg-white dark:bg-slate-700 dark:text-white border border-gray-300 dark:border-slate-500 placeholder:text-gray-400"
-                  placeholder="(없음)"
-                  value={sceneUc || ''}
-                  onChange={(e) => onSceneUcChange(e.currentTarget.value)}
-                />
+                {/* 2026-06-01: 조합 네거티브와 동일하게 PromptEditTextArea로 교체 — db.csv 태그 자동완성. */}
+                <div className="h-16">
+                  <PromptEditTextArea
+                    whiteBg
+                    value={sceneUc || ''}
+                    onChange={onSceneUcChange}
+                  />
+                </div>
               </div>
             )}
             <div className="flex-none">
@@ -461,21 +463,22 @@ export const SlotPiece = observer(
           />
         </div>
         {/* 조합 단위 네거티브 — 같은 조합에 들어간 모든 piece의 uc를 합쳐 base negative에 추가 (2026-05-13) */}
+        {/* 2026-06-01: 조합 프롬프트와 동일하게 PromptEditTextArea로 교체 — db.csv 태그 자동완성 도우미 제공. */}
         <div className="mb-2 w-60 md:w-48">
           <label className="text-xs text-red-500 dark:text-red-400 select-none block">
             조합 네거티브
           </label>
-          <input
-            type="text"
-            className="w-full px-1 py-0.5 text-xs rounded bg-white dark:bg-slate-700 dark:text-white border border-gray-300 dark:border-slate-500 placeholder:text-gray-400"
-            placeholder="(없음)"
-            disabled={!moveSlotPiece}
-            value={piece.uc || ''}
-            onChange={(e) => {
-              if (!moveSlotPiece) return;
-              piece.uc = e.currentTarget.value;
-            }}
-          />
+          <div className="h-20 md:h-16">
+            <PromptEditTextArea
+              whiteBg
+              disabled={!moveSlotPiece}
+              value={piece.uc || ''}
+              onChange={(s) => {
+                if (!moveSlotPiece) return;
+                piece.uc = s;
+              }}
+            />
+          </div>
         </div>
         <div className="flex gap-2 select-none">
           <label className="gray-label">활성화</label>
