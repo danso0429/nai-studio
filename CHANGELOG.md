@@ -32,7 +32,8 @@ minor. v1.8.2 → v1.9.0. **프롬프트 chunk 시스템 도입 + 그림체(프�
 
 ### Fix / 기타
 
-- **fix(editor)**: `getCaretPosition`이 알약 경계에서 텍스트 길이를 초과하는 offset 반환 → `handleInput`에서 caret≤길이 불변식 clamp.
+- **fix(chunk)**: 알약(contenteditable=false) 클릭 시 caret을 알약 직후로 보정 — Firefox가 알약 뒤 단어 끝에 caret을 두던 문제(알약 뒤에 텍스트가 있을 때 글자가 단어 뒤로 삽입). click 핸들러에서 `e.target`이 알약이면 `setStartAfter`로 알약 경계에 명시 배치, 단어 클릭은 기존대로.
+- **fix(editor)**: `getCaretPosition`이 알약이 칸 끝일 때 offset이 텍스트 길이를 초과 → `handleInput`에서 caret≤길이 불변식 clamp.
 - **fix(prompt-editor)**: 데스크탑 Firefox 붙여넣기 무시(clipboardData를 mutex await 전 동기 읽기) + 클릭 caret 맨앞 튐(draggable 제거). (v1.8.3-experimental에서 stable로 승격)
 - **feat(result-viewer)**: 좌우 반전 버튼 — PNG 덮어쓰기 + NAI metadata 보존.
 - **fix(config)**: 트루다크 씬 썸네일 크기 select 글씨 색 명시 + 내보내기 동시 처리 수 1/2/3/4 세그먼트 버튼.
