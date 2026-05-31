@@ -9,6 +9,20 @@
 
 ---
 
+## v1.9.1 (2026-05-31)
+
+patch. v1.9.0 → v1.9.1. **프롬프트 찾기 (검색창에서 씬 이름 + 상위/하위/네거티브 태그 하이라이트).** sdstudioBase 4.9.0 유지.
+
+### 새 기능 — 프롬프트 찾기
+
+- **feat(search)**: 검색창(데스크탑 `Ctrl+Shift+F` / 모바일 돋보기 버튼)에서 씬 이름 필터와 별개로, **상위/하위/네거티브 프롬프트(preset frontPrompt/backPrompt/uc) 칸**의 검색어 매칭 태그를 형광 강조. 검색어가 chunk 알약 속 구성 태그면 알약 자체를 외곽선 강조.
+- **feat(search)**: 매칭 개수 **X/Y 표시** + 다음/이전 이동(`Enter` / `Shift+Enter` 또는 ▲▼ 버튼) → 활성 매칭을 진하게 + 그 위치로 스크롤(브라우저 Ctrl+F식).
+- **feat(search)**: 씬 목록은 **이름만** 검색(조합 슬롯·씬 네거티브 등 씬 구성 태그는 검색 제외 — 의도).
+- **feat(keybinding)**: `Ctrl+Shift+F` = 검색. 기존 `Ctrl+F`(프로젝트 즐겨찾기 토글)와 충돌 없이 추가. 키바인딩 설정에서 변경 가능.
+- **구현**: `highlightPrompt` searchQuery 매칭 강조(태그/알약), `PromptEditTextArea` searchEnabled prop(상위/하위/네거 칸) + 검색어 변경 시 refresh, 검색어/개수/활성 인덱스 `appState` 전역, active/스크롤은 `.syntax-search-hit`(-active) DOM 토글.
+
+---
+
 ## v1.9.0 (2026-05-31)
 
 minor. v1.8.2 → v1.9.0. **프롬프트 chunk 시스템 도입 + 그림체(프롬프트) 프리셋 폐기·대체 + 조합 에디터 drag UX 개선 + 씬 토글 그룹.** sdstudioBase 4.9.0 유지.
