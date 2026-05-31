@@ -817,7 +817,7 @@ export const highlightPrompt = (
                 // 삭제된 chunk — 회색 "삭제됨" 알약.
                 chunkOut += `<span class="syntax-chunk syntax-chunk-deleted" contenteditable="false" data-chunk-id="${escapeJsInAttr(m[1])}">(삭제된 chunk)</span>`;
               } else {
-                chunkOut += `<span class="syntax-chunk" contenteditable="false" data-chunk-id="${escapeJsInAttr(chunk.id)}" style="background-color:${chunk.color}33;border-color:${chunk.color}">${escapeHtmlText(chunk.name)}</span>`;
+                chunkOut += `<span class="syntax-chunk" contenteditable="false" data-chunk-id="${escapeJsInAttr(chunk.id)}" data-chunk-content="${escapeJsInAttr(chunk.content)}" style="background-color:${chunk.color}33;border-color:${chunk.color}">${escapeHtmlText(chunk.name)}</span>`;
               }
               last = m.index + m[0].length;
             }

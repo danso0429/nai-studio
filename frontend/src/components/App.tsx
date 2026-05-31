@@ -190,7 +190,6 @@ export const App = observer(() => {
       setTrueDark(conf.trueDark ?? false);
       appState.classicSceneCard = conf.classicSceneCard ?? false;
       appState.initialThumbSize = conf.initialThumbSize;
-      appState.globalPromptPresetId = conf.promptPresetId;
       appState.globalSamplingPresetId = conf.samplingPresetId;
     };
     refreshDarkMode();
@@ -348,10 +347,8 @@ export const App = observer(() => {
       sessionService.reloadPieceLibraryDB(appState.curSession);
       imageService.refreshBatch(appState.curSession);
       appState.cleanupOrphanedPresetApplication();
-      appState.resolvePromptPreset();
       appState.resolveSamplingPreset();
     } else {
-      appState.appliedPromptPreset = undefined;
       appState.appliedSamplingPreset = undefined;
     }
     return () => {

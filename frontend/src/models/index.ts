@@ -13,7 +13,6 @@ import { TrashService } from './TrashService';
 import { CyclingSessionService } from './CyclingSessionService';
 import { GlobalPieceService } from './GlobalPieceService';
 import { GlobalPresetService } from './GlobalPresetService';
-import { PromptPresetService } from './PromptPresetService';
 import { PromptChunkService } from './PromptChunkService';
 import { SamplingPresetService } from './SamplingPresetService';
 
@@ -79,9 +78,6 @@ globalPieceService.load();
 export const globalPresetService = new GlobalPresetService();
 globalPresetService.load();
 
-export const promptPresetService = new PromptPresetService();
-promptPresetService.load();
-
 export const promptChunkService = new PromptChunkService();
 promptChunkService.load();
 
@@ -108,7 +104,6 @@ export const cyclingSessionService = new CyclingSessionService();
 (window as any).taskQueueService = taskQueueService;
 (window as any).loginService = loginService;
 (window as any).globalPresetService = globalPresetService;
-(window as any).promptPresetService = promptPresetService;
 (window as any).promptChunkService = promptChunkService;
 (window as any).samplingPresetService = samplingPresetService;
 

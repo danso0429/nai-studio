@@ -424,6 +424,28 @@ class CursorMemorizeEditor {
     });
   }
 
+  // 커서 위치(pos)에 chunk 토큰 삽입 — 앞/뒤에 구분자(', ') 자동 보장.
+  // pos는 버튼 누르기 직전 wrapper가 저장한 caret(데이터 offset). 끝 초과 시 clamp.
+  async insertChunkAtCaret(token: string, pos: number) {
+    await mutex.runExclusive(async () => {
+      this.pushHistory();
+      const len = this.curText.length;
+      let p = pos;
+      if (p > len) p = len;
+      if (p < 0) p = 0;
+      const before = this.curText.slice(0, p).replace(/[ \t]+$/, '');
+      const after = this.curText.slice(p).replace(/^[ \t]+/, '');
+      const sep1 = before.trim() === '' ? '' : before.endsWith(',') ? ' ' : ', ';
+      const sep2 = after === '' ? '' : after.startsWith(',') ? '' : ', ';
+      const newText = before + sep1 + token + sep2 + after;
+      const caret = (before + sep1 + token).length;
+      this.updateCurText(newText);
+      this.updateDOM(newText, caret, false);
+      this.compositionBuffer = [];
+      await this.setCaretPosition([caret, caret]);
+    });
+  }
+
   async handleInput(
     inputChar: string,
     collapsed: boolean,
@@ -432,9 +454,15 @@ class CursorMemorizeEditor {
     this.pushHistory();
     const koreanRegex = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g;
     // 프리셋 prefix 보호: 삽입/삭제 지점이 prefix 안이면 경계로 당김.
-    const [start, end] = this.clampToLock(
+    let [start, end] = this.clampToLock(
       ...(pos ? pos : this.getCaretPosition()) as [number, number],
     );
+    // getCaretPosition이 알약(chunk) 경계에서 텍스트 길이를 초과하는 offset을 반환하는
+    // 케이스가 있어(caret offset ≤ 길이 불변식 위반) 상한 clamp. 알약 직후 자동 구분자
+    // 판정·삽입·커서 정확성 보장. (환산 근본 원인은 getCaretPosition — JOURNAL 백로그)
+    const _curLen = this.curText.length;
+    if (start > _curLen) start = _curLen;
+    if (end > _curLen) end = _curLen;
     this.updateCurText(
       this.curText.substring(0, start) + this.curText.substring(end),
       false,
@@ -499,12 +527,26 @@ class CursorMemorizeEditor {
         newPos++;
         this.updateDOM(this.curText, newPos);
       } else {
+        // chunk 알약 경계 자동 구분자: 알약 바로 뒤(또는 앞)에 일반 문자(쉼표·공백
+        // 제외)를 입력하면 ', '를 자동 삽입 → 알약 끝 태그와 사용자 글자가 한 태그로
+        // 합쳐지는 오염 방지 (예: ⟦…black tail⟧efgh → 펼치면 black tailefgh).
+        let ins = inputChar;
+        let caretAdvance = 1;
+        if (inputChar !== ',' && inputChar !== ' ') {
+          if (chunkTokenBefore(this.curText, start) !== -1) {
+            ins = ', ' + inputChar; // 알약 바로 뒤 → "⟦token⟧, char"
+            caretAdvance = ins.length;
+          } else if (chunkTokenAfter(this.curText, start) !== -1) {
+            ins = inputChar + ', '; // 알약 바로 앞 → "char, ⟦token⟧"
+            caretAdvance = 1;
+          }
+        }
         this.updateCurText(
           this.curText.substring(0, start) +
-            inputChar +
+            ins +
             this.curText.substring(start),
         );
-        newPos++;
+        newPos = start + caretAdvance;
         this.updateDOM(this.curText, newPos);
       }
     }
@@ -1063,6 +1105,7 @@ interface PromptEditTextAreaProps {
   lockedPrefix?: string;
   lockedBgClass?: string;
   chunkInsert?: boolean; // true면 우상단에 +chunk 버튼 표시 (상위/하위/네거티브 칸용)
+  chunkLabel?: string; // +chunk 버튼 title에 넣을 칸 이름 (예: "상위 프롬프트")
 }
 
 function useLatest(value: any) {
@@ -1128,6 +1171,8 @@ interface EditTextAreaRef {
   setCurWord: (word: string) => void;
   getCaretCoords(): Promise<number[]>;
   undo(): void;
+  getCaret: () => number | null;
+  insertChunkAtCaret: (token: string, pos: number) => void;
 }
 
 const EmulatedEditTextArea = observer(
@@ -1153,6 +1198,10 @@ const EmulatedEditTextArea = observer(
       const containerRef = useRef<any>(null);
       const clipboardRef = useRef<any>(null);
       const editorModelRef = useRef<any>(null);
+      // chunk 알약 호버 미리보기 — fixed 박스로 칸 overflow/stacking 탈출(데스크탑만).
+      const [hoverChunk, setHoverChunk] = useState<
+        { content: string; x: number; y: number } | null
+      >(null);
 
       useEffect(() => {
         if (!editorRef.current) return;
@@ -1244,6 +1293,15 @@ const EmulatedEditTextArea = observer(
         undo() {
           editorModelRef.current.handleKeyDown({ key: 'z', metaKey: true });
         },
+        getCaret: () => {
+          const m = editorModelRef.current;
+          if (!m) return null;
+          const [s] = m.getCaretPosition();
+          return Math.min(s, (m.curText || '').length); // over 환산 clamp
+        },
+        insertChunkAtCaret: (token: string, pos: number) => {
+          editorModelRef.current?.insertChunkAtCaret(token, pos);
+        },
       }));
 
       useEffect(() => {
@@ -1263,7 +1321,29 @@ const EmulatedEditTextArea = observer(
 
       return (
         <>
-          <div ref={containerRef} className="overflow-auto h-full">
+          <div
+            ref={containerRef}
+            className="overflow-auto h-full"
+            onMouseOver={(e) => {
+              if (isMobile) return;
+              const el = (e.target as HTMLElement)?.closest?.(
+                '.syntax-chunk[data-chunk-content]',
+              ) as HTMLElement | null;
+              if (el) {
+                const r = el.getBoundingClientRect();
+                setHoverChunk({
+                  content: el.getAttribute('data-chunk-content') || '',
+                  x: r.left,
+                  y: r.bottom,
+                });
+              }
+            }}
+            onMouseOut={(e) => {
+              if ((e.target as HTMLElement)?.closest?.('.syntax-chunk')) {
+                setHoverChunk(null);
+              }
+            }}
+          >
             <div
               className={
                 'w-full min-h-full focus:outline-0 whitespace-pre-wrap align-middle'
@@ -1281,6 +1361,31 @@ const EmulatedEditTextArea = observer(
               e.target.value = '';
             }}
           ></textarea>
+          {hoverChunk && !isMobile && (
+            <div
+              style={{
+                position: 'fixed',
+                left: hoverChunk.x,
+                top: hoverChunk.y + 4,
+                zIndex: 9999,
+                maxWidth: 360,
+                maxHeight: '50vh',
+                overflowY: 'auto',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                fontSize: 11,
+                lineHeight: 1.45,
+                padding: '5px 8px',
+                borderRadius: 6,
+                background: 'rgba(28,28,32,0.96)',
+                color: '#e8e8ea',
+                boxShadow: '0 3px 12px rgba(0,0,0,0.35)',
+                pointerEvents: 'none',
+              }}
+            >
+              {hoverChunk.content}
+            </div>
+          )}
         </>
       );
     },
@@ -1536,9 +1641,11 @@ const ChunkInsertSheet = observer(
   ({
     onPick,
     onClose,
+    chunkLabel,
   }: {
     onPick: (id: string) => void;
     onClose: () => void;
+    chunkLabel?: string;
   }) => {
     const chunks = promptChunkService.list();
     const folders = promptChunkService
@@ -1560,7 +1667,7 @@ const ChunkInsertSheet = observer(
     );
 
     return (
-      <ModalOverlay isOpen={true} onClose={onClose} title="chunk 삽입" width="max-w-lg">
+      <ModalOverlay isOpen={true} onClose={onClose} title={chunkLabel ? `${chunkLabel}에 chunk 삽입` : 'chunk 삽입'} width="max-w-lg">
         {chunks.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
             저장된 chunk가 없어요. 사전세팅 줄의 chunk 관리에서 먼저 추가해 주세요.
@@ -1611,9 +1718,13 @@ const PromptEditTextArea = observer(
     lockedPrefix,
     lockedBgClass,
     chunkInsert,
+    chunkLabel,
   }: PromptEditTextAreaProps) => {
     const { curSession } = appState;
     const editorRef = useRef<EditTextAreaRef | null>(null);
+    // +chunk 버튼 누르기 직전(mousedown, 포커스 잃기 전)에 저장한 caret. chunk를 그
+    // 위치에 삽입하기 위함 — 버튼 click 시점엔 칸 포커스가 풀려 caret을 알 수 없음.
+    const savedChunkCaretRef = useRef<number | null>(null);
     const historyRef = useRef<Denque<HistoryEntry>>(new Denque<HistoryEntry>());
     const redoRef = useRef<Denque<HistoryEntry>>(new Denque<HistoryEntry>());
     const [tags, setTags] = useState<any[]>([]);
@@ -1634,8 +1745,18 @@ const PromptEditTextArea = observer(
     // chunk 삽입 (단계 2 — 현재 값 끝에 토큰 추가). caret 위치 정밀 삽입은 단계 3.
     const insertChunkToken = (token: string) => {
       const cur = valueRef.current || '';
-      const sep = cur.trim() === '' ? '' : cur.trim().endsWith(',') ? ' ' : ', ';
-      onChangeRef.current(cur + sep + token);
+      const ed = editorRef.current;
+      if (ed && ed.insertChunkAtCaret) {
+        // 저장한 caret 위치에 삽입(앞/뒤 구분자 자동). 없으면 끝.
+        const pos = savedChunkCaretRef.current ?? cur.length;
+        savedChunkCaretRef.current = null;
+        ed.insertChunkAtCaret(token, pos);
+      } else {
+        // fallback (에디터 ref 없음): 끝에 삽입 + 앞 구분자 정리.
+        const base = cur.replace(/[ \t]+$/, '');
+        const sep = base.trim() === '' ? '' : base.endsWith(',') ? ' ' : ', ';
+        onChangeRef.current(base + sep + token);
+      }
     };
 
     // chunk 라이브러리에서 chunk 삭제 시(+ 이 칸이 처음 뜰 때) 죽은 토큰 자동 정리.
@@ -1803,9 +1924,14 @@ const PromptEditTextArea = observer(
         <div className="absolute right-0 top-0 z-10 flex items-center gap-1.5 mr-1 mt-1">
           {chunkInsert && !disabled && (
             <button
+              onMouseDown={(e) => {
+                // 포커스(커서) 잃기 직전에 현재 caret 저장 — chunk를 그 위치에 삽입.
+                e.preventDefault();
+                savedChunkCaretRef.current = editorRef.current?.getCaret?.() ?? null;
+              }}
               onClick={() => setChunkSheetOpen(true)}
               className="text-gray-500 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300 opacity-50 text-xs font-bold"
-              title="chunk 삽입"
+              title={chunkLabel ? `${chunkLabel}에 chunk 삽입` : 'chunk 삽입'}
             >
               +chunk
             </button>
@@ -1821,6 +1947,7 @@ const PromptEditTextArea = observer(
         </div>
         {chunkSheetOpen && (
           <ChunkInsertSheet
+            chunkLabel={chunkLabel}
             onPick={(id) => {
               insertChunkToken(makeChunkToken(id));
               setChunkSheetOpen(false);

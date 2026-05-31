@@ -30,7 +30,7 @@ import {
   lowerPromptNode,
   toPARR,
 } from '../PromptService';
-import { imageService, promptService, taskQueueService, workFlowService, promptPresetService, samplingPresetService } from '..';
+import { imageService, promptService, taskQueueService, workFlowService, samplingPresetService } from '..';
 import { TaskParam } from '../TaskQueueService';
 import { dataUriToBase64 } from '../ImageService';
 import { appState } from '../AppService';
@@ -174,40 +174,8 @@ const SDImageGenEasyInnerUI = wfiStack([
   ]),
 ]);
 
-// 프롬프트 프리셋 오버라이드 — session.promptPresetId에서 프리셋 ID를 직접 resolve.
-// appState 전역 UI 상태에 의존하지 않아서, 재예약 등 비-UI 경로에서도 정확히 적용됨.
-function applyPromptPresetOverride(preset: any, session: Session): any {
-  const pid = session.promptPresetId;
-  const id = pid === null ? undefined
-    : pid || appState.globalPromptPresetId;
-  if (!id) return preset;
-  const applied = promptPresetService.get(id);
-  if (!applied) return preset;
-  const join = (a: string, b: string): string => {
-    const x = (a || '').trim();
-    const y = (b || '').trim();
-    if (!x) return b || '';
-    if (!y) return a || '';
-    return `${a}, ${b}`;
-  };
-  const out = { ...preset };
-  out.frontPrompt = join(applied.frontPrompt, preset.frontPrompt || '');
-  out.backPrompt = join(applied.backPrompt, preset.backPrompt || '');
-  out.uc = join(applied.uc, preset.uc || '');
-  const so = applied.samplingOverrides;
-  if (so) {
-    if (so.steps != null) out.steps = so.steps;
-    if (so.promptGuidance != null) out.promptGuidance = so.promptGuidance;
-    if (so.cfgRescale != null) out.cfgRescale = so.cfgRescale;
-    if (so.sampling != null) out.sampling = so.sampling;
-    if (so.noiseSchedule != null) out.noiseSchedule = so.noiseSchedule;
-  }
-  return out;
-}
-
 // 샘플링 프리셋 오버라이드 — session.samplingPresetId에서 ID resolve.
-// 프롬프트 프리셋과 평행 구조(비-UI 경로에서도 정확히 적용). 그림체 프리셋의
-// samplingOverrides 뒤에 적용돼, 둘 다 적용 중이면 샘플링 프리셋이 우선.
+// appState 전역 UI 상태에 의존하지 않아서, 재예약 등 비-UI 경로에서도 정확히 적용됨.
 function applySamplingPresetOverride(preset: any, session: Session): any {
   const pid = session.samplingPresetId;
   const id = pid === null ? undefined
@@ -238,7 +206,6 @@ const SDImageGenHandler = async (
   extraUc?: string,
   sceneGroup?: { sceneJobTotal: number; sceneJobStartIndex: number },
 ) => {
-  preset = applyPromptPresetOverride(preset, session);
   preset = applySamplingPresetOverride(preset, session);
   // 씬 전용 캐릭터 프롬프트 사용 여부 확인
   const sceneObj = scene as Scene;
@@ -339,7 +306,7 @@ const SDCreatePrompt = async (
   shared: any,
 ) => {
   // 옵션 3 — 프리셋 적용 중이면 override한 사본으로 prompt 합성.
-  return await createSDPrompts(session, applySamplingPresetOverride(applyPromptPresetOverride(preset, session), session), shared, scene as Scene);
+  return await createSDPrompts(session, applySamplingPresetOverride(preset, session), shared, scene as Scene);
 };
 
 const SDCreateCharacterPrompts = async (

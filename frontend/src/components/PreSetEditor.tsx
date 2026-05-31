@@ -9,7 +9,6 @@ import {
 } from './UtilComponents';
 import { NoiseSchedule, Resolution, Sampling } from '../backends/imageGen';
 import PromptEditTextArea from './PromptEditTextArea';
-import { PromptPresetButton } from './PromptPresetDialog';
 import { SamplingPresetButton } from './SamplingPresetDialog';
 import {
   FaCopy,
@@ -47,7 +46,6 @@ import {
   promptService,
   taskQueueService,
   workFlowService,
-  promptPresetService,
   samplingPresetService,
   isMobile,
 } from '../models';
@@ -1422,9 +1420,8 @@ const IntSliderInput = ({
   );
 };
 
-// 현재 프로젝트의 상위/하위/네거티브 프롬프트(prefix=적용 그림체 프리셋 제외분)를
-// 다른 프로젝트로 통째 복사. prefix는 appliedPromptPreset override라 preset 객체엔
-// 저장 안 됨 → preset의 frontPrompt/backPrompt/uc 원본을 그대로 복사하면 자동으로 제외.
+// 현재 프로젝트의 상위/하위/네거티브 프롬프트를 다른 프로젝트로 통째 복사.
+// chunk 토큰은 stripAllChunkTokens로 제외(텍스트만 복사) — 단계 4.
 // 대상 preset 필드는 makeAutoObservable이라 수정 시 onAdded reaction이 자동 저장.
 const PromptCopyDialog = observer(
   ({
@@ -1451,6 +1448,9 @@ const PromptCopyDialog = observer(
       new Set(),
     );
     const [busy, setBusy] = useState(false);
+    // chunk 포함 여부 — 기본 제외(텍스트만). chunk는 전역이라 토큰 그대로 복사하면
+    // 대상 프로젝트에서도 같은 알약으로 유효(별도 마이그레이션 불필요).
+    const [includeChunks, setIncludeChunks] = useState(false);
     // 다른 프로젝트만 대상 (워크플로우 일치 여부는 복사 시점에 개별 검사).
     const targets = sessionService
       .list()
@@ -1464,6 +1464,34 @@ const PromptCopyDialog = observer(
         else next.add(n);
         return next;
       });
+
+    // 대상 프로젝트를 폴더 트리로: 미분류(루트) + 폴더별 그룹.
+    const folderOf = (n: string) => sessionService.folderMap[n] ?? null;
+    const rootTargets = targets.filter((n) => !folderOf(n));
+    const folderGroups = sessionService.folderList
+      .map((f) => ({ folder: f, items: targets.filter((n) => folderOf(n) === f) }))
+      .filter((g) => g.items.length > 0);
+    const renderTarget = (n: string) => (
+      <label
+        key={n}
+        className="flex items-center gap-2 cursor-pointer text-sm gray-label p-2 rounded hover:bg-gray-100 dark:hover:bg-slate-700"
+      >
+        <input
+          type="checkbox"
+          checked={selectedTargets.has(n)}
+          onChange={() => toggleTarget(n)}
+        />
+        {n}
+      </label>
+    );
+    const toggleFolder = (items: string[]) => {
+      const allSel = items.every((n) => selectedTargets.has(n));
+      setSelectedTargets((s) => {
+        const next = new Set(s);
+        items.forEach((n) => (allSel ? next.delete(n) : next.add(n)));
+        return next;
+      });
+    };
 
     const doCopy = async () => {
       if (selectedTargets.size === 0 || selectedKeys.length === 0 || busy) return;
@@ -1490,8 +1518,10 @@ const PromptCopyDialog = observer(
             continue;
           }
           for (const key of selectedKeys) {
-            // chunk 토큰 제외하고 사용자가 쓴 텍스트만 복사 (본인 결정).
-            targetPreset[key] = stripAllChunkTokens(sourcePreset[key] || '');
+            const raw = sourcePreset[key] || '';
+            // includeChunks=true면 토큰 그대로(전역 chunk라 대상에서도 유효),
+            // false면 토큰 제외하고 사용자 텍스트만.
+            targetPreset[key] = includeChunks ? raw : stripAllChunkTokens(raw);
           }
           ok++;
         }
@@ -1534,6 +1564,14 @@ const PromptCopyDialog = observer(
                 {f.label}
               </label>
             ))}
+            <label className="flex items-center gap-2 cursor-pointer text-sm gray-label mt-1 pt-2 border-t border-gray-200 dark:border-gray-600">
+              <input
+                type="checkbox"
+                checked={includeChunks}
+                onChange={(e) => setIncludeChunks(e.target.checked)}
+              />
+              chunk 알약도 함께 복사 (끄면 텍스트만, 켜면 알약 그대로 — 전역이라 대상에서도 동일하게 표시)
+            </label>
           </div>
 
           {/* 대상 프로젝트 (다중 선택) */}
@@ -1547,18 +1585,20 @@ const PromptCopyDialog = observer(
               </div>
             ) : (
               <div className="flex flex-col gap-1 max-h-[40vh] overflow-y-auto">
-                {targets.map((n) => (
-                  <label
-                    key={n}
-                    className="flex items-center gap-2 cursor-pointer text-sm gray-label p-2 rounded hover:bg-gray-100 dark:hover:bg-slate-700"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedTargets.has(n)}
-                      onChange={() => toggleTarget(n)}
-                    />
-                    {n}
-                  </label>
+                {rootTargets.map(renderTarget)}
+                {folderGroups.map((g) => (
+                  <div key={g.folder} className="flex flex-col">
+                    <button
+                      className="flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 px-2 pt-1.5 pb-0.5 hover:text-gray-700 dark:hover:text-gray-200 text-left"
+                      onClick={() => toggleFolder(g.items)}
+                      title="폴더 안 전체 선택/해제"
+                    >
+                      <span>📁</span>
+                      <span className="truncate">{g.folder}</span>
+                      <span className="opacity-60">({g.items.filter((n) => selectedTargets.has(n)).length}/{g.items.length})</span>
+                    </button>
+                    <div className="ml-3 flex flex-col">{g.items.map(renderTarget)}</div>
+                  </div>
                 ))}
               </div>
             )}
@@ -2597,61 +2637,27 @@ const WFRInline = observer(({ element }: WFElementProps) => {
     }
   }
   const key = `${type}_${preset.name}_${input.field}`;
-  // 샘플링 필드 잠금 — 그림체 프리셋 samplingOverrides + 샘플링 프리셋 둘 다 본다.
-  // 샘플링 프리셋이 우선(생성 시 applySamplingPresetOverride가 나중 적용).
-  // 잠금 시 화면에 override 값을 표시 + disabled — 해제하면 원본 값 복귀(override 모델).
+  // 샘플링 필드 잠금 — 적용된 샘플링 프리셋이 이 필드를 override하면 그 값을
+  // 화면에 표시 + disabled. 해제하면 원본 값 복귀(override 모델).
   const _samplingFieldNames = ['steps', 'promptGuidance', 'cfgRescale', 'sampling', 'noiseSchedule'];
   const _isSamplingField = _samplingFieldNames.includes(input.field);
-  const _presetId = appState.appliedPromptPreset;
-  const _presetObj = _presetId ? promptPresetService.get(_presetId) : undefined;
-  const _promptSO: any = _presetObj?.samplingOverrides;
   const _samplingPresetId = appState.appliedSamplingPreset;
   const _samplingPresetObj: any = _samplingPresetId ? samplingPresetService.get(_samplingPresetId) : undefined;
-  const _overrideFromSampling = _isSamplingField && _samplingPresetObj && _samplingPresetObj[input.field] != null
+  const _overrideValue = _isSamplingField && _samplingPresetObj && _samplingPresetObj[input.field] != null
     ? _samplingPresetObj[input.field]
     : undefined;
-  const _overrideFromPrompt = _isSamplingField && _promptSO && _promptSO[input.field] != null
-    ? _promptSO[input.field]
-    : undefined;
-  const _overrideValue = _overrideFromSampling !== undefined ? _overrideFromSampling : _overrideFromPrompt;
   const _samplingLocked = _overrideValue !== undefined;
-  const _lockedBySampling = _overrideFromSampling !== undefined;
   const _isSamplingProjectOverride = appState.curSession ? typeof appState.curSession.samplingPresetId === 'string' : false;
-  const _isProjectOverride = appState.curSession ? typeof appState.curSession.promptPresetId === 'string' : false;
   const _lockBorderClass = !_samplingLocked
     ? ''
-    : _lockedBySampling
-      ? (_isSamplingProjectOverride ? 'ring-2 ring-teal-400/50 rounded-lg' : 'ring-2 ring-indigo-400/50 rounded-lg')
-      : (_isProjectOverride ? 'ring-2 ring-teal-400/50 rounded-lg' : 'ring-2 ring-sky-400/50 rounded-lg');
+    : (_isSamplingProjectOverride ? 'ring-2 ring-teal-400/50 rounded-lg' : 'ring-2 ring-indigo-400/50 rounded-lg');
   switch (field.type) {
     case 'prompt': {
       const showPresetBtn =
         input.field === 'frontPrompt' &&
         (type === 'SDImageGen' || type === 'SDImageGenEasy');
-      const appliedId = appState.appliedPromptPreset;
-      const appliedPreset = appliedId ? promptPresetService.get(appliedId) : undefined;
-      let lockedPrefix: string | undefined;
-      if (appliedPreset) {
-        if (input.field === 'frontPrompt') lockedPrefix = appliedPreset.frontPrompt || undefined;
-        else if (input.field === 'backPrompt') lockedPrefix = appliedPreset.backPrompt || undefined;
-        else if (input.field === 'uc') lockedPrefix = appliedPreset.uc || undefined;
-      }
-      const isProjectOverride = appState.curSession ? typeof appState.curSession.promptPresetId === 'string' : false;
-      const lockedBgClass = lockedPrefix
-        ? (isProjectOverride ? 'bg-teal-500/20 dark:bg-teal-500/30 text-teal-900 dark:text-teal-100' : 'bg-sky-500/20 dark:bg-sky-500/30 text-sky-900 dark:text-sky-100')
-        : undefined;
       return (
         <>
-          {showPresetBtn && (
-            <PromptPresetButton
-              getFrontPrompt={() => preset.frontPrompt || ''}
-              getBackPrompt={() => preset.backPrompt || ''}
-              getUc={() => preset.uc || ''}
-              onApply={(id) => {
-                appState.setAppliedPromptPreset(id);
-              }}
-            />
-          )}
           {showPresetBtn && (
             <SamplingPresetButton
               getCurrent={() => ({
@@ -2672,9 +2678,8 @@ const WFRInline = observer(({ element }: WFElementProps) => {
               value={getField()}
               disabled={false}
               onChange={setField}
-              lockedPrefix={lockedPrefix}
-              lockedBgClass={lockedBgClass}
               chunkInsert={true}
+              chunkLabel={input.label}
             ></PromptEditTextArea>
           </EditorField>
         </>

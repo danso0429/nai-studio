@@ -401,7 +401,6 @@ export interface ISession {
   mirrorImage?: string; // 세션 레벨 미러 원본 이미지 (vibe storage 경로)
   mirrorMode?: 'blank' | 'duplicate'; // 미러 캔버스 모드 (blank=우측 빈 캔버스, duplicate=우측 이미지 복제)
   sceneCardStyle?: { scene?: string; inpaint?: string }; // 탭별 씬 카드 종횡비
-  promptPresetId?: string | null; // undefined=글로벌 기본 따름, string=프로젝트 전용, null=이 프로젝트는 끔
   samplingPresetId?: string | null; // 샘플링 프리셋 — undefined=글로벌 기본 따름, string=프로젝트 전용, null=이 프로젝트는 끔
 }
 
@@ -419,7 +418,6 @@ export class Session implements Serealizable {
   @observable accessor mirrorImage: string | undefined = undefined;
   @observable accessor mirrorMode: 'blank' | 'duplicate' = 'blank';
   @observable accessor sceneCardStyle: { scene?: string; inpaint?: string } = {};
-  @observable accessor promptPresetId: string | null | undefined = undefined;
   @observable accessor samplingPresetId: string | null | undefined = undefined;
 
   constructor() {
@@ -604,7 +602,6 @@ export class Session implements Serealizable {
     session.mirrorImage = json.mirrorImage;
     session.mirrorMode = json.mirrorMode || 'blank';
     session.sceneCardStyle = json.sceneCardStyle || {};
-    session.promptPresetId = json.promptPresetId;
     session.samplingPresetId = json.samplingPresetId;
     return session;
   }
@@ -658,7 +655,6 @@ export class Session implements Serealizable {
       mirrorImage: this.mirrorImage,
       mirrorMode: this.mirrorMode,
       sceneCardStyle: this.sceneCardStyle,
-      promptPresetId: this.promptPresetId,
       samplingPresetId: this.samplingPresetId,
     };
   }

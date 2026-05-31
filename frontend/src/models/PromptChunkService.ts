@@ -38,8 +38,7 @@ export class PromptChunkService extends EventTarget {
 
   constructor() {
     super();
-    // PromptPresetService와 동일 패턴 — 2초 debounce가 fire 전 탭 닫히면 손실.
-    // visibility hidden 시 keepalive fetch로 강제 flush.
+    // 2초 debounce가 fire 전 탭 닫히면 손실 → visibility hidden 시 keepalive fetch로 강제 flush.
     if (typeof document !== 'undefined') {
       const flushOnHide = () => {
         if (document.visibilityState !== 'hidden') return;
