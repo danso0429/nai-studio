@@ -14,6 +14,7 @@ import { CyclingSessionService } from './CyclingSessionService';
 import { GlobalPieceService } from './GlobalPieceService';
 import { GlobalPresetService } from './GlobalPresetService';
 import { PromptChunkService } from './PromptChunkService';
+import { ToggleGroupService } from './ToggleGroupService';
 import { SamplingPresetService } from './SamplingPresetService';
 
 export const backend = new ServerBackend();
@@ -81,6 +82,9 @@ globalPresetService.load();
 export const promptChunkService = new PromptChunkService();
 promptChunkService.load();
 
+export const toggleGroupService = new ToggleGroupService();
+toggleGroupService.load();
+
 export const samplingPresetService = new SamplingPresetService();
 samplingPresetService.load();
 
@@ -105,6 +109,7 @@ export const cyclingSessionService = new CyclingSessionService();
 (window as any).loginService = loginService;
 (window as any).globalPresetService = globalPresetService;
 (window as any).promptChunkService = promptChunkService;
+(window as any).toggleGroupService = toggleGroupService;
 (window as any).samplingPresetService = samplingPresetService;
 
 backend.onClose(() => {

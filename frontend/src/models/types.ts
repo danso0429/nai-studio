@@ -281,6 +281,9 @@ export interface IScene extends IAbstractScene {
   useSceneCharacterPrompts?: boolean; // 씬 전용 캐릭터 프롬프트 사용 여부
   sceneCharacterUC?: string; // 씬 전용 캐릭터 네거티브 프롬프트
   uc?: string; // 씬 전용 네거티브 (base_caption negative에 append). 2026-05-13.
+  // 씬 토글 그룹의 on/off 상태만 씬별로 저장 (groupId → enabled). 그룹 정의(이름/태그)는
+  // 씬 이름 키로 전역 공유 — ToggleGroupService. 값 없으면 기본 ON. 2026-05-31.
+  toggleGroupStates?: { [groupId: string]: boolean };
 }
 
 export class Scene extends AbstractScene implements IScene {
@@ -291,6 +294,7 @@ export class Scene extends AbstractScene implements IScene {
   @observable accessor useSceneCharacterPrompts: boolean = false; // 씬 전용 캐릭터 프롬프트 사용 여부
   @observable accessor sceneCharacterUC: string = ''; // 씬 전용 캐릭터 네거티브 프롬프트
   @observable accessor uc: string = ''; // 씬 전용 네거티브 (base_caption negative에 append)
+  @observable accessor toggleGroupStates: { [groupId: string]: boolean } = {}; // 토글 on/off (씬별). 2026-05-31.
 
   static fromJSON(json: IScene): Scene {
     const scene = new Scene();
@@ -307,6 +311,7 @@ export class Scene extends AbstractScene implements IScene {
     scene.useSceneCharacterPrompts = json.useSceneCharacterPrompts || false;
     scene.sceneCharacterUC = json.sceneCharacterUC || '';
     scene.uc = json.uc || '';
+    scene.toggleGroupStates = json.toggleGroupStates || {};
     return scene;
   }
 
@@ -320,6 +325,7 @@ export class Scene extends AbstractScene implements IScene {
       useSceneCharacterPrompts: this.useSceneCharacterPrompts,
       sceneCharacterUC: this.sceneCharacterUC,
       uc: this.uc,
+      toggleGroupStates: this.toggleGroupStates,
     };
   }
 }

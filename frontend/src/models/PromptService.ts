@@ -4,6 +4,7 @@ import {
   promptService,
   globalPieceService,
   promptChunkService,
+  toggleGroupService,
 } from '.';
 import {
   InpaintScene,
@@ -364,6 +365,18 @@ export const createSDPrompts = async (
   shared: any,
   scene: Scene,
 ) => {
+  // 토글 그룹 OFF 태그 — 그룹 정의는 씬 이름 키로 전역 공유(toggleGroupService),
+  // on/off는 씬별(scene.toggleGroupStates). 명시적 OFF(false)인 그룹의 태그만 제거 대상.
+  // scene 레벨이라 조합마다 동일 → 조합 루프 밖에서 1회 계산해 클로저로 공유.
+  const sharedToggleGroups = toggleGroupService.list(scene.name);
+  const toggleStates = scene.toggleGroupStates ?? {};
+  const disabledToggleTags = new Set(
+    sharedToggleGroups
+      .filter((g) => toggleStates[g.id] === false)
+      .flatMap((g) => g.tags)
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => t.length > 0),
+  );
   // collectFn이 piece 전체 객체를 수집 (prompt + uc). processFn에서 prompt 합치고
   // uc는 별도로 모아 { prompt: PromptNode, uc: string } 형태로 반환.
   return await dfsPrompts(
@@ -440,6 +453,13 @@ export const createSDPrompts = async (
         cur = cur.concat(toPARR(shared.backgroundPrompt));
       }
       cur = cur.concat(toPARR(preset.backPrompt));
+
+      // 씬 토글 그룹 — OFF 그룹의 태그를 최종 조합 태그 배열에서 제거 (위에서 1회
+      // 계산한 disabledToggleTags 사용). piece 원본은 안 건드리고 생성 시점에만 뺌.
+      // 매칭은 trim+소문자 exact (weight 없는 단순 태그 기준).
+      if (disabledToggleTags.size > 0) {
+        cur = cur.filter((w) => !disabledToggleTags.has(w.trim().toLowerCase()));
+      }
 
       const newNode: PromptNode = {
         type: 'group',

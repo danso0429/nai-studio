@@ -36,7 +36,9 @@ import {
   taskQueueService,
   isMobile,
   workFlowService,
+  toggleGroupService,
 } from '../models';
+import { ISharedToggleGroup } from '../models/ToggleGroupService';
 import { getMainImagePath } from '../models/ImageService';
 import { highlightPrompt, lowerPromptNode } from '../models/PromptService';
 import { renameScene } from '../models/SessionService';
@@ -407,38 +409,18 @@ export const SlotPiece = observer(
       [scene, piece],
     );
 
-    const [{ isOver }, drop] = useDrop(
-      () => ({
-        accept: 'slot',
-        canDrop: () => true,
-        collect: (monitor) => {
-          if (monitor.isOver()) {
-            return {
-              isOver: true,
-            };
-          }
-          return { isOver: false };
-        },
-        drop: async (item: any, monitor) => {
-          if (!moveSlotPiece) return;
-          moveSlotPiece(item.piece.id, piece.id!);
-        },
-      }),
-      [scene, piece],
-    );
-
+    // drop은 더 이상 piece 개별이 아니라 열(SlotColumn) 단위로 받음 — 빈 열에도
+    // 자유 이동 가능하게. SlotPiece는 ⠿ 핸들 drag source만 담당.
     useEffect(() => {
       preview(getEmptyImage(), { captureDraggingState: true });
     }, [preview]);
 
     return (
       <div
-        ref={(node) => drop(node)}
         style={style}
         className={
           'p-3 m-2 bg-gray-200 dark:bg-slate-600 rounded-xl ' +
-          (isDragging ? 'opacity-0' : '') +
-          (isOver ? ' outline outline-sky-500' : '')
+          (isDragging ? 'opacity-0' : '')
         }
       >
         {/* drag 핸들 — slot 전체가 draggable이면 안쪽 프롬프트 칸 클릭을 Firefox가
@@ -827,6 +809,253 @@ const SceneCharacterPromptEditor = observer(({ scene }: SceneCharacterPromptEdit
   );
 });
 
+interface SlotColumnProps {
+  scene: { slots: PromptPieceSlot[] };
+  slot: PromptPieceSlot;
+  slotIndex: number;
+  moveToColumn: (pieceId: string, columnIndex: number) => void;
+  removePiece: (slot: PromptPieceSlot, pieceIndex: number) => void;
+  onRemoveColumn: (columnIndex: number) => void;
+}
+
+// 열(column) 전체를 drop zone으로 — piece를 빈 열 포함 아무 열에나 자유 이동.
+// 같은 열로의 drop은 canDrop=false라 무시되고 강조도 안 됨. 핸들 drag는 SlotPiece 담당.
+const SlotColumn = observer(
+  ({
+    scene,
+    slot,
+    slotIndex,
+    moveToColumn,
+    removePiece,
+    onRemoveColumn,
+  }: SlotColumnProps) => {
+    const [{ isOver }, drop] = useDrop(
+      () => ({
+        accept: 'slot',
+        canDrop: (item: any) => !slot.some((p) => p.id === item.piece.id),
+        collect: (monitor) => ({
+          isOver: monitor.isOver() && monitor.canDrop(),
+        }),
+        drop: (item: any) => {
+          moveToColumn(item.piece.id, slotIndex);
+        },
+      }),
+      [scene, slotIndex, slot.length],
+    );
+    return (
+      <div
+        ref={drop as any}
+        className={
+          'flex flex-row md:flex-col overflow-x-auto md:overflow-x-visible border-b md:border-b-0 md:border-r border-gray-200 dark:border-slate-700 last:border-0 ' +
+          (isOver ? 'bg-sky-100 dark:bg-sky-900/30 rounded-lg' : '')
+        }
+      >
+        {slot.map((piece) => (
+          <SlotPiece
+            key={piece.id!}
+            scene={scene}
+            piece={piece}
+            removePiece={(p: PromptPiece) => removePiece(slot, slot.indexOf(p))}
+            moveSlotPiece={() => {}}
+          />
+        ))}
+        {slot.length === 0 && (
+          <div className="m-2 w-32 md:w-auto md:min-w-[8rem] h-32 md:h-24 flex items-center justify-center text-center text-xs text-gray-400 dark:text-slate-400 select-none border-2 border-dashed border-gray-300 dark:border-slate-500 rounded-xl px-2">
+            여기로
+            <br />
+            드래그
+          </div>
+        )}
+        <button
+          className="p-2 m-2 w-14 flex-none back-lllgray clickable rounded-xl flex justify-center self-center"
+          onClick={() => {
+            slot.push(
+              PromptPiece.fromJSON({
+                prompt: '',
+                characterPrompts: [],
+                enabled: true,
+                id: uuidv4(),
+              }),
+            );
+          }}
+        >
+          <FaPlus />
+        </button>
+        {slot.length === 0 && (
+          <button
+            className="p-2 m-2 w-14 flex-none clickable rounded-xl flex justify-center self-center text-red-500 hover:text-red-600 border border-red-300 dark:border-red-700"
+            onClick={() => onRemoveColumn(slotIndex)}
+            title="빈 열 삭제"
+          >
+            <FaTrash />
+          </button>
+        )}
+      </div>
+    );
+  },
+);
+
+// 토글 그룹 태그 입력 — controlled value에 매 keystroke split/trim/filter를 걸면
+// 쉼표 직후 빈 토큰이 사라져 쉼표를 못 치므로, raw 텍스트는 로컬 state로 들고
+// 파싱 결과만 전역 그룹(toggleGroupService)에 반영. 2026-05-31.
+const ToggleTagsInput = observer(
+  ({ sceneName, group }: { sceneName: string; group: ISharedToggleGroup }) => {
+    const [raw, setRaw] = useState(group.tags.join(', '));
+    return (
+      <input
+        className="gray-input flex-1 min-w-[7rem] text-sm"
+        placeholder="태그 (쉼표로 구분, 예: fully clothed female)"
+        value={raw}
+        onChange={(e) => {
+          setRaw(e.target.value);
+          toggleGroupService.updateGroup(sceneName, group.id, {
+            tags: e.target.value
+              .split(',')
+              .map((t) => t.trim())
+              .filter((t) => t.length > 0),
+          });
+        }}
+      />
+    );
+  },
+);
+
+// 씬 토글 그룹 UI — 그룹 정의(이름/태그)는 "씬 이름" 키로 전역 공유(toggleGroupService).
+// 같은 이름 씬이면 다른 프로젝트에서도 동일 그룹이 보임. on/off만 씬별
+// (scene.toggleGroupStates, 값 없으면 기본 ON). OFF면 생성 시 그 태그 제거.
+const ToggleGroupEditor = observer(({ scene }: { scene: Scene }) => {
+  const sceneName = scene.name;
+  const groups = toggleGroupService.list(sceneName);
+  const isOn = (id: string) => scene.toggleGroupStates[id] !== false;
+  return (
+    <div className="w-full px-2 py-2 mt-2 border-t border-gray-200 dark:border-slate-700">
+      <div className="flex items-center gap-2 mb-2 text-sm font-semibold text-default">
+        <FaToggleOn className="text-gray-500 dark:text-slate-400" />
+        토글 그룹
+        <Tooltip content="조합 piece에 들어있는 태그를 그룹으로 묶어 on/off 합니다. 그룹(이름·태그)은 같은 이름의 씬끼리 공유되고, on/off는 프로젝트마다 따로 저장됩니다. OFF로 끄면 이미지 생성 시 그 태그가 빠집니다(piece 원본은 그대로).">
+          <FaQuestionCircle className="text-gray-400 dark:text-gray-500 cursor-help" />
+        </Tooltip>
+      </div>
+      {groups.length === 0 && (
+        <div className="text-xs text-gray-400 dark:text-slate-500 mb-2">
+          아직 토글 그룹이 없어요. 아래 + 버튼으로 추가하세요. (같은 이름 씬끼리 공유)
+        </div>
+      )}
+      {groups.map((g) => {
+        const on = isOn(g.id);
+        return (
+          <div
+            key={g.id}
+            className="flex flex-wrap items-center gap-2 mb-2 p-2 rounded-xl bg-gray-100 dark:bg-slate-700"
+          >
+            <button
+              className={
+                'flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-sm clickable flex-none w-16 ' +
+                (on
+                  ? 'bg-green-500 text-white'
+                  : 'bg-gray-300 dark:bg-slate-500 text-gray-600 dark:text-slate-100')
+              }
+              onClick={() => {
+                scene.toggleGroupStates = {
+                  ...scene.toggleGroupStates,
+                  [g.id]: !on,
+                };
+              }}
+              title={on ? '켜짐 — 태그 적용' : '꺼짐 — 생성 시 태그 제거'}
+            >
+              {on ? <FaToggleOn /> : <FaToggleOff />}
+              {on ? 'ON' : 'OFF'}
+            </button>
+            <input
+              className="gray-input w-24 flex-none text-sm"
+              placeholder="그룹 이름"
+              value={g.name}
+              onChange={(e) => {
+                toggleGroupService.updateGroup(sceneName, g.id, {
+                  name: e.target.value,
+                });
+              }}
+            />
+            <ToggleTagsInput sceneName={sceneName} group={g} />
+            <button
+              className="flex-none px-2 py-1 text-red-500 hover:text-red-600 clickable"
+              onClick={() => {
+                toggleGroupService.removeGroup(sceneName, g.id);
+              }}
+              title="그룹 삭제 (같은 이름 씬 전체에서 삭제)"
+            >
+              <FaTrash />
+            </button>
+          </div>
+        );
+      })}
+      <button
+        className="flex items-center gap-1 px-2 py-1 text-sm back-lllgray clickable rounded-lg"
+        onClick={() => {
+          toggleGroupService.addGroup(sceneName, '', []);
+        }}
+      >
+        <FaPlus /> 그룹 추가
+      </button>
+    </div>
+  );
+});
+
+// 조합 슬롯 오른쪽 끝 — 클릭하면 빈 열 추가, piece를 드래그해 떨어뜨리면 그 piece를
+// 새 열로 분리(자동 열 생성). drop 가능할 때(출발 열에 piece 2개 이상)만 강조 + 안내.
+const SlotEndDropZone = observer(
+  ({
+    scene,
+    onAddColumn,
+    moveToNew,
+  }: {
+    scene: { slots: PromptPieceSlot[] };
+    onAddColumn: () => void;
+    moveToNew: (pieceId: string) => void;
+  }) => {
+    const [{ isOver, active }, drop] = useDrop(
+      () => ({
+        accept: 'slot',
+        canDrop: (item: any) =>
+          scene.slots.some((s) => s.some((p) => p.id === item.piece.id)),
+        collect: (m) => ({ isOver: m.isOver() && m.canDrop(), active: m.canDrop() }),
+        drop: (item: any) => moveToNew(item.piece.id),
+      }),
+      [scene],
+    );
+    return (
+      <div
+        ref={drop as any}
+        className={
+          'flex items-center justify-center m-2 rounded-xl ' +
+          (active
+            ? 'min-w-[6rem] self-stretch border-2 border-dashed text-xs text-center px-2 ' +
+              (isOver
+                ? 'border-sky-500 bg-sky-100 dark:bg-sky-900/30 text-sky-600 dark:text-sky-300'
+                : 'border-gray-300 dark:border-slate-500 text-gray-400 dark:text-slate-400')
+            : '')
+        }
+      >
+        {active ? (
+          <span>
+            새 열로
+            <br />
+            이동
+          </span>
+        ) : (
+          <button
+            className="p-2 h-14 flex items-center back-lllgray clickable rounded-xl self-center md:self-auto"
+            onClick={onAddColumn}
+            title="빈 열 추가 (또는 piece를 여기로 드래그해 새 열로 분리)"
+          >
+            <FaPlus />
+          </button>
+        )}
+      </div>
+    );
+  },
+);
+
 export const SlotEditor = observer(({ scene }: SlotEditorProps) => {
   useEffect(() => {
     // Components M: MobX observable mutate은 runInAction 안에서. 옛 코드는 reaction마다
@@ -844,9 +1073,13 @@ export const SlotEditor = observer(({ scene }: SlotEditorProps) => {
 
   // 조각이 enabled일 때만 한 조합에 포함. piece.enabled가 undefined면 기본 enabled로 간주
   // (UI checkbox 기본값과 일치 — line 502). 슬롯 한 개라도 enabled 0이면 총 조합 0.
-  const enabledPerSlot = scene.slots.map((slot) =>
-    slot.filter((p) => p.enabled == undefined || p.enabled).length,
-  );
+  // 빈 열(+버튼으로 막 생성, 아직 piece 미배치)은 총 조합 계산에서 제외 — 0 곱으로
+  // 전체 조합이 0이 되는 걸 막음. piece가 들어오면 정상 집계.
+  const enabledPerSlot = scene.slots
+    .filter((slot) => slot.length > 0)
+    .map(
+      (slot) => slot.filter((p) => p.enabled == undefined || p.enabled).length,
+    );
   const totalCombinations = enabledPerSlot.reduce((acc, n) => acc * n, 1);
   const formula = enabledPerSlot.length > 0 ? enabledPerSlot.join(' × ') : '0';
 
@@ -862,26 +1095,47 @@ export const SlotEditor = observer(({ scene }: SlotEditorProps) => {
     }
   };
 
-  const moveSlotPiece = (from: string, to: string) => {
-    if (from === to) return;
-    const fromSlotIndex = scene.slots.findIndex((slot) =>
-      slot.some((piece) => piece.id === from),
+  // 조합 piece를 다른 열(column)로 이동 — 빈 열에도 drop(끝에 추가). 같은 열은 무시.
+  // 옮긴 뒤 출발 열이 비면 그 열 제거(빈 열은 + 버튼으로만 생성).
+  const moveSlotPieceToColumn = (pieceId: string, targetColumnIndex: number) => {
+    if (!scene.slots[targetColumnIndex]) return;
+    const fromColIdx = scene.slots.findIndex((slot) =>
+      slot.some((p) => p.id === pieceId),
     );
-    const fromPieceIndex = scene.slots[fromSlotIndex].findIndex(
-      (piece) => piece.id === from,
+    if (fromColIdx === -1 || fromColIdx === targetColumnIndex) return;
+    const fromPieceIdx = scene.slots[fromColIdx].findIndex(
+      (p) => p.id === pieceId,
     );
-    const toSlotIndex = scene.slots.findIndex((slot) =>
-      slot.some((piece) => piece.id === to),
-    );
-    const toPieceIndex = scene.slots[toSlotIndex].findIndex(
-      (piece) => piece.id === to,
-    );
+    const piece = scene.slots[fromColIdx][fromPieceIdx];
+    scene.slots[fromColIdx].splice(fromPieceIdx, 1);
+    scene.slots[targetColumnIndex].push(piece);
+    if (scene.slots[fromColIdx].length === 0) {
+      scene.slots.splice(fromColIdx, 1);
+    }
+  };
 
-    const piece = scene.slots[fromSlotIndex][fromPieceIndex];
-    scene.slots[fromSlotIndex].splice(fromPieceIndex, 1);
-    scene.slots[toSlotIndex].splice(toPieceIndex, 0, piece);
-    if (scene.slots[fromSlotIndex].length === 0) {
-      scene.slots.splice(fromSlotIndex, 1);
+  // 끝 빈 공간으로 drop — piece를 새 열로 분리(자동 열 생성). 출발 열에 piece가
+  // 1개뿐이면 위치만 그대로라 무시(빈 열만 늘어나는 것 방지).
+  const moveSlotPieceToNewColumn = (pieceId: string) => {
+    const fromColIdx = scene.slots.findIndex((slot) =>
+      slot.some((p) => p.id === pieceId),
+    );
+    if (fromColIdx === -1) return;
+    const fromPieceIdx = scene.slots[fromColIdx].findIndex(
+      (p) => p.id === pieceId,
+    );
+    const piece = scene.slots[fromColIdx][fromPieceIdx];
+    scene.slots[fromColIdx].splice(fromPieceIdx, 1);
+    scene.slots.push([piece]);
+    if (scene.slots[fromColIdx].length === 0) {
+      scene.slots.splice(fromColIdx, 1);
+    }
+  };
+
+  // 빈 열(slot 0개)만 삭제. slot이 들어있는 열은 무시(UI에서도 빈 열일 때만 버튼 표시).
+  const removeColumn = (columnIndex: number) => {
+    if (scene.slots[columnIndex]?.length === 0) {
+      scene.slots.splice(columnIndex, 1);
     }
   };
 
@@ -901,55 +1155,29 @@ export const SlotEditor = observer(({ scene }: SlotEditorProps) => {
           <FaQuestionCircle className="text-gray-400 dark:text-gray-500 cursor-help" />
         </Tooltip>
       </div>
+      {(scene as unknown as Scene).type === 'scene' && (
+        <ToggleGroupEditor scene={scene as unknown as Scene} />
+      )}
       <div className="flex flex-col md:flex-row w-full">
         {scene.slots.map((slot, slotIndex) => (
-          <div
+          <SlotColumn
             key={slotIndex}
-            className="flex flex-row md:flex-col overflow-x-auto md:overflow-x-visible border-b md:border-b-0 md:border-r border-gray-200 dark:border-slate-700 last:border-0"
-          >
-            {slot.map((piece, pieceIndex) => (
-              <SlotPiece
-                key={piece.id!}
-                scene={scene}
-                piece={piece}
-                removePiece={(piece: PromptPiece) =>
-                  removePiece(slot, slot.indexOf(piece))
-                }
-                moveSlotPiece={moveSlotPiece}
-              />
-            ))}
-            <button
-              className="p-2 m-2 w-14 flex-none back-lllgray clickable rounded-xl flex justify-center self-center"
-              onClick={() => {
-                slot.push(
-                  PromptPiece.fromJSON({
-                    prompt: '',
-                    characterPrompts: [],
-                    enabled: true,
-                    id: uuidv4(),
-                  }),
-                );
-              }}
-            >
-              <FaPlus />
-            </button>
-          </div>
+            scene={scene}
+            slot={slot}
+            slotIndex={slotIndex}
+            moveToColumn={moveSlotPieceToColumn}
+            removePiece={removePiece}
+            onRemoveColumn={removeColumn}
+          />
         ))}
-        <button
-          className="p-2 m-2 h-14 flex items-center back-lllgray clickable rounded-xl self-center md:self-auto"
-          onClick={() => {
-            scene.slots.push([
-              PromptPiece.fromJSON({
-                prompt: '',
-                characterPrompts: [],
-                enabled: true,
-                id: uuidv4(),
-              }),
-            ]);
+        <SlotEndDropZone
+          scene={scene}
+          onAddColumn={() => {
+            // 빈 열 생성 — piece를 드래그해 채우거나 하단 + 버튼으로 행 추가.
+            scene.slots.push([]);
           }}
-        >
-          <FaPlus />
-        </button>
+          moveToNew={moveSlotPieceToNewColumn}
+        />
       </div>
     </div>
   );
