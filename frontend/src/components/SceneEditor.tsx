@@ -757,6 +757,8 @@ const SceneCharacterPromptEditor = observer(({ scene }: SceneCharacterPromptEdit
                   <PromptEditTextArea
                     value={character.prompt}
                     onChange={(value) => updateCharacter(character.id, { prompt: value })}
+                    chunkInsert={true}
+                    chunkLabel="캐릭터 프롬프트"
                   />
                 </div>
 
@@ -767,6 +769,8 @@ const SceneCharacterPromptEditor = observer(({ scene }: SceneCharacterPromptEdit
                   <PromptEditTextArea
                     value={character.uc}
                     onChange={(value) => updateCharacter(character.id, { uc: value })}
+                    chunkInsert={true}
+                    chunkLabel="캐릭터 네거티브 프롬프트"
                   />
                 </div>
 
