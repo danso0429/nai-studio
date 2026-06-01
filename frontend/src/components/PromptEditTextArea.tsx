@@ -913,11 +913,35 @@ class CursorMemorizeEditor {
       if (this.flushCompositon(this.previousRange)) {
         cursor++;
       }
+      // chunk 알약 경계 자동 구분자 — 입력(handleInput 552-565)과 동일 정책.
+      // 알약 바로 뒤에 붙여넣으면 앞에 ', ', 알약 바로 앞이면 뒤에 ', '를 넣어
+      // 알약 끝 태그와 붙여넣은 텍스트가 한 태그로 합쳐지는 오염 방지.
+      // 붙여넣는 텍스트가 이미 구분자(','/' ')로 시작/끝나면 중복 추가 안 함.
+      let pasteText = text;
+      if (
+        pasteText &&
+        !pasteText.startsWith(',') &&
+        !pasteText.startsWith(' ') &&
+        chunkTokenBefore(this.curText, cursor) !== -1
+      ) {
+        pasteText = ', ' + pasteText;
+      }
+      if (
+        pasteText &&
+        !pasteText.endsWith(',') &&
+        !pasteText.endsWith(' ') &&
+        chunkTokenAfter(this.curText, end) !== -1
+      ) {
+        pasteText = pasteText + ', ';
+      }
       this.updateCurText(
-        this.curText.substring(0, cursor) + text + this.curText.substring(end),
+        this.curText.substring(0, cursor) + pasteText + this.curText.substring(end),
       );
-      this.updateDOM(this.curText, cursor + text.length, false);
-      await this.setCaretPosition([cursor + text.length, cursor + text.length]);
+      this.updateDOM(this.curText, cursor + pasteText.length, false);
+      await this.setCaretPosition([
+        cursor + pasteText.length,
+        cursor + pasteText.length,
+      ]);
     });
   }
 }
