@@ -1092,8 +1092,12 @@ export const SlotEditor = observer(({ scene }: SlotEditorProps) => {
 
   const removePiece = (slot: PromptPieceSlot, pieceIndex: number) => {
     const slotIndex = scene.slots.indexOf(slot);
-    if (slotIndex === 0 && pieceIndex === 0) {
-      appState.pushMessage('첫 번째 열의 첫 번째 행은 삭제할 수 없습니다');
+    // 전체 조각이 하나뿐(조합이 정말로 1 — 1열 1행)일 때만 삭제 막음(빈 조합 방지).
+    // 그 외엔 그냥 행 삭제(같은 열 아래 행들이 위로) — 그 열의 마지막 행이면 열까지
+    // 삭제돼 다음 열이 첫 번째 열이 된다. 1×1(열 2개 각 1행) 등은 막지 않음.
+    const totalPieces = scene.slots.reduce((acc, s) => acc + s.length, 0);
+    if (totalPieces <= 1) {
+      appState.pushMessage('조각이 하나뿐이라 삭제할 수 없습니다');
       return;
     }
     slot.splice(pieceIndex, 1);
