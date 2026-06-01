@@ -44,21 +44,25 @@ if [ -f public/build-info.json ]; then
     BUILT_HASH=$(python3 -c "import json; print(json.load(open('public/build-info.json')).get('gitHash',''))" 2>/dev/null || echo "")
 fi
 
-if [ "$LOCAL" = "$REMOTE" ] && [ "$BUILT_HASH" = "$LOCAL_SHORT" ]; then
+# Dirty working tree 검사 — skip 판정 + 가드 양쪽에서 사용.
+# commit 안 된 source가 있으면 build-info gitHash가 HEAD와 같아도 빌드가 stale일 수
+# 있어 skip하면 안 됨 (uncommitted 변경은 HEAD에 안 잡히므로 gitHash만으론 못 봄).
+# public/build/는 vite가 곧 재생성하니 제외.
+DIRTY=$(git status --porcelain --untracked-files=normal \
+    | grep -Ev '^.. public/build/' || true)
+
+if [ "$LOCAL" = "$REMOTE" ] && [ "$BUILT_HASH" = "$LOCAL_SHORT" ] && [ -z "$DIRTY" ]; then
     echo "✓ 이미 최신 버전이고 빌드도 동기화됨."
     echo "  버전: v$VERSION (gitHash=$LOCAL_SHORT)"
     exit 0
 fi
 
-if [ "$LOCAL" = "$REMOTE" ]; then
+if [ "$LOCAL" = "$REMOTE" ] && [ -z "$DIRTY" ]; then
     echo "ℹ️  git은 최신이지만 빌드가 stale (built=${BUILT_HASH:-none}, HEAD=$LOCAL_SHORT) → 재빌드 진행"
 fi
 
 # Dirty working tree 가드: vite build가 commit 안 된 source까지 빌드해 배포되는
-# 사고 방지. public/build/는 vite가 곧 재생성하니 제외. 그 외 modified/untracked는 차단.
-# 우회: ALLOW_DIRTY=1 ./update.sh
-DIRTY=$(git status --porcelain --untracked-files=normal \
-    | grep -Ev '^.. public/build/' || true)
+# 사고 방지. 그 외 modified/untracked는 차단. 우회: ALLOW_DIRTY=1 ./update.sh
 if [ -n "$DIRTY" ] && [ "${ALLOW_DIRTY:-0}" != "1" ]; then
     echo ""
     echo "⚠️  working tree에 commit 안 된 변경이 있어요. vite build가 그 source까지"
