@@ -7,7 +7,7 @@ import React, {
   useState,
 } from 'react';
 
-import Select from 'react-select';
+import Select, { GroupBase } from 'react-select';
 import { isMobile } from '../models';
 import {
   FaFileUpload,
@@ -24,7 +24,9 @@ export interface Option<T> {
 
 interface DropdownSelectProps<T> {
   selectedOption: T | undefined;
-  options: Option<T>[];
+  // 평면 옵션 또는 폴더식 그룹(react-select group). 그룹이면 label이 헤더로 뜨고
+  // 하위 options가 들여쓰기로 묶임.
+  options: ReadonlyArray<Option<T> | GroupBase<Option<T>>>;
   className?: string;
   menuPlacement?: 'top' | 'bottom' | 'auto';
   onSelect: (option: Option<T>) => void;
@@ -45,9 +47,14 @@ export const DropdownSelect = <T,>({
     }
   };
 
+  // 그룹/평면 혼합을 평탄화해 현재 선택값을 찾는다.
+  const flatOptions: Option<T>[] = options.flatMap((o) =>
+    'options' in o ? [...o.options] : [o],
+  );
+
   return (
     <Select
-      value={options.find((option) => option.value === selectedOption)}
+      value={flatOptions.find((option) => option.value === selectedOption)}
       options={options}
       onChange={handleChange}
       menuPlacement={menuPlacement}

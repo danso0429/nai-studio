@@ -3,6 +3,7 @@ import { Item, Menu } from 'react-contexify';
 import { sessionService, backend, imageService, isMobile, imageDownloadService } from '../models';
 import { appState } from '../models/AppService';
 import { dataUriToBase64, deleteImageFiles } from '../models/ImageService';
+import { getUniqueFilename } from '../models/ImageDownloadService';
 import {
   SceneContextAlt,
   StyleContextAlt,
@@ -41,11 +42,19 @@ export const AppContextMenu = observer(() => {
       appState.pushMessage('복사할 대상 프로젝트가 없습니다.');
       return;
     }
-    appState.pushDialog({
-      type: 'dropdown',
-      text: '씬을 복사할 대상 프로젝트를 선택하세요',
-      items: allProjects.map((n) => ({ text: n, value: n })),
-      callback: async (targetName) => {
+    // 폴더 구조로: folderList 순서대로 폴더별 그룹 + 미분류(루트)는 마지막.
+    // 폴더가 하나도 없으면 기존 평면 dropdown 그대로.
+    const folderOf = (n: string) => sessionService.folderMap[n] ?? null;
+    const folderGroups = sessionService.folderList
+      .map((f) => ({
+        label: f,
+        items: allProjects
+          .filter((n) => folderOf(n) === f)
+          .map((n) => ({ text: n, value: n })),
+      }))
+      .filter((g) => g.items.length > 0);
+    const rootProjects = allProjects.filter((n) => !folderOf(n));
+    const onPick = async (targetName?: string) => {
         if (!targetName) return;
         try {
           const targetSession = await sessionService.get(targetName);
@@ -80,8 +89,29 @@ export const AppContextMenu = observer(() => {
         } catch (e: any) {
           appState.pushMessage('씬 복사 실패: ' + (e?.message || e));
         }
-      },
-    });
+    };
+    if (folderGroups.length === 0) {
+      appState.pushDialog({
+        type: 'dropdown',
+        text: '씬을 복사할 대상 프로젝트를 선택하세요',
+        items: allProjects.map((n) => ({ text: n, value: n })),
+        callback: onPick,
+      });
+    } else {
+      const groups = [...folderGroups];
+      if (rootProjects.length > 0) {
+        groups.push({
+          label: '미분류',
+          items: rootProjects.map((n) => ({ text: n, value: n })),
+        });
+      }
+      appState.pushDialog({
+        type: 'dropdown',
+        text: '씬을 복사할 대상 프로젝트를 선택하세요',
+        dropdownGroups: groups,
+        callback: onPick,
+      });
+    }
   };
 
   const handleSceneItemClick = ({ id, props }: any) => {
@@ -114,33 +144,46 @@ export const AppContextMenu = observer(() => {
     imageService.refresh(appState.curSession!, ctx.scene);
     appState.pushMessage('이미지를 복제했습니다');
   };
-  const copyImage = (ctx: GallaryImageContextAlt) => {
+  // 다른 씬으로 이미지 이동 — renameFile로 원본을 대상 씬 디렉토리로 옮김(복사 후
+  // 삭제가 아니라 atomic 이동, PNG 바이트 그대로라 생성정보 유지). 원본이 즐겨찾기였으면
+  // 대상 씬에서도 즐겨찾기 유지. 대상에 같은 파일명 있으면 getUniqueFilename으로 회피.
+  const moveImage = (ctx: GallaryImageContextAlt) => {
+    const srcScene = ctx.scene;
     appState.pushDialog({
       type: 'dropdown',
-      text: '이미지를 어디에 복사할까요?',
-      items: Array.from(appState.curSession!.scenes.keys()).map((key) => ({
-        text: key,
-        value: key,
-      })),
+      text: '이미지를 어느 씬으로 이동할까요?',
+      items: Array.from(appState.curSession!.scenes.keys())
+        .filter((key) => !srcScene || key !== srcScene.name)
+        .map((key) => ({ text: key, value: key })),
       callback: async (value) => {
         if (!value) return;
 
-        const scene = appState.curSession!.scenes.get(value);
-        if (!scene) {
+        const target = appState.curSession!.scenes.get(value);
+        if (!target) {
           return;
         }
+        const targetDir = imageService.getImageDir(appState.curSession!, target);
 
+        let moved = 0;
         for (const path of ctx.path) {
-          await backend.copyFile(
-            path,
-            imageService.getImageDir(appState.curSession!, scene) +
-              '/' +
-              Date.now().toString() +
-              '.png',
-          );
+          const fn = path.split('/').pop()!;
+          const dot = fn.lastIndexOf('.');
+          const base = dot >= 0 ? fn.slice(0, dot) : fn;
+          const ext = dot >= 0 ? fn.slice(dot + 1) : 'png';
+          const wasFav = !!srcScene?.mains.includes(fn);
+          const newName = await getUniqueFilename(targetDir, base, ext);
+          await backend.renameFile(path, targetDir + '/' + newName);
+          // 즐겨찾기 이전: 원본 씬 mains에서 제거 + (즐겨찾기였으면) 대상 씬 mains에 추가.
+          if (srcScene) {
+            const idx = srcScene.mains.indexOf(fn);
+            if (idx >= 0) srcScene.mains.splice(idx, 1);
+          }
+          if (wasFav) target.mains.push(newName);
+          moved++;
         }
-        imageService.refresh(appState.curSession!, scene);
-        appState.pushMessage('이미지를 복사했습니다');
+        if (srcScene) imageService.refresh(appState.curSession!, srcScene);
+        imageService.refresh(appState.curSession!, target);
+        appState.pushMessage(moved + '장의 이미지를 이동했습니다');
       },
     });
   };
@@ -227,7 +270,7 @@ export const AppContextMenu = observer(() => {
   // 공통 dispatcher — 두 진입점이 ctx 형태(path 단일/배열)와 transform 지원 여부만 다름
   const dispatchImageAction = (id: string, ctx: any, supportTransform: boolean) => {
     if (id === 'duplicate') duplicateImage(ctx);
-    else if (id === 'copy') copyImage(ctx);
+    else if (id === 'copy') moveImage(ctx);
     else if (id === 'clipboard') clipboardImage(ctx);
     else if (id === 'fav') favImage(ctx);
     else if (id === 'delete') deleteImg(ctx);
@@ -314,7 +357,7 @@ export const AppContextMenu = observer(() => {
           해당 이미지 복제
         </Item>
         <Item id="copy" onClick={handleImageItemClick2}>
-          다른 씬으로 이미지 복사
+          다른 씬으로 이미지 이동
         </Item>
         {!isMobile && (
           <Item id="clipboard" onClick={handleImageItemClick2}>
@@ -333,7 +376,7 @@ export const AppContextMenu = observer(() => {
           해당 이미지 복제
         </Item>
         <Item id="copy" onClick={handleImageItemClick}>
-          다른 씬으로 이미지 복사
+          다른 씬으로 이미지 이동
         </Item>
         {!isMobile && (
           <Item id="clipboard" onClick={handleImageItemClick}>

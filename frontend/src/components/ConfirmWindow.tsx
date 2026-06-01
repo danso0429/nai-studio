@@ -16,6 +16,9 @@ export interface Dialog {
   // color: per-item 색 override. 기본 back-sky 외 'amber'(orange)/'green'/'red'.
   // graySelect가 true면 전체 back-lgray (color 무시).
   items?: { text: string; value: string; color?: 'amber' | 'green' | 'red' }[];
+  // dropdown 전용 — 폴더식 그룹 표시. 지정 시 items 대신 이 그룹으로 렌더
+  // (label = 그룹 헤더, items = 그 그룹의 선택지). 폴더 구조 dropdown용.
+  dropdownGroups?: { label: string; items: { text: string; value: string }[] }[];
   // 확인 버튼 텍스트 override. destructive 액션은 "삭제" / "영구 삭제" 등으로
   // 명시해서 실수 클릭 줄임. undefined면 "확인" default.
   confirmText?: string;
@@ -197,14 +200,30 @@ const ConfirmWindow = observer(() => {
                   <div className="w-full mt-4">
                     <DropdownSelect
                       className="z-20 w-full"
-                      selectedOption={curDialog.items!.find(
-                        (item) => item.value === inputValue,
-                      )}
+                      selectedOption={
+                        curDialog.dropdownGroups
+                          ? curDialog.dropdownGroups
+                              .flatMap((g) => g.items)
+                              .find((item) => item.value === inputValue)
+                          : curDialog.items!.find(
+                              (item) => item.value === inputValue,
+                            )
+                      }
                       menuPlacement="bottom"
-                      options={curDialog.items!.map((item: any) => ({
-                        label: item.text,
-                        value: item.value,
-                      }))}
+                      options={
+                        curDialog.dropdownGroups
+                          ? curDialog.dropdownGroups.map((g) => ({
+                              label: g.label,
+                              options: g.items.map((item) => ({
+                                label: item.text,
+                                value: item.value,
+                              })),
+                            }))
+                          : curDialog.items!.map((item: any) => ({
+                              label: item.text,
+                              value: item.value,
+                            }))
+                      }
                       onSelect={(opt: any) => {
                         setInputValue(opt.value);
                       }}
