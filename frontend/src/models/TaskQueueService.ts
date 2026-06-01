@@ -1729,7 +1729,15 @@ export const queueI2IWorkflow = async (
   onComplete?: (path: string) => void,
 ) => {
   const def = workFlowService.getDef(type);
-  console.log('queueI2IWorkflow', type, preset, scene, samples, onComplete);
+  // 1차 가드: 마스크 필수 워크플로우(인페인트)인데 마스크가 비어있으면 큐 등록 차단.
+  // 빈 마스크면 nai-client가 mask 필드를 빼고 NAI에 보내 NAI가 500을 돌려주고,
+  // retry 10번 모두 실패 → 사용자 페인 (JOURNAL P20 #9, P28 재발). 모든 인페인트
+  // 등록 경로(queueScene / InPaintEditor / ResultViewer / SceneQueueControl)가
+  // 이 함수를 공통 통로로 거치므로 여기 한 곳에 두면 우회 경로가 없음.
+  if (def?.hasMask && !preset.mask) {
+    appState.pushMessage('마스크를 먼저 그려주세요. 인페인트는 마스크 없이 생성할 수 없어요.');
+    throw new Error('인페인트 마스크가 없어 큐에 등록하지 않았어요.');
+  }
   await def.handler(
     session,
     scene,
