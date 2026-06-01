@@ -139,17 +139,10 @@
 
 ### 사전 준비
 
-- **리눅스 서버** (Ubuntu 22.04+ 추천. ARM64 OK)
-  - 무료로 받으려면 **Oracle Cloud Always Free**의 ARM Ampere A1 추천 — 4 vCPU + 24GB RAM 무료 (이 프로젝트가 실제로 동작 중인 환경)
-  - 한국어 가이드: [아카라이브 오라클 가이드](https://arca.live/b/characterai/137016430) + [할당량 부족 시 PAYG 업그레이드](https://arca.live/b/characterai/137100634)
-  - **본 프로젝트와 다른 부분 (주의)**:
-    - 가이드의 **포트 6001**은 노드리스용. 본 프로젝트는 기본 **6247** — 그런데 **인터넷에서 직접 접근할 게 아니라면 보안 규칙에 6247도 안 여는 게 안전** (Tailscale로만 접근하면 외부 노출 0)
-    - 가이드의 4단계(RisuAI 설치) + 6단계(https 인증서)는 **SKIP**. 본 README의 [설치 단계](#설치-뉴비-친화-단계별)를 따라하세요
-    - **80/443 포트 인터넷 노출은 SDStudio Remote에 불필요해요.** 가이드가 80/443을 0.0.0.0/0으로 열라고 하는 건 RisuAI가 그 포트에서 자체 HTTPS 서버를 띄우기 때문. SDStudio Remote는 Tailscale serve가 *tailnet 내부 IP(100.x.x.x)에만* 443 바인딩 → Oracle 보안 그룹 외부 80/443은 빈 포트라 의미 없고, 닫는 게 공격 표면 최소화. (Tailscale 자체는 outbound UDP만 쓰므로 inbound 룰 필요 X)
-    - **결론**: SDStudio Remote만 운영하면 Oracle 수신 규칙에 **22(SSH)만 임시로**, Tailscale 동작 확인 후 22도 닫기. 80/443/6247 다 닫아도 됨.
-    - 사양 추천: **2 CPU / 12 GB RAM** 또는 그 이상 (SDStudio Remote도 동일)
-    - HTTPS는 본 프로젝트에서 **Tailscale serve로 자동 처리** (Let's Encrypt 불필요). 가이드의 self-signed 인증서는 안 만들어도 됨
-- **NovelAI 계정** + Persistent API Token (받는 방법은 아래 step 3에)
+- **리눅스 서버** (Ubuntu 22.04+, ARM64 OK. 2 CPU / 12 GB RAM 이상 권장)
+  - 무료로는 **Oracle Cloud Always Free**의 ARM Ampere A1 추천 (4 vCPU + 24GB RAM, 이 프로젝트가 실제 돌아가는 환경). [아카라이브 오라클 가이드](https://arca.live/b/characterai/137016430) 참고.
+  - 단 그 가이드의 **RisuAI 설치·HTTPS 인증서 단계는 SKIP**하세요 (아래 Tailscale이 대신함). 보안 규칙은 **22(SSH)만 임시로** 열면 되고, 나머지(80/443/6247)는 안 열어도 돼요 (Tailscale로만 접근).
+- **NovelAI 계정** + Persistent API Token (받는 법은 Step 3)
 - **선택**: Tailscale 계정 (외부 접속용, 무료)
 
 ### Step 1. Node.js 설치
@@ -173,10 +166,10 @@ cd ~ && git clone https://github.com/danso0429/nai-studio.git && cd nai-studio
 ./setup.sh
 ```
 
-다른 경로/포트 원하면 `setup.sh` 실행 전에 `nano .env.local` 편집(기본값 `PORT=6247`, `URL_PREFIX=/studio`), 또는 실행 후 편집하고 `./setup.sh` 다시 돌리면 돼요. 재실행 안전(기존 .env.local 보존).
+다른 경로/포트 원하면 `setup.sh` 전에 `nano .env.local` 편집(기본값 `PORT=6247`, `URL_PREFIX=/studio`). 다시 돌려도 안전해요(기존 설정 보존).
 
 <details>
-<summary>setup.sh 안 쓰고 수동으로 단계별 보고 싶으면 여기 펼치기</summary>
+<summary>setup.sh 안 쓰고 수동으로 하려면 펼치기</summary>
 
 ```bash
 cd ~ && git clone https://github.com/danso0429/nai-studio.git && cd nai-studio
@@ -185,10 +178,6 @@ npm install
 (cd frontend && npm install && npx vite build --emptyOutDir)
 ```
 </details>
-
-> **왜 `.env.local`을 빌드 전에 만들어야 하나요?**
->
-> vite는 빌드 시 `VITE_BASE_PATH`를 산출물 HTML/JS에 박아넣어요. `URL_PREFIX`는 서버가 들어오는 요청 URL에서 같은 prefix를 strip해서 정적 파일을 찾을 때 사용해요. **둘이 일치하지 않으면 404**가 떠요. `.env.example` 기본값 그대로면 둘 다 `/studio`로 자동 일치. `setup.sh`가 이 순서 자동 처리.
 
 ### Step 3. NovelAI 토큰 받아서 저장
 
@@ -241,7 +230,7 @@ curl http://localhost:6247/api/build-info
 
 같은 네트워크의 다른 기기에서: 브라우저로 **`http://<서버 IP>:6247/studio/`** 열기 (`.env.local`의 `URL_PREFIX` 그대로 따라가야 해요. trailing `/` 필수).
 
-> 자산 404 뜨면 `.env.local`의 `URL_PREFIX` ↔ `VITE_BASE_PATH` 불일치예요. 두 값 맞춰서 frontend 재빌드 (`cd frontend && npx vite build && cd ..`) + 서버 재시작.
+> 자산이 404로 안 뜨면 `.env.local`의 `URL_PREFIX`와 `VITE_BASE_PATH`가 안 맞는 거예요. 맞춰서 재빌드(`cd frontend && npx vite build && cd ..`) + 서버 재시작.
 
 ### Step 6. 외부 접속 설정 (Tailscale 권장)
 
@@ -258,7 +247,7 @@ sudo tailscale serve --bg --https=443 --set-path=/studio http://localhost:6247
 
 이제 `https://your-host.tailNNNNN.ts.net/studio`로 어디서든 접속 가능. Tailscale 계정에 로그인된 본인 기기에서만 접근됩니다.
 
-> **3 항목 일치 규칙**: `tailscale serve --set-path=<X>` ↔ `.env.local`의 `URL_PREFIX=<X>` ↔ `VITE_BASE_PATH=<X>/` 셋이 같아야 해요. 기본값 그대로면 모두 `/studio`라 자동 일치. 다른 경로로 바꿨으면 `.env.local` 두 항목 수정 후 frontend 재빌드 + 서버 재시작 필수.
+> 경로(`/studio`)를 다른 걸로 바꿨으면 `tailscale serve --set-path` / `.env.local`의 `URL_PREFIX` / `VITE_BASE_PATH` 셋을 같게 맞추고 재빌드하세요. 기본값이면 그대로 둬도 돼요.
 
 > ### ⚠️ 보안 주의사항 (꼭 읽어주세요)
 >
@@ -274,18 +263,14 @@ sudo tailscale serve --bg --https=443 --set-path=/studio http://localhost:6247
 
 > ### 🔒 더 안전하게 — 외부 포트 닫기 (선택)
 >
-> Tailscale이 잘 동작하면 **SSH(22번)도 Tailscale 통해 접근 가능**해서 외부 22번 포트는 닫아도 돼요. 보안 그룹에서 22번을 닫으면 인터넷의 brute-force SSH 공격 자체가 차단됩니다. **80/443/6247도 SDStudio Remote 운영엔 외부 노출 불필요해서 같이 닫는 게 안전.**
+> Tailscale이 잘 동작하면 SSH도 Tailscale로 접근 가능해서, Oracle 보안 그룹의 외부 포트(22/80/443/6247)를 다 닫아도 돼요. 인터넷의 SSH 공격이 차단되고, 어차피 외부 포트는 Tailscale이 안 써서 동작에 영향 없어요.
 >
 > **순서 (꼭 이 순서로!)**:
-> 1. 먼저 Tailscale 설치 완료 + SSH 접속 테스트: `ssh -i key ubuntu@<서버의 Tailscale 호스트명>.tailNNNNN.ts.net`
-> 2. Tailscale로 SSH 접속 + 브라우저로 `https://<호스트명>.tailNNNNN.ts.net/studio` 둘 다 잘 되는지 확인 후
-> 3. Oracle Cloud 보안 그룹에서 **22 / 80 / 443 / 6247 수신 규칙 전부 삭제**
+> 1. Tailscale 설치 후 SSH로 접속 테스트: `ssh ubuntu@<호스트명>.tailNNNNN.ts.net`
+> 2. SSH 접속 + 브라우저(`https://<호스트명>.tailNNNNN.ts.net/studio`) 둘 다 잘 되는지 확인
+> 3. Oracle Cloud 보안 그룹에서 22 / 80 / 443 / 6247 수신 규칙 전부 삭제
 >
-> **왜 80/443도 닫아도 되나?** Tailscale serve는 *Tailscale 인터페이스(`100.x.x.x:443`)에만* 바인딩되고 0.0.0.0:443에는 안 바인딩돼요 (`ss -tlnp`로 확인 가능). Tailscale 메쉬는 자체 outbound UDP(41641 등)로 NAT traversal — Oracle 보안 그룹 inbound 룰과 무관. 즉 외부 80/443/6247은 *빈 포트*라 닫아도 동작 영향 0 + 공격 표면 최소화.
->
-> **Tailscale Funnel(인터넷 전체 노출)이나 다른 서비스(nginx 등)를 같은 인스턴스에서 운영하면** 그 서비스가 쓰는 포트만 보안 그룹에 추가하세요. SDStudio Remote만 쓸 거면 닫기.
->
-> 만약 Tailscale이 안 되는데 22번을 닫으면 서버 영영 못 들어가요. **반드시 Tailscale SSH 동작 확인 후** 닫으세요.
+> ⚠️ **Tailscale SSH가 되는 걸 확인하기 전에 22번을 닫으면 서버에 영영 못 들어가요.** 꼭 확인 후 닫으세요. (다른 서비스를 같이 운영하면 그 포트만 열어두세요.)
 
 ### Step 7. 태그 자동완성 활성화 (선택)
 
