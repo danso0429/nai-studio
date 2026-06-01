@@ -9,6 +9,7 @@ import {
   FaChevronDown,
 } from 'react-icons/fa';
 import ModalOverlay from './ModalOverlay';
+import PromptEditTextArea from './PromptEditTextArea';
 import { promptChunkService } from '../models';
 import {
   DEFAULT_CHUNK_COLOR,
@@ -273,12 +274,14 @@ const ChunkForm = observer(
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 태그 (content)
               </label>
-              <textarea
-                className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 min-h-24 resize-y"
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="예: 1girl, masterpiece, best quality"
-              />
+              {/* 2026-06-01: 조합/네거티브 칸과 동일하게 PromptEditTextArea로 교체 — db.csv 태그 자동완성. */}
+              <div className="h-32">
+                <PromptEditTextArea
+                  whiteBg
+                  value={content}
+                  onChange={setContent}
+                />
+              </div>
             </div>
           )}
 
