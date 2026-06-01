@@ -3,7 +3,9 @@ node_modules/
 frontend/node_modules/
 
 # User data (sessions, images, config)
-data/
+data/*
+# 단, 태그 자동완성 DB(db.csv)는 repo에 포함 — clone하면 자동완성 바로 켜짐
+!data/db.csv
 
 # OS files
 .DS_Store
