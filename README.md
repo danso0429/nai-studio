@@ -35,7 +35,7 @@
 - [SDStudio PC 버전과의 차이점](#sdstudio-pc-버전과의-차이점)
 - [설치 (뉴비 친화 단계별)](#설치-뉴비-친화-단계별)
 - [사용 방법](#사용-방법)
-- [queue.html — 큐 진행 상황 페이지](#queuehtml--큐-진행-상황-페이지)
+- [큐 진행 상황 페이지](#큐-진행-상황-페이지-queue)
 - [업데이트 방법](#업데이트-방법)
 - [환경변수](#환경변수)
 - [고급 설정 (선택)](#고급-설정-선택)
@@ -272,32 +272,11 @@ sudo tailscale serve --bg --https=443 --set-path=/studio http://localhost:6247
 >
 > ⚠️ **Tailscale SSH가 되는 걸 확인하기 전에 22번을 닫으면 서버에 영영 못 들어가요.** 꼭 확인 후 닫으세요. (다른 서비스를 같이 운영하면 그 포트만 열어두세요.)
 
-### Step 7. 태그 자동완성 활성화 (선택)
+### Step 7. 태그 자동완성 (기본 포함)
 
-Danbooru 태그 DB(`db.csv`)를 서버 `~/nai-studio/data/` 폴더에 두면 자동완성이 켜져요.
+태그 자동완성용 `db.csv`(Danbooru 태그 DB)가 repo에 들어 있어, **clone하면 바로 켜져요.** 따로 할 일 없어요.
 
-**db.csv 받는 법** — SDStudio PC 버전(Windows)에 포함된 파일 그대로 사용 가능:
-
-1. Windows PC에서 SDStudio Electron 앱 데이터 폴더 열기:
-   - 경로: `%APPDATA%\SDStudio\SDStudio\db.csv`
-   - 또는 윈도우 키 → "실행" → `%APPDATA%\SDStudio\SDStudio` 입력 → Enter
-2. `db.csv` 파일을 본인 PC 어딘가에 복사
-3. SCP/SFTP 등으로 서버에 업로드. WinSCP 같은 GUI 툴 또는 명령어:
-
-```bash
-# 본인 PC (Windows PowerShell 또는 Mac/Linux terminal)에서:
-scp 본인PC의db.csv경로 ubuntu@서버주소:~/nai-studio/data/db.csv
-
-# 예) Windows PowerShell:
-scp "$env:APPDATA\SDStudio\SDStudio\db.csv" ubuntu@1.2.3.4:~/nai-studio/data/db.csv
-```
-
-서버에 이미 있는 db.csv를 옮기는 경우엔 서버 SSH 안에서:
-```bash
-mv ~/어딘가/db.csv ~/nai-studio/data/db.csv
-```
-
-db.csv 없어도 SDStudio Remote는 동작합니다 (자동완성 기능만 비활성화).
+> 더 최신 태그로 바꾸고 싶으면 SDStudio PC 버전의 `%APPDATA%\SDStudio\SDStudio\db.csv`를 받아 서버 `data/db.csv`에 덮어쓰면 돼요.
 
 ### Step 8. SDStudio PC 데이터 이전 (선택)
 
@@ -357,12 +336,12 @@ Windows SDStudio 데이터 위치: `%APPDATA%\SDStudio\SDStudio\`
 
 ---
 
-## queue.html — 큐 진행 상황 페이지
+## 큐 진행 상황 페이지 (`/queue`)
 
 본 서버에 자동으로 같이 설치돼요. 별도 설치 X. 메인 페이지 옆에 다음 URL로 접속:
 
-- `https://your-host.tailNNNNN.ts.net/studio/queue.html`
-- 또는 (메인이 `/`에 있으면) `http://localhost:6247/queue.html`
+- `https://your-host.tailNNNNN.ts.net/studio/queue`
+- 또는 (메인이 `/`에 있으면) `http://localhost:6247/queue`
 
 표시 내용:
 - **NAI 이미지 큐**: 대기/완료/실패, 평균 시간 (X.XX초), 남은 시간 예상, 진행률 (X.XX%)
@@ -631,7 +610,7 @@ publickey + `PasswordAuthentication no` + fail2ban 셋이 박혀있으면 외부
 WebSocket 끊긴 상태일 수 있어요. 새로고침 한 번 하면 즉시 동기화. 30초 주기로 자동 동기화도 돼요.
 
 ### Q. NAI 429 (rate limit) 떴어요
-서버가 자동으로 5초 대기 후 10회 재시도해요. 그래도 실패면 `queue.html`의 "최근 NAI 큐 에러" 섹션에 기록됩니다.
+서버가 자동으로 5초 대기 후 10회 재시도해요. 그래도 실패면 큐 페이지(`/queue`)의 "최근 NAI 큐 에러" 섹션에 기록됩니다.
 
 ### Q. 업데이트 알림이 안 사라져요
 `update.sh` 실행 후에도 알림 그대로면 브라우저 캐시 새로고침 (모바일은 새로고침 + 캐시 비우기). 또는 `curl localhost:6247/api/build-info`로 현재 버전 확인.
@@ -643,31 +622,16 @@ v1.5.3부터 단일 이미지 "다운로드" 버튼은 Drive 가용 시 자동�
 
 ## 변경 이력
 
-세부 변경 이력은 [CHANGELOG.md](CHANGELOG.md) (v1.5.0-preview.4까지 누적 기록) + 최근 변경은 `version.json` 의 `notes` 필드 / `git --no-pager log` 로 확인 가능해요.
+세부 변경 이력은 **[CHANGELOG.md](CHANGELOG.md)** 를 봐주세요 (모든 버전 기록).
 
-**최근 변경 (요약)**:
-- **v1.9.1** stable (2026-05-31): **프롬프트 찾기** — 검색창(`Ctrl+Shift+F` / 돋보기)에서 씬 이름 필터 + 상위/하위/네거티브 프롬프트 칸 검색어 태그 형광 강조(chunk 알약 속 태그면 알약 외곽선). 매칭 개수 X/Y + 다음/이전(`Enter`/`Shift+Enter`) 스크롤. 씬 목록은 이름만 검색. `Ctrl+Shift+F` 키바인딩 추가
-- **v1.9.0** stable (2026-05-31): **프롬프트 chunk 시스템** — 이름 붙인 순수 태그 묶음 알약(전역 저장, NovelAI prompt chunk식). 관리 UI(폴더·2D 색상 피커) / 프롬프트 칸 커서 위치 삽입 + 생성 시 펼침 / 알약 원자화(커서 이동·Backspace 2단 삭제) / 알약 경계 자동 쉼표 / chunk 삭제 시 죽은 토큰 자동 정리 / 데스크탑 호버 내용 미리보기 / 칸별 삽입 버튼·시트 제목 / 알약 클릭 caret 보정. **샘플링 프리셋** 별도 시스템(스텝/가이던스/리스케일/샘플러/노이즈스케줄 저장·적용/해제). **그림체(프롬프트) 프리셋 폐기** — chunk + 샘플링 프리셋이 대체. 프롬프트 복사 시 대상 폴더 트리 + chunk 포함/제외. 데스크탑 Firefox 에디터 fix(붙여넣기 무시·클릭 caret 튐) + 좌우 반전 버튼(PNG 덮어쓰기 + NAI metadata 보존) + 설정 UI 2건. **조합 에디터 drag UX**(⠿ 핸들 자유 드래그·빈 열 포함·끝 빈 공간 새 열·빈 열 삭제) + **씬 토글 그룹**(조합 piece 충돌 태그 묶어 on/off, OFF면 생성 시 제거·piece 원본 불변. 그룹 정의는 씬 이름 기준 전역 공유, on/off는 프로젝트별)
-- **v1.8.2** stable (2026-05-27): SDStudio v4.9.0 흡수 — 캐릭터 프리셋 다중 캐릭터 / 프로젝트 브라우저 카드 그리드 / 다른 프로젝트로 씬 복사 / 캐릭터 위치 좌표평면 드래그 / 초기 로딩 최적화 / 바이브 손상 건너뛰기. **트루 다크 모드** 3택(다크/트루다크/화이트) + queue.html CSS 변수. queue.html 직전 소요 vs 시간대 평균 비교 카드. sdstudioBase 4.8.2 → 4.9.0
-- **v1.8.1** stable (2026-05-27): orphan reserved 재예약 + 프리셋 session 기반 resolve + 씬 순서 변경 UI
-- **v1.8.0** stable (2026-05-25): **그림체 프리셋 자유 합성** (slot lock 폐기 + prepend 합치기 + sampler 폐기 + 영속화 + 배너 축소 + 샘플링 덮어쓰기) / **큐 예약(reserve/fill) 시스템** — prep 중 새로고침해도 큐 유지 / 불러오기 선택 다이얼로그 + 폴더 백업 다중 복원 UI / 임포트 폴더 사용자 선택 / 데스크탑 ctrl+click 이미지 선택 / WS heartbeat + visibility catch-up / 큐 패널 디스크 정리 5종 / 폴더·프로젝트 한 번에 큐 등록 / 폴더 내보내기 nested tar / 큐 한도 7000 + toast / 진행 카운터 KST 자정 리셋 / 큐 ETA cross-hour 시뮬레이션 / fastcache prewarm initialThumbSize 기반 + thumbnail 분리. **성능**: 큐 영속화 base64 dedupe(107MB→0.9MB, 47x) + prepGenInput config 캐시 + burst debounce 99%. **수정 20+건**: WS stale/카드 imageMap/Chrome clipboard/인페인트 fit/큐 라벨 N/M/toast 제한 등
-- **v1.7.3** stable (2026-05-21): 프로젝트 다중 내보내기 (트리 picker + 백그라운드 + 4-병렬 + 소프트 락) / Drive 위젯 row별 [재시도] 즉시 처리 + 시각화 (옛 reset+대기 → reset+즉시 통합) / SDStudio upstream v4.8.1+v4.8.2 통합 — 캐릭터 프리셋 orphan cleanup + 교체 시 residue clear + 모바일 해제 dialog + 내보내기 `prefix_ask` 캐릭터 이름 직접 입력 / 업스트림 SDStudio 새 release indigo 펄스 알림(`/api/sdstudio-version-check` + BuildInfo dual pulse). 부수 — clearAppliedCharacterPreset 모든 presetShareds 순회 fix + retry-reset dead code 정리. sdstudioBase 4.8.0 → 4.8.2
-- **v1.7.2** stable (2026-05-21): v1.7.1 dogfood 후속 sanitize sweep — fresh install 안내 정확화 (`~/nai-studio` 경로 정규화, rclone wizard 본문 + 기본값 사실수정), 업데이트 알림/Config 'GitHub' 링크 본인 fork 정정, self-update stderr abs path 마스킹, TLS cert (`*.crt/.key/.pem`) gitignore 가드, default assets metadata 스트립 + `ixy.png` 잔재 삭제
-- **v1.7.1** stable (2026-05-21): WS path strip fix (`WebSocketServer` → `noServer` + server 'upgrade' handler로 `URL_PREFIX` strip을 WS upgrade에도 적용) — path strip 안 하는 reverse proxy (lxc proxy / 직접 포트 / Cloudflare Tunnel / nginx without `proxy_pass /`) 환경에서 WS 끊김 → 폴링 30초 fallback 페인 fix. v1.7.0 이후 4일 누적 (84 commit) — audit 11카테고리 P17 Critical 9건 + P18 High 18건 + Medium/Low ~80건 fix, 큐 race/카운터/cancel ≠ complete 분리, queue.html 폴더 트리 + 단위별 취소, 폴더 백업 동시 + 이미지 미포함 옵션, dead-code 삭제, runtime audit 11 카테고리 인스트럭션 도입
-- **v1.7.0** stable (2026-05-17): 자동 업데이트 시스템 — `POST /api/self-update` NDJSON 스트림 (`checking → pulling → installing → building → restarting`) + BuildInfo `UpdateModal` phase machine + NAI 로그인 인증 통과. SSH 접속 없이 UI 한 클릭으로 `git pull → npm install → vite build → pm2 restart`. iPhone에서도 가능. README "업데이트 방법" + SDStudio 비교 표 갱신
-- **v1.6.1** stable (2026-05-17): 큐 race fix (`restoreMirroredState` single-flight 가드), 큐 list UI 전면 리뉴얼 — 폴더 → 프로젝트 → 씬 3단 트리(default 다 접힘) + 우선순위 큐(씬/프로젝트 ⭐ toggle + 두 섹션 + divider) + 카운터 snapshot/vanish(레벨 단위 누적, 분모 고정) + 처리 중 폴더/프로젝트 펄스 + portal로 X 안 닫히는 회귀 fix + 가로 스크롤 차단 + 컴팩트 row + ㄴ 연결자, 다중 프로젝트 임포트(드래그드롭 ≥2 자동 감지 + iOS multi picker + 페이지당 4개 이름 입력 UI), 헤더/버튼 rename
-- **v1.6.0** stable (2026-05-17): SDStudio v4.8.0 부분 흡수 (references 백업 회귀 fix / 캐릭터 프리셋 v2 UI 대개편 + JSON I/E + 순차 생성), catalog 정리 149건(명백 8 + C 12 + A 91 + B 38), 즐겨찾기 export 폴백 fix, queue stuck fix, visibility flush data-loss fix
-- **v1.5.3** stable (2026-05-15): 폴더 시스템 + 폴더 전체 백업/복원(1 tar + Drive `backups/` 자동 분류, `listFilesRecursive` 5병렬), 단일 이미지 다운로드 → Drive 직행(다이얼로그 폐기), 씬 자동 갱신 disk polling 안전망, UI 일체화 3건(커스텀 해상도/씬 이름 내보내기/이미지 변형 평탄화), 보안 감사 7건 일괄(TOKEN 차단/CSP enforce/execFile/rate limit/log opt-out), 모바일 페인 묶음(vibe/reference fit, BatchItemSelector longpress 통합, iOS click delay 우회), 인터넷 느린 환경 fit(gzip + WebP + 초기 크기 자동 + sticky 토스트), 첫 install 하이진(.env.local + version.json fallback), 로그인 sticky 토스트 + H2 회귀 fix
-- **v1.5.3-experimental.1~2** (2026-05-13~14): `BatchItemSelector` 신규 picker로 구 `SceneSelector` 전체 swap (의존성 격리 + 썸네일 + imageRevision 외부 신호), `Types.ts preset: any → PresetLike`, queue.html 모바일 paint/배터리/서버 부담 7축 개선, `saveInpaintImages` 2-phase commit, ModalOverlay focus trap, extractApiError 401/429/timeout 한국어 매핑
-- **v1.5.3-preview.1~3** (2026-05-13~14): 폴더 전체 내보내기(프리셋 일괄 적용 + 1zip + 큐 등록 4 병렬), `ResourceSyncService` get(retry: true), 네트워크 회복성 3축(클릭 차단 / 리스트 캐시 / fetch timeout), 5/14 회귀 묶음 fix(캐시 헤더, 예약 취소 cross-project, 씬 선택 렉), queue.html 전체정리 미리보기 + iOS confirm HTML 모달, 보안 헤더, atomicWriteFile + driveRetry 큐 한도 5000 + LRU
-- **v1.5.2** (2026-05-13): 씬/조합 단위 네거티브(`scene.uc` + `PromptPiece.uc`), queue.html 처리 중 프로젝트 표시 + 잔여 수, 백그라운드 복귀 시 export 동기화, 이미지 내보내기 동시 10개 + 취소 버튼, 흰화면 회귀 fix(lazy queueMicrotask)
-- **v1.5.1** (2026-05-12~13): 씬 일괄 임포트 UI(스키마 + dryRun + overwrite/skip), 프로젝트 영구 삭제(로컬 5 + Drive 5 폴더 병렬) + orphan 정리, 프로젝트 폴더 시스템 + 받침 헬퍼, 씬 통합(조합 슬롯 dedup + 이미지 합치기), 큐 통계 2시간 12-bucket 영구 누적, 모바일 씬 카드 200_ fastcache(다운로드 14배 ↓), NAI 5xx도 429 패턴으로 retry
-- **v1.5.0** (2026-05-12): 클라 → 서버 큐 통합 (mirror, 폰 닫아도 진행), 내보내기 프리셋, 개수 ◀▶ 컨트롤, 태그 자동완성 split layout, queue.html sparkline + 친절 에러, Drive 병렬 업로드, rclone remote 환경변수화, 큐 cancel disk 동기화
-- **v1.5.0-preview.1~6** (2026-05): Progress UI 알약 통합, Drive 재시도 backoff, zip ENOENT skip, 이미지 내보내기 server pipeline (HTTP 202 + WS), 알림 색 통일, mirror 인프라
-- **v1.4.x** (2026-05): PolyForm Noncommercial 1.0.0 라이센스, 환경변수 분리, 대량 삭제 병렬화, update.sh 자동 감지
-- **v1.2.0~v1.3.x** (2026-05): README 풀 리뉴얼, Drive 자동 동기화, 자동 업데이트 알림
-- **v1.0.0** (2026-05): NAI v4.5 검증 후 첫 정식 출시
-- **v1.0.0 이전** (2026-04~05): 인프라 구축, UI 이식, 큐 시스템
+**최근 주요 변경**:
+
+- **v1.9** — 프롬프트 chunk(태그 묶음 알약, 생성 시 펼침) + 샘플링 프리셋. 조합 에디터 드래그 + 씬 토글 그룹. 프롬프트 찾기. 캐릭터 칸 chunk + 네거티브 자동완성. 씬 결과 화면 Ctrl 선택·제목 클릭 편집·다른 씬으로 이미지 이동
+- **v1.8** — 큐 예약(새로고침해도 유지)·폴더 백업/복원·한 번에 큐 등록·디스크 정리. SDStudio v4.9.0 흡수(캐릭터 프리셋 다중, 프로젝트 브라우저, 트루 다크 모드)
+- **v1.7** — 자동 업데이트(UI 한 클릭). 다중 프로젝트 내보내기. 안정성 대규모 개선
+- **v1.6** — SDStudio v4.8.0 흡수(캐릭터 프리셋 개편, 순차 생성)
+- **v1.5** — 폴더 시스템·폴더 백업. 서버 큐 통합(폰 닫아도 진행). 보안 강화. 느린 네트워크 최적화
+- **v1.0 ~ v1.4** — 첫 정식 출시(NAI v4.5 검증), Drive 동기화, 라이센스 정립, 기본 인프라
 
 ---
 
