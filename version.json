@@ -1,6 +1,6 @@
 {
-  "version": "1.9.2",
+  "version": "1.9.3",
   "sdstudioBase": "4.9.0",
   "released": "2026-06-01",
-  "notes": "v1.9.1 → v1.9.2 (patch). 캐릭터 프롬프트 chunk — '캐릭터 추가'로 만든 캐릭터의 프롬프트/네거티브 프롬프트 칸 우상단에 +chunk 버튼 추가(메인 프롬프트처럼 chunk 알약 삽입, 생성 시 content로 펼침). 씬 전용 캐릭터(씬 에디터) + 프리셋/조합 에디터의 preset-level 캐릭터 섹션 둘 다 적용. 네거티브 칸 태그 자동완성 — 조합 네거티브 + 씬 전용 네거티브 칸을 단순 텍스트 입력에서 db.csv 태그 자동완성 에디터(PromptEditTextArea)로 교체(조합 프롬프트와 동일)."
+  "notes": "v1.9.2 → v1.9.3 (patch). 씬 결과 화면 UX + chunk 입력 편의. (1) 데스크탑 Ctrl 누르는 동안 이미지 선택모드 ON / 떼면 OFF+해제. (2) 씬 결과 상단 제목 클릭 시 씬 이름 inline 편집 + 선택모드 표기를 같은 줄 inline으로(상단바 높이 변동 제거). (3) 우클릭 '다른 씬으로 이미지 복사'를 '이동'으로(renameFile atomic, PNG 생성정보 + 즐겨찾기 유지). (4) 씬 복사 대상 프로젝트 선택을 폴더 그룹 dropdown으로(폴더 없으면 평면 유지). (5) 조합 에디터 첫 열 첫 행 삭제 제한을 '조각 1개일 때만'으로 완화. (6) chunk 관리 추가/수정 모달 태그(content) 칸 db.csv 자동완성. (7) chunk 알약 뒤/앞 paste 시 ', ' 자동 구분자. + update.sh dirty working tree면 빌드 skip 안 하도록 판정 보강(근본 해결)."
 }

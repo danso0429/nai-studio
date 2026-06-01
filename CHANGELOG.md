@@ -9,6 +9,30 @@
 
 ---
 
+## v1.9.3 (2026-06-01)
+
+patch. v1.9.2 → v1.9.3. **씬 결과 화면 UX 개선 + chunk 입력 편의.** sdstudioBase 4.9.0 유지.
+
+### 새 기능 — 씬 결과 화면
+
+- **feat(viewer)**: 데스크탑에서 **Ctrl 누르는 동안** 이미지 선택모드 ON, 떼면 OFF + 선택 해제 (`ResultViewer` keydown/keyup, 텍스트 입력 중·창 blur 시 가드). 기존 ctrl+클릭 선택을 키 홀드로 확장.
+- **feat(viewer)**: 씬 결과 상단 제목 **클릭 시 씬 이름 inline 편집** (`renameScene`, 중복 이름 거부). 선택모드 표기에서 "ON" 제거 + 선택모드여도 씬 이름 항상 표시 + 같은 줄 inline(별도 줄 → 상단바 높이 변동 제거). 제목만 `SceneTitleBar` observer로 분리해 rename 즉시 반영(ResultViewer 본체 재렌더 최적화 보존).
+- **feat**: 우클릭 "다른 씬으로 이미지 복사"를 **"이동"**으로 — `renameFile`로 원본을 대상 씬에 옮김(atomic, PNG 생성정보 그대로 유지) + 원본 즐겨찾기면 대상에서도 유지.
+- **feat**: 씬 우클릭 "다른 프로젝트로 씬 복사" 대상 선택을 **폴더 그룹 dropdown**(폴더 헤더 + 들여쓰기, react-select group)으로. 폴더 없으면 기존 평면 dropdown 유지.
+
+### 새 기능 — chunk / 조합
+
+- **feat(chunk)**: chunk 관리(추가/수정) 모달의 **태그(content) 입력 칸에 db.csv 태그 자동완성** (단순 textarea → `PromptEditTextArea`).
+- **feat(chunk)**: chunk 알약 **뒤/앞에 텍스트 붙여넣기** 시 `', '` 자동 구분자(입력 경로와 동일 정책) — 알약 끝 태그와 붙여넣은 텍스트가 한 태그로 합쳐지는 오염 방지.
+- **feat(combo)**: 조합 에디터 **첫 열 첫 행 삭제 제한 완화** — 전체 조각이 1개일 때만 차단. 그 외엔 행 삭제(아래 행 위로) / 그 열 마지막 행이면 열 삭제(다음 열이 첫 열로).
+
+### Fix / 인프라
+
+- **fix(update.sh)**: dirty working tree면 빌드 skip 안 하도록 판정 보강(skip 조건에 `-z DIRTY` 추가). 커밋 안 한 소스 변경이 build-info gitHash와 무관하게 stale skip되던 문제 근본 해결 — gitHash 수동 파괴 우회 폐기. `self-update.js`는 origin sync 용도라 판정 기준이 다른 게 의도된 불일치임을 주석 명시(로직 무변경).
+- **chore**: `.gitignore` 정리(상시 dirty 해소), self-update.js 상단 주석의 외부 프로젝트 경로 참조 generic redact.
+
+---
+
 ## v1.9.2 (2026-06-01)
 
 patch. v1.9.1 → v1.9.2. **캐릭터 프롬프트에 chunk 삽입 + 네거티브 칸 태그 자동완성.** sdstudioBase 4.9.0 유지.
