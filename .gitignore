@@ -45,6 +45,8 @@ JOURNAL.md
 docs/JOURNAL-archive.md
 .code-review/
 docs/heat-diagnosis/
+docs/risum-decode-guide.md
+docs/bg-stream-preserve-WIP.md
 .audit-pass-*/
 
 # TLS 인증서 / 비밀키 — Tailscale `tailscale cert <host>` 등의 산출물. 절대 commit 금지
