@@ -136,6 +136,23 @@ const DnDPreview = () => {
 };
 
 export const App = observer(() => {
+  // 하단 바(SessionSelect 버튼 + 큐 컨트롤)는 버튼이 많으면 2~3행으로 줄바꿈돼 높이가
+  // 가변. ResultViewer 이미지 뷰어(FloatView .show-toolbar)는 화면 바닥에서 하단 바
+  // 높이만큼 비워야 가리지 않는데, 옛 CSS는 57px(1행) 하드코딩이라 3행이면 하단 바
+  // 위쪽을 덮었음 (JOURNAL P28). 실제 높이를 측정해 --bottombar-h로 노출 → CSS가 사용.
+  const bottomBarRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = bottomBarRef.current;
+    if (!el) return;
+    const update = () => {
+      document.documentElement.style.setProperty('--bottombar-h', el.offsetHeight + 'px');
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   useEffect(() => {
     return () => {
       taskQueueService.stop();
@@ -630,7 +647,7 @@ export const App = observer(() => {
                       )}
                     </StackGrow>
                     <StackFixed>
-                      <div className="px-3 py-2 border-t line-color">
+                      <div ref={bottomBarRef} className="px-3 py-2 border-t line-color">
                         {/* Desktop: single-row layout */}
                         <div className="hidden md:flex gap-3 items-center">
                           <div className="flex-1">

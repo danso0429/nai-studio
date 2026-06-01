@@ -309,11 +309,13 @@ body {
 }
 
 .show-toolbar {
-  height: calc(100% - 57px);
+  /* --bottombar-h = App.tsx가 측정한 하단 바 실제 높이 (버튼 줄바꿈으로 2~3행 가변).
+     측정 전 첫 페인용 fallback만 환경별 1행 높이로 둠. JOURNAL P28. */
+  height: calc(100% - var(--bottombar-h, 57px));
 }
 @media screen and (max-width: 768px) {
   .show-toolbar {
-    height: calc(100% - 49px);
+    height: calc(100% - var(--bottombar-h, 49px));
   }
 }
 
