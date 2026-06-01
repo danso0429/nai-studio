@@ -272,13 +272,7 @@ sudo tailscale serve --bg --https=443 --set-path=/studio http://localhost:6247
 >
 > ⚠️ **Tailscale SSH가 되는 걸 확인하기 전에 22번을 닫으면 서버에 영영 못 들어가요.** 꼭 확인 후 닫으세요. (다른 서비스를 같이 운영하면 그 포트만 열어두세요.)
 
-### Step 7. 태그 자동완성 (기본 포함)
-
-태그 자동완성용 `db.csv`(Danbooru 태그 DB)가 repo에 들어 있어, **clone하면 바로 켜져요.** 따로 할 일 없어요.
-
-> 더 최신 태그로 바꾸고 싶으면 SDStudio PC 버전의 `%APPDATA%\SDStudio\SDStudio\db.csv`를 받아 서버 `data/db.csv`에 덮어쓰면 돼요.
-
-### Step 8. SDStudio PC 데이터 이전 (선택)
+### Step 7. SDStudio PC 데이터 이전 (선택)
 
 기존 SDStudio PC 사용자라면 프리셋/바이브를 가져올 수 있어요.
 
