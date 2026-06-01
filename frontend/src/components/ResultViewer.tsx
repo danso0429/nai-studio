@@ -69,7 +69,7 @@ import {
 } from '../models';
 import { dataUriToBase64, deleteImageFiles } from '../models/ImageService';
 import { getThumbURL } from '../backends/serverBackend';
-import { getResultDirectory } from '../models/SessionService';
+import { getResultDirectory, renameScene } from '../models/SessionService';
 import { getSceneKey, queueI2IWorkflow, queueWorkflow } from '../models/TaskQueueService';
 import { extractApiError, extractPromptDataFromBase64 } from '../models/util';
 import { appState } from '../models/AppService';
@@ -1236,6 +1236,52 @@ interface ResultVieweRef {
   setInpaintTab: () => void;
 }
 
+// 씬 제목 바 — 씬 이름(클릭 시 편집) + 선택모드 표기.
+// scene.name이 observable이라 이 작은 컴포넌트만 observer로 분리한다(ResultViewer
+// 본체는 재렌더 최소화 위해 observer가 아니라서 rename이 즉시 반영 안 되던 문제 해결).
+// 선택모드 표기는 별도 줄이 아니라 같은 줄 inline(줄 추가로 상단바 높이 변동 회피).
+const SceneTitleBar = observer(
+  ({
+    scene,
+    selectMode,
+    emoji,
+    title,
+    onRename,
+  }: {
+    scene: GenericScene;
+    selectMode: boolean;
+    emoji: string;
+    title: string;
+    onRename: () => void;
+  }) => {
+    const showGenSuffix = !selectMode && !isMobile;
+    return (
+      <div className="mb-2 md:mb-4 font-bold text-lg md:text-2xl text-default">
+        <span
+          className="inline-flex items-center gap-1 cursor-pointer hover:underline"
+          title="클릭하면 씬 이름 편집"
+          onClick={onRename}
+        >
+          {scene.type === 'inpaint' ? (
+            <>
+              {emoji} {title} 씬 {scene.name}
+              {showGenSuffix ? '의 생성된 이미지' : ''}
+            </>
+          ) : (
+            <>
+              🖼️ 일반 씬 {scene.name}
+              {showGenSuffix ? '의 생성된 이미지' : ''}
+            </>
+          )}
+        </span>
+        {selectMode && (
+          <span className="text-sky-500 dark:text-sky-400"> · 이미지 선택 모드</span>
+        )}
+      </div>
+    );
+  },
+);
+
 interface ResultViewerProps {
   scene: GenericScene;
   buttons: any[];
@@ -1399,6 +1445,50 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
       } else {
         setSelectedImageIndex(index);
       }
+    }, []);
+    // 변경 1: 데스크탑에서 Ctrl/Cmd를 누르고 있는 동안만 선택모드 ON, 떼면 OFF + 선택 해제.
+    // ctrl로 켠 경우만 ctrl로 끈다(즐겨찾기 일괄선택 등 버튼으로 켠 selectMode는 영향 X).
+    // 창 blur 시에도 해제(키 누른 채 탭 전환 시 모드 갇힘 방지). 텍스트 입력 중엔 무시.
+    const ctrlSelectRef = useRef(false);
+    useEffect(() => {
+      if (isMobile) return;
+      const turnOff = () => {
+        if (!ctrlSelectRef.current) return;
+        ctrlSelectRef.current = false;
+        selectModeRef.current = false;
+        setSelectMode(false);
+        selectedImages.current.clear();
+        gallaryRef.current?.refresh();
+        gallaryRef2.current?.refresh();
+      };
+      const onKeyDown = (e: KeyboardEvent) => {
+        const ae = document.activeElement as HTMLElement | null;
+        if (
+          ae &&
+          (ae.tagName === 'INPUT' ||
+            ae.tagName === 'TEXTAREA' ||
+            ae.isContentEditable)
+        )
+          return;
+        if ((e.ctrlKey || e.metaKey) && !selectModeRef.current) {
+          ctrlSelectRef.current = true;
+          selectModeRef.current = true;
+          setSelectMode(true);
+        }
+      };
+      const onKeyUp = (e: KeyboardEvent) => {
+        if (e.key === 'Control' || e.key === 'Meta' || (!e.ctrlKey && !e.metaKey)) {
+          turnOff();
+        }
+      };
+      window.addEventListener('keydown', onKeyDown);
+      window.addEventListener('keyup', onKeyUp);
+      window.addEventListener('blur', turnOff);
+      return () => {
+        window.removeEventListener('keydown', onKeyDown);
+        window.removeEventListener('keyup', onKeyUp);
+        window.removeEventListener('blur', turnOff);
+      };
     }, []);
     const onDeleteImages = async (scene: GenericScene) => {
       appState.pushDialog({
@@ -1708,33 +1798,28 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
           </FloatView>
         )}
         <div className="flex-none p-2 md:p-4 border-b line-color">
-          <div className="mb-2 md:mb-4 flex items-center">
-            <span className="font-bold text-lg md:text-2xl text-default">
-              {selectMode ? (
-                <span className="inline-flex items-center gap-1">
-                  이미지 선택 모드 ON
-                </span>
-              ) : !isMobile ? (
-                scene.type === 'inpaint' ? (
-                  <span className="inline-flex items-center gap-1">
-                    {emoji} {title} 씬 {scene.name}의 생성된 이미지
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1">
-                    🖼️ 일반 씬 {scene.name}의 생성된 이미지
-                  </span>
-                )
-              ) : scene.type === 'inpaint' ? (
-                <span className="inline-flex items-center gap-1">
-                  {emoji} {title} 씬 {scene.name}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1">
-                  🖼️ 일반 씬 {scene.name}
-                </span>
-              )}
-            </span>
-          </div>
+          <SceneTitleBar
+            scene={scene}
+            selectMode={selectMode}
+            emoji={emoji}
+            title={title}
+            onRename={() => {
+              appState.pushDialog({
+                type: 'input-confirm',
+                text: `씬 이름을 변경합니다 (현재: ${scene.name})`,
+                callback: async (newName) => {
+                  if (!newName) return;
+                  const trimmed = newName.trimEnd();
+                  if (!trimmed || trimmed === scene.name) return;
+                  if (curSession!.scenes.has(trimmed)) {
+                    appState.pushMessage('해당 이름의 씬이 이미 존재합니다');
+                    return;
+                  }
+                  await renameScene(curSession!, scene.name, trimmed);
+                },
+              });
+            }}
+          />
           <div className="md:flex justify-between items-center mt-2 md:mt-4">
             <div className="flex gap-2 md:gap-3 flex-wrap">
               <button
