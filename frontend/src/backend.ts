@@ -108,12 +108,37 @@ export interface DeleteProjectResult {
   driveSkipped: boolean;
 }
 
-export interface DeleteFolderResult {
+// 폴더 삭제는 rclone Drive 호출 다수로 수 분 걸려 fire-and-forget + WS 진행도 방식.
+// (옛 동기 DeleteFolderResult는 응답 대기 중 사용자 재클릭 → 동시 호출 race로
+//  3개씩만 삭제 + 폴더 잔류하던 페인 2026-06-02. cleanup-orphans 패턴과 동일.)
+export interface DeleteFolderStart {
+  jobId: string;
   folder: string;
-  deletedProjects: string[];
+  total: number;
+  alreadyRunning: boolean;
+}
+
+export interface DeleteFolderProgress {
+  jobId: string;
+  folder: string;
+  done: number;
+  total: number;
+  errors: number;
+}
+
+export interface DeleteFolderDone {
+  jobId: string;
+  folder: string;
+  deletedProjects: number;
   deleted: { local: string[]; drive: string[] };
   errors: string[];
   driveSkipped: boolean;
+}
+
+export interface DeleteFolderError {
+  jobId: string;
+  folder: string;
+  error: string;
 }
 
 export interface CleanupOrphansStart {
@@ -228,7 +253,11 @@ export abstract class Backend {
   abstract onClose(callback: () => void): () => void;
   abstract onWsReconnect(callback: () => void): () => void;
   abstract deleteProjectNow(name: string): Promise<DeleteProjectResult>;
-  abstract deleteFolderNow(folder: string): Promise<DeleteFolderResult>;
+  abstract deleteFolderNow(folder: string): Promise<DeleteFolderStart>;
+  abstract onDeleteFolderStart(callback: (data: { jobId: string; folder: string; total: number }) => void): () => void;
+  abstract onDeleteFolderProgress(callback: (data: DeleteFolderProgress) => void): () => void;
+  abstract onDeleteFolderDone(callback: (data: DeleteFolderDone) => void): () => void;
+  abstract onDeleteFolderError(callback: (data: DeleteFolderError) => void): () => void;
   abstract cleanupOrphans(): Promise<CleanupOrphansStart>;
   abstract onCleanupOrphansStart(callback: (data: { jobId: string }) => void): () => void;
   abstract onCleanupOrphansProgress(callback: (data: CleanupOrphansProgress) => void): () => void;

@@ -2902,37 +2902,22 @@ app.post('/api/project/delete-now', async (req, res) => {
   }
 });
 
-// 폴더 안 모든 프로젝트를 한 round-trip으로 영구 삭제. 옛 클라 측 deleteFolder가
-// N번 delete-now를 sequential 호출해서 모바일 느린 네트워크에서 일부만 처리되고
-// 끊기는 페인 (2026-05-20 <프로젝트> 폴더 22개 중 2개만 삭제 + 나머지 루트로 잔류). 서버에서
-// 한 번에 끝내면 클라 fetch 중단/abort 페인 없음. 폴더 dir 자체 + Drive projects/<folder>도 같이 정리.
-app.post('/api/project/delete-folder-now', async (req, res) => {
+// 폴더 안 모든 프로젝트를 영구 삭제. rclone Drive purge 다수로 long-running(7개 ~2.5분).
+// 옛 동기 응답 방식은 클라가 수 분 대기 → 답답한 사용자 재클릭 → 동시 호출 race로
+// 각 호출 readdir 스냅샷이 chunk(3)씩만 줄어 "3개만 삭제 + 폴더 잔류"하던 페인 (2026-06-02).
+// → cleanup-orphans와 동일한 fire-and-forget + WS 진행도 + 폴더별 lock(같은 폴더 동시 차단).
+const deleteFolderJobs = new Map(); // folder -> jobId (진행 중 동시 호출 가드)
+
+async function runDeleteFolder(jobId, folder, namesArray) {
+  const allDeleted = { local: [], drive: [] };
+  const allErrors = [];
+  const deletedProjects = [];
+  const total = namesArray.length;
+  let driveSkipped = false;
+  // chunk 병렬 (concurrency 3). 각 호출이 이미 5개 PROJECT_SUB_DIRS 병렬 처리라
+  // peak rclone child ~15개 — rcloneRun --tpslimit 10으로 Drive API throttle 안전.
+  const CONCURRENCY = 3;
   try {
-    const folder = sanitizeProjectName(req.body && req.body.folder);
-    if (!folder) return res.status(400).json({ ok: false, error: 'Invalid folder name' });
-
-    const folderDir = resolvePath('projects/' + folder);
-    const projectNames = new Set();
-    try {
-      const entries = await fs.readdir(folderDir, { withFileTypes: true });
-      for (const e of entries) {
-        if (!e.isFile()) continue;
-        if (!e.name.endsWith('.json') && !e.name.endsWith('.deleted')) continue;
-        const base = path.basename(e.name, path.extname(e.name));
-        if (base) projectNames.add(base);
-      }
-    } catch {
-      return res.status(404).json({ ok: false, error: 'Folder not found' });
-    }
-
-    // N 프로젝트 chunk 병렬 (concurrency 3). 각 호출이 이미 5개 PROJECT_SUB_DIRS 병렬
-    // 처리라 peak rclone child ~15개 — rcloneRun에 --tpslimit 10 적용돼 Drive API
-    // throttle 안전. 옛 직렬은 30 projects에 19분 35초였음 (P18 #7 <프로젝트> 폴더).
-    const allDeleted = { local: [], drive: [] };
-    const allErrors = [];
-    const deletedProjects = [];
-    const CONCURRENCY = 3;
-    const namesArray = Array.from(projectNames);
     for (let i = 0; i < namesArray.length; i += CONCURRENCY) {
       const chunk = namesArray.slice(i, i + CONCURRENCY);
       const chunkResults = await Promise.all(chunk.map(async (name) => {
@@ -2953,18 +2938,20 @@ app.post('/api/project/delete-folder-now', async (req, res) => {
           allErrors.push(...r.result.errors);
         }
       }
+      broadcast('delete-folder-progress', {
+        jobId, folder, done: deletedProjects.length, total, errors: allErrors.length,
+      });
     }
 
     // 폴더 dir 자체 삭제 (.keep 등 잔류 정리)
     try {
-      await fs.rm(folderDir, { recursive: true, force: true });
+      await fs.rm(resolvePath('projects/' + folder), { recursive: true, force: true });
       allDeleted.local.push('projects/' + folder + '/');
     } catch (e) {
       allErrors.push('local rm folder: ' + e.message);
     }
 
     // Drive projects/<folder>/ purge — rclone 미가용 시 skip
-    let driveSkipped = false;
     if (checkRcloneAvailable()) {
       const remoteFolderPath = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/projects/${folder}`;
       const r = await rcloneRun(['purge', remoteFolderPath, RCLONE_TRASH_BYPASS], 60000);
@@ -2977,8 +2964,53 @@ app.post('/api/project/delete-folder-now', async (req, res) => {
       driveSkipped = true;
     }
 
-    console.log(`[Project] delete-folder-now "${folder}": projects=${deletedProjects.length}, local=${allDeleted.local.length}, drive=${allDeleted.drive.length}, errors=${allErrors.length}`);
-    res.json({ ok: true, folder, deletedProjects, deleted: allDeleted, errors: allErrors, driveSkipped });
+    console.log(`[Project] delete-folder-now done jobId=${jobId} "${folder}": projects=${deletedProjects.length}/${total}, local=${allDeleted.local.length}, drive=${allDeleted.drive.length}, errors=${allErrors.length}`);
+    broadcast('delete-folder-done', {
+      jobId, folder, deletedProjects: deletedProjects.length, deleted: allDeleted, errors: allErrors, driveSkipped,
+    });
+  } catch (e) {
+    console.error('[Project] delete-folder-now error jobId=' + jobId + ':', e);
+    broadcast('delete-folder-error', { jobId, folder, error: e.message });
+  } finally {
+    if (deleteFolderJobs.get(folder) === jobId) deleteFolderJobs.delete(folder);
+  }
+}
+
+app.post('/api/project/delete-folder-now', async (req, res) => {
+  try {
+    const folder = sanitizeProjectName(req.body && req.body.folder);
+    if (!folder) return res.status(400).json({ ok: false, error: 'Invalid folder name' });
+
+    // 동시 호출 가드 — 같은 폴더가 진행 중이면 기존 jobId 반환 (재클릭 race 차단).
+    // has→set 사이에 await(readdir)를 두면 동시 요청 둘 다 has=false 통과 가능 →
+    // jobId 발급 + set을 readdir *앞*(await 전)에 둬서 has/set을 동기 atomic으로.
+    if (deleteFolderJobs.has(folder)) {
+      return res.json({ ok: true, jobId: deleteFolderJobs.get(folder), folder, total: 0, alreadyRunning: true });
+    }
+    const jobId = 'delfolder-' + Date.now().toString() + '-' + Math.random().toString(36).slice(2, 8);
+    deleteFolderJobs.set(folder, jobId);
+
+    const folderDir = resolvePath('projects/' + folder);
+    const projectNames = new Set();
+    try {
+      const entries = await fs.readdir(folderDir, { withFileTypes: true });
+      for (const e of entries) {
+        if (!e.isFile()) continue;
+        if (!e.name.endsWith('.json') && !e.name.endsWith('.deleted')) continue;
+        const base = path.basename(e.name, path.extname(e.name));
+        if (base) projectNames.add(base);
+      }
+    } catch {
+      deleteFolderJobs.delete(folder); // 폴더 없음 — reserve 해제
+      return res.status(404).json({ ok: false, error: 'Folder not found' });
+    }
+
+    const namesArray = Array.from(projectNames);
+    console.log(`[Project] delete-folder-now started jobId=${jobId} "${folder}": total=${namesArray.length}`);
+    broadcast('delete-folder-start', { jobId, folder, total: namesArray.length });
+    res.json({ ok: true, jobId, folder, total: namesArray.length, alreadyRunning: false });
+    // fire-and-forget — 응답 보낸 뒤 백그라운드 진행 (WS 진행도 broadcast)
+    runDeleteFolder(jobId, folder, namesArray);
   } catch (e) {
     console.error('[Project] delete-folder-now error:', e);
     res.status(500).json({ ok: false, error: e.message });

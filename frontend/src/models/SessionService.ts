@@ -23,6 +23,8 @@ export class SessionService extends ResourceSyncService<Session> {
   favorites: Set<string> = new Set();
   // 진행 중인 프로젝트 영구 삭제 추적. 같은 프로젝트의 중복 enqueue 방지용.
   deletingProjects: Set<string> = new Set();
+  // 진행 중인 폴더 삭제 추적. 백그라운드 삭제 중 재클릭 방지용 (App.tsx done/error에서 해제).
+  deletingFolders: Set<string> = new Set();
 
   constructor() {
     super('projects', SESSION_SERVICE_INTERVAL);
@@ -225,9 +227,13 @@ export class SessionService extends ResourceSyncService<Session> {
   }
 
   async deleteFolder(folderName: string): Promise<void> {
-    // 폴더 안 N 프로젝트 영구 삭제 + 폴더 dir + Drive까지 서버 한 호출로. 옛 N round-trip
-    // (rename → delete-now × N → deleteDir) 흐름은 모바일 느린 네트워크에서 중간에 abort
-    // 되면 일부만 처리되고 나머지가 루트로 잔류하던 페인 (2026-05-20).
+    // 폴더 안 N 프로젝트 영구 삭제 + 폴더 dir + Drive. rclone Drive purge 다수로 수 분
+    // 걸려(7개 ~2.5분) 서버 fire-and-forget + WS 진행도 방식 (App.tsx 글로벌 구독이
+    // 진행/완료 처리). 옛 동기 응답은 사용자가 응답을 못 기다리고 재클릭 → 동시 호출
+    // race로 readdir 스냅샷이 chunk(3)씩만 줄어 "3개만 삭제 + 폴더 잔류"하던 페인 (2026-06-02).
+    if (this.deletingFolders.has(folderName)) {
+      throw new Error(`"${folderName}" 폴더 삭제가 이미 진행 중이에요.`);
+    }
     const projectsInFolder = this.resourceList.filter(n => this.folderMap[n] === folderName);
     // 메모리 캐시 + 북마크 + 즐겨찾기 정리는 클라가 책임 — 서버가 모르는 정보.
     let bmChanged = false;
@@ -254,9 +260,21 @@ export class SessionService extends ResourceSyncService<Session> {
     }
     if (favChanged) await this.saveFavorites();
     if (bmChanged) await this.saveBookmarks();
-    // 서버 batch — 로컬 파일/Drive 모두 영구 삭제 + 폴더 dir 자체 삭제.
-    await backend.deleteFolderNow(folderName);
-    await this.update();
+    // 서버 백그라운드 삭제 시작 (즉시 jobId 반환). 진행도/완료는 App.tsx 글로벌 구독이
+    // pinnedProgress + update()로 처리. deletingFolders는 그 done/error에서 해제.
+    this.deletingFolders.add(folderName);
+    let start;
+    try {
+      start = await backend.deleteFolderNow(folderName);
+    } catch (e) {
+      this.deletingFolders.delete(folderName);
+      throw e;
+    }
+    if (start.alreadyRunning) {
+      // 다른 경로(다른 탭/기기)로 이미 진행 중 — 기존 job의 진행/완료를 글로벌 구독이
+      // cover. 이 클라가 추가로 잡은 guard는 그 done 때 함께 해제됨. 낙관적 UI 갱신만.
+      await this.update();
+    }
   }
 
   async moveToFolder(name: string, targetFolder: string | null): Promise<void> {

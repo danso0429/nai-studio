@@ -1,6 +1,6 @@
 import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderResult, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
+import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderDone, DeleteFolderError, DeleteFolderProgress, DeleteFolderStart, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -588,8 +588,22 @@ export class ServerBackend extends Backend {
     return await apiJSON('/project/delete-now', { method: 'POST', body: JSON.stringify({ name }) });
   }
 
-  async deleteFolderNow(folder: string): Promise<DeleteFolderResult> {
-    return await apiJSON('/project/delete-folder-now', { method: 'POST', body: JSON.stringify({ folder }), timeout: FOLDER_DELETE_TIMEOUT_MS });
+  async deleteFolderNow(folder: string): Promise<DeleteFolderStart> {
+    // fire-and-forget: 즉시 jobId 반환, 실제 삭제는 서버 백그라운드 + WS 진행도.
+    return await apiJSON('/project/delete-folder-now', { method: 'POST', body: JSON.stringify({ folder }) });
+  }
+
+  onDeleteFolderStart(callback: (data: { jobId: string; folder: string; total: number }) => void): () => void {
+    return this.on('delete-folder-start', callback);
+  }
+  onDeleteFolderProgress(callback: (data: DeleteFolderProgress) => void): () => void {
+    return this.on('delete-folder-progress', callback);
+  }
+  onDeleteFolderDone(callback: (data: DeleteFolderDone) => void): () => void {
+    return this.on('delete-folder-done', callback);
+  }
+  onDeleteFolderError(callback: (data: DeleteFolderError) => void): () => void {
+    return this.on('delete-folder-error', callback);
   }
 
   async cleanupOrphans(): Promise<CleanupOrphansStart> {

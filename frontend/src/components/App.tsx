@@ -200,6 +200,52 @@ export const App = observer(() => {
     document.documentElement.classList.toggle('dark', darkMode);
     document.documentElement.classList.toggle('true-dark', darkMode && trueDark);
   }, [darkMode, trueDark]);
+  // 폴더 삭제(백그라운드 fire-and-forget) 진행도 — App.tsx 최상위 글로벌 구독이라
+  // SessionTreePicker가 닫혀도 진행/완료가 끊기지 않음. jobId로 진행도 토스트 매칭.
+  useEffect(() => {
+    const pid = (jobId: string) => 'delete-folder-' + jobId;
+    const unsubStart = backend.onDeleteFolderStart((d) => {
+      appState.pushPinnedProgress(
+        pid(d.jobId),
+        `"${d.folder}" 폴더 삭제 중… (0/${d.total})`,
+        Math.max(1, d.total),
+      );
+    });
+    const unsubProgress = backend.onDeleteFolderProgress((d) => {
+      appState.updatePinnedProgress(pid(d.jobId), {
+        text: `"${d.folder}" 폴더 삭제 중… (${d.done}/${d.total})` +
+          (d.errors > 0 ? ` · 오류 ${d.errors}` : ''),
+        done: d.done,
+      });
+    });
+    const unsubDone = backend.onDeleteFolderDone((d) => {
+      sessionService.deletingFolders.delete(d.folder);
+      appState.finishPinnedProgress(
+        pid(d.jobId),
+        `✓ "${d.folder}" 폴더 삭제 완료 — 프로젝트 ${d.deletedProjects}개` +
+          (d.errors.length > 0 ? ` · 오류 ${d.errors.length}건` : ''),
+        d.errors.length === 0,
+        5000,
+      );
+      sessionService.update();
+    });
+    const unsubError = backend.onDeleteFolderError((d) => {
+      sessionService.deletingFolders.delete(d.folder);
+      appState.finishPinnedProgress(
+        pid(d.jobId),
+        `✗ "${d.folder}" 폴더 삭제 실패: ${d.error}`,
+        false,
+        7000,
+      );
+      sessionService.update();
+    });
+    return () => {
+      unsubStart();
+      unsubProgress();
+      unsubDone();
+      unsubError();
+    };
+  }, []);
   useEffect(() => {
     const refreshDarkMode = async () => {
       const conf = await backend.getConfig();
