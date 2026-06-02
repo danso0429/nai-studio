@@ -1446,22 +1446,15 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
         setSelectedImageIndex(index);
       }
     }, []);
-    // 변경 1: 데스크탑에서 Ctrl/Cmd를 누르고 있는 동안만 선택모드 ON, 떼면 OFF + 선택 해제.
-    // ctrl로 켠 경우만 ctrl로 끈다(즐겨찾기 일괄선택 등 버튼으로 켠 selectMode는 영향 X).
-    // 창 blur 시에도 해제(키 누른 채 탭 전환 시 모드 갇힘 방지). 텍스트 입력 중엔 무시.
-    const ctrlSelectRef = useRef(false);
+    // 데스크탑 선택모드: Ctrl/Cmd+클릭으로 진입(onSelected의 modifier 분기) + 그 이미지 선택.
+    // Ctrl을 떼도 선택·모드 유지(persist) — hold 방식 폐기(떼면 clear되던 버그 + 우클릭 메뉴
+    // 도중 keyup 누락으로 모드가 갇히던 버그를 근본 제거). 종료는 ESC 또는 화면의 선택모드
+    // 버튼. 텍스트 입력 중엔 ESC를 입력용으로 흘려보냄.
     useEffect(() => {
       if (isMobile) return;
-      const turnOff = () => {
-        if (!ctrlSelectRef.current) return;
-        ctrlSelectRef.current = false;
-        selectModeRef.current = false;
-        setSelectMode(false);
-        selectedImages.current.clear();
-        gallaryRef.current?.refresh();
-        gallaryRef2.current?.refresh();
-      };
       const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key !== 'Escape') return;
+        if (!selectModeRef.current) return;
         const ae = document.activeElement as HTMLElement | null;
         if (
           ae &&
@@ -1470,24 +1463,15 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
             ae.isContentEditable)
         )
           return;
-        if ((e.ctrlKey || e.metaKey) && !selectModeRef.current) {
-          ctrlSelectRef.current = true;
-          selectModeRef.current = true;
-          setSelectMode(true);
-        }
-      };
-      const onKeyUp = (e: KeyboardEvent) => {
-        if (e.key === 'Control' || e.key === 'Meta' || (!e.ctrlKey && !e.metaKey)) {
-          turnOff();
-        }
+        selectModeRef.current = false;
+        setSelectMode(false);
+        selectedImages.current.clear();
+        gallaryRef.current?.refresh();
+        gallaryRef2.current?.refresh();
       };
       window.addEventListener('keydown', onKeyDown);
-      window.addEventListener('keyup', onKeyUp);
-      window.addEventListener('blur', turnOff);
       return () => {
         window.removeEventListener('keydown', onKeyDown);
-        window.removeEventListener('keyup', onKeyUp);
-        window.removeEventListener('blur', turnOff);
       };
     }, []);
     const onDeleteImages = async (scene: GenericScene) => {
