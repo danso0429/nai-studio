@@ -141,9 +141,20 @@ class TaskTimeEstimator {
   }
 }
 
+// reuse-only prep(orphan 자동 재예약)에서 *캐시 안 된* vibe를 만나면 던짐 — encodeVibeImage(=Anlas)
+// 호출을 피하고 task 전체를 hold(needsConsent)로 돌리기 위함. 일반(사용자 등록) prep에선 절대 안 던짐.
+export class ReuseOnlyVibeUncachedError extends Error {
+  constructor(public vibePath: string) {
+    super(`vibe not cached (reuse-only): ${vibePath}`);
+    this.name = 'ReuseOnlyVibeUncachedError';
+  }
+}
+
 interface TaskQueueRun {
   stopped: boolean;
   delayCnt: number;
+  // reuse-only: orphan 자동 재예약 시 true — 캐시miss vibe면 encodeVibeImage(Anlas) 호출 X, throw로 hold.
+  reuseOnlyVibe?: boolean;
   // 캐싱된 데이터 - 동일 세션/씬에서 재사용
   cachedVibes?: Map<string, { image: string; info: number; strength: number }>;
   cachedReferences?: Map<string, { image: string; info: number; strength: number; fidelity: number; referenceType: string; description: string }>;
@@ -310,6 +321,10 @@ class GenerateImageTaskHandler implements TaskHandler {
             vibe.info,
           );
           if (!isEncoded) {
+            if (run.reuseOnlyVibe) {
+              // Anlas 0 보장 — 캐시 안 된 vibe는 인코딩(=Anlas) 안 하고 task 전체를 hold로 넘김.
+              throw new ReuseOnlyVibeUncachedError(vibe.path);
+            }
             await imageService.encodeVibeImage(
               task.params.session,
               vibe.path,
@@ -342,6 +357,8 @@ class GenerateImageTaskHandler implements TaskHandler {
             strength: vibe.strength,
           };
         } catch (e) {
+          // reuse-only hold 신호는 전파 — vibe skip(return null)로 삼키면 task가 그냥 진행돼버림.
+          if (e instanceof ReuseOnlyVibeUncachedError) throw e;
           console.warn('[prepGenInput] 바이브 이미지 처리 실패, 건너뜀:', vibe.path, e);
           return null;
         }
