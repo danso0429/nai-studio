@@ -779,6 +779,11 @@ export class TaskQueueService extends EventTarget {
   // 중복 누적시켜 숫자 부풀림. 본인 보고 (2026-05-17): 246 → 90 → 146으로 증가, queue.html과 불일치.
   // 진행 중이면 새 호출은 같은 promise를 await — 중복 fetch + 중복 누적 둘 다 차단.
   private restoreInFlight: Promise<void> | null = null;
+  // 이 client 인스턴스의 고유 식별자 — 예약 소유권 표시(reserve에 전달) + heartbeat 매칭.
+  // orphan(주인 사라진 예약) 판정 기준: 서버는 ownerId의 lastHeartbeat가 끊긴 예약을 orphan으로 봄.
+  private readonly ownerId: string = v4();
+  // 아직 fill 안 된(=내가 책임지는) 예약 id 집합. 비어있으면 heartbeat skip(모바일 발열·배터리 누수 차단).
+  private outstandingReservations: Set<string> = new Set();
   constructor(handlers: TaskHandler[]) {
     super();
     this.handlers = handlers;
@@ -818,6 +823,15 @@ export class TaskQueueService extends EventTarget {
       this.restoreMirroredState().catch((e) => {
         console.warn('[TaskQueue] restoreMirroredState (polling) failed:', e);
       });
+    }, 30000);
+
+    // 예약 heartbeat — 미fill 예약이 있는 동안만 30s ping. 서버가 ownerId로 매칭해 lastHeartbeat
+    // 갱신 → orphan sweep이 *살아있는 주인*의 예약을 orphan으로 오판 안 함. visibility 게이트로
+    // 백그라운드 정지(모바일 누수 차단). 미fill 예약 0이면 skip(idle 시 네트워크 0).
+    startVisibleInterval(() => {
+      if (this.outstandingReservations.size === 0) return;
+      backend.reservationHeartbeat(this.ownerId).catch((e) =>
+        console.warn('[TaskQueue] reservationHeartbeat failed:', e));
     }, 30000);
   }
 
@@ -1098,8 +1112,9 @@ export class TaskQueueService extends EventTarget {
           } : {}),
         });
       }
-      const reservation = await backend.queueReserve(metas);
+      const reservation = await backend.queueReserve(metas, this.ownerId);
       reservationId = reservation.reservationId;
+      if (reservationId) this.outstandingReservations.add(reservationId);
       if (reservation.rejected > 0) {
         console.warn(`[TaskQueue] reserve rejected ${reservation.rejected} of ${task.total} (큐 가득 참)`);
         this.groupStats[task.cls].total -= reservation.rejected;
@@ -1132,12 +1147,14 @@ export class TaskQueueService extends EventTarget {
       // 4단계: fill — 예약에 실제 params를 채워 genQueue로 이동.
       try {
         await backend.queueFill(reservationId, items);
+        this.outstandingReservations.delete(reservationId);
         reservationId = null; // fill 성공
         this.dispatchProgress();
       } catch (fillErr: any) {
         if (this.isReservationGone(fillErr)) {
           // 404 = 서버가 이미 fill했는데 응답만 유실 (fill 시점은 tight라 2h 만료 아님).
           // 재예약하면 이중 enqueue·이중 Anlas → 성공으로 간주하고 중단.
+          this.outstandingReservations.delete(reservationId);
           reservationId = null;
           this.dispatchProgress();
         } else {
@@ -1163,7 +1180,8 @@ export class TaskQueueService extends EventTarget {
           e?.message || e,
         );
         // reserve는 됐는데 prep이 throw → 서버 예약을 닫아 orphan(2h stuck) 방지.
-        if (reservationId) this.closeReservation(taskId);
+        // (①prep throw는 같은 에러 무한 재시도 루프 방지 위해 자동 재예약 대상 아님 — 닫고 종료.)
+        if (reservationId) { this.closeReservation(taskId); this.outstandingReservations.delete(reservationId); }
         this.unwindMirrorTask(taskId, task, sceneKey);
         this.dispatchProgress();
         throw e;
@@ -1221,6 +1239,7 @@ export class TaskQueueService extends EventTarget {
       await new Promise((r) => setTimeout(r, backoffs[i]));
       try {
         await backend.queueFill(reservationId, items);
+        this.outstandingReservations.delete(reservationId);
         this.dispatchProgress();
         return; // 성공 → 대기로 이동 완료
       } catch (e: any) {
@@ -1229,12 +1248,13 @@ export class TaskQueueService extends EventTarget {
         // mirroredTasks 상태가 아니라 서버 truth(404)로 판정 — 30s 폴링 restore가
         // mirroredTasks에서 task를 빼도(restore는 reserved 재구축 X) 예약은 서버에
         // 살아있어 계속 재시도/정리 가능.
-        if (this.isReservationGone(e)) return;
+        if (this.isReservationGone(e)) { this.outstandingReservations.delete(reservationId); return; }
         console.warn(`[TaskQueue] fill 재시도 ${i + 1}/${backoffs.length} 실패 (taskId=${taskId}):`, e?.message || e);
       }
     }
     // 재시도 소진 → 예약 닫기(orphan 방지, 항상). stats unwind/토스트는 아직 카운트돼
     // 있을 때만(restore가 이미 빼갔으면 skip — 이중 차감 방지).
+    this.outstandingReservations.delete(reservationId);
     this.closeReservation(taskId);
     if (this.mirroredTasks.has(taskId)) {
       this.unwindMirrorTask(taskId, task, sceneKey);

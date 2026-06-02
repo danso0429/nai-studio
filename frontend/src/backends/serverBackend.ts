@@ -238,13 +238,23 @@ export class ServerBackend extends Backend {
     return { jobIds: data.jobIds || [], rejected: data.rejected || 0 };
   }
 
-  async queueReserve(metas: QueueJobMeta[]): Promise<{ reservationId: string; jobIds: string[]; rejected: number }> {
+  async queueReserve(metas: QueueJobMeta[], ownerId?: string): Promise<{ reservationId: string; jobIds: string[]; rejected: number }> {
     const data = await apiJSON('/queue/reserve', {
       method: 'POST',
-      body: JSON.stringify({ metas }),
+      body: JSON.stringify({ metas, ownerId }),
       retries: 3,
     });
     return { reservationId: data.reservationId, jobIds: data.jobIds || [], rejected: data.rejected || 0 };
+  }
+
+  // 예약 heartbeat — 미fill 예약의 ownerId로 주기 ping. 서버가 매칭 예약의 lastHeartbeat 갱신
+  // → orphan sweep(주인 사라진 예약 감지)이 살아있는 주인의 예약을 orphan으로 오판 안 함.
+  async reservationHeartbeat(ownerId: string): Promise<{ bumped: number }> {
+    const data = await apiJSON('/queue/reservation-heartbeat', {
+      method: 'POST',
+      body: JSON.stringify({ ownerId }),
+    });
+    return { bumped: data.bumped || 0 };
   }
 
   async queueFill(reservationId: string, items: Array<{ params: ImageGenInput; meta?: QueueJobMeta }>): Promise<{ filled: number }> {
