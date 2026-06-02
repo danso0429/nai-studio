@@ -518,73 +518,143 @@ export const App = observer(() => {
     };
   }, []);
 
-  // orphan reserved 감지 — 서버 재시작 후 fill 못 한 예약 복구 제안
+  // orphan(주인 사라진 예약) 자동 복구 — 다이얼로그 없이 자동 재예약. (옛 mount-only "재예약할까요?"
+  // 다이얼로그 대체.) 트리거: load + reservation-orphaned broadcast + WS 재연결. Anlas-0 보장 위해
+  // 재예약 전 그 씬 vibe가 전부 캐시됐는지 pre-check — 전부 캐시면 무음 자동, 캐시miss면 확인 다이얼로그.
   useEffect(() => {
     let cancelled = false;
-    const checkOrphanReserved = async () => {
-      await new Promise((r) => setTimeout(r, 1000));
-      if (cancelled) return;
+    let inFlight = false;
+
+    // 씬이 쓰는 vibe 소스 — 핸들러가 job.vibes에 넣는 바로 그 소스(gen=shared.vibes / inpaint=preset.vibes).
+    const getSceneVibes = (session: any, scene: any): Array<{ path: string; info: number }> => {
       try {
-        const summary = await backend.getReservedSummary();
-        if (summary.totalReserved === 0 || cancelled) return;
-        const lines = summary.scenes.map(
-          (s) => `${s.projectName} / ${s.sceneName} (${s.totalJobs}개)`,
-        );
-        appState.pushDialog({
-          type: 'confirm',
-          text:
-            `서버 재시작으로 예약 준비 중이던 ${summary.totalReserved}개 항목이 유실됐어요.\n` +
-            `다시 예약할까요?\n\n` +
-            lines.slice(0, 10).join('\n') +
-            (lines.length > 10 ? `\n외 ${lines.length - 10}건` : ''),
-          callback: async () => {
-            try {
-              await backend.cancelReserved();
-              await taskQueueService.restoreMirroredState();
-              let queued = 0;
-              let failed = 0;
-              for (const entry of summary.scenes) {
-                const session = await sessionService.get(entry.projectName).catch(() => null);
-                if (!session) { failed += entry.totalJobs; continue; }
-                const scenes = session.getScenes(entry.sceneType);
-                const scene = scenes.find((s) => s.name === entry.sceneName);
-                if (!scene) { failed += entry.totalJobs; continue; }
-                let tasksPerCall = 1;
-                if (scene.type === 'scene' && session.selectedWorkflow) {
-                  try {
-                    const [, preset, shared, def] = session.getCommonSetup(session.selectedWorkflow);
-                    if (def.createPrompt) {
-                      const prompts = await def.createPrompt(session, scene, preset, shared);
-                      tasksPerCall = prompts.length || 1;
-                    }
-                  } catch { /* fallback 1 */ }
-                }
-                for (const group of entry.taskGroups) {
-                  const numCalls = Math.max(1, Math.ceil(group.taskCount / tasksPerCall));
-                  for (let i = 0; i < numCalls; i++) {
-                    try {
-                      await queueScene(session, scene, group.samples);
-                      queued += group.samples * tasksPerCall;
-                    } catch (e: any) {
-                      console.warn('[orphan-requeue] failed:', entry.sceneKey, e);
-                      failed += group.samples * tasksPerCall;
-                    }
-                  }
-                  await taskQueueService.waitForPendingFills();
-                }
-              }
-              let msg = `✓ ${queued}개 재예약 완료`;
-              if (failed > 0) msg += ` (${failed}개 실패 — 씬/프로젝트 없음)`;
-              appState.pushMessage(msg);
-            } catch (e: any) {
-              appState.pushMessage('재예약 실패: ' + (e?.message || e));
-            }
-          },
-        });
-      } catch {}
+        if (scene.type === 'scene' && session.selectedWorkflow) {
+          const [, , shared] = session.getCommonSetup(session.selectedWorkflow);
+          return shared?.vibes || [];
+        }
+      } catch { /* fall through */ }
+      return scene?.preset?.vibes || [];
     };
-    checkOrphanReserved();
-    return () => { cancelled = true; };
+
+    // Anlas-0 게이트 — vibe가 하나라도 캐시 안 됐으면(=재예약 prep이 encodeVibeImage=Anlas 호출) false.
+    const areAllVibesCached = async (session: any, scene: any): Promise<boolean> => {
+      if ((window as any).__ORPHAN_TEST_FORCE_MISS) return false; // [ORPHAN-TEST] 캐시miss 강제(테스트 패널)
+      const vibes = getSceneVibes(session, scene);
+      for (const v of vibes) {
+        if (!v?.path) continue;
+        const ok = await imageService
+          .checkEncodedVibeImage(session, v.path, v.info)
+          .catch(() => false);
+        if (!ok) return false;
+      }
+      return true;
+    };
+
+    const lookupScene = async (sceneKey: string, meta: any) => {
+      const session = await sessionService.get(sceneKey.split('/')[0]).catch(() => null);
+      if (!session) return null;
+      const sceneType = meta?.taskType || sceneKey.split('/')[1];
+      const sceneName = meta?.sceneName || sceneKey.split('/')[2];
+      const scene = (session.getScenes(sceneType) || []).find((s: any) => s.name === sceneName);
+      return scene ? { session, scene } : null;
+    };
+
+    // samplesCount(samples→task수) 만큼 씬 재예약 — 옛 다이얼로그 로직 재사용(createPrompt 기반 numCalls).
+    const requeueScene = async (session: any, scene: any, samplesCount: Map<number, number>) => {
+      let tasksPerCall = 1;
+      if (scene.type === 'scene' && session.selectedWorkflow) {
+        try {
+          const [, preset, shared, def] = session.getCommonSetup(session.selectedWorkflow);
+          if (def.createPrompt) {
+            const prompts = await def.createPrompt(session, scene, preset, shared);
+            tasksPerCall = prompts.length || 1;
+          }
+        } catch { /* fallback 1 */ }
+      }
+      for (const [samples, taskCount] of samplesCount) {
+        const numCalls = Math.max(1, Math.ceil(taskCount / tasksPerCall));
+        for (let i = 0; i < numCalls; i++) {
+          await queueScene(session, scene, samples).catch((e: any) =>
+            console.warn('[orphan-recover] queueScene failed:', e));
+        }
+        await taskQueueService.waitForPendingFills();
+      }
+    };
+
+    const recover = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const { orphans } = await backend.getOrphanReservations();
+        if (cancelled || !orphans || orphans.length === 0) return;
+        // sceneKey별 그룹 — reservationIds + taskIds + samplesCount(jobTotal=samples별 count)
+        const groups = new Map<
+          string,
+          { meta: any; reservationIds: string[]; taskIds: string[]; samplesCount: Map<number, number> }
+        >();
+        for (const o of orphans) {
+          const sk = o.meta?.sceneKey;
+          if (!sk) continue;
+          if (!groups.has(sk)) groups.set(sk, { meta: o.meta, reservationIds: [], taskIds: [], samplesCount: new Map() });
+          const g = groups.get(sk)!;
+          g.reservationIds.push(o.reservationId);
+          if (o.meta?.taskId && !g.taskIds.includes(o.meta.taskId)) g.taskIds.push(o.meta.taskId);
+          g.samplesCount.set(o.jobTotal, (g.samplesCount.get(o.jobTotal) || 0) + 1);
+        }
+        const pendingConsent: Array<{
+          sceneKey: string; meta: any; taskIds: string[]; samplesCount: Map<number, number>; jobs: number;
+        }> = [];
+        let consentTotal = 0;
+        for (const [sceneKey, g] of groups) {
+          if (cancelled) return;
+          const found = await lookupScene(sceneKey, g.meta);
+          if (!found) { await backend.claimOrphans(g.reservationIds).catch(() => {}); continue; } // 씬/프로젝트 없음 → consume+skip
+          const cached = await areAllVibesCached(found.session, found.scene);
+          if (!cached) {
+            // 캐시miss → park(needsConsent — orphan 풀에서 제외 = 재알림 0) + 모아서 확인 다이얼로그
+            for (const rid of g.reservationIds) await backend.markReservationConsent(rid).catch(() => {});
+            const jobs = [...g.samplesCount.entries()].reduce((a, [s, c]) => a + s * c, 0);
+            pendingConsent.push({ sceneKey, meta: g.meta, taskIds: g.taskIds, samplesCount: g.samplesCount, jobs });
+            consentTotal += jobs;
+            continue;
+          }
+          // 전부 캐시 → claim(consume) + 무음 자동 재예약(prep이 encodeVibeImage 안 함 = Anlas 0)
+          await backend.claimOrphans(g.reservationIds).catch(() => {});
+          await requeueScene(found.session, found.scene, g.samplesCount);
+        }
+        // 캐시miss 묶음 → 확인 다이얼로그 1회. park돼 풀에서 빠졌으니 재진입해도 중복 알림 X.
+        if (!cancelled && pendingConsent.length > 0) {
+          appState.pushDialog({
+            type: 'confirm',
+            text:
+              `${consentTotal}개 항목은 vibe 재인코딩이 필요해 자동 복구를 멈췄어요 (Anlas 소비).\n` +
+              `진행할까요? (취소하면 그대로 보류돼요 — 큐 페이지에서 취소 가능)`,
+            callback: async () => {
+              for (const p of pendingConsent) {
+                if (p.taskIds.length > 0) await backend.cancelQueueByTaskIds(p.taskIds).catch(() => {}); // park된 예약 제거
+                const found = await lookupScene(p.sceneKey, p.meta);
+                if (found) await requeueScene(found.session, found.scene, p.samplesCount); // 정상 재예약(인코딩 허용=Anlas, 동의)
+              }
+              appState.pushMessage('✓ 재예약 진행');
+            },
+          });
+        }
+      } catch (e) {
+        console.warn('[orphan-recover] failed:', e);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const t = setTimeout(() => recover(), 1500); // 초기 로드 — 끊긴 사이 쌓인 orphan 회복
+    const offOrphan = backend.onReservationOrphaned(() => recover());
+    const offReconnect = backend.onWsReconnect(() => recover());
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+      offOrphan();
+      offReconnect();
+    };
   }, []);
 
   // 글로벌 프리셋 손상 복구 알림

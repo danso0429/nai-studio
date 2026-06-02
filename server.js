@@ -2302,6 +2302,21 @@ app.post('/api/queue/reservation-mark-consent', (req, res) => {
   res.json({ ok: true });
 });
 
+// [ORPHAN-TEST] 테스트 전용 — 즉시 orphan 예약 1개 생성(backdated lastHeartbeat + 주인 없음).
+// orphan 자동복구 L3 검증용. marker로 grep 제거(L4). 일반 동작에 영향 없음(별도 엔드포인트).
+app.post('/api/queue/_debug/make-orphan', (req, res) => {
+  const metas = req.body.metas || [];
+  if (metas.length === 0) return res.json({ reservationId: null });
+  const reservationId = uuidv4();
+  const jobs = metas.map((meta) => ({ jobId: uuidv4(), meta: meta || {} }));
+  const old = Date.now() - (ORPHAN_HEARTBEAT_MS + 60 * 1000); // 임계 넘긴 과거 시각 = 즉시 orphan
+  reservedJobs.set(reservationId, { jobs, createdAt: old, ownerId: null, lastHeartbeat: old, needsConsent: false, orphaned: true });
+  broadcast('reservation-orphaned', { count: 1 });
+  broadcastQueueStatus();
+  saveQueueState();
+  res.json({ reservationId });
+});
+
 // reserved만 cancel (genQueue는 유지). orphan 정리 후 재예약용.
 app.post('/api/queue/cancel-reserved', (req, res) => {
   let cancelled = 0;

@@ -301,6 +301,41 @@ export class ServerBackend extends Backend {
     return apiJSON('/queue/reserved-summary');
   }
 
+  // orphan(주인 사라진 예약) 목록 — 자동 재예약 대상. needsConsent(캐시miss hold) 제외.
+  async getOrphanReservations(): Promise<{
+    orphans: Array<{ reservationId: string; meta: any; jobTotal: number }>;
+  }> {
+    return apiJSON('/queue/orphans');
+  }
+
+  // orphan claim(consume) — 원자적 제거 + 재구성 meta 반환(이중 pickup 방지).
+  async claimOrphans(reservationIds: string[]): Promise<{
+    claimed: Array<{ reservationId: string; meta: any; jobTotal: number }>;
+  }> {
+    const data = await apiJSON('/queue/claim-orphans', {
+      method: 'POST',
+      body: JSON.stringify({ reservationIds }),
+    });
+    return { claimed: data.claimed || [] };
+  }
+
+  // 캐시miss orphan을 consent 대기로 마킹 — orphan 자동 pickup 풀에서 제외(재알림 방지).
+  async markReservationConsent(reservationId: string): Promise<{ ok: boolean }> {
+    const data = await apiJSON('/queue/reservation-mark-consent', {
+      method: 'POST',
+      body: JSON.stringify({ reservationId }),
+    });
+    return { ok: !!data.ok };
+  }
+
+  // [ORPHAN-TEST] 테스트 전용 — 즉시 orphan 예약 1개 생성. orphan 자동복구 L3 검증용(L4 제거).
+  async debugMakeOrphan(metas: any[]): Promise<{ reservationId: string | null }> {
+    return apiJSON('/queue/_debug/make-orphan', {
+      method: 'POST',
+      body: JSON.stringify({ metas }),
+    });
+  }
+
   async cancelQueueByTaskIds(taskIds: string[]): Promise<{ cancelled: number }> {
     const data = await apiJSON('/queue/cancel-by-task-ids', {
       method: 'POST',
@@ -655,6 +690,7 @@ export class ServerBackend extends Backend {
   onQueueJobComplete(callback: (data: { jobId: string; outputFilePath?: string; meta: QueueJobMeta }) => void): () => void { return this.on('queue-job-complete', callback); }
   onQueueJobError(callback: (data: { jobId: string; error: string; meta: QueueJobMeta }) => void): () => void { return this.on('queue-job-error', callback); }
   onQueueFull(callback: (data: QueueFullEvent) => void): () => void { return this.on('queue-full', callback); }
+  onReservationOrphaned(callback: (data: { count: number }) => void): () => void { return this.on('reservation-orphaned', callback); }
   onWsReconnect(callback: () => void): () => void { return this.on('ws-reconnect', callback); }
   onDriveSyncComplete(callback: (data: { localPath: string; requestedPath: string | null; fileName: string }) => void): () => void {
     return this.on('drive-sync-complete', callback);
