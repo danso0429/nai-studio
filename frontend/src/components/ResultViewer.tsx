@@ -1417,23 +1417,8 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
     pathsRef.current = paths;
     const onSelected = useCallback((index: number, ev?: React.MouseEvent) => {
       const p = pathsRef.current[index];
-      // 데스크탑 ctrl(Win/Linux) / cmd(macOS) + 좌클릭 — 선택 모드 자동 진입 + 그 이미지 선택.
-      // 모바일은 longpress/선택 모드 버튼 흐름 유지(modifier 없음 + hang 회귀 P12 #7 회피).
-      const modifier = !isMobile && ev && (ev.ctrlKey || ev.metaKey);
-      if (modifier) {
-        if (!selectModeRef.current) {
-          setSelectMode(true);
-          selectModeRef.current = true;
-        }
-        if (selectedImages.current.has(p)) {
-          selectedImages.current.delete(p);
-        } else {
-          selectedImages.current.add(p);
-        }
-        if (gallaryRef.current) gallaryRef.current.refeshImage(p);
-        if (gallaryRef2.current) gallaryRef2.current.refeshImage(p);
-        return;
-      }
+      // 데스크탑 선택모드 진입/종료는 Ctrl/Cmd 키 토글(아래 useEffect)이 담당.
+      // 여기선 모드 ON이면 클릭으로 선택 토글, OFF면 단일 이미지 뷰어를 연다.
       if (selectModeRef.current) {
         if (selectedImages.current.has(p)) {
           selectedImages.current.delete(p);
@@ -1446,15 +1431,16 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
         setSelectedImageIndex(index);
       }
     }, []);
-    // 데스크탑 선택모드: Ctrl/Cmd+클릭으로 진입(onSelected의 modifier 분기) + 그 이미지 선택.
-    // Ctrl을 떼도 선택·모드 유지(persist) — hold 방식 폐기(떼면 clear되던 버그 + 우클릭 메뉴
-    // 도중 keyup 누락으로 모드가 갇히던 버그를 근본 제거). 종료는 ESC 또는 화면의 선택모드
-    // 버튼. 텍스트 입력 중엔 ESC를 입력용으로 흘려보냄.
+    // 데스크탑 선택모드 진입/종료: Ctrl/Cmd 키를 토글로 사용. 누르면 ON, 한 번 더 누르면
+    // OFF(선택 비움). 떼는 건 무관(persist). hold 방식 + ESC 종료를 폐기 — ESC는 씬 결과
+    // 화면 자체를 닫는 핸들러와 충돌함. e.repeat은 무시(키 누르고 있을 때 반복 토글 방지).
+    // 텍스트 입력 중엔 무시. Ctrl+C/V 등 조합도 Control keydown으로 토글되지만 씬에서 거의
+    // 안 쓰여 수용(거슬리면 'Ctrl 단독'만 토글로 다듬기).
     useEffect(() => {
       if (isMobile) return;
       const onKeyDown = (e: KeyboardEvent) => {
-        if (e.key !== 'Escape') return;
-        if (!selectModeRef.current) return;
+        if (e.key !== 'Control' && e.key !== 'Meta') return;
+        if (e.repeat) return;
         const ae = document.activeElement as HTMLElement | null;
         if (
           ae &&
@@ -1463,9 +1449,14 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
             ae.isContentEditable)
         )
           return;
-        selectModeRef.current = false;
-        setSelectMode(false);
-        selectedImages.current.clear();
+        if (selectModeRef.current) {
+          selectModeRef.current = false;
+          setSelectMode(false);
+          selectedImages.current.clear();
+        } else {
+          selectModeRef.current = true;
+          setSelectMode(true);
+        }
         gallaryRef.current?.refresh();
         gallaryRef2.current?.refresh();
       };
