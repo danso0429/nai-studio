@@ -1079,6 +1079,7 @@ export class TaskQueueService extends EventTarget {
     const items: Array<{ params: ImageGenInput; meta: QueueJobMeta }> = [];
     const localOutputs: string[] = [];
     let reservationId: string | null = null;
+    let slotReleased = false;
     try {
       // 1단계: 서버에 예약(placeholder) 즉시 생성 — prep 전에 영속화돼서 새로고침해도 안 사라짐.
       const metas: QueueJobMeta[] = [];
@@ -1129,29 +1130,41 @@ export class TaskQueueService extends EventTarget {
       await prevSlot;
 
       // 4단계: fill — 예약에 실제 params를 채워 genQueue로 이동.
-      await backend.queueFill(reservationId, items);
-      reservationId = null; // fill 성공 — cleanup 불필요
-      this.dispatchProgress();
+      try {
+        await backend.queueFill(reservationId, items);
+        reservationId = null; // fill 성공
+        this.dispatchProgress();
+      } catch (fillErr: any) {
+        if (this.isReservationGone(fillErr)) {
+          // 404 = 서버가 이미 fill했는데 응답만 유실 (fill 시점은 tight라 2h 만료 아님).
+          // 재예약하면 이중 enqueue·이중 Anlas → 성공으로 간주하고 중단.
+          reservationId = null;
+          this.dispatchProgress();
+        } else {
+          // transient fill 실패(timeout/5xx 잔여). 체인 슬롯을 즉시 release해서 뒷 씬
+          // fill을 막지 않고, 이 씬만 백그라운드로 같은 reservationId 재시도(prep 재실행 X
+          // = vibe 재인코딩 0 = Anlas 0). 실패 씬은 fill 순서만 뒤로 감.
+          const retryReservationId = reservationId;
+          const retryItems = items.slice();
+          reservationId = null; // 소유권 백그라운드 이관 — outer catch/finally 중복 처리 방지
+          releaseMySlot();
+          slotReleased = true;
+          this.retryFillBackground(retryReservationId, retryItems, taskId, sceneKey, task)
+            .catch((e) => console.error('[TaskQueue] retryFillBackground crashed:', e));
+        }
+      }
     } catch (e: any) {
+      // reserve/prep 단계 실패 (fill 실패는 위 inner catch에서 처리).
       // removeAllTasks / removeTasksFromScene가 이미 이 task를 정리했으면
       // stats가 이미 unwind된 상태 — 이중 차감하면 음수 카운트 발생.
-      // 취소로 인한 fill 404는 에러 토스트 불필요.
       if (this.mirroredTasks.has(taskId)) {
         console.error(
           `[TaskQueue] addMirroredTask threw — stats unwound (sceneKey=${sceneKey || '(none)'} total=${task.total}):`,
           e?.message || e,
         );
-        this.groupStats[task.cls].total -= task.total;
-        if (sceneKey && sceneKey in this.sceneStats) {
-          this.sceneStats[sceneKey].total -= task.total;
-          if (this.sceneStats[sceneKey].total <= 0 && this.sceneStats[sceneKey].done <= 0) {
-            delete this.sceneStats[sceneKey];
-          }
-        }
-        this.mirroredTasks.delete(taskId);
-        this.mirrorTaskSceneKeys.delete(taskId);
-        this.mirrorRunStartTimes.delete(taskId);
-        delete this.taskSet[taskId];
+        // reserve는 됐는데 prep이 throw → 서버 예약을 닫아 orphan(2h stuck) 방지.
+        if (reservationId) this.closeReservation(taskId);
+        this.unwindMirrorTask(taskId, task, sceneKey);
         this.dispatchProgress();
         throw e;
       }
@@ -1159,7 +1172,78 @@ export class TaskQueueService extends EventTarget {
     } finally {
       items.length = 0;
       localOutputs.length = 0;
-      releaseMySlot();
+      if (!slotReleased) releaseMySlot();
+    }
+  }
+
+  private isReservationGone(e: any): boolean {
+    // queueFill이 404를 받으면 api()가 'API error 404: ...' 메시지로 throw.
+    return /API error 404\b/.test(String(e?.message || ''));
+  }
+
+  // 실패한 예약을 서버에서 targeted 정리(전체 nuke 아님) — orphan 방지. cancel-by-task-ids는
+  // reserved + genQueue 양쪽에서 taskId 잡 제거. fill 전이라 genQueue엔 이 task 잡이 없어
+  // reserved만 정리됨. mirroredJobs의 stale 매핑도 같이 청소.
+  private closeReservation(taskId: string) {
+    backend.cancelQueueByTaskIds([taskId]).catch((e) =>
+      console.warn('[TaskQueue] closeReservation failed:', e?.message || e));
+    for (const [jobId, j] of this.mirroredJobs) {
+      if (j.taskId === taskId) this.mirroredJobs.delete(jobId);
+    }
+  }
+
+  // mirror task의 stats/등록 정보 unwind (실패 공통 경로).
+  private unwindMirrorTask(taskId: string, task: Task, sceneKey: string) {
+    this.groupStats[task.cls].total -= task.total;
+    if (sceneKey && sceneKey in this.sceneStats) {
+      this.sceneStats[sceneKey].total -= task.total;
+      if (this.sceneStats[sceneKey].total <= 0 && this.sceneStats[sceneKey].done <= 0) {
+        delete this.sceneStats[sceneKey];
+      }
+    }
+    this.mirroredTasks.delete(taskId);
+    this.mirrorTaskSceneKeys.delete(taskId);
+    this.mirrorRunStartTimes.delete(taskId);
+    delete this.taskSet[taskId];
+  }
+
+  // fill만 백그라운드 재시도 (prep 재실행 X = Anlas 0, 같은 reservationId = 이중 enqueue 방지).
+  // 5s → 15s → 30s 3회. 소진 시 예약 닫고 에러 토스트. 사용자가 그 사이 취소하면 조용히 중단.
+  private async retryFillBackground(
+    reservationId: string,
+    items: Array<{ params: ImageGenInput; meta: QueueJobMeta }>,
+    taskId: string,
+    sceneKey: string,
+    task: Task,
+  ) {
+    const backoffs = [5000, 15000, 30000];
+    for (let i = 0; i < backoffs.length; i++) {
+      await new Promise((r) => setTimeout(r, backoffs[i]));
+      try {
+        await backend.queueFill(reservationId, items);
+        this.dispatchProgress();
+        return; // 성공 → 대기로 이동 완료
+      } catch (e: any) {
+        // 404 = 서버 예약이 사라짐 = (a) 사용자 취소(cancelQueue/cancelQueueByTaskIds가
+        // reserved 제거) 또는 (b) 이미 fill됨. 둘 다 재예약하면 안 됨 → 중단. 클라
+        // mirroredTasks 상태가 아니라 서버 truth(404)로 판정 — 30s 폴링 restore가
+        // mirroredTasks에서 task를 빼도(restore는 reserved 재구축 X) 예약은 서버에
+        // 살아있어 계속 재시도/정리 가능.
+        if (this.isReservationGone(e)) return;
+        console.warn(`[TaskQueue] fill 재시도 ${i + 1}/${backoffs.length} 실패 (taskId=${taskId}):`, e?.message || e);
+      }
+    }
+    // 재시도 소진 → 예약 닫기(orphan 방지, 항상). stats unwind/토스트는 아직 카운트돼
+    // 있을 때만(restore가 이미 빼갔으면 skip — 이중 차감 방지).
+    this.closeReservation(taskId);
+    if (this.mirroredTasks.has(taskId)) {
+      this.unwindMirrorTask(taskId, task, sceneKey);
+      this.dispatchEvent(
+        new CustomEvent('error', {
+          detail: { error: '큐 등록 실패 — 다시 시도해주세요 (자동 재시도 후 포기).', task },
+        }),
+      );
+      this.dispatchProgress();
     }
   }
 
