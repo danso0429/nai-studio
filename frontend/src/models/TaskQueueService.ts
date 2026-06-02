@@ -1257,17 +1257,13 @@ export class TaskQueueService extends EventTarget {
         console.warn(`[TaskQueue] fill 재시도 ${i + 1}/${backoffs.length} 실패 (taskId=${taskId}):`, e?.message || e);
       }
     }
-    // 재시도 소진 → 예약 닫기(orphan 방지, 항상). stats unwind/토스트는 아직 카운트돼
-    // 있을 때만(restore가 이미 빼갔으면 skip — 이중 차감 방지).
+    // 재시도 소진 → 슬림 B 꼬리: 닫지 않고 *남겨서* orphan 자동복구에 인계. heartbeat 중단(아래 delete)으로
+    // 예약이 stale → sweep이 orphan 마킹 → 자동복구가 재예약(reuse, Anlas 0). 무한 루프는 자동복구
+    // (App.tsx)의 sceneKey별 재예약 횟수 캡으로 차단. 클라 task는 unwind(재예약이 fresh task 생성).
     this.outstandingReservations.delete(taskId);
-    this.closeReservation(taskId);
     if (this.mirroredTasks.has(taskId)) {
       this.unwindMirrorTask(taskId, task, sceneKey);
-      this.dispatchEvent(
-        new CustomEvent('error', {
-          detail: { error: '큐 등록 실패 — 다시 시도해주세요 (자동 재시도 후 포기).', task },
-        }),
-      );
+      appState.pushMessage('큐 등록이 지연돼 자동 복구 대기 중이에요 (곧 다시 시도).');
       this.dispatchProgress();
     }
   }

@@ -587,6 +587,13 @@ export const App = observer(() => {
       }
     };
 
+    // 무한 루프 방지 — 같은 씬이 RECOVER_WINDOW_MS 안에 RECOVER_MAX회 넘게 자동 재예약되면 지속 실패
+    // 루프(orphan→재예약→실패→orphan). 캡 넘으면 자동 중단 + park(needsConsent) + 토스트. 재예약마다
+    // 새 task/예약이라 클라/서버 카운터 스레딩 불가 → *재예약이 거쳐가는 한 곳*(여기)서 sceneKey 기준 셈.
+    const RECOVER_MAX = 3;
+    const RECOVER_WINDOW_MS = 10 * 60 * 1000;
+    const requeueWindow = new Map<string, { count: number; firstAt: number }>();
+
     const recover = async () => {
       if (cancelled || inFlight) return;
       inFlight = true;
@@ -611,6 +618,7 @@ export const App = observer(() => {
           sceneKey: string; meta: any; taskIds: string[]; samplesCount: Map<number, number>; jobs: number;
         }> = [];
         let consentTotal = 0;
+        let gaveUp = 0;
         for (const [sceneKey, g] of groups) {
           if (cancelled) return;
           const found = await lookupScene(sceneKey, g.meta);
@@ -624,10 +632,26 @@ export const App = observer(() => {
             consentTotal += jobs;
             continue;
           }
+          // 무한 루프 방지 — sceneKey별 재예약 횟수 캡(시간창). 캡 초과 = 지속 실패 루프 → park + 포기.
+          const now = Date.now();
+          const w = requeueWindow.get(sceneKey);
+          if (w && now - w.firstAt < RECOVER_WINDOW_MS) {
+            if (w.count >= RECOVER_MAX) {
+              for (const rid of g.reservationIds) await backend.markReservationConsent(rid).catch(() => {});
+              gaveUp++;
+              continue;
+            }
+            w.count++;
+          } else {
+            requeueWindow.set(sceneKey, { count: 1, firstAt: now });
+          }
           // 전부 캐시 → 무음 자동 재예약(prep이 encodeVibeImage 안 함 = Anlas 0) *후* claim(consume).
           // requeue-first → 재예약 실패해도 orphan이 남아 다음 pickup서 재시도(데이터 손실 회피).
           await requeueScene(found.session, found.scene, g.samplesCount);
           await backend.claimOrphans(g.reservationIds).catch(() => {});
+        }
+        if (gaveUp > 0) {
+          appState.pushMessage(`${gaveUp}개 씬은 자동 복구가 ${RECOVER_MAX}회 실패해 보류했어요 (큐 페이지에서 확인/취소).`);
         }
         // 캐시miss 묶음 → 확인 다이얼로그 1회. park돼 풀에서 빠졌으니 재진입해도 중복 알림 X.
         if (!cancelled && pendingConsent.length > 0) {
