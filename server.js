@@ -2285,7 +2285,12 @@ app.post('/api/queue/claim-orphans', (req, res) => {
     claimed.push({ reservationId: rid, meta, jobTotal: rv.jobs.length });
     reservedJobs.delete(rid);
   }
-  if (claimed.length > 0) { broadcastQueueStatus(); saveQueueState(); }
+  if (claimed.length > 0) {
+    console.log(`[queue] ${claimed.length} orphan(s) claimed for auto-requeue: ` +
+      claimed.map((c) => c.meta?.sceneKey || '(no sceneKey)').join(', '));
+    broadcastQueueStatus();
+    saveQueueState();
+  }
   res.json({ claimed });
 });
 
@@ -2297,6 +2302,7 @@ app.post('/api/queue/reservation-mark-consent', (req, res) => {
   if (!rv) return res.status(404).json({ error: 'reservation not found or expired' });
   rv.needsConsent = true;
   rv.orphaned = false;
+  console.log(`[queue] reservation ${rid} marked needs-consent (vibe re-encode = Anlas, 사용자 동의 대기)`);
   broadcastQueueStatus();
   saveQueueState();
   res.json({ ok: true });
@@ -2311,6 +2317,7 @@ app.post('/api/queue/_debug/make-orphan', (req, res) => {
   const jobs = metas.map((meta) => ({ jobId: uuidv4(), meta: meta || {} }));
   const old = Date.now() - (ORPHAN_HEARTBEAT_MS + 60 * 1000); // 임계 넘긴 과거 시각 = 즉시 orphan
   reservedJobs.set(reservationId, { jobs, createdAt: old, ownerId: null, lastHeartbeat: old, needsConsent: false, orphaned: true });
+  console.log(`[ORPHAN-TEST] make-orphan created ${reservationId} sceneKey=${(metas[0] && metas[0].sceneKey) || '(none)'}`);
   broadcast('reservation-orphaned', { count: 1 });
   broadcastQueueStatus();
   saveQueueState();
