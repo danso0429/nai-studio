@@ -1139,11 +1139,15 @@
       + '<div class="card full"><div class="label">처리 중</div><div class="value" id="q-scene-label"><span class="muted">없음</span></div><div class="small" id="q-project-line"></div></div>'
       + '<div class="card"><div class="label">디스크 여유</div><div class="value" id="q-disk">-</div></div>'
       + '<div class="card"><div class="label">상태</div><div class="value" id="q-status">💤 idle</div></div>'
-      + '<div class="card full"><div class="label">직전 소요 vs 시간대 평균</div><div class="value" id="q-last-vs-bucket"><span class="muted">측정 전</span></div><div class="small" id="q-last-vs-bucket-detail"></div></div>'
-      + '<div class="card full" style="cursor: pointer;" onclick="window.toggleTimingHistory()" title="클릭해서 시간대별 통계 보기">'
-      + '<div class="label">평균 (누적) <span id="q-avg-arrow">▶</span></div>'
-      + '<div class="value" id="q-avg-cumul-value"><span class="muted">측정 전</span></div>'
-      + '<div class="small" id="q-avg-cumul-small">총 -건 · raw 0개 (2일)</div>'
+      + '<div class="card full" style="cursor: pointer; display: flex; gap: 14px; align-items: stretch;" onclick="window.toggleTimingHistory()" title="클릭해서 시간대별 통계 보기">'
+      + '<div style="flex: 1; min-width: 0;">'
+      + '<div class="label">직전 소요 vs 시간대 평균 <span id="q-avg-arrow">▶</span></div>'
+      + '<div class="value" id="q-last-vs-bucket"><span class="muted">측정 전</span></div>'
+      + '<div class="small" id="q-last-vs-bucket-detail"></div>'
+      + '</div>'
+      + '<div style="border-left: 1px solid var(--q-border); padding-left: 14px; display: flex; flex-direction: column; justify-content: center;">'
+      + '<div class="small" id="q-avg-cumul-small" style="margin-top: 0;">총 -건 · raw 0개 (2일)</div>'
+      + '</div>'
       + '</div>'
       + '</div>'
       + '<div id="q-tree-panel"></div>'
@@ -1380,10 +1384,8 @@
         setText('q-last-vs-bucket-detail', '');
       }
 
-      // 평균 (누적) — 펼침 화살표 + 값
+      // 시간대별 통계 펼침 화살표(직전소요 카드) + 누적 총/raw (오른쪽 칸)
       setText('q-avg-arrow', showTimingHistory ? '▼' : '▶');
-      const avgCumul = d.allTimeAvgMs || avg;
-      setSlot('q-avg-cumul-value', avgCumul > 0 ? fmtDur(avgCumul) : '<span class="muted">측정 전</span>');
       setText('q-avg-cumul-small', '총 ' + (d.allTimeCount != null ? d.allTimeCount.toLocaleString() : '-') + '건 · raw ' + (d.timingHistoryCount || 0) + '개 (2일)');
 
       // ETA
