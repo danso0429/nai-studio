@@ -1,7 +1,7 @@
 {
   "name": "nai-studio",
   "version": "2.0.0",
-  "license": "CC-BY-NC-ND-4.0",
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "start": "node server.js",
     "build-frontend": "cd frontend && npm install && npx vite build"
