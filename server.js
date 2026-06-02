@@ -542,18 +542,38 @@ const DISK_CRIT_GB = 10;
 // 만들어 영속화. fill로 실제 params를 채우면 genQueue로 이동해서 처리 시작.
 // reservationId → { jobs: [{ jobId, meta }], createdAt }
 const reservedJobs = new Map();
-const RESERVE_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2시간 — prep이 대량이면 오래 걸릴 수 있어서 넉넉하게
+const RESERVE_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2시간 — 어떤 client도 끝내 안 가져간 예약 최종 backstop(drop)
+const ORPHAN_HEARTBEAT_MS = 90 * 1000; // heartbeat 30s × 3 miss — 주인 client가 사라진 예약(orphan) 판정
 
+// sweep: (1) heartbeat 끊긴 예약 = orphan 마킹(드롭 X — client가 자동 재예약) (2) 2h 절대만료 = drop(backstop).
+// 살아있는 주인은 heartbeat로 lastHeartbeat 갱신돼 orphan 안 됨. needsConsent(캐시miss hold)는 사용자
+// 동의 대기 상태라 재마킹/drop 대상 아님(사용자 액션 전까지 보존).
 function cleanupExpiredReservations() {
   const now = Date.now();
+  let changed = false;
+  let newlyOrphaned = 0;
+  let totalOrphaned = 0;
   for (const [rid, res] of reservedJobs) {
-    if (now - res.createdAt > RESERVE_TIMEOUT_MS) {
+    if (now - res.createdAt > RESERVE_TIMEOUT_MS && !res.needsConsent) {
       console.log(`[queue] reservation ${rid} expired (${res.jobs.length} jobs)`);
       reservedJobs.delete(rid);
-      broadcastQueueStatus();
-      saveQueueState();
+      changed = true;
+      continue;
     }
+    if (!res.orphaned && !res.needsConsent && now - (res.lastHeartbeat || res.createdAt) > ORPHAN_HEARTBEAT_MS) {
+      res.orphaned = true;
+      newlyOrphaned++;
+      changed = true;
+      console.log(`[queue] reservation ${rid} orphaned (heartbeat stale, ${res.jobs.length} jobs)`);
+    }
+    if (res.orphaned && !res.needsConsent) totalOrphaned++;
   }
+  if (changed) {
+    broadcastQueueStatus();
+    saveQueueState();
+  }
+  // 새 orphan이 생겼으면 연결된 client에 신호 → 즉시 pickup(자동 재예약). client는 30s 폴링으로도 회복.
+  if (newlyOrphaned > 0) broadcast('reservation-orphaned', { count: totalOrphaned });
 }
 setInterval(cleanupExpiredReservations, 60 * 1000);
 
@@ -638,6 +658,7 @@ function _queueSnapshot() {
       ownerId: res.ownerId || null,
       lastHeartbeat: res.lastHeartbeat || res.createdAt,
       needsConsent: res.needsConsent || false,
+      orphaned: res.orphaned || false,
     };
   }
   return { queue, stats: queueStats, savedAt: Date.now(), blobs, reserved };
@@ -719,6 +740,7 @@ function loadQueueState() {
         if (res.ownerId === undefined) res.ownerId = null;
         if (res.lastHeartbeat === undefined) res.lastHeartbeat = res.createdAt;
         if (res.needsConsent === undefined) res.needsConsent = false;
+        if (res.orphaned === undefined) res.orphaned = false;
         reservedJobs.set(rid, res);
         restoredReserved += res.jobs.length;
       }
@@ -1928,7 +1950,11 @@ app.post('/api/queue/reservation-heartbeat', (req, res) => {
   const now = Date.now();
   let bumped = 0;
   for (const r of reservedJobs.values()) {
-    if (r.ownerId === ownerId) { r.lastHeartbeat = now; bumped++; }
+    if (r.ownerId === ownerId) {
+      r.lastHeartbeat = now;
+      if (r.orphaned) r.orphaned = false; // 주인이 살아있음(또는 돌아옴) → orphan 해제
+      bumped++;
+    }
   }
   res.json({ bumped });
 });
@@ -2232,6 +2258,48 @@ app.get('/api/queue/reserved-summary', (req, res) => {
     totalJobs: v.totalJobs,
   }));
   res.json({ scenes, totalReserved });
+});
+
+// orphan(주인 사라진 예약) 목록 — client가 자동 재예약할 대상. needsConsent(캐시miss hold) 제외.
+// 한 reservation = 한 task(=한 scene 호출의 N samples)라 첫 job meta로 scene 식별 가능.
+app.get('/api/queue/orphans', (req, res) => {
+  const orphans = [];
+  for (const [rid, rv] of reservedJobs) {
+    if (!rv.orphaned || rv.needsConsent) continue;
+    const meta = (rv.jobs[0] && rv.jobs[0].meta) || {};
+    orphans.push({ reservationId: rid, meta, jobTotal: rv.jobs.length });
+  }
+  res.json({ orphans });
+});
+
+// orphan claim(consume) — client가 책임지고 재예약할 거라 서버 예약을 *원자적으로* 제거(이중 pickup
+// 방지) + 재구성 meta 반환. 두 client가 같은 rid를 claim하면 먼저 도착한 쪽이 delete → 두 번째는
+// !rv로 skip(Node single-thread sync 루프라 인터리브 0). 이미 사라짐/consent대기면 skip.
+app.post('/api/queue/claim-orphans', (req, res) => {
+  const ids = Array.isArray(req.body.reservationIds) ? req.body.reservationIds : [];
+  const claimed = [];
+  for (const rid of ids) {
+    const rv = reservedJobs.get(rid);
+    if (!rv || !rv.orphaned || rv.needsConsent) continue;
+    const meta = (rv.jobs[0] && rv.jobs[0].meta) || {};
+    claimed.push({ reservationId: rid, meta, jobTotal: rv.jobs.length });
+    reservedJobs.delete(rid);
+  }
+  if (claimed.length > 0) { broadcastQueueStatus(); saveQueueState(); }
+  res.json({ claimed });
+});
+
+// 예약을 consent 대기(needsConsent)로 마킹 — 재예약 prep이 캐시miss vibe(=인코딩 시 Anlas)를 만나
+// 자동 완료를 멈춘 경우. orphan 재마킹·2h drop 대상에서 빠져 사용자 액션 전까지 보존.
+app.post('/api/queue/reservation-mark-consent', (req, res) => {
+  const rid = req.body.reservationId;
+  const rv = reservedJobs.get(rid);
+  if (!rv) return res.status(404).json({ error: 'reservation not found or expired' });
+  rv.needsConsent = true;
+  rv.orphaned = false;
+  broadcastQueueStatus();
+  saveQueueState();
+  res.json({ ok: true });
 });
 
 // reserved만 cancel (genQueue는 유지). orphan 정리 후 재예약용.
