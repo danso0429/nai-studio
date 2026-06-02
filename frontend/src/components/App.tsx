@@ -526,20 +526,26 @@ export const App = observer(() => {
     let inFlight = false;
 
     // 씬이 쓰는 vibe 소스 — 핸들러가 job.vibes에 넣는 바로 그 소스(gen=shared.vibes / inpaint=preset.vibes).
-    const getSceneVibes = (session: any, scene: any): Array<{ path: string; info: number }> => {
+    // 열거가 *불확실*하면(워크플로우 미상 / getCommonSetup throw) null 반환 → 호출부가 안전하게
+    // "자동 X(consent 경로)"로 처리. []는 "vibe 없음"(안전하게 캐시됨 취급)과 구분.
+    const getSceneVibes = (session: any, scene: any): Array<{ path: string; info: number }> | null => {
       try {
-        if (scene.type === 'scene' && session.selectedWorkflow) {
+        if (scene.type === 'scene') {
+          if (!session.selectedWorkflow) return null;
           const [, , shared] = session.getCommonSetup(session.selectedWorkflow);
           return shared?.vibes || [];
         }
-      } catch { /* fall through */ }
-      return scene?.preset?.vibes || [];
+        return scene?.preset?.vibes || [];
+      } catch {
+        return null;
+      }
     };
 
-    // Anlas-0 게이트 — vibe가 하나라도 캐시 안 됐으면(=재예약 prep이 encodeVibeImage=Anlas 호출) false.
+    // Anlas-0 게이트 — vibe가 하나라도 캐시 안 됐거나 *열거 불확실*이면 false(자동 재예약 X = Anlas 위험 회피).
     const areAllVibesCached = async (session: any, scene: any): Promise<boolean> => {
       if ((window as any).__ORPHAN_TEST_FORCE_MISS) return false; // [ORPHAN-TEST] 캐시miss 강제(테스트 패널)
       const vibes = getSceneVibes(session, scene);
+      if (vibes === null) return false; // 열거 불확실 → 인코딩(Anlas) 위험 회피, consent 경로로
       for (const v of vibes) {
         if (!v?.path) continue;
         const ok = await imageService
@@ -618,9 +624,10 @@ export const App = observer(() => {
             consentTotal += jobs;
             continue;
           }
-          // 전부 캐시 → claim(consume) + 무음 자동 재예약(prep이 encodeVibeImage 안 함 = Anlas 0)
-          await backend.claimOrphans(g.reservationIds).catch(() => {});
+          // 전부 캐시 → 무음 자동 재예약(prep이 encodeVibeImage 안 함 = Anlas 0) *후* claim(consume).
+          // requeue-first → 재예약 실패해도 orphan이 남아 다음 pickup서 재시도(데이터 손실 회피).
           await requeueScene(found.session, found.scene, g.samplesCount);
+          await backend.claimOrphans(g.reservationIds).catch(() => {});
         }
         // 캐시miss 묶음 → 확인 다이얼로그 1회. park돼 풀에서 빠졌으니 재진입해도 중복 알림 X.
         if (!cancelled && pendingConsent.length > 0) {
@@ -631,9 +638,10 @@ export const App = observer(() => {
               `진행할까요? (취소하면 그대로 보류돼요 — 큐 페이지에서 취소 가능)`,
             callback: async () => {
               for (const p of pendingConsent) {
-                if (p.taskIds.length > 0) await backend.cancelQueueByTaskIds(p.taskIds).catch(() => {}); // park된 예약 제거
                 const found = await lookupScene(p.sceneKey, p.meta);
                 if (found) await requeueScene(found.session, found.scene, p.samplesCount); // 정상 재예약(인코딩 허용=Anlas, 동의)
+                // park된 옛 예약 제거(새 task는 별도 id라 무관). requeue-first → 실패 시 park 잔존(재시도 가능).
+                if (p.taskIds.length > 0) await backend.cancelQueueByTaskIds(p.taskIds).catch(() => {});
               }
               appState.pushMessage('✓ 재예약 진행');
             },
