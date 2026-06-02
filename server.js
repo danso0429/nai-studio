@@ -632,7 +632,13 @@ function _queueSnapshot() {
   }
   const reserved = {};
   for (const [rid, res] of reservedJobs) {
-    reserved[rid] = { jobs: res.jobs, createdAt: res.createdAt };
+    reserved[rid] = {
+      jobs: res.jobs,
+      createdAt: res.createdAt,
+      ownerId: res.ownerId || null,
+      lastHeartbeat: res.lastHeartbeat || res.createdAt,
+      needsConsent: res.needsConsent || false,
+    };
   }
   return { queue, stats: queueStats, savedAt: Date.now(), blobs, reserved };
 }
@@ -708,6 +714,11 @@ function loadQueueState() {
       let restoredReserved = 0;
       for (const [rid, res] of Object.entries(state.reserved)) {
         if (Date.now() - res.createdAt > RESERVE_TIMEOUT_MS) continue;
+        // 옛 포맷 호환 — ownerId/lastHeartbeat 없으면 기본값. 복원된 예약은 옛 주인(이전
+        // 프로세스의 client)이 죽었으니 lastHeartbeat가 옛 값 → orphan sweep 대상이 되는 게 맞음.
+        if (res.ownerId === undefined) res.ownerId = null;
+        if (res.lastHeartbeat === undefined) res.lastHeartbeat = res.createdAt;
+        if (res.needsConsent === undefined) res.needsConsent = false;
         reservedJobs.set(rid, res);
         restoredReserved += res.jobs.length;
       }
@@ -1861,6 +1872,7 @@ app.post('/api/queue/add-batch', async (req, res) => {
 // 예약 등록 — prep 전에 서버에 placeholder를 먼저 영속화. fill로 실제 params를 채우면 genQueue로 이동.
 app.post('/api/queue/reserve', (req, res) => {
   const metas = req.body.metas || [];
+  const ownerId = req.body.ownerId || null;
   const count = metas.length;
   if (count === 0) return res.json({ reservationId: null, jobIds: [], rejected: 0 });
   let reservedTotal = 0;
@@ -1870,7 +1882,8 @@ app.post('/api/queue/reserve', (req, res) => {
   const rejected = count - toReserve.length;
   const reservationId = uuidv4();
   const jobs = toReserve.map((meta) => ({ jobId: uuidv4(), meta: meta || {} }));
-  reservedJobs.set(reservationId, { jobs, createdAt: Date.now() });
+  const now = Date.now();
+  reservedJobs.set(reservationId, { jobs, createdAt: now, ownerId, lastHeartbeat: now, needsConsent: false });
   if (rejected > 0) {
     broadcast('queue-full', {
       max: QUEUE_MAX_SIZE,
@@ -1903,6 +1916,21 @@ app.post('/api/queue/fill', (req, res) => {
   }
   saveQueueState();
   res.json({ filled: filledJobIds.length });
+});
+
+// 예약 heartbeat — live client가 자기 미fill 예약의 ownerId로 주기 ping. lastHeartbeat 갱신해서
+// orphan sweep(주인 사라진 예약 감지)이 *살아있는 주인*의 예약을 orphan으로 오판하지 않게 함.
+// lastHeartbeat는 휘발성 liveness 신호라 saveQueueState 안 함 — 30s마다 disk write churn 회피.
+// (재시작 시 lastHeartbeat 옛 값 = orphan 대상, 그게 맞음: 옛 프로세스 client는 죽었으니까.)
+app.post('/api/queue/reservation-heartbeat', (req, res) => {
+  const ownerId = req.body.ownerId;
+  if (!ownerId) return res.json({ bumped: 0 });
+  const now = Date.now();
+  let bumped = 0;
+  for (const r of reservedJobs.values()) {
+    if (r.ownerId === ownerId) { r.lastHeartbeat = now; bumped++; }
+  }
+  res.json({ bumped });
 });
 
 app.get('/api/queue/status', async (req, res) => {
