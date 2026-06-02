@@ -328,14 +328,6 @@ export class ServerBackend extends Backend {
     return { ok: !!data.ok };
   }
 
-  // [ORPHAN-TEST] 테스트 전용 — 즉시 orphan 예약 1개 생성. orphan 자동복구 L3 검증용(L4 제거).
-  async debugMakeOrphan(metas: any[]): Promise<{ reservationId: string | null }> {
-    return apiJSON('/queue/_debug/make-orphan', {
-      method: 'POST',
-      body: JSON.stringify({ metas }),
-    });
-  }
-
   async cancelQueueByTaskIds(taskIds: string[]): Promise<{ cancelled: number }> {
     const data = await apiJSON('/queue/cancel-by-task-ids', {
       method: 'POST',

@@ -487,61 +487,6 @@ const OrphanCleanupSection = () => {
 };
 
 /* ── 탭 4: 기타 설정 ── */
-/* ── [ORPHAN-TEST] 예약 orphan 자동복구 테스트 패널 (임시 — L4에서 'ORPHAN-TEST' grep으로 제거) ── */
-const OrphanRecoveryTestPanel = () => {
-  const [open, setOpen] = useState(false);
-  const [forceMiss, setForceMiss] = useState(!!(window as any).__ORPHAN_TEST_FORCE_MISS);
-  const makeOrphan = async () => {
-    const session = appState.curSession;
-    const scene = (session?.getScenes('scene') || [])[0];
-    if (!session || !scene) {
-      appState.pushMessage('[테스트] 현재 세션에 일반 씬이 없어요');
-      return;
-    }
-    const meta = {
-      taskId: 'orphantest-' + Math.random().toString(36).slice(2, 10),
-      cls: 0,
-      sceneKey: session.name + '/' + scene.type + '/' + scene.name,
-      sceneName: scene.name,
-      taskType: scene.type,
-      jobIndex: 1,
-      jobTotal: 1,
-    };
-    try {
-      await backend.debugMakeOrphan([meta]);
-      appState.pushMessage(`[테스트] 고아 예약 1개 생성 (${scene.name}) — 새로고침 없이 곧 자동 복구돼요`);
-    } catch (e: any) {
-      appState.pushMessage('[테스트] 생성 실패: ' + (e?.message || e));
-    }
-  };
-  const toggleMiss = () => {
-    const next = !forceMiss;
-    (window as any).__ORPHAN_TEST_FORCE_MISS = next;
-    setForceMiss(next);
-  };
-  return (
-    <div className="space-y-2">
-      <button className="text-xs text-gray-400 hover:text-gray-200" onClick={() => setOpen((o) => !o)}>
-        개발자: 예약 복구 테스트 {open ? '▲' : '▼'}
-      </button>
-      {open && (
-        <div className="space-y-2 pl-2 border-l-2 border-amber-500/40">
-          <button className="px-3 py-1.5 text-sm back-sky rounded clickable" onClick={makeOrphan}>
-            고아 예약 1개 만들기 (현재 씬)
-          </button>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={forceMiss} onChange={toggleMiss} />
-            <span className="text-sm gray-label">캐시 miss 강제 (다음 복구에 Anlas 확인 다이얼로그)</span>
-          </label>
-          <p className="text-xs text-gray-500">
-            생성 후 새로고침 없이 예약→대기 자동 전환을 확인하세요. miss 강제 시 확인 다이얼로그가 떠요.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-};
-
 const OtherTab = ({
   whiteMode, setWhiteMode,
   trueDark, setTrueDark,
@@ -722,8 +667,6 @@ const OtherTab = ({
           </a>
         </div>
       </div>
-      <hr className="border-gray-200 dark:border-slate-600" />
-      <OrphanRecoveryTestPanel />
     </div>
   );
 };

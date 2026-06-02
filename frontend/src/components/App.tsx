@@ -543,7 +543,6 @@ export const App = observer(() => {
 
     // Anlas-0 게이트 — vibe가 하나라도 캐시 안 됐거나 *열거 불확실*이면 false(자동 재예약 X = Anlas 위험 회피).
     const areAllVibesCached = async (session: any, scene: any): Promise<boolean> => {
-      if ((window as any).__ORPHAN_TEST_FORCE_MISS) return false; // [ORPHAN-TEST] 캐시miss 강제(테스트 패널)
       const vibes = getSceneVibes(session, scene);
       if (vibes === null) return false; // 열거 불확실 → 인코딩(Anlas) 위험 회피, consent 경로로
       for (const v of vibes) {
