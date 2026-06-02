@@ -2719,6 +2719,10 @@ function rcloneRun(args, timeoutMs) {
     execFile('rclone', fullArgs, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
       resolve({
         ok: !err,
+        // rclone exit code. not-found 판정(isRcloneNotFound)을 stderr 메시지가 아니라
+        // 이 code로 — 동시 다발 호출 시 stderr 캡처가 드물게 누락돼도 code는 일관됨
+        // (측정: 동시 12 purge nonexistent 전부 code=3). timeout 등은 typeof number 아님.
+        code: err && typeof err.code === 'number' ? err.code : (err ? null : 0),
         stdout: stdout ? stdout.toString() : '',
         stderr: stderr ? stderr.toString() : '',
         error: err ? err.message : null,
@@ -2734,6 +2738,17 @@ function isNotFoundError(text) {
     t.includes("doesn't exist") ||
     t.includes('directory not found') ||
     t.includes('object not found');
+}
+
+// rcloneRun 결과가 "지울 게 원래 없음"(not-found)인지 — 진짜 에러와 구분.
+// rclone exit code 3 = directory not found, 4 = file not found (rclone 공식 코드표).
+// 메시지(stderr) 기반만 보면 동시 다발 호출 시 stderr 캡처 누락으로 "Command failed"만
+// 잡혀 not-found를 에러로 오집계함(폴더 삭제 진행도 "오류 N건" 부풀림 페인, 2026-06-02).
+// code를 우선 보면 stderr 유무 무관하게 정확하고, timeout 등 진짜 에러(code≠3/4)는
+// not-found로 오인하지 않음 — 에러 마스킹 회피.
+function isRcloneNotFound(r) {
+  if (r && (r.code === 3 || r.code === 4)) return true;
+  return isNotFoundError((r && (r.stderr || r.stdout || r.error)) || '');
 }
 
 // projects 안에서 살아있는 프로젝트 basename set (폴더 depth 1 포함)
@@ -2831,7 +2846,7 @@ async function permanentlyDeleteProjectFiles(name) {
     );
     if (r.ok) {
       deleted.drive.push(d + '/' + name);
-    } else if (!isNotFoundError(r.stderr || r.stdout || r.error)) {
+    } else if (!isRcloneNotFound(r)) {
       errors.push('drive purge ' + d + '/' + name + ': ' + (r.stderr || r.error));
     }
   }));
@@ -2856,7 +2871,7 @@ async function permanentlyDeleteProjectFiles(name) {
       );
       if (dr.ok) {
         deleted.drive.push('projects/' + line);
-      } else if (!isNotFoundError(dr.stderr || dr.error)) {
+      } else if (!isRcloneNotFound(dr)) {
         errors.push('drive del projects/' + line + ': ' + (dr.stderr || dr.error));
       }
     }
@@ -2880,7 +2895,7 @@ async function permanentlyDeleteProjectFiles(name) {
       );
       if (dr.ok) {
         deleted.drive.push('exports/' + f);
-      } else if (!isNotFoundError(dr.stderr || dr.error)) {
+      } else if (!isRcloneNotFound(dr)) {
         errors.push('drive del exports/' + f + ': ' + (dr.stderr || dr.error));
       }
     }
@@ -2957,7 +2972,7 @@ async function runDeleteFolder(jobId, folder, namesArray) {
       const r = await rcloneRun(['purge', remoteFolderPath, RCLONE_TRASH_BYPASS], 60000);
       if (r.ok) {
         allDeleted.drive.push('projects/' + folder + '/');
-      } else if (!isNotFoundError(r.stderr || r.stdout || r.error)) {
+      } else if (!isRcloneNotFound(r)) {
         allErrors.push('drive purge projects/' + folder + ': ' + (r.stderr || r.error));
       }
     } else {
@@ -3284,7 +3299,7 @@ async function runCleanupOrphans(jobId) {
         );
         if (pr.ok) {
           deleted.drive.push(item);
-        } else if (!isNotFoundError(pr.stderr || pr.stdout || pr.error)) {
+        } else if (!isRcloneNotFound(pr)) {
           errors.push('drive purge ' + item + ': ' + (pr.stderr || pr.error));
         }
       }
@@ -3312,7 +3327,7 @@ async function runCleanupOrphans(jobId) {
         );
         if (dr.ok) {
           deleted.drive.push(item);
-        } else if (!isNotFoundError(dr.stderr || dr.error)) {
+        } else if (!isRcloneNotFound(dr)) {
           errors.push('drive del ' + item + ': ' + (dr.stderr || dr.error));
         }
       }
