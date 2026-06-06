@@ -836,6 +836,7 @@ export class AppState {
     for (const f of sessionService.getOrderedFolders()) {
       if (f !== currentFolder) items.push({ text: '📁 ' + f + josaRo(f) + ' 이동', value: f });
     }
+    items.push({ text: '📋 프로젝트 복제', value: '__duplicate__' });
     items.push({ text: '🗑️ 프로젝트 영구 삭제', value: '__delete__' });
     const target = await this.pushDialogAsync({ type: 'select', text: `"${name}" 설정`, items });
     if (!target) return;
@@ -850,6 +851,39 @@ export class AppState {
       this.exportProjectImages(name);
     } else if (target === '__delete__') {
       this.deleteProjectBackground(name);
+    } else if (target === '__duplicate__') {
+      const newName = await this.pushDialogAsync({
+        type: 'input-confirm',
+        text: `"${name}" 복제 — 새 프로젝트 이름`,
+      });
+      if (!newName) return;
+      if (sessionService.list().includes(newName)) {
+        this.pushMessage('이미 존재하는 프로젝트 이름입니다.');
+        return;
+      }
+      const mode = await this.pushDialogAsync({
+        type: 'select',
+        text: '이미지도 복사할까요?',
+        items: [
+          { text: '🖼️ 이미지 포함', value: 'with' },
+          { text: '⚙️ 설정만 (이미지 미포함)', value: 'without' },
+        ],
+      });
+      if (!mode) return;
+      const session = await sessionService.get(name);
+      if (!session) {
+        this.pushMessage('프로젝트를 불러올 수 없어요');
+        return;
+      }
+      const toastId = this.pushMessage(`"${newName}"으로 복제 중…`, { sticky: true });
+      try {
+        await sessionService.duplicateSessionDeep(session, newName, mode === 'with');
+        this.dismissMessage(toastId);
+        this.pushMessage(`"${newName}"으로 복제했어요.`);
+      } catch (e: any) {
+        this.dismissMessage(toastId);
+        this.pushMessage(e.message || '복제 실패');
+      }
     } else {
       try {
         await sessionService.moveToFolder(name, target === '__root__' ? null : target);

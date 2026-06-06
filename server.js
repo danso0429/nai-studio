@@ -2634,6 +2634,21 @@ app.post('/api/fs/copy', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 디렉토리 재귀 복사 (프로젝트 복제 — 이미지 디렉토리 통째 복사). src 없으면 no-op(ok).
+app.post('/api/fs/copy-dir', async (req, res) => {
+  try {
+    const src = resolvePath(req.body.src);
+    const dest = resolvePath(req.body.dest);
+    try {
+      await fs.access(src);
+    } catch {
+      return res.json({ ok: true, skipped: true }); // 원본 디렉토리 없음(이미지 없는 프로젝트)
+    }
+    await fs.cp(src, dest, { recursive: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/fs/rename', async (req, res) => {
   try {
     const oldPath = resolvePath(req.body.oldPath);

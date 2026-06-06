@@ -507,6 +507,10 @@ export class ServerBackend extends Backend {
     await api('/fs/copy', { method: 'POST', body: JSON.stringify({ src, dest }) });
   }
 
+  async copyDir(src: string, dest: string): Promise<void> {
+    await api('/fs/copy-dir', { method: 'POST', body: JSON.stringify({ src, dest }) });
+  }
+
   async readDataFile(arg: string): Promise<string> {
     // multi-MB base64 download → 180s timeout (H18).
     return (await apiJSON(`/fs/read-data?path=${encodeURIComponent(arg)}`, { timeout: BINARY_API_TIMEOUT_MS })).content;

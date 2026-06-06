@@ -112,6 +112,27 @@ export class SessionService extends ResourceSyncService<Session> {
     this.dispatchEvent(new CustomEvent('listupdated'));
   }
 
+  // 프로젝트 복제 (이미지 포함/미포함). 이미지 디렉토리는 이름 기준(outs/<이름> 등)이라
+  // 이름만 바꿔 통째 복사. 설정(JSON)은 toJSON → name 교체 → createFrom.
+  async duplicateSessionDeep(session: Session, newName: string, withImages: boolean): Promise<void> {
+    if (this.resourceList.includes(newName)) {
+      throw new Error('이미 존재하는 프로젝트 이름입니다.');
+    }
+    if (withImages) {
+      const imageDirs = ['outs', 'inpaints', 'vibes', 'inpaint_masks', 'inpaint_orgs'];
+      for (const dir of imageDirs) {
+        try {
+          await backend.copyDir(dir + '/' + session.name, dir + '/' + newName);
+        } catch (e) {
+          console.warn('[duplicate] copyDir failed:', dir, e);
+        }
+      }
+    }
+    const json = session.toJSON();
+    json.name = newName;
+    await this.createFrom(newName, json);
+  }
+
   // 북마크 기능
   private bookmarkData: {
     scenes: Record<string, { name: string; type: string }>;

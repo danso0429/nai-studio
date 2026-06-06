@@ -240,6 +240,7 @@ export abstract class Backend {
   // 잘려나갈 수 있음 — 호출처가 작은 데이터(개별 dirty resource)만 보내야 함. fire-and-forget.
   abstract writeFileKeepalive(filename: string, data: string): void;
   abstract copyFile(src: string, dest: string): Promise<void>;
+  abstract copyDir(src: string, dest: string): Promise<void>;
   abstract readDataFile(arg: string): Promise<string>;
   abstract writeDataFile(filename: string, data: string): Promise<void>;
   abstract writeDataFileAbsolute(absolutePath: string, data: string): Promise<void>;
