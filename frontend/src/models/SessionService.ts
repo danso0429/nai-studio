@@ -67,6 +67,39 @@ export class SessionService extends ResourceSyncService<Session> {
     return this.favorites.has(name);
   }
 
+  // ===== 폴더 색상 / 순서 =====
+  // 1단계: localStorage 영속화(빠른 작동). 2단계에서 favorites.json 패턴(서버 파일)으로
+  // 올려 다기기 동기화 예정. ProjectDrawer가 이 메서드들로 색상/순서를 읽고 쓴다.
+  private readFolderColors(): Record<string, string> {
+    try { return JSON.parse(localStorage.getItem('folderColors') || '{}'); } catch { return {}; }
+  }
+  getFolderColor(folder: string): string | null {
+    return this.readFolderColors()[folder] ?? null;
+  }
+  async setFolderColor(folder: string, color: string | null): Promise<void> {
+    const m = this.readFolderColors();
+    if (color) m[folder] = color; else delete m[folder];
+    try { localStorage.setItem('folderColors', JSON.stringify(m)); } catch {}
+    this.dispatchEvent(new CustomEvent('listupdated'));
+  }
+  private readFolderOrder(): string[] {
+    try { return JSON.parse(localStorage.getItem('folderOrder') || '[]'); } catch { return []; }
+  }
+  // 저장된 순서 우선, 누락분은 자연 정렬로 뒤에 붙임.
+  getOrderedFolders(): string[] {
+    const order = this.readFolderOrder();
+    const all = this.folderList;
+    const inOrder = order.filter((f) => all.includes(f));
+    const rest = all
+      .filter((f) => !inOrder.includes(f))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    return [...inOrder, ...rest];
+  }
+  async setFolderOrder(order: string[]): Promise<void> {
+    try { localStorage.setItem('folderOrder', JSON.stringify(order)); } catch {}
+    this.dispatchEvent(new CustomEvent('listupdated'));
+  }
+
   // 북마크 기능
   private bookmarkData: {
     scenes: Record<string, { name: string; type: string }>;

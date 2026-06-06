@@ -257,6 +257,14 @@ export class AppState {
     { session: Session; scenes: GenericScene[]; paths: string[] }
   >();
 
+  // 프로젝트 드로어(좌측 슬라이드 폴더 UI) 열림 상태. ProjectDrawer가 구독, SessionSelect 버튼이 토글.
+  @observable accessor projectDrawerOpen: boolean = false;
+  // 새 폴더 드로어 UI 사용 여부 (off면 옛 SessionTreePicker 모달). config 동기화.
+  // 회귀 안전장치 — 드로어에 문제가 생기면 설정에서 끄면 옛 UI로 즉시 복귀(재배포 불필요).
+  @observable accessor useProjectDrawer: boolean = true;
+  // 프로젝트 선택 fetch 연타 가드 (selectSession). 같은 이름 fetch 진행 중이면 무시.
+  private pendingSelection: string | null = null;
+
   // 이미지 클립보드
   @observable accessor imageClipboard: string[] = [];
 
@@ -759,6 +767,132 @@ export class AppState {
     for (const scene of info.scenes) {
       imageService.refresh(info.session, scene).catch(() => {});
     }
+  }
+
+  // ===== 프로젝트 드로어용 폴더/프로젝트 액션 메뉴 (SessionTreePicker 로직 흡수) =====
+  // 폴더 내보내기 버튼/⋮ → 우리 고유 폴더 액션(큐등록/내보내기/백업). 이름변경·삭제·색상·
+  // 새프로젝트는 ProjectDrawer 자체가 처리.
+  async folderBackupMenu(folder: string) {
+    const allProjects = sessionService
+      .list()
+      .filter((n) => sessionService.getFolderOf(n) === folder);
+    const action = await this.pushDialogAsync({
+      type: 'select',
+      text: `폴더 "${folder}" 작업`,
+      items: [
+        { text: '🚀 프로젝트 큐 등록', value: 'enqueue-all', color: 'amber' },
+        { text: '📦 폴더 전체 내보내기 (이미지)', value: 'export' },
+        { text: '💾 폴더 전체 백업 (이미지 포함, 복원 가능)', value: 'backup' },
+        { text: '💾 폴더 전체 백업 (이미지 없이, 가볍게)', value: 'backup-light' },
+      ],
+    });
+    if (!action) return;
+    if (action === 'enqueue-all') {
+      if (allProjects.length === 0) return;
+      const mode = await this.pushDialogAsync({
+        type: 'select',
+        text: `폴더 "${folder}" 프로젝트 큐 등록`,
+        items: [
+          { text: `모든 프로젝트 (${allProjects.length}개)`, value: 'all' },
+          { text: '선택한 프로젝트만', value: 'pick' },
+        ],
+      });
+      if (!mode) return;
+      let targetProjects = allProjects;
+      if (mode === 'pick') {
+        const picked = await this.pushDialogAsync({
+          type: 'checkbox',
+          text: '큐에 등록할 프로젝트를 선택하세요',
+          items: allProjects.map((name) => ({ text: name, value: name })),
+        });
+        if (!picked) return;
+        try { targetProjects = JSON.parse(picked); } catch { return; }
+        if (targetProjects.length === 0) return;
+      }
+      const items: Array<{ session: any; scene: any }> = [];
+      for (const projectName of targetProjects) {
+        const session = await sessionService.get(projectName);
+        if (!session) continue;
+        for (const scene of session.getScenes('scene')) items.push({ session, scene });
+        for (const scene of session.getScenes('inpaint')) items.push({ session, scene });
+      }
+      this.enqueueScenesSequentially(items, `폴더 "${folder}" (${targetProjects.length}개 프로젝트)`);
+    } else if (action === 'export') {
+      this.exportFolder(folder, allProjects);
+    } else if (action === 'backup') {
+      this.folderExportDeep(folder, allProjects, true);
+    } else if (action === 'backup-light') {
+      this.folderExportDeep(folder, allProjects, false);
+    }
+  }
+
+  // 프로젝트 행 ⋮ 메뉴 → 큐등록/내보내기/이동/삭제 (handleProjectMenu 흡수)
+  async projectActionMenu(name: string) {
+    const currentFolder = sessionService.getFolderOf(name);
+    const items: { text: string; value: string; color?: 'amber' | 'green' | 'red' }[] = [];
+    items.push({ text: '🚀 모든 씬 한 번에 큐 등록', value: '__enqueue_all__', color: 'amber' });
+    items.push({ text: '📦 이미지 내보내기', value: '__export__' });
+    if (currentFolder !== null) items.push({ text: '루트로 이동', value: '__root__' });
+    for (const f of sessionService.getOrderedFolders()) {
+      if (f !== currentFolder) items.push({ text: '📁 ' + f + josaRo(f) + ' 이동', value: f });
+    }
+    items.push({ text: '🗑️ 프로젝트 영구 삭제', value: '__delete__' });
+    const target = await this.pushDialogAsync({ type: 'select', text: `"${name}" 설정`, items });
+    if (!target) return;
+    if (target === '__enqueue_all__') {
+      const session = await sessionService.get(name);
+      if (!session) { this.pushMessage(`프로젝트 "${name}"를 불러올 수 없어요`); return; }
+      const items2: Array<{ session: any; scene: any }> = [];
+      for (const scene of session.getScenes('scene')) items2.push({ session, scene });
+      for (const scene of session.getScenes('inpaint')) items2.push({ session, scene });
+      this.enqueueScenesSequentially(items2, `프로젝트 "${name}"`);
+    } else if (target === '__export__') {
+      this.exportProjectImages(name);
+    } else if (target === '__delete__') {
+      this.deleteProjectBackground(name);
+    } else {
+      try {
+        await sessionService.moveToFolder(name, target === '__root__' ? null : target);
+      } catch (e: any) {
+        this.pushMessage(e.message || '이동 실패');
+      }
+    }
+  }
+
+  // 폴더+프로젝트 영구 삭제 (우리 정책 — 휴지통 거치지 않음). ProjectDrawer withProjects 옵션.
+  async deleteFolderWithProjects(folder: string) {
+    try {
+      await sessionService.deleteFolder(folder);
+    } catch (e: any) {
+      this.pushMessage(e.message || '폴더 삭제 실패');
+    }
+  }
+
+  // 프로젝트 선택 — sticky 토스트 + 연타 가드 + retry (느린 네트워크 대응, P12 #8).
+  // SessionSelect 버튼과 ProjectDrawer가 공유 (selectSession 로직 단일화).
+  selectSession(name: string) {
+    if (this.curSession?.name === name) return;
+    if (this.pendingSelection === name) return;
+    this.pendingSelection = name;
+    const toastId = this.pushMessage(`프로젝트 "${name}" 로딩 중…`, { sticky: true });
+    sessionService
+      .get(name, { throwOnError: true, retry: true })
+      .then((session) => {
+        this.dismissMessage(toastId);
+        if (this.pendingSelection !== name) return;
+        this.pendingSelection = null;
+        if (session) {
+          imageService.refreshBatch(session);
+          this.curSession = session;
+        } else {
+          this.pushMessage(`프로젝트 "${name}" 로드 실패`);
+        }
+      })
+      .catch((e) => {
+        this.dismissMessage(toastId);
+        if (this.pendingSelection === name) this.pendingSelection = null;
+        this.pushMessage(`프로젝트 "${name}" 로드 실패: ${e?.message ?? e}`);
+      });
   }
 
   blockIfBusy(): boolean {

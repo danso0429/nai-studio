@@ -14,6 +14,7 @@ import { SceneCell, queueScene } from './SceneQueueControl';
 import TaskQueueControl, { TaskQueueProgress, TaskQueueControls } from './TaskQueueControl';
 import TobBar from './TobBar';
 import AlertWindow from './AlertWindow';
+import ProjectDrawer from './ProjectDrawer';
 import DriveRetryWidget from './DriveRetryWidget';
 import ExportPresetsDialog from './ExportPresetsDialog';
 import ExportOptionsForm from './ExportOptionsForm';
@@ -298,6 +299,7 @@ export const App = observer(() => {
       appState.classicSceneCard = conf.classicSceneCard ?? false;
       appState.initialThumbSize = conf.initialThumbSize;
       appState.globalSamplingPresetId = conf.samplingPresetId;
+      appState.useProjectDrawer = conf.useProjectDrawer ?? true;
     };
     refreshDarkMode();
     sessionService.addEventListener('config-changed', refreshDarkMode);
@@ -883,6 +885,7 @@ export const App = observer(() => {
         </ErrorBoundary>
         <AlertWindow />
         <ConfirmWindow />
+        <ProjectDrawer />
         <MultiImportNameDialog />
         <FolderBackupImportDialog />
         <GlobalPresetPickerOverlay />

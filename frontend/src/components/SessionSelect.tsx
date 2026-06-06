@@ -1,9 +1,9 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import SessionTreePicker from './SessionTreePicker';
-import { FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaRegBookmark, FaThLarge } from 'react-icons/fa';
-import ProjectBrowser, { pushRecentProject } from './ProjectBrowser';
+import { FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaRegBookmark, FaThLarge, FaFolder } from 'react-icons/fa';
+import ProjectBrowser from './ProjectBrowser';
 import Tooltip from './Tooltip';
-import { sessionService, imageService, workFlowService, isMobile } from '../models';
+import { sessionService, workFlowService, isMobile } from '../models';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { CharacterPresetFloatEditor } from './CharacterPresetEditor';
@@ -15,8 +15,6 @@ import { runInAction } from 'mobx';
 const SessionSelect = observer(() => {
   const [showCharacterPresets, setShowCharacterPresets] = useState(false);
   const [showProjectBrowser, setShowProjectBrowser] = useState(false);
-  // 진행 중인 선택 가드. 인터넷 느릴 때 사용자 연타로 race 방지.
-  const pendingSelectionRef = useRef<string | null>(null);
   const addSession = () => {
     (async () => {
       appState.pushDialog({
@@ -37,45 +35,6 @@ const SessionSelect = observer(() => {
         },
       });
     })();
-  };
-
-  const selectSession = (name: string) => {
-    // 같은 프로젝트 재선택은 무시.
-    if (appState.curSession?.name === name) return;
-    // 같은 이름 fetch 진행 중이면 무시 (사용자 연타 가드).
-    if (pendingSelectionRef.current === name) return;
-    pendingSelectionRef.current = name;
-    // 동기 await 제거. 클릭 핸들러를 막지 않고 즉시 토스트로 피드백 →
-    // 인터넷 느릴 때 "무반응" 인상 해소. fetch 응답 도착 시 curSession set.
-    // sticky 토스트 — 본인 페인 (P12 #8): 인터넷 느린 환경에서 자동 dismiss 후에도
-    // 로드 진행 중이면 사용자가 "이미 끝났는데 안 들어간 줄" 오해. 완료/실패 시 명시 제거.
-    const toastId = appState.pushMessage(`프로젝트 "${name}" 로딩 중…`, { sticky: true });
-    sessionService
-      .get(name, { throwOnError: true, retry: true })
-      .then((session) => {
-        appState.dismissMessage(toastId);
-        // 도착 사이 다른 선택이 들어왔으면 이 결과는 버림.
-        if (pendingSelectionRef.current !== name) return;
-        pendingSelectionRef.current = null;
-        if (session) {
-          imageService.refreshBatch(session);
-          appState.curSession = session;
-          pushRecentProject(name);
-        } else {
-          // throwOnError로 실패 시 catch에서 처리됨. 여기 도달은 이론상
-          // 캐시 hit 직후 resources[name]이 비어있는 race 정도.
-          appState.pushMessage(`프로젝트 "${name}" 로드 실패`);
-        }
-      })
-      .catch((e) => {
-        appState.dismissMessage(toastId);
-        if (pendingSelectionRef.current === name) {
-          pendingSelectionRef.current = null;
-        }
-        appState.pushMessage(
-          `프로젝트 "${name}" 로드 실패: ${e?.message ?? e}`,
-        );
-      });
   };
 
   const deleteSession = () => {
@@ -183,10 +142,32 @@ const SessionSelect = observer(() => {
         프로젝트:{' '}
       </span>
       <div className="md:max-w-80 flex-1 min-w-40">
-        <SessionTreePicker
-          selectedName={appState.curSession?.name}
-          onSelect={selectSession}
-        />
+        {appState.useProjectDrawer ? (
+          <button
+            onClick={() => (appState.projectDrawerOpen = true)}
+            className="w-full px-3 py-2 rounded-md text-left bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-default flex items-center gap-1.5"
+          >
+            {appState.curSession && sessionService.isFavorite(appState.curSession.name) && (
+              <FaBookmark size={11} style={{ color: '#facc15' }} className="flex-none" />
+            )}
+            <span className="truncate flex-1">
+              {appState.curSession?.name || '프로젝트 선택'}
+            </span>
+            {appState.curSession && sessionService.getFolderOf(appState.curSession.name) && (
+              <span className="text-xs text-gray-400 flex items-center gap-0.5 flex-none">
+                <FaFolder size={10} />
+                <span className="max-w-[70px] truncate">
+                  {sessionService.getFolderOf(appState.curSession.name)}
+                </span>
+              </span>
+            )}
+          </button>
+        ) : (
+          <SessionTreePicker
+            selectedName={appState.curSession?.name}
+            onSelect={(name) => appState.selectSession(name)}
+          />
+        )}
       </div>
       <button className={`icon-button nback-sky mx-1`} onClick={addSession}>
         <FaPlus size={18} />
