@@ -17,7 +17,7 @@ import type { GlobalPresetType, IGlobalPresetEntry } from './GlobalPresetService
 import { SUPPORTED_GLOBAL_PRESET_TYPES } from './GlobalPresetService';
 import { Dialog } from '../components/ConfirmWindow';
 import { getSceneKey, queueI2IWorkflow, queueMirrorWorkflow, queueWorkflow, Task } from './TaskQueueService';
-import { cropMirrorResultFromDataUri, dataUriToBase64, deleteImageFiles } from './ImageService';
+import { cropMirrorResultFromDataUri, dataUriToBase64 } from './ImageService';
 import {
   createImageWithText,
   embedJSONInPNG,
@@ -249,6 +249,13 @@ export class AppState {
   @observable accessor appliedCharacterPreset: string | undefined = undefined; // 현재 적용된 캐릭터 프리셋 이름
   @observable accessor appliedSamplingPreset: string | undefined = undefined; // 현재 적용된 샘플링 프리셋 id
   @observable accessor globalSamplingPresetId: string | undefined = undefined; // config.json 캐시
+
+  // 이미지 일괄 삭제(백그라운드 fire-and-forget) jobId → 완료 시 캐시 무효화/refresh용 정보.
+  // 서버가 삭제를 끝까지 진행하고 WS done이 오면 App.tsx 글로벌 구독이 이 맵으로 갱신.
+  private pendingImageDeletes = new Map<
+    string,
+    { session: Session; scenes: GenericScene[]; paths: string[] }
+  >();
 
   // 이미지 클립보드
   @observable accessor imageClipboard: string[] = [];
@@ -732,6 +739,25 @@ export class AppState {
     );
     if (autoDismissMs > 0) {
       setTimeout(() => this.removePinnedProgress(id), autoDismissMs);
+    }
+  }
+
+  // 이미지 일괄 삭제(백그라운드) 완료 — 캐시 무효화 + 영향 씬 refresh.
+  // 사용자가 다른 프로젝트로 갔어도 원래 session/scene 기준으로 갱신해 데이터 정합 유지.
+  handleImageDeleteDone(jobId: string) {
+    const info = this.pendingImageDeletes.get(jobId);
+    if (!info) return;
+    this.pendingImageDeletes.delete(jobId);
+    for (const path of info.paths) {
+      imageService.cache.delete(path);
+      const dir = path.substring(0, path.lastIndexOf('/'));
+      const name = path.substring(path.lastIndexOf('/') + 1);
+      for (const sz of [200, 400]) {
+        imageService.cache.delete(dir + '/fastcache/' + sz + '_' + name);
+      }
+    }
+    for (const scene of info.scenes) {
+      imageService.refresh(info.session, scene).catch(() => {});
     }
   }
 
@@ -2807,63 +2833,45 @@ export class AppState {
         const filename = path.split('/').pop()!;
         return !!(scene && scene.mains.includes(filename));
       };
-      // 대량 삭제는 server 큐가 새 .png를 디스크에 떨어뜨리는 동안 paths를
-      // 휩쓸 수 있어 race가 발생함. 큐를 잠시 멈추고 in-flight job 완료 후
-      // paths capture + 삭제 진행.
-      const withQueuePaused = async (fn: () => Promise<void>) => {
-        await backend.pauseQueue();
-        try {
-          await fn();
-        } finally {
-          try { await backend.resumeQueue(); } catch {}
-        }
-      };
+      // 삭제할 paths를 지금(프로젝트 고정) snapshot한 뒤 서버 백그라운드로 위임.
+      // - paths를 미리 캡처하므로 삭제 도중 다른 프로젝트로 가도 영향 없음
+      //   (옛 코드는 buildPaths가 this.curSession을 매번 읽어 프로젝트 바뀌면 빈 paths,
+      //    심하면 같은 이름 씬의 이미지를 오삭제할 수 있었음).
+      // - 큐를 멈추지 않으므로 삭제 중에도 생성이 계속 진행됨. snapshot이 race를
+      //   대신 회피 — 보낸 paths만 지우니 삭제 중 큐가 떨군 새 png는 자연 제외.
+      // 진행도는 App.tsx 글로벌 WS 구독이 표시하고, 완료 시 캐시 무효화/refresh도 그쪽에서.
       const runBatchImageDelete = (
-        buildPaths: (scene: GenericScene) => string[],
+        buildPaths: (scene: GenericScene, session: Session) => string[],
       ) => {
         const session = this.curSession!;
-        const total = selected.length;
-        const pid = appState.pushProgressDialog(`이미지 삭제 중... 0/${total}`, total);
+        const items: { outputDir: string; filenames: string[]; scene: GenericScene }[] = [];
+        for (const scene of selected) {
+          const paths = buildPaths(scene, session);
+          if (paths.length === 0) continue;
+          const outputDir = imageService.getOutputDir(session, scene);
+          const filenames = paths.map((p) => p.split('/').pop()!);
+          items.push({ outputDir, filenames, scene });
+        }
+        if (items.length === 0) {
+          appState.pushMessage('삭제할 이미지가 없습니다.');
+          return;
+        }
         (async () => {
-          let failed = 0;
           try {
-            await withQueuePaused(async () => {
-              const CHUNK = 4;
-              for (let i = 0; i < selected.length; i += CHUNK) {
-                const chunk = selected.slice(i, i + CHUNK);
-                await Promise.all(
-                  chunk.map(async (scene) => {
-                    try {
-                      const paths = buildPaths(scene);
-                      if (paths.length > 0) {
-                        await deleteImageFiles(session, paths, scene);
-                      }
-                    } catch (e) {
-                      console.error('이미지 삭제 실패:', scene.name, e);
-                      failed++;
-                    }
-                  }),
-                );
-                const done = Math.min(i + CHUNK, total);
-                appState.updateProgressDialog(pid, {
-                  done,
-                  text: `이미지 삭제 중... ${done}/${total}`,
-                });
-              }
-            });
-          } catch (e) {
-            console.error('이미지 일괄 삭제 배치 실패:', e);
-            failed++;
-          }
-          const success = total - failed;
-          if (failed === 0) {
-            appState.finishProgressDialog(pid, `✓ ${success}개 씬 이미지 삭제 완료`, true);
-          } else {
-            appState.finishProgressDialog(
-              pid,
-              `△ ${success}/${total} 성공 (${failed}건 실패)`,
-              false,
+            const { jobId } = await backend.deleteImagesBatchBg(
+              items.map((it) => ({ outputDir: it.outputDir, filenames: it.filenames })),
             );
+            const paths: string[] = [];
+            for (const it of items) {
+              for (const fn of it.filenames) paths.push(it.outputDir + '/' + fn);
+            }
+            appState.pendingImageDeletes.set(jobId, {
+              session,
+              scenes: items.map((it) => it.scene),
+              paths,
+            });
+          } catch (e: any) {
+            appState.pushMessage('이미지 삭제 시작 실패: ' + (e?.message || e));
           }
         })();
       };
@@ -2892,12 +2900,12 @@ export class AppState {
                 type: 'confirm',
                 text: '정말로 모든 이미지를 삭제하시겠습니까?',
                 callback: async () => {
-                  runBatchImageDelete((scene) =>
+                  runBatchImageDelete((scene, session) =>
                     gameService
-                      .getOutputs(this.curSession!, scene)
+                      .getOutputs(session, scene)
                       .map(
                         (x) =>
-                          imageService.getOutputDir(this.curSession!, scene!) +
+                          imageService.getOutputDir(session, scene!) +
                           '/' +
                           x,
                       ),
@@ -2911,12 +2919,12 @@ export class AppState {
                 callback: async (value) => {
                   if (!value) return;
                   const n = parseInt(value);
-                  runBatchImageDelete((scene) =>
+                  runBatchImageDelete((scene, session) =>
                     gameService
-                      .getOutputs(this.curSession!, scene)
+                      .getOutputs(session, scene)
                       .map(
                         (x) =>
-                          imageService.getOutputDir(this.curSession!, scene!) +
+                          imageService.getOutputDir(session, scene!) +
                           '/' +
                           x,
                       )
@@ -2930,12 +2938,12 @@ export class AppState {
                 type: 'confirm',
                 text: '정말로 즐겨찾기 외 모든 이미지를 삭제하시겠습니까?',
                 callback: async () => {
-                  runBatchImageDelete((scene) =>
+                  runBatchImageDelete((scene, session) =>
                     gameService
-                      .getOutputs(this.curSession!, scene)
+                      .getOutputs(session, scene)
                       .map(
                         (x) =>
-                          imageService.getOutputDir(this.curSession!, scene!) +
+                          imageService.getOutputDir(session, scene!) +
                           '/' +
                           x,
                       )

@@ -3136,6 +3136,86 @@ app.post('/api/project/delete-folder-now', async (req, res) => {
   }
 });
 
+// ─── 이미지 일괄 삭제 (백그라운드 fire-and-forget + WS 진행도) ──────────
+// 클라가 씬별 {outputDir, filenames}를 snapshot해 보내면 서버가 각 씬의 .trash/로
+// rename + .trash_meta.json 갱신을 백그라운드로 진행. 클라가 다른 프로젝트로 가거나
+// 앱이 백그라운드로 가도 끝까지 완료(옛 클라 주도 루프 + pauseQueue 대체).
+// snapshot이 race 회피 — 보낸 paths만 지우니 삭제 중 큐가 떨군 새 png는 자연 제외.
+async function trashSceneImages(outputDir, filenames) {
+  const trashDir = outputDir + '/.trash';
+  await fs.mkdir(resolvePath(trashDir), { recursive: true });
+  // 파일 이동 (move-batch와 동일 패턴 — rename + chunkedMap)
+  await chunkedMap(filenames, FS_BATCH_CONCURRENCY, async (filename) => {
+    try {
+      await fs.rename(resolvePath(outputDir + '/' + filename), resolvePath(trashDir + '/' + filename));
+    } catch {}
+  });
+  // 메타 갱신 — 클라 TrashService와 동일하게 '.trash_meta.json'(앞 점)에 {filename: deletedAt}
+  const metaPath = resolvePath(trashDir + '/.trash_meta.json');
+  let meta = {};
+  try { meta = JSON.parse(await fs.readFile(metaPath, 'utf-8')); } catch {}
+  const now = Date.now();
+  for (const filename of filenames) meta[filename] = now;
+  await fs.writeFile(metaPath, JSON.stringify(meta));
+}
+
+async function runImageDeleteJob(jobId, items) {
+  const total = items.length; // 씬 단위 진행도
+  let done = 0;
+  let errors = 0;
+  try {
+    const CONCURRENCY = 3;
+    for (let i = 0; i < items.length; i += CONCURRENCY) {
+      const chunk = items.slice(i, i + CONCURRENCY);
+      await Promise.all(chunk.map(async (item) => {
+        try {
+          await trashSceneImages(item.outputDir, item.filenames);
+        } catch (e) {
+          errors++;
+          console.error('[Image] delete-batch scene 실패 "' + item.outputDir + '":', e.message);
+        }
+        done++;
+      }));
+      broadcast('image-delete-progress', { jobId, done, total, errors });
+    }
+    console.log('[Image] delete-batch done jobId=' + jobId + ': scenes=' + done + '/' + total + ', errors=' + errors);
+    broadcast('image-delete-done', { jobId, done, total, errors });
+  } catch (e) {
+    console.error('[Image] delete-batch error jobId=' + jobId + ':', e);
+    broadcast('image-delete-error', { jobId, error: e.message });
+  }
+}
+
+app.post('/api/images/delete-batch-bg', async (req, res) => {
+  try {
+    const rawItems = (req.body && req.body.items) || [];
+    // outputDir은 outs/ 또는 inpaints/ 하위만, filename은 단순 파일명(경로구분자 차단).
+    // resolvePath가 traversal을 한 번 더 막지만 입력 시점에 좁혀 둠.
+    const items = [];
+    for (const it of rawItems) {
+      if (!it || typeof it.outputDir !== 'string' || !Array.isArray(it.filenames)) continue;
+      if (!it.outputDir.startsWith('outs/') && !it.outputDir.startsWith('inpaints/')) continue;
+      const filenames = it.filenames.filter(
+        (f) =>
+          typeof f === 'string' && f && f !== '.' && f !== '..' &&
+          !f.includes('/') && !f.includes('\\'),
+      );
+      if (filenames.length === 0) continue;
+      items.push({ outputDir: it.outputDir, filenames });
+    }
+    const jobId = 'imgdel-' + Date.now().toString() + '-' + Math.random().toString(36).slice(2, 8);
+    const total = items.length;
+    console.log('[Image] delete-batch started jobId=' + jobId + ': scenes=' + total);
+    broadcast('image-delete-start', { jobId, total });
+    res.json({ ok: true, jobId, total });
+    // fire-and-forget — 응답 보낸 뒤 백그라운드 진행 (WS 진행도 broadcast)
+    runImageDeleteJob(jobId, items);
+  } catch (e) {
+    console.error('[Image] delete-batch error:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // cleanup-preview — 전체 정리 실행 전 미리보기. tmp/exports 파일 수+크기와
 // 로컬 Orphan(PROJECT_SUB_DIRS 중 살아있지 않은 프로젝트명 폴더) 재귀 크기 합산.
 // Drive는 rclone 호출 비용이 커서 제외 — "정리할 필요 있나" 빠른 판단용.

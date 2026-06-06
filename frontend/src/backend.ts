@@ -141,6 +141,30 @@ export interface DeleteFolderError {
   error: string;
 }
 
+export interface ImageDeleteStart {
+  jobId: string;
+  total: number;
+}
+
+export interface ImageDeleteProgress {
+  jobId: string;
+  done: number;
+  total: number;
+  errors: number;
+}
+
+export interface ImageDeleteDone {
+  jobId: string;
+  done: number;
+  total: number;
+  errors: number;
+}
+
+export interface ImageDeleteError {
+  jobId: string;
+  error: string;
+}
+
 export interface CleanupOrphansStart {
   jobId: string;
   alreadyRunning: boolean;
@@ -258,6 +282,11 @@ export abstract class Backend {
   abstract onDeleteFolderProgress(callback: (data: DeleteFolderProgress) => void): () => void;
   abstract onDeleteFolderDone(callback: (data: DeleteFolderDone) => void): () => void;
   abstract onDeleteFolderError(callback: (data: DeleteFolderError) => void): () => void;
+  abstract deleteImagesBatchBg(items: { outputDir: string; filenames: string[] }[]): Promise<{ jobId: string; total: number }>;
+  abstract onImageDeleteStart(callback: (data: ImageDeleteStart) => void): () => void;
+  abstract onImageDeleteProgress(callback: (data: ImageDeleteProgress) => void): () => void;
+  abstract onImageDeleteDone(callback: (data: ImageDeleteDone) => void): () => void;
+  abstract onImageDeleteError(callback: (data: ImageDeleteError) => void): () => void;
   abstract cleanupOrphans(): Promise<CleanupOrphansStart>;
   abstract onCleanupOrphansStart(callback: (data: { jobId: string }) => void): () => void;
   abstract onCleanupOrphansProgress(callback: (data: CleanupOrphansProgress) => void): () => void;

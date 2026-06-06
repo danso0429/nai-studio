@@ -1,6 +1,6 @@
 import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderDone, DeleteFolderError, DeleteFolderProgress, DeleteFolderStart, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
+import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderDone, DeleteFolderError, DeleteFolderProgress, DeleteFolderStart, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, ImageDeleteDone, ImageDeleteError, ImageDeleteProgress, ImageDeleteStart, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -641,6 +641,24 @@ export class ServerBackend extends Backend {
   }
   onDeleteFolderError(callback: (data: DeleteFolderError) => void): () => void {
     return this.on('delete-folder-error', callback);
+  }
+
+  async deleteImagesBatchBg(items: { outputDir: string; filenames: string[] }[]): Promise<{ jobId: string; total: number }> {
+    // fire-and-forget: 즉시 jobId 반환, 실제 삭제는 서버 백그라운드 + WS 진행도.
+    return await apiJSON('/images/delete-batch-bg', { method: 'POST', body: JSON.stringify({ items }) });
+  }
+
+  onImageDeleteStart(callback: (data: ImageDeleteStart) => void): () => void {
+    return this.on('image-delete-start', callback);
+  }
+  onImageDeleteProgress(callback: (data: ImageDeleteProgress) => void): () => void {
+    return this.on('image-delete-progress', callback);
+  }
+  onImageDeleteDone(callback: (data: ImageDeleteDone) => void): () => void {
+    return this.on('image-delete-done', callback);
+  }
+  onImageDeleteError(callback: (data: ImageDeleteError) => void): () => void {
+    return this.on('image-delete-error', callback);
   }
 
   async cleanupOrphans(): Promise<CleanupOrphansStart> {

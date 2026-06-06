@@ -246,6 +246,50 @@ export const App = observer(() => {
       unsubError();
     };
   }, []);
+  // 이미지 일괄 삭제(백그라운드 fire-and-forget) 진행도 — 폴더 삭제와 동일하게 App.tsx
+  // 글로벌 구독이라 씬 picker가 닫혀도·다른 프로젝트로 가도 진행/완료가 끊기지 않음.
+  useEffect(() => {
+    const pid = (jobId: string) => 'image-delete-' + jobId;
+    const unsubStart = backend.onImageDeleteStart((d) => {
+      appState.pushPinnedProgress(
+        pid(d.jobId),
+        `이미지 삭제 중… (0/${d.total})`,
+        Math.max(1, d.total),
+      );
+    });
+    const unsubProgress = backend.onImageDeleteProgress((d) => {
+      appState.updatePinnedProgress(pid(d.jobId), {
+        text:
+          `이미지 삭제 중… (${d.done}/${d.total})` +
+          (d.errors > 0 ? ` · 오류 ${d.errors}` : ''),
+        done: d.done,
+      });
+    });
+    const unsubDone = backend.onImageDeleteDone((d) => {
+      appState.handleImageDeleteDone(d.jobId);
+      appState.finishPinnedProgress(
+        pid(d.jobId),
+        `✓ 이미지 삭제 완료 (${d.done}/${d.total}개 씬)` +
+          (d.errors > 0 ? ` · 오류 ${d.errors}건` : ''),
+        d.errors === 0,
+        5000,
+      );
+    });
+    const unsubError = backend.onImageDeleteError((d) => {
+      appState.finishPinnedProgress(
+        pid(d.jobId),
+        `✗ 이미지 삭제 실패: ${d.error}`,
+        false,
+        7000,
+      );
+    });
+    return () => {
+      unsubStart();
+      unsubProgress();
+      unsubDone();
+      unsubError();
+    };
+  }, []);
   useEffect(() => {
     const refreshDarkMode = async () => {
       const conf = await backend.getConfig();
