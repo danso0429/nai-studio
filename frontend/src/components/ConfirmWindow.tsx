@@ -162,6 +162,8 @@ const ConfirmWindow = observer(() => {
               )}
               {curDialog.type === 'select' && (
                 <>
+                  {/* 항목이 많아지면 화면 밖으로 잘리지 않도록 스크롤 영역으로 감싼다 (4.10 port) */}
+                  <div className="flex flex-col gap-2 max-h-[55vh] overflow-y-auto w-full">
                   {curDialog.items!.map((item, idx) => {
                     // graySelect가 우선 (전체 일괄 회색), 다음 per-item color, default back-sky.
                     let colorCls = 'back-sky';
@@ -184,6 +186,7 @@ const ConfirmWindow = observer(() => {
                       </button>
                     );
                   })}
+                  </div>
                   <button
                     className="w-full px-4 py-2 clickable rounded back-gray"
                     onClick={() => {
