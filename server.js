@@ -2705,7 +2705,9 @@ app.post('/api/trash/auto-cleanup', async (req, res) => {
     const now = Date.now();
     const IMAGE_RETENTION_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
     const IMAGE_TRASH_DIR = '.trash';
-    const TRASH_META_FILE = 'trash_meta.json';
+    // 클라(TrashService)가 쓰는 메타 파일명은 '.trash_meta.json'(앞 점). 옛 'trash_meta.json'
+    // (점 없음)은 클라가 쓴 메타를 못 찾아(ENOENT→catch→skip) 3일 자동정리가 무동작이었음.
+    const TRASH_META_FILE = '.trash_meta.json';
     let cleanedImages = 0;
     let cleanedOrphans = 0;
 
