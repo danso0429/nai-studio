@@ -21,6 +21,9 @@ const SESSION_SERVICE_INTERVAL = 5000;
 
 export class SessionService extends ResourceSyncService<Session> {
   favorites: Set<string> = new Set();
+  // 폴더 색상/순서 — folder_meta.json(서버 파일)에 영속화 (favorites 패턴 → 다기기 동기화).
+  folderColors: Record<string, string> = {};
+  folderOrder: string[] = [];
   // 진행 중인 프로젝트 영구 삭제 추적. 같은 프로젝트의 중복 enqueue 방지용.
   deletingProjects: Set<string> = new Set();
   // 진행 중인 폴더 삭제 추적. 백그라운드 삭제 중 재클릭 방지용 (App.tsx done/error에서 해제).
@@ -67,27 +70,35 @@ export class SessionService extends ResourceSyncService<Session> {
     return this.favorites.has(name);
   }
 
-  // ===== 폴더 색상 / 순서 =====
-  // 1단계: localStorage 영속화(빠른 작동). 2단계에서 favorites.json 패턴(서버 파일)으로
-  // 올려 다기기 동기화 예정. ProjectDrawer가 이 메서드들로 색상/순서를 읽고 쓴다.
-  private readFolderColors(): Record<string, string> {
-    try { return JSON.parse(localStorage.getItem('folderColors') || '{}'); } catch { return {}; }
+  // ===== 폴더 색상 / 순서 (folder_meta.json 서버 파일 영속화) =====
+  async loadFolderMeta() {
+    try {
+      const str = await backend.readFile('folder_meta.json');
+      const json = JSON.parse(str);
+      this.folderColors = (json && json.colors) || {};
+      this.folderOrder = (json && Array.isArray(json.order)) ? json.order : [];
+    } catch (e) {
+      this.folderColors = {};
+      this.folderOrder = [];
+    }
+  }
+  async saveFolderMeta() {
+    await backend.writeFile(
+      'folder_meta.json',
+      JSON.stringify({ colors: this.folderColors, order: this.folderOrder }),
+    );
   }
   getFolderColor(folder: string): string | null {
-    return this.readFolderColors()[folder] ?? null;
+    return this.folderColors[folder] ?? null;
   }
   async setFolderColor(folder: string, color: string | null): Promise<void> {
-    const m = this.readFolderColors();
-    if (color) m[folder] = color; else delete m[folder];
-    try { localStorage.setItem('folderColors', JSON.stringify(m)); } catch {}
+    if (color) this.folderColors[folder] = color; else delete this.folderColors[folder];
+    await this.saveFolderMeta();
     this.dispatchEvent(new CustomEvent('listupdated'));
-  }
-  private readFolderOrder(): string[] {
-    try { return JSON.parse(localStorage.getItem('folderOrder') || '[]'); } catch { return []; }
   }
   // 저장된 순서 우선, 누락분은 자연 정렬로 뒤에 붙임.
   getOrderedFolders(): string[] {
-    const order = this.readFolderOrder();
+    const order = this.folderOrder;
     const all = this.folderList;
     const inOrder = order.filter((f) => all.includes(f));
     const rest = all
@@ -96,7 +107,8 @@ export class SessionService extends ResourceSyncService<Session> {
     return [...inOrder, ...rest];
   }
   async setFolderOrder(order: string[]): Promise<void> {
-    try { localStorage.setItem('folderOrder', JSON.stringify(order)); } catch {}
+    this.folderOrder = order;
+    await this.saveFolderMeta();
     this.dispatchEvent(new CustomEvent('listupdated'));
   }
 
@@ -163,6 +175,7 @@ export class SessionService extends ResourceSyncService<Session> {
   async run() {
     await this.loadFavorites();
     await this.loadBookmarks();
+    await this.loadFolderMeta();
     const { trashService } = await import('.');
     // trash.json은 legacy data (씬 휴지통이 아직 사용 중) — 로드 유지
     await trashService.loadTrash();
