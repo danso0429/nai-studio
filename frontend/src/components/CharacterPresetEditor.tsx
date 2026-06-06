@@ -21,7 +21,9 @@ import {
   FaPause,
   FaStop,
   FaSync,
+  FaGlobe,
 } from 'react-icons/fa';
+import GlobalCharacterPresetDialog from './GlobalCharacterPresetDialog';
 import {
   CharacterPreset,
   VibeItem,
@@ -922,6 +924,7 @@ export const CharacterPresetEditor = observer(({
   const { curSession } = appState;
   const [editingPreset, setEditingPreset] = useState<CharacterPreset | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const [showGlobal, setShowGlobal] = useState(false);
   // 순차 생성 모드 state
   const [cyclingMode, setCyclingMode] = useState(false);
   const [selectedPresets, setSelectedPresets] = useState<Set<string>>(new Set());
@@ -1168,8 +1171,23 @@ export const CharacterPresetEditor = observer(({
             />
           </label>
         </Tooltip>
+        <Tooltip content="글로벌 캐릭터 프리셋 (프로젝트 공통)">
+          <button
+            className="px-3 py-1.5 rounded-lg text-sm bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800/50 transition-colors flex items-center gap-1.5"
+            onClick={() => setShowGlobal(true)}
+          >
+            <FaGlobe size={11} />
+            글로벌
+          </button>
+        </Tooltip>
         </div>
       </div>
+      {showGlobal && curSession && (
+        <GlobalCharacterPresetDialog
+          curSession={curSession}
+          onClose={() => setShowGlobal(false)}
+        />
+      )}
       {presets.length === 0 ? (
         // 빈 상태
         <div className="text-center py-12">
