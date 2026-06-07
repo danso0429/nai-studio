@@ -15,6 +15,9 @@ import {
   FaTrashAlt,
   FaFileExport,
   FaEllipsisV,
+  FaDownload,
+  FaUpload,
+  FaArchive,
 } from 'react-icons/fa';
 import { sessionService, imageService, isMobile } from '../models';
 import { appState } from '../models/AppService';
@@ -185,6 +188,8 @@ const ProjectDrawer = observer(() => {
   // 선택 모드(다중 선택 → 폴더 일괄 이동)
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // 선택 모드 목적 — 'move'(폴더 일괄 이동) | 'export'(내보내기). selectMode true일 때만 의미.
+  const [selectPurpose, setSelectPurpose] = useState<'move' | 'export'>('move');
   // 드래그&드롭 상태 (PC 전용)
   const [drag, setDrag] = useState<{
     type: 'project' | 'folder';
@@ -225,6 +230,7 @@ const ProjectDrawer = observer(() => {
     setColorPickerFor(null);
     setSelectMode(false);
     setSelected(new Set());
+    setSelectPurpose('move');
     const cur = appState.curSession?.name;
     const folder = cur ? sessionService.getFolderOf(cur) : null;
     if (folder) {
@@ -586,6 +592,58 @@ const ProjectDrawer = observer(() => {
     appState.pushMessage(`${count}개 프로젝트를 이동했습니다.`);
   };
 
+  // 선택 모드(export 목적)에서 선택한 프로젝트 일괄 내보내기.
+  // 즉시 종료 + 백그라운드 실행 — 진행은 메인 progress dialog가 추적(projectExportMulti 내부 토스트).
+  const bulkExport = () => {
+    const count = selected.size;
+    if (count === 0) return;
+    const names = Array.from(selected);
+    exitSelect();
+    appState.projectExportMulti(names).catch((e: any) => {
+      appState.pushMessage('내보내기 실패: ' + (e?.message || e));
+    });
+  };
+
+  // ===== 선택 모드 — 그룹(폴더/즐겨찾기/미분류) 단위 전체선택 =====
+  const groupState = (projs: string[]): 'all' | 'some' | 'none' => {
+    if (projs.length === 0) return 'none';
+    let count = 0;
+    for (const p of projs) if (selected.has(p)) count++;
+    if (count === 0) return 'none';
+    if (count === projs.length) return 'all';
+    return 'some';
+  };
+  const toggleGroup = (projs: string[]) => {
+    const state = groupState(projs);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (state === 'all') projs.forEach((p) => next.delete(p));
+      else projs.forEach((p) => next.add(p)); // 'some'/'none' → 전부 선택
+      return next;
+    });
+  };
+  // 그룹 헤더 우측 전체선택 체크박스 (일부 선택 시 indeterminate). 선택 모드에서만 렌더.
+  const groupCheckbox = (projs: string[]) => {
+    const st = groupState(projs);
+    return (
+      <label
+        className="flex items-center px-2 py-2 cursor-pointer flex-none"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <input
+          type="checkbox"
+          className="w-4 h-4 cursor-pointer accent-sky-500"
+          checked={st === 'all'}
+          ref={(el) => {
+            if (el) el.indeterminate = st === 'some';
+          }}
+          onChange={() => toggleGroup(projs)}
+          disabled={projs.length === 0}
+        />
+      </label>
+    );
+  };
+
   // 프로젝트 행 공통 props. ProjectRow는 모듈 레벨에 정의해
   // 드래그 도중 setDrag 리렌더로 인한 언마운트/리마운트(드래그 중단)를 방지한다.
   const rowProps = (n: string) => ({
@@ -634,7 +692,7 @@ const ProjectDrawer = observer(() => {
           <div className="flex items-center gap-2">
             {!selectMode && (
               <button
-                onClick={() => setSelectMode(true)}
+                onClick={() => { setSelectPurpose('move'); setSelectMode(true); }}
                 className="text-sm px-2.5 py-1 rounded-md bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-slate-600"
               >
                 선택
@@ -679,13 +737,23 @@ const ProjectDrawer = observer(() => {
               전체 선택
             </button>
             <div className="flex-1" />
-            <button
-              onClick={bulkMove}
-              disabled={selected.size === 0}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm bg-sky-500 hover:bg-sky-600 text-white disabled:opacity-40"
-            >
-              <FaFolder size={12} /> 이동
-            </button>
+            {selectPurpose === 'export' ? (
+              <button
+                onClick={bulkExport}
+                disabled={selected.size === 0}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm bg-sky-500 hover:bg-sky-600 text-white disabled:opacity-40"
+              >
+                <FaUpload size={12} /> 내보내기
+              </button>
+            ) : (
+              <button
+                onClick={bulkMove}
+                disabled={selected.size === 0}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm bg-sky-500 hover:bg-sky-600 text-white disabled:opacity-40"
+              >
+                <FaFolder size={12} /> 이동
+              </button>
+            )}
             <button
               onClick={exitSelect}
               className="px-2.5 py-1.5 rounded-lg text-sm bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-slate-600"
@@ -694,6 +762,7 @@ const ProjectDrawer = observer(() => {
             </button>
           </div>
         ) : (
+        <>
         <div className="px-3 py-2.5 flex gap-2 flex-none">
           <button
             onClick={() => createProject(null)}
@@ -710,6 +779,34 @@ const ProjectDrawer = observer(() => {
           </button>
           </Tooltip>
         </div>
+        {/* 백업 / 복원 — 앱 전체 단위 (옛 SessionTreePicker 하단 글로벌 버튼 흡수) */}
+        <div className="grid grid-cols-3 gap-2 px-3 pb-2.5 flex-none">
+          <button
+            onClick={() => appState.projectImport()}
+            title="프로젝트·폴더 백업 불러오기 (복원)"
+            className="flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-800 transition-colors min-w-0"
+          >
+            <FaDownload size={12} className="flex-shrink-0" />
+            <span className="truncate">불러오기</span>
+          </button>
+          <button
+            onClick={() => { setSelectPurpose('export'); setSelectMode(true); }}
+            title="프로젝트 내보내기 — 선택 모드"
+            className="flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium bg-sky-100 dark:bg-sky-900/50 text-sky-800 dark:text-sky-200 hover:bg-sky-200 dark:hover:bg-sky-800 transition-colors min-w-0"
+          >
+            <FaUpload size={12} className="flex-shrink-0" />
+            <span className="truncate">내보내기</span>
+          </button>
+          <button
+            onClick={() => appState.projectExportDeep()}
+            title="프로젝트 백업 내보내기 (이미지 포함)"
+            className="flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium bg-indigo-100 dark:bg-indigo-900/50 text-indigo-800 dark:text-indigo-200 hover:bg-indigo-200 dark:hover:bg-indigo-800 transition-colors min-w-0"
+          >
+            <FaArchive size={12} className="flex-shrink-0" />
+            <span className="truncate">백업</span>
+          </button>
+        </div>
+        </>
         )}
 
         {/* 목록 */}
@@ -740,9 +837,10 @@ const ProjectDrawer = observer(() => {
                     backgroundColor: withAlpha('#facc15', '12'),
                   }}
                 >
+                  <div className="flex items-center pr-1">
                   <button
                     onClick={() => toggleFolder('__favorites__')}
-                    className="w-full flex items-center gap-2 pl-1.5 pr-2 py-2.5 text-[15px] font-semibold text-gray-700 dark:text-gray-200"
+                    className="flex-1 min-w-0 flex items-center gap-2 pl-1.5 pr-2 py-2.5 text-[15px] font-semibold text-gray-700 dark:text-gray-200"
                   >
                     {expanded.has('__favorites__') ? (
                       <FaChevronDown size={12} className="flex-none text-gray-400" />
@@ -760,6 +858,8 @@ const ProjectDrawer = observer(() => {
                       {favs.length}
                     </span>
                   </button>
+                  {selectMode && groupCheckbox(favs)}
+                  </div>
                   {expanded.has('__favorites__') && (
                     <div className="pl-3 pb-1">
                       {favs.map((n) => (
@@ -883,7 +983,9 @@ const ProjectDrawer = observer(() => {
                           {projects.length}
                         </span>
                       </button>
-                      {isMobile ? (
+                      {selectMode ? (
+                        groupCheckbox(projects)
+                      ) : isMobile ? (
                         /* 모바일: ⋮ 메뉴 하나로 폴더 동작 5종 노출 */
                         <Tooltip content="폴더 메뉴">
                         <button
@@ -1049,9 +1151,10 @@ const ProjectDrawer = observer(() => {
                   handleUnfiledDrop();
                 }}
               >
+                <div className="flex items-center pr-1">
                 <button
                   onClick={() => toggleFolder('__unfiled__')}
-                  className="w-full flex items-center gap-2 pl-1.5 pr-2 py-2.5 text-[15px] font-semibold text-gray-700 dark:text-gray-200"
+                  className="flex-1 min-w-0 flex items-center gap-2 pl-1.5 pr-2 py-2.5 text-[15px] font-semibold text-gray-700 dark:text-gray-200"
                 >
                   {expanded.has('__unfiled__') ? (
                     <FaChevronDown size={11} className="flex-none text-gray-400" />
@@ -1069,6 +1172,8 @@ const ProjectDrawer = observer(() => {
                     {unfiled.length}
                   </span>
                 </button>
+                {selectMode && groupCheckbox(unfiled)}
+                </div>
                 {expanded.has('__unfiled__') && (
                   <div className="pl-3 pb-1">
                     {unfiled.map((n) => (
