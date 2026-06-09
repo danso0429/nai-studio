@@ -1647,7 +1647,10 @@ export class AppState {
             throw new Error(data.error || 'Drive 큐 등록 거부');
           }
         } else {
-          const url = apiUrl('/api/fs/raw?path=' + encodeURIComponent(filePath));
+          // audit M1 — /api/fs/raw는 server.js에 라우트가 없어 SPA fallback(index.html)을
+          // .json으로 받았음(rclone 미설치 fork에서 Always). 기존 /api/fs/download가
+          // res.download(filePath)로 동일하게 첨부 다운로드 → 그걸로 교체(새 라우트 X).
+          const url = apiUrl('/api/fs/download?path=' + encodeURIComponent(filePath));
           const a = document.createElement('a');
           a.href = url;
           a.download = name + '.json';
