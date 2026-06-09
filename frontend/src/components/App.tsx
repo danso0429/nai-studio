@@ -300,6 +300,7 @@ export const App = observer(() => {
       appState.initialThumbSize = conf.initialThumbSize;
       appState.globalSamplingPresetId = conf.samplingPresetId;
       appState.useProjectDrawer = conf.useProjectDrawer ?? true;
+      appState.useBatchEnqueue = conf.useBatchEnqueue ?? false;
     };
     refreshDarkMode();
     sessionService.addEventListener('config-changed', refreshDarkMode);

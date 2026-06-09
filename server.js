@@ -160,6 +160,10 @@ try {
   console.warn('[NAI Studio] sharp not available, image resize disabled');
 }
 
+// 서버측 캐릭터 레퍼런스 재인코딩 (클라 canvas reencode의 sharp 등가물).
+// batch-enqueue(foreground-free 등록)에서 ref를 path로 처리할 때 사용.
+const { reencodeReferenceForApi } = require('./lib/ref-reencode');
+
 // ─── PNG chunk-level helpers (NAI metadata 보존용) ──────────────────
 // sharp의 .flop()이나 다른 변형 후 png().toBuffer()를 그대로 쓰면 PNG의 tEXt/iTXt/zTXt
 // chunk가 손실됨. NAI 생성 이미지는 그 chunk 안에 prompt/seed/sampler 같은 metadata가
@@ -1939,6 +1943,163 @@ app.post('/api/queue/fill', (req, res) => {
   saveQueueState();
   res.json({ filled: filledJobIds.length });
 });
+
+// ─── Foreground-free 일괄 등록 (batch-enqueue) ──────────────────────
+// 클라가 씬마다 reserve(1)+vibe/ref 인코딩(N)+fill(1) 수백~수천 RTT 돌리던 것을, 클라는
+// prompt(텍스트, db 의존만 lower/expand)만 만들고 vibe/ref는 path 참조로 보내 "단일 fetch 1회"로
+// 압축. 서버가 vibe encode(보유)+ref reencode(sharp)+reserve+fill을 백그라운드로 수행 → 클라가
+// 등록 직후 bg로 가도 서버가 끝까지 등록. (단계3 클라 연결 전엔 미사용 = 회귀 0.)
+
+// 클라 ImageService 경로 규칙 복제:
+//   원본 vibe:   vibes/{session}/{basename}
+//   인코딩 vibe: vibes/{session}/encoded/{basename}&info={info}  (write-data와 동일 binary 저장)
+// 캐시 hit이면 Anlas 0 (파일만 읽음). miss면 NAI 인코딩 후 캐시 저장.
+async function serverEncodeVibe(sessionName, name, info, config) {
+  const basename = String(name).split('/').pop();
+  const encAbs = resolvePath(`vibes/${sessionName}/encoded/${basename}&info=${info}`);
+  try {
+    const buf = await fs.readFile(encAbs);
+    return buf.toString('base64'); // 캐시 hit
+  } catch {}
+  const origBuf = await fs.readFile(resolvePath(`vibes/${sessionName}/${basename}`)); // 없으면 throw → skip
+  const encoded = await nai.encodeVibeImage({ image: origBuf.toString('base64'), info }, config);
+  try {
+    await fs.mkdir(path.dirname(encAbs), { recursive: true });
+    await atomicWriteFile(encAbs, Buffer.from(encoded, 'base64'));
+  } catch (e) { console.warn('[batch-enqueue] vibe 캐시 저장 실패:', e.message); }
+  return encoded;
+}
+
+async function serverFetchReference(sessionName, name) {
+  const basename = String(name).split('/').pop();
+  const buf = await fs.readFile(resolvePath(`references/${sessionName}/${basename}`)); // 없으면 throw → skip
+  return await reencodeReferenceForApi(buf.toString('base64'));
+}
+
+// vibe 인코딩 캐시 사전 체크 — batch-enqueue 전 Anlas 동의용. miss 목록 반환 (클라가 동의 다이얼로그).
+app.post('/api/queue/vibe-cache-precheck', async (req, res) => {
+  try {
+    const sessionName = req.body.sessionName;
+    const vibes = req.body.vibes || [];
+    const missing = [];
+    for (const v of vibes) {
+      const basename = String(v.name).split('/').pop();
+      const encAbs = resolvePath(`vibes/${sessionName}/encoded/${basename}&info=${v.info}`);
+      try { await fs.access(encAbs); } catch { missing.push({ name: v.name, info: v.info }); }
+    }
+    res.json({ missing, cached: vibes.length - missing.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// batch-enqueue: jobs[] 받아 즉시 reserve(영속) → 응답 → 백그라운드 vibe/ref/fill.
+app.post('/api/queue/batch-enqueue', async (req, res) => {
+  try {
+    const ownerId = req.body.ownerId || null;
+    const jobs = req.body.jobs || [];
+    const config = await loadConfig();
+    const modelVersion = config.modelVersion || '4-5-full';
+    const reservations = [];
+    // reserve 루프는 동기(await 없음)라 루프 중 reservedTotal/genQueue 불변 → 1회 계산 후 증분(O(N)).
+    let reservedTotal = 0;
+    for (const r of reservedJobs.values()) reservedTotal += r.jobs.length;
+    for (const job of jobs) {
+      const samples = Math.max(1, job.samples || 1);
+      const space = QUEUE_MAX_SIZE - genQueue.length - reservedTotal;
+      const toReserve = Math.max(0, Math.min(samples, space));
+      const rejected = samples - toReserve;
+      if (toReserve === 0) {
+        reservations.push({ taskId: job.taskId, reservationId: null, jobIds: [], rejected });
+        continue;
+      }
+      const reservationId = uuidv4();
+      const jobsArr = [];
+      for (let i = 0; i < toReserve; i++) {
+        const meta = {
+          taskId: job.taskId, cls: job.cls, sceneKey: job.sceneKey,
+          sceneName: job.sceneName, taskType: job.sceneType,
+          jobIndex: i + 1, jobTotal: toReserve,
+          ...(job.sceneJobTotal ? { sceneJobIndex: (job.sceneJobStartIndex || 1) + i, sceneJobTotal: job.sceneJobTotal } : {}),
+        };
+        jobsArr.push({ jobId: uuidv4(), meta });
+      }
+      const now = Date.now();
+      reservedJobs.set(reservationId, { jobs: jobsArr, createdAt: now, ownerId, lastHeartbeat: now, needsConsent: false });
+      reservations.push({ taskId: job.taskId, reservationId, jobIds: jobsArr.map((j) => j.jobId), rejected });
+      reservedTotal += toReserve;
+    }
+    const totalRejected = reservations.reduce((s, r) => s + (r.rejected || 0), 0);
+    if (totalRejected > 0) {
+      broadcast('queue-full', { max: QUEUE_MAX_SIZE, rejected: totalRejected, message: `큐가 가득 차서 ${totalRejected}개가 등록 안 됐어요 (한도 ${QUEUE_MAX_SIZE}개)` });
+    }
+    broadcastQueueStatus();
+    saveQueueState();
+    res.json({ reservations }); // 즉시 응답 — 클라는 jobIds로 mirror 매핑 후 bg 가도 됨
+    setImmediate(() => fillBatchInBackground(jobs, reservations, config, modelVersion)
+      .catch((e) => console.error('[batch-enqueue] bg fill crashed:', e)));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 백그라운드: 각 job의 vibe/ref 인코딩 → ImageGenInput 조립 → reserved를 genQueue로 fill.
+// prepGenInput(클라)의 vibe/ref/modelVersion 필터/furryMode 로직을 서버에서 등가 복제.
+async function fillBatchInBackground(jobs, reservations, config, modelVersion) {
+  const isV4 = modelVersion === '4-full' || modelVersion === '4-curated';
+  const isV4_5 = modelVersion === '4-5-full' || modelVersion === '4-5-curated';
+  for (let j = 0; j < jobs.length; j++) {
+    const job = jobs[j];
+    const reservation = reservations[j];
+    if (!reservation || !reservation.reservationId) continue;
+    if (!reservedJobs.has(reservation.reservationId)) continue; // 그사이 사용자 취소
+    try {
+      const vibes = [];
+      for (const v of (job.vibes || [])) {
+        try {
+          const image = await serverEncodeVibe(job.sessionName, v.name, v.info, config);
+          if (image && image.length > 0) vibes.push({ image, info: v.info, strength: v.strength });
+        } catch (e) { console.warn('[batch-enqueue] vibe 처리 실패, 건너뜀:', v.name, e.message); }
+      }
+      const references = [];
+      for (const r of (job.references || [])) {
+        try {
+          const image = await serverFetchReference(job.sessionName, r.name);
+          if (image && image.length > 0) references.push({
+            image, info: r.info, strength: r.strength ?? 0.6, fidelity: r.fidelity ?? 1.0,
+            referenceType: r.referenceType || 'character', description: r.referenceType || 'character',
+          });
+        } catch (e) { console.warn('[batch-enqueue] ref 처리 실패, 건너뜀:', r.name, e.message); }
+      }
+      const finalReferences = isV4 ? [] : references;
+      const finalVibes = (isV4_5 && finalReferences.length > 0) ? [] : vibes;
+      let prompt = job.prompt || '';
+      if (prompt === '') prompt = '1girl';
+      if (config.furryMode) prompt = 'fur dataset, ' + prompt;
+      const reserved = reservedJobs.get(reservation.reservationId);
+      if (!reserved) continue; // 그사이 취소
+      for (let i = 0; i < reserved.jobs.length; i++) {
+        const outputFilePath = job.outputPath + '/' + Date.now().toString() + '_' + uuidv4().slice(0, 8) + '.png';
+        const params = {
+          prompt, uc: job.uc, model: job.model || 'anime', originalImage: true,
+          resolution: job.resolution, sampling: job.sampling, vibes: finalVibes,
+          steps: job.steps, cfgRescale: job.cfgRescale, noiseSchedule: job.noiseSchedule,
+          promptGuidance: job.promptGuidance,
+          characterPrompts: job.characterPrompts || [], characterUCs: job.characterUCs || [],
+          characterPositions: job.characterPositions || [],
+          useCoords: job.useCoords, legacyPromptConditioning: job.legacyPromptConditioning,
+          normalizeStrength: job.normalizeStrength, varietyPlus: job.varietyPlus,
+          deliberateEulerAncestralBug: job.deliberateEulerAncestralBug,
+          characterReferences: finalReferences, outputFilePath, seed: job.seed,
+        };
+        genQueue.push({ jobId: reserved.jobs[i].jobId, params, meta: reserved.jobs[i].meta });
+      }
+      reservedJobs.delete(reservation.reservationId);
+      broadcastQueueStatus();
+      setImmediate(() => processQueue().catch((e) => console.error('[queue] runner crashed:', e)));
+      saveQueueState();
+    } catch (e) {
+      // 인코딩/조립 실패 — 예약은 남겨 orphan 자동복구(heartbeat sweep)에 인계.
+      console.error('[batch-enqueue] job fill 실패 (예약 유지):', job.sceneName, e && e.message);
+    }
+  }
+}
 
 // 예약 heartbeat — live client가 자기 미fill 예약의 ownerId로 주기 ping. lastHeartbeat 갱신해서
 // orphan sweep(주인 사라진 예약 감지)이 *살아있는 주인*의 예약을 orphan으로 오판하지 않게 함.

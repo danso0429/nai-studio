@@ -262,6 +262,10 @@ export class AppState {
   // 새 폴더 드로어 UI 사용 여부 (off면 옛 SessionTreePicker 모달). config 동기화.
   // 회귀 안전장치 — 드로어에 문제가 생기면 설정에서 끄면 옛 UI로 즉시 복귀(재배포 불필요).
   @observable accessor useProjectDrawer: boolean = true;
+  // foreground-free 일괄 등록 (batch-enqueue). on이면 일반 SDImageGen 씬 일괄 예약 시
+  // 클라가 prompt만 만들고 vibe/ref는 path 참조로 단일 fetch → 서버가 인코딩+reserve+fill.
+  // off면 기존 씬별 addMirroredTask 경로. 회귀 안전장치 (이지모드는 flag 무관 항상 기존 경로).
+  @observable accessor useBatchEnqueue: boolean = false;
   // 프로젝트 선택 fetch 연타 가드 (selectSession). 같은 이름 fetch 진행 중이면 무시.
   private pendingSelection: string | null = null;
 

@@ -267,6 +267,33 @@ export class ServerBackend extends Backend {
     return { filled: data.filled || 0 };
   }
 
+  // foreground-free 일괄 등록 (단계3). vibe 인코딩 캐시 miss 사전체크 — Anlas 동의용.
+  async vibeCachePrecheck(
+    sessionName: string,
+    vibes: Array<{ name: string; info: number }>,
+  ): Promise<{ missing: Array<{ name: string; info: number }>; cached: number }> {
+    const data = await apiJSON('/queue/vibe-cache-precheck', {
+      method: 'POST',
+      body: JSON.stringify({ sessionName, vibes }),
+    });
+    return { missing: data.missing || [], cached: data.cached || 0 };
+  }
+
+  // jobs[]를 단일 fetch로 전송 → 서버가 즉시 reserve(영속) 후 백그라운드 vibe/ref 인코딩+fill.
+  // 응답 reservations로 클라가 mirror 상태 매핑 (jobIds → WS complete 수신).
+  async batchEnqueue(
+    jobs: any[],
+    ownerId?: string,
+  ): Promise<{ reservations: Array<{ taskId: string; reservationId: string | null; jobIds: string[]; rejected: number }> }> {
+    const data = await apiJSON('/queue/batch-enqueue', {
+      method: 'POST',
+      body: JSON.stringify({ jobs, ownerId }),
+      timeout: BINARY_API_TIMEOUT_MS,
+      retries: 3,
+    });
+    return { reservations: data.reservations || [] };
+  }
+
   async queueGetFullState(): Promise<QueueFullState> {
     return apiJSON('/queue/full-state');
   }

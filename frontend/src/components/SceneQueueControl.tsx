@@ -761,6 +761,62 @@ const QueueControl = observer(
           );
           // fire-and-forget: dialog 즉시 닫고 백그라운드에서 진행 → 다른 작업 가능
           (async () => {
+            // foreground-free batch 경로: 일반 SDImageGen + flag on일 때 클라는 prompt만
+            // 만들어 단일 fetch로 전송하고 서버가 vibe/ref 인코딩+reserve+fill을 백그라운드로
+            // 수행 → 등록 직후 bg로 가도 끝까지 등록됨. (이지모드/inpaint는 createPrompt에
+            // 네트워크(lookupTag)가 있어 기존 씬별 경로 유지.)
+            const useBatch =
+              appState.useBatchEnqueue &&
+              type === 'scene' &&
+              curSession.selectedWorkflow?.workflowType === 'SDImageGen';
+            if (useBatch) {
+              taskQueueService.beginBatchCollect();
+              let bFailed = 0;
+              const bErrors: string[] = [];
+              for (let i = 0; i < scenes.length; i++) {
+                try {
+                  await queueScene(curSession, scenes[i], appState.samples);
+                } catch (e: any) {
+                  bFailed++;
+                  bErrors.push(`${scenes[i].name}: ${extractApiError(e)}`);
+                }
+                appState.updateProgressDialog(pid, {
+                  done: i + 1,
+                  text: `씬 프롬프트 생성 중... ${i + 1}/${total}`,
+                });
+              }
+              appState.updateProgressDialog(pid, { text: '서버로 전송 중...' });
+              try {
+                await taskQueueService.flushBatchCollect(
+                  (missCount) =>
+                    new Promise<boolean>((resolve) => {
+                      appState.pushDialog({
+                        type: 'confirm',
+                        text: `바이브 이미지 ${missCount}개를 새로 인코딩해요 (약 ${missCount * 2} Anlas 소비). 진행할까요?`,
+                        callback: () => resolve(true),
+                        onCancel: () => resolve(false),
+                      });
+                    }),
+                );
+              } catch (e: any) {
+                bFailed = total;
+                bErrors.push(extractApiError(e));
+              }
+              const bSuccess = total - bFailed;
+              if (bFailed === 0) {
+                appState.finishProgressDialog(pid, `✓ ${bSuccess}개 씬 큐 등록 완료`, true);
+              } else {
+                appState.finishProgressDialog(
+                  pid,
+                  `△ ${bSuccess}/${total} 성공 (${bFailed}건 실패)`,
+                  false,
+                );
+                for (const msg of bErrors.slice(0, 5)) {
+                  appState.pushMessage(`프롬프트 에러 (${msg})`);
+                }
+              }
+              return;
+            }
             // CHUNK=4: 씬당 addMirroredTask 내부에서 prepGenInput N번 → server batch
             // push 1회 RTT. 동시 4씬 = libuv/서버 부담 안전 마진.
             const CHUNK = 4;

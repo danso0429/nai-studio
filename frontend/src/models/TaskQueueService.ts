@@ -770,7 +770,15 @@ export class TaskQueueService extends EventTarget {
   // addAllToQueue가 CHUNK=4 Promise.all 병렬로 addMirroredTask 호출 → 각 scene의 prep이
   // 동시 진행 → 누가 먼저 끝나서 server push하느냐 race → server 큐에 scene 순서 어긋남.
   // 해결: prep은 병렬 유지 + queueAddBatch만 chain 직렬화 → push는 항상 호출 순서.
-  private addBatchChain: Promise<void> = Promise.resolve();
+  // A(직렬 fill 체인 제거): 옛 addBatchChain은 (1) fill 직렬화 (2) 진행 중 add 완료 대기
+  // 두 역할을 겸했음. 직렬화는 폐지(각 씬 병렬 fill = wait 누적 제거), 완료 대기만 이 Set으로
+  // 보존(waitForPendingFills / restoreMirroredState C-mini lock이 의존).
+  private pendingAdds: Set<Promise<void>> = new Set();
+  // foreground-free 일괄 등록 (batch-enqueue) 수집 버퍼. addAllToQueue(일반 SDImageGen + flag)가
+  // beginBatchCollect()로 켜면 addTask가 서버 전송(reserve/prep/fill) 대신 명세만 batchBuffer에 모음.
+  // flushBatchCollect()가 vibe 사전체크 → batch-enqueue 단일 전송 → 응답으로 mirror 매핑.
+  private batchCollecting = false;
+  private batchBuffer: Array<{ task: Task; spec: any }> = [];
   // mirror task의 sceneKey 보존 (placeholder restored task는 task.params.session 없어서 getSceneKey로 추출 불가).
   // removeAllTasks/removeTasksFromScene에서 정확한 stats unwind에 사용.
   private mirrorTaskSceneKeys: Map<string, string> = new Map();
@@ -964,7 +972,8 @@ export class TaskQueueService extends EventTarget {
   }
 
   waitForPendingFills(): Promise<void> {
-    return this.addBatchChain;
+    // A: 옛 addBatchChain(직렬 체인 마지막 슬롯) 대신 진행 중 add 전부 대기.
+    return Promise.allSettled([...this.pendingAdds]).then(() => {});
   }
 
   removeTasksFromProject(session: Session) {
@@ -1039,7 +1048,37 @@ export class TaskQueueService extends EventTarget {
     const handler = this.handlers[task.cls];
     // gen/inpaint/i2i = server-mirror로. 클라 닫혀도 서버가 진행.
     if (handler instanceof GenerateImageTaskHandler) {
-      this.addMirroredTask(task).catch((e: any) => {
+      // batch 수집은 일반 SDImageGen 씬(job.type='sd' + scene)만. batchCollecting 중
+      // 끼어든 inpaint/augment 등 다른 타입은 기존 경로로 (toBatchSpec은 SDJob 전용이라
+      // 다른 job에 부적합 — 전역 플래그 race 가드).
+      const collectJob: any = task.params.job;
+      if (
+        this.batchCollecting &&
+        collectJob?.type === 'sd' &&
+        task.params.scene?.type === 'scene'
+      ) {
+        // batch 수집 모드: 서버 전송(reserve/prep/fill) 대신 명세만 모음 + mirror 낙관적 등록.
+        this.registerMirroredTaskOptimistic(task);
+        try {
+          this.batchBuffer.push({ task, spec: this.toBatchSpec(task) });
+        } catch (e: any) {
+          // 명세 생성 실패(프롬프트 에러 등) → 낙관적 등록 unwind + error event.
+          const sceneKey = task.params.scene
+            ? getSceneKey(task.params.session, task.params.scene)
+            : '';
+          this.unwindMirrorTask(task.id!, task, sceneKey);
+          this.dispatchProgress();
+          this.dispatchEvent(
+            new CustomEvent('error', {
+              detail: { error: e?.message || String(e), task },
+            }),
+          );
+        }
+        return;
+      }
+      // A: 진행 중 add를 pendingAdds로 추적 (옛 addBatchChain 완료대기 역할 대체).
+      // restoreMirroredState/waitForPendingFills가 이 Set으로 "add 진행 중"을 판정.
+      const p = this.addMirroredTask(task).catch((e: any) => {
         console.error('[TaskQueue] addMirroredTask failed:', e);
         this.dispatchEvent(
           new CustomEvent('error', {
@@ -1047,25 +1086,22 @@ export class TaskQueueService extends EventTarget {
           }),
         );
       });
+      this.pendingAdds.add(p);
+      p.finally(() => this.pendingAdds.delete(p));
       return;
     }
     // 그 외 (augment, remove-bg) 는 기존 클라 큐
     this.addTaskInternal(task);
   }
 
-  // gen/inpaint/i2i task를 server-mirror로 등록. prep N번 → batch push → WS event로 done 동기화.
-  async addMirroredTask(task: Task) {
-    const handler = this.handlers[task.cls] as GenerateImageTaskHandler;
+  // mirror task 낙관적 등록 (UI 카운터 instant 점프). addMirroredTask + batch 수집 공통.
+  // mirroredTasks/stats/taskSet 등록 + 첫 task면 paused. reserve/prep/fill은 호출부 담당.
+  private registerMirroredTaskOptimistic(task: Task): string {
     const taskId = task.id!;
     const sceneKey = task.params.scene
       ? getSceneKey(task.params.session, task.params.scene)
       : '';
-
-    // 새 큐 시작이면 paused 상태로 push (사용자 run 눌러야 진행). 이미 mirror 진행 중이면
-    // 그대로 추가 (기존 처리 흐름에 합류). stop 누른 후 추가도 paused 유지 (이미 paused).
     const wasEmpty = this.mirroredTasks.size === 0 && !this.currentRun;
-
-    // mirroredTasks에 등록 + stats total 증가 (done은 WS event로 갱신)
     this.mirroredTasks.set(taskId, task);
     this.groupStats[task.cls].total += task.total;
     if (sceneKey) {
@@ -1077,28 +1113,174 @@ export class TaskQueueService extends EventTarget {
     this.taskSet[taskId] = true;
     this.mirrorRunStartTimes.set(taskId, Date.now());
     this.mirrorTaskSceneKeys.set(taskId, sceneKey);
-
     if (wasEmpty) {
-      // optimistic: dispatchProgress 전에 mirrorPaused=true 박아서 UI가 ▶로 표시되게.
-      // 옛 코드는 await backend.pauseQueue() 후에야 mirrorPaused=true 박았는데, 그 사이
-      // dispatchProgress가 먼저 fire되면 isRunning() = true → 버튼이 ⏸로 표시 (본인 페인:
-      // 큐 끝나고 새로 등록하면 일시정지 표시가 떠서 ⏸ → ▶ 두 번 누르는 흐름). pauseQueue는
-      // 서버 측 확인만 하는 fire-and-forget.
       this.mirrorPaused = true;
       backend.pauseQueue().catch((e) => console.warn('[TaskQueue] pauseQueue (initial) failed:', e));
     }
-
-    // 호출 순서대로 직렬화 — sync 구간에서 chain 슬롯 예약.
-    const prevSlot = this.addBatchChain;
-    let releaseMySlot!: () => void;
-    this.addBatchChain = new Promise<void>((resolve) => { releaseMySlot = resolve; });
-
     this.dispatchProgress();
+    return sceneKey;
+  }
+
+  // ─── batch 수집 모드 (foreground-free 일괄 등록) ───────────────────
+  // addAllToQueue(일반 SDImageGen + flag)가 등록 직전 호출 → addTask가 명세만 모음.
+  beginBatchCollect() {
+    this.batchCollecting = true;
+    this.batchBuffer = [];
+  }
+
+  // job(SDJob) → 서버 전송 명세. 텍스트(prompt/uc/캐릭터)는 클라가 lower/expand,
+  // vibe/ref는 path 참조만 (서버가 인코딩). prepGenInput의 이미지 외 변환과 등가.
+  private toBatchSpec(task: Task): any {
+    const job: any = task.params.job;
+    const session = task.params.session;
+    const scene = task.params.scene!;
+    const resol = job.overrideResolution
+      ? job.overrideResolution
+      : (scene.resolution as Resolution);
+    const cps: any[] = job.characterPrompts || [];
+    return {
+      taskId: task.id,
+      cls: task.cls,
+      sceneKey: getSceneKey(session, scene),
+      sceneName: scene.name,
+      sceneType: scene.type,
+      sessionName: session.name,
+      outputPath: task.params.outputPath,
+      samples: task.total,
+      ...(task.sceneGroup
+        ? {
+            sceneJobStartIndex: task.sceneGroup.sceneJobStartIndex,
+            sceneJobTotal: task.sceneGroup.sceneJobTotal,
+          }
+        : {}),
+      prompt: lowerPromptNode(job.prompt),
+      uc: expandPieces(job.uc, session, scene),
+      characterPrompts: cps.map((c) => lowerPromptNode(c.prompt)),
+      characterUCs: cps.map((c) => expandPieces(c.uc, session, scene)),
+      characterPositions: cps.map((c) => c.position),
+      vibes: (job.vibes || []).map((v: any) => ({
+        name: v.path,
+        info: v.info,
+        strength: v.strength,
+      })),
+      references: (job.characterReferences || [])
+        .filter((r: any) => r.enabled !== false && r.path)
+        .map((r: any) => ({
+          name: r.path,
+          info: r.info,
+          strength: r.strength,
+          fidelity: r.fidelity,
+          referenceType: r.referenceType,
+        })),
+      resolution: lowerResolution(resol, scene.resolutionWidth, scene.resolutionHeight),
+      sampling: job.sampling,
+      steps: job.steps,
+      cfgRescale: job.cfgRescale,
+      noiseSchedule: job.noiseSchedule,
+      promptGuidance: job.promptGuidance,
+      seed: job.seed,
+      useCoords: job.useCoords,
+      legacyPromptConditioning: job.legacyPromptConditioning,
+      normalizeStrength: job.normalizeStrength,
+      varietyPlus: job.varietyPlus,
+      deliberateEulerAncestralBug: job.deliberateEulerAncestralBug,
+      model: 'anime',
+    };
+  }
+
+  // 수집된 batch 전송: vibe miss 사전체크 → (동의 콜백) → batch-enqueue → mirror 매핑.
+  // onVibeConsent: miss>0일 때 호출, false면 등록 취소(낙관적 등록 unwind). 미설정이면 진행.
+  async flushBatchCollect(
+    onVibeConsent?: (missCount: number) => Promise<boolean>,
+  ): Promise<void> {
+    this.batchCollecting = false;
+    const buffered = this.batchBuffer;
+    this.batchBuffer = [];
+    if (buffered.length === 0) return;
+
+    // vibe miss 사전체크 (Anlas 동의). 단일 세션 가정 (addAllToQueue = curSession).
+    const sessionName = buffered[0].spec.sessionName;
+    const vibeKey = new Map<string, { name: string; info: number }>();
+    for (const b of buffered) {
+      for (const v of b.spec.vibes || []) {
+        vibeKey.set(`${v.name}&info=${v.info}`, { name: v.name, info: v.info });
+      }
+    }
+    if (vibeKey.size > 0) {
+      try {
+        const { missing } = await backend.vibeCachePrecheck(
+          sessionName,
+          Array.from(vibeKey.values()),
+        );
+        if (missing.length > 0 && onVibeConsent) {
+          const ok = await onVibeConsent(missing.length);
+          if (!ok) {
+            for (const b of buffered)
+              this.unwindMirrorTaskIfPresent(b.task.id!, b.task, b.spec.sceneKey);
+            this.dispatchProgress();
+            return;
+          }
+        }
+      } catch (e: any) {
+        console.warn('[TaskQueue] vibe 사전체크 실패 (진행):', e?.message || e);
+      }
+    }
+
+    // batch-enqueue 단일 전송.
+    const specs = buffered.map((b) => b.spec);
+    let reservations: Array<{
+      taskId: string;
+      reservationId: string | null;
+      jobIds: string[];
+      rejected: number;
+    }>;
+    try {
+      ({ reservations } = await backend.batchEnqueue(specs, this.ownerId));
+    } catch (e) {
+      for (const b of buffered)
+        this.unwindMirrorTaskIfPresent(b.task.id!, b.task, b.spec.sceneKey);
+      this.dispatchProgress();
+      throw e;
+    }
+
+    // 응답으로 mirror 매핑: jobIds → mirroredJobs, outstandingReservations, rejected 차감.
+    const byTaskId = new Map(reservations.map((r) => [r.taskId, r]));
+    for (const b of buffered) {
+      const task = b.task;
+      const taskId = task.id!;
+      // flush await 사이 취소된 task는 매핑/unwind 스킵 (이미 정리됨 — 이중 처리 방지).
+      if (!this.mirroredTasks.has(taskId)) continue;
+      const r = byTaskId.get(taskId);
+      if (!r || !r.reservationId) {
+        // 전부 rejected(큐 가득) 또는 누락 → 이 task unwind.
+        this.unwindMirrorTask(taskId, task, b.spec.sceneKey);
+        continue;
+      }
+      if (r.rejected > 0) {
+        this.groupStats[task.cls].total -= r.rejected;
+        if (b.spec.sceneKey && b.spec.sceneKey in this.sceneStats) {
+          this.sceneStats[b.spec.sceneKey].total -= r.rejected;
+        }
+        task.total -= r.rejected;
+      }
+      for (const jobId of r.jobIds) {
+        this.mirroredJobs.set(jobId, { taskId, outputFilePath: '' });
+      }
+      this.outstandingReservations.add(taskId);
+    }
+    this.dispatchProgress();
+  }
+
+  // gen/inpaint/i2i task를 server-mirror로 등록. prep N번 → batch push → WS event로 done 동기화.
+  async addMirroredTask(task: Task) {
+    const handler = this.handlers[task.cls] as GenerateImageTaskHandler;
+    const taskId = task.id!;
+    // mirror 낙관적 등록 (UI 카운터 instant + 첫 task면 paused). batch 수집과 공통 helper.
+    const sceneKey = this.registerMirroredTaskOptimistic(task);
 
     const items: Array<{ params: ImageGenInput; meta: QueueJobMeta }> = [];
     const localOutputs: string[] = [];
     let reservationId: string | null = null;
-    let slotReleased = false;
     try {
       // 1단계: 서버에 예약(placeholder) 즉시 생성 — prep 전에 영속화돼서 새로고침해도 안 사라짐.
       const metas: QueueJobMeta[] = [];
@@ -1146,8 +1328,9 @@ export class TaskQueueService extends EventTarget {
         this.mirroredJobs.set(reservation.jobIds[i], { taskId, outputFilePath: localOutputs[i] });
       }
 
-      // 3단계: 앞 scene의 fill이 끝날 때까지 대기 → 서버 큐에 scene 호출 순서대로 들어감.
-      await prevSlot;
+      // 3단계 폐지 (A): 직렬 체인 제거 — 각 씬이 독립 병렬로 fill(wait 누적 제거). 큐 순서는
+      // 비보장(본인 무관). 미래에 순서 필요 시: 클라 병렬 유지 + 서버가 위 metas의
+      // jobIndex/sceneJobIndex 순으로 genQueue 정렬(이 메타는 reserve 시 그대로 보존됨).
 
       // 4단계: fill — 예약에 실제 params를 채워 genQueue로 이동.
       try {
@@ -1163,14 +1346,11 @@ export class TaskQueueService extends EventTarget {
           reservationId = null;
           this.dispatchProgress();
         } else {
-          // transient fill 실패(timeout/5xx 잔여). 체인 슬롯을 즉시 release해서 뒷 씬
-          // fill을 막지 않고, 이 씬만 백그라운드로 같은 reservationId 재시도(prep 재실행 X
-          // = vibe 재인코딩 0 = Anlas 0). 실패 씬은 fill 순서만 뒤로 감.
+          // transient fill 실패(timeout/5xx 잔여). 이 씬만 백그라운드로 같은 reservationId
+          // 재시도(prep 재실행 X = vibe 재인코딩 0 = Anlas 0). (A: 체인 없어 슬롯 release 불필요.)
           const retryReservationId = reservationId;
           const retryItems = items.slice();
           reservationId = null; // 소유권 백그라운드 이관 — outer catch/finally 중복 처리 방지
-          releaseMySlot();
-          slotReleased = true;
           this.retryFillBackground(retryReservationId, retryItems, taskId, sceneKey, task)
             .catch((e) => console.error('[TaskQueue] retryFillBackground crashed:', e));
         }
@@ -1195,7 +1375,6 @@ export class TaskQueueService extends EventTarget {
     } finally {
       items.length = 0;
       localOutputs.length = 0;
-      if (!slotReleased) releaseMySlot();
     }
   }
 
@@ -1228,6 +1407,12 @@ export class TaskQueueService extends EventTarget {
     this.mirrorTaskSceneKeys.delete(taskId);
     this.mirrorRunStartTimes.delete(taskId);
     delete this.taskSet[taskId];
+  }
+
+  // mirror에 아직 살아있을 때만 unwind (이중 차감=stats 음수 방지). flush await 사이에
+  // 사용자 취소(removeAllTasks)가 같은 task를 이미 unwind했을 수 있어 가드.
+  private unwindMirrorTaskIfPresent(taskId: string, task: Task, sceneKey: string) {
+    if (this.mirroredTasks.has(taskId)) this.unwindMirrorTask(taskId, task, sceneKey);
   }
 
   // fill만 백그라운드 재시도 (prep 재실행 X = Anlas 0, 같은 reservationId = 이중 enqueue 방지).
@@ -1361,10 +1546,10 @@ export class TaskQueueService extends EventTarget {
     // single-flight: 진행 중이면 같은 promise를 반환 (concurrent unwind+rebuild의 중복 누적 차단).
     if (this.restoreInFlight) return this.restoreInFlight;
     this.restoreInFlight = (async () => {
-      // C-mini lock: addMirroredTask가 backend.queueAddBatch await 중이면 그 사이
-      // mirroredTasks.clear()로 방금 add한 task가 wipe됨 — 본인 페인 (2026-05-18):
-      // "예약 배지 안 뜨다가 큐 목록엔 있음, 이중 등록 위험". chain 마지막 슬롯까지 대기.
-      await this.addBatchChain;
+      // C-mini lock: addMirroredTask가 fill await 중이면 그 사이 mirroredTasks.clear()로
+      // 방금 add한 task가 wipe됨 — 본인 페인 (2026-05-18): "예약 배지 안 뜨다가 큐 목록엔
+      // 있음, 이중 등록 위험". (A: 직렬 체인 폐지 → 진행 중 add 전부 대기로 동등 보존.)
+      await Promise.allSettled([...this.pendingAdds]);
       await this._doRestoreMirroredState();
     })().finally(() => {
       this.restoreInFlight = null;

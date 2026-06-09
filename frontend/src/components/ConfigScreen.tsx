@@ -493,6 +493,7 @@ const OtherTab = ({
   delayTime, setDelayTime,
   classicSceneCard, setClassicSceneCard,
   useProjectDrawer, setUseProjectDrawer,
+  useBatchEnqueue, setUseBatchEnqueue,
   fullWordAc, setFullWordAc,
   initialThumbSize, setInitialThumbSize,
   exportConcurrency, setExportConcurrency,
@@ -568,6 +569,12 @@ const OtherTab = ({
         <input type="checkbox" id="cfgUseProjectDrawer" checked={useProjectDrawer}
           onChange={(e) => setUseProjectDrawer(e.target.checked)} />
         <label htmlFor="cfgUseProjectDrawer" className="text-sm gray-label">새 폴더 드로어 UI 사용 (끄면 옛 프로젝트 선택 모달)</label>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="cfgUseBatchEnqueue" checked={useBatchEnqueue}
+          onChange={(e) => setUseBatchEnqueue(e.target.checked)} />
+        <label htmlFor="cfgUseBatchEnqueue" className="text-sm gray-label">씬 일괄 등록 백그라운드 전송 (실험적 · 일반 모드 전용 · 백그라운드 가도 등록 지속)</label>
       </div>
       <hr className="border-gray-200 dark:border-slate-600" />
       <div className="flex items-center gap-2">
@@ -908,6 +915,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const [delayTime, setDelayTime] = useState(0);
   const [classicSceneCard, setClassicSceneCard] = useState(false);
   const [useProjectDrawer, setUseProjectDrawer] = useState(true);
+  const [useBatchEnqueue, setUseBatchEnqueue] = useState(false);
   // 0 = 자동 (화면 폭 기반), 그 외 = 명시 크기.
   const [initialThumbSize, setInitialThumbSize] = useState<number>(0);
   const [fullWordAc, setFullWordAc] = useState(appState.fullWordAutoComplete);
@@ -937,6 +945,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       setDelayTime(config.delayTime ?? 0);
       setClassicSceneCard(config.classicSceneCard ?? false);
       setUseProjectDrawer(config.useProjectDrawer ?? true);
+      setUseBatchEnqueue(config.useBatchEnqueue ?? false);
       setInitialThumbSize(config.initialThumbSize ?? 0);
       setSaveLocation(config.saveLocation ?? '');
     })();
@@ -1059,12 +1068,14 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       delayTime: delayTime,
       classicSceneCard: classicSceneCard,
       useProjectDrawer: useProjectDrawer,
+      useBatchEnqueue: useBatchEnqueue,
       initialThumbSize: initialThumbSize === 0 ? undefined : initialThumbSize,
     };
     await backend.setConfig(config);
     if (old.useCUDA !== useGPU) localAIService.modelChanged();
     appState.classicSceneCard = classicSceneCard;
     appState.useProjectDrawer = useProjectDrawer;
+    appState.useBatchEnqueue = useBatchEnqueue;
     appState.initialThumbSize = initialThumbSize === 0 ? undefined : initialThumbSize;
     appState.fullWordAutoComplete = fullWordAc;
     localStorage.setItem('sdstudio-full-word-autocomplete', fullWordAc ? 'true' : 'false');
@@ -1095,7 +1106,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       case 2:
         return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage }} />;
       case 3:
-        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, exportConcurrency, setExportConcurrency }} />;
+        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, exportConcurrency, setExportConcurrency }} />;
       case 4:
         return <KeyBindingsTab />;
       default:

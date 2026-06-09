@@ -45,6 +45,9 @@ export interface Config {
   classicSceneCard?: boolean;
   // 새 폴더 드로어 UI 사용 여부 (off면 옛 SessionTreePicker 모달). 기본 true.
   useProjectDrawer?: boolean;
+  // foreground-free 일괄 등록 (batch-enqueue) — 일반 SDImageGen 씬 일괄 예약 시 클라가
+  // prompt만 만들어 단일 fetch로 보내고 서버가 vibe/ref 인코딩+reserve+fill. 기본 false.
+  useBatchEnqueue?: boolean;
   // 씬 카드(프로젝트 그리드) 초기 썸네일 크기. undefined면 화면 폭으로 자동 결정.
   // 본인 페인 (P12 #8, 인터넷 느린 환경): 옛 흐름은 모바일 200 / 데스크탑 500
   // 하드코딩이라 인터넷 느릴 때 초기 로드 무거움. 작은 폭 화면에서는 더 작은
