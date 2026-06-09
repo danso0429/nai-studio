@@ -1591,7 +1591,12 @@ async function processQueue() {
       queueStats.failed++;
       console.error(`[NAI Studio] Queue job ${job.jobId} error:`, msg);
     }
-    genQueue.shift();
+    // audit B1 — 처리 중 head를 cancel splice(cancel-by-task-ids/job-ids)가 빼가면
+    // 무조건 shift()는 *다음 job*을 잘못 제거(손실 + 카운터 stuck). 방금 처리한 job
+    // 객체만 제거: 정상 시 idx=0이라 shift와 동일, cancel이 이미 빼갔으면 idx<0이라
+    // 아무것도 제거 안 함(다음 job 보존). cancel의 head 제거 동작은 그대로.
+    const doneIdx = genQueue.indexOf(job);
+    if (doneIdx >= 0) genQueue.splice(doneIdx, 1);
     saveQueueState();
     broadcastQueueStatus();
   }
