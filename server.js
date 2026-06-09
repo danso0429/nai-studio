@@ -4294,12 +4294,18 @@ app.post('/api/fs/unzip', async (req, res) => {
     const outDir = resolvePath(req.body.outPath);
     await fs.mkdir(outDir, { recursive: true });
     for (const [name, file] of Object.entries(zip.files)) {
+      // audit B3 — Zip Slip 방지: 엔트리명에 ../가 있으면 path.join이 outDir 밖으로
+      // 빠져나가 임의 경로에 파일 쓰기(고전적 Zip Slip). 목적지가 outDir 안인지 검증.
+      // 정상 zip은 ../ 없어 dest===기존 path.join 결과(동작 동일), 변조 zip만 차단.
+      const dest = path.resolve(outDir, name);
+      if (dest !== outDir && !dest.startsWith(outDir + path.sep)) {
+        throw new Error(`Unsafe zip entry (path traversal): ${name}`);
+      }
       if (file.dir) {
-        await fs.mkdir(path.join(outDir, name), { recursive: true });
+        await fs.mkdir(dest, { recursive: true });
       } else {
-        const filePath = path.join(outDir, name);
-        await fs.mkdir(path.dirname(filePath), { recursive: true });
-        await fs.writeFile(filePath, await file.async('nodebuffer'));
+        await fs.mkdir(path.dirname(dest), { recursive: true });
+        await fs.writeFile(dest, await file.async('nodebuffer'));
       }
     }
     res.json({ ok: true });
