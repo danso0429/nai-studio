@@ -104,18 +104,25 @@ export abstract class ResourceSyncService<
     return this.resourceList;
   }
 
-  async onAdded(name: string) {
+  // audit M3 — reaction 콜백 closure가 *등록 시점* name을 캡처한다. rename에서 dispose
+  // 핸들만 옮기면 reaction은 여전히 oldName으로 #markUpdated → dirty[oldName](영속 skip)
+  // → rename한 세션 동안 그 프로젝트 편집이 디스크에 안 닿고 새로고침 시 손실. 등록을
+  // 헬퍼로 분리해 rename에서 새 name으로 재등록한다. (reaction은 생성 시 즉시 fire 안 함)
+  #registerReaction(name: string) {
     const resource = this.resources[name];
-    const dispose = reaction(
+    this.disposes[name] = reaction(
       () => resource.toJSON(),
-      (_) => {
+      () => {
         this.#markUpdated(name);
       },
       {
         delay: this.updateInterval,
       },
     );
-    this.disposes[name] = dispose;
+  }
+
+  async onAdded(name: string) {
+    this.#registerReaction(name);
     await this.getHook(this.resources[name], name);
   }
 
@@ -152,8 +159,15 @@ export abstract class ResourceSyncService<
     const srcPath = this.getPath(oldName);
     this.resources[newName] = this.resources[oldName];
     delete this.resources[oldName];
-    this.disposes[newName] = this.disposes[oldName];
-    delete this.disposes[oldName];
+    // audit M3 — 헌 reaction(closure=oldName) dispose 후 newName으로 재등록. 같은
+    // 객체(resources[newName])를 추적하되 편집 시 #markUpdated(newName)을 fire해서
+    // dirty[newName]→getPath(newName)로 정상 영속. dispose 핸들만 옮기던 옛 코드는
+    // stale name이라 영속 3경로(update/flushOnHide/saveAll dirty) 다 skip됐음.
+    if (this.disposes[oldName]) {
+      this.disposes[oldName]();
+      delete this.disposes[oldName];
+    }
+    this.#registerReaction(newName);
     if (oldName in this.dirty) {
       this.dirty[newName] = this.dirty[oldName];
       delete this.dirty[oldName];
