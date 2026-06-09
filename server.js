@@ -1345,7 +1345,9 @@ async function diskCleanupStage1() {
         } catch {}
       }
       // Remove empty dirs
-      execSync(`find "${dirPath}" -mindepth 1 -type d -empty -delete 2>/dev/null`);
+      // audit B6 — execSync는 event loop 동기 블록(대량 파일 시 다른 HTTP/WS/큐 지연).
+      // execFileP(async)로 전환. shell 미경유라 2>/dev/null 불필요(stderr 분리 캡처).
+      await execFileP('find', [dirPath, '-mindepth', '1', '-type', 'd', '-empty', '-delete']);
     } catch {}
   }
   if (cleaned > 0) console.log(`[Disk] Stage 1: deleted ${cleaned} tmp/exports files`);
@@ -1357,12 +1359,15 @@ async function diskCleanupStage1() {
 async function cleanupDirByPattern(pathPattern, dirName) {
   let cleaned = 0;
   try {
-    const output = execSync(`find "${DATA_DIR}" -path "${pathPattern}" -type f 2>/dev/null`).toString().trim();
+    // audit B6 — execSync 동기 블록 → execFileP(async). glob(pathPattern)은 find 인자로
+    // 그대로 넘어가 find가 매칭(shell glob 미경유라 안전).
+    const { stdout } = await execFileP('find', [DATA_DIR, '-path', pathPattern, '-type', 'f']);
+    const output = stdout.trim();
     const files = output ? output.split('\n') : [];
     for (const f of files) {
       try { await fs.unlink(f); cleaned++; } catch {}
     }
-    execSync(`find "${DATA_DIR}" -name "${dirName}" -type d -empty -delete 2>/dev/null`);
+    await execFileP('find', [DATA_DIR, '-name', dirName, '-type', 'd', '-empty', '-delete']);
   } catch {}
   return cleaned;
 }
@@ -1394,16 +1399,20 @@ async function diskCleanupStage4() {
 
   try {
     // 30일 이상 된 png 파일 찾기
-    const output = execSync(`find "${outsDir}" -name "*.png" -not -path "*/.trash/*" -not -path "*/fastcache/*" -mtime +30 2>/dev/null`).toString().trim();
+    // audit B6 — execSync 동기 블록 → execFileP(async). 패턴은 find 인자로 그대로 전달.
+    const { stdout } = await execFileP('find', [outsDir, '-name', '*.png', '-not', '-path', '*/.trash/*', '-not', '-path', '*/fastcache/*', '-mtime', '+30']);
+    const output = stdout.trim();
     const files = output ? output.split('\n') : [];
     if (files.length === 0) return 0;
     // Drive 인덱스를 한 번에 빌드 (lsjson --recursive). N개 lsf 호출 -> 1번 호출.
     let driveSet;
     try {
-      const lsjsonOutput = execSync(
-        `rclone lsjson "${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/outs" --recursive --files-only 2>/dev/null`,
-        { maxBuffer: 100 * 1024 * 1024 }
-      ).toString();
+      // audit B6 — execSync 동기 블록 → execFileP(async). maxBuffer 100MB 유지.
+      const { stdout: lsjsonOutput } = await execFileP(
+        'rclone',
+        ['lsjson', `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/outs`, '--recursive', '--files-only'],
+        { maxBuffer: 100 * 1024 * 1024 },
+      );
       const entries = JSON.parse(lsjsonOutput);
       driveSet = new Set(entries.map(e => e.Path));
       console.log(`[Disk] Stage 4: indexed ${driveSet.size} Drive files for matching`);
