@@ -31,19 +31,36 @@ export class GlobalCharacterPresetService extends EventTarget {
 
   // ---------- lifecycle ----------
   async load() {
+    // audit M4 — 다른 4서비스(ToggleGroup/PromptChunk/Sampling/GlobalPreset)와 달리
+    // readFile+JSON.parse를 한 try로 묶어, 손상 JSON 시 백업 없이 []로 두고 다음 save가
+    // 손상 파일을 백업 없이 덮어써 복구 불가였음. 레퍼런스와 동일하게 readFile(외부=파일없음)과
+    // parse(내부=손상)를 분리: 손상이면 .corrupt-<ts>로 백업 후 [] + 'corrupted' 이벤트.
     try {
       const str = await backend.readFile(GLOBAL_CHAR_PRESETS_FILE);
-      const json = JSON.parse(str) as IGlobalCharacterPresetStore;
-      this.presets =
-        json && Array.isArray(json.presets)
-          ? json.presets.filter(
-              (p) =>
-                p &&
-                typeof p.id === 'string' &&
-                typeof p.name === 'string' &&
-                p.preset,
-            )
-          : [];
+      try {
+        const json = JSON.parse(str) as IGlobalCharacterPresetStore;
+        this.presets =
+          json && Array.isArray(json.presets)
+            ? json.presets.filter(
+                (p) =>
+                  p &&
+                  typeof p.id === 'string' &&
+                  typeof p.name === 'string' &&
+                  p.preset,
+              )
+            : [];
+      } catch (parseErr) {
+        const corruptName = `${GLOBAL_CHAR_PRESETS_FILE}.corrupt-${Date.now()}`;
+        try {
+          await backend.renameFile(GLOBAL_CHAR_PRESETS_FILE, corruptName);
+        } catch (e) {
+          // rename 실패는 무시 (백업 못 해도 빈 상태로 진행)
+        }
+        this.presets = [];
+        this.dispatchEvent(
+          new CustomEvent('corrupted', { detail: { backupName: corruptName } }),
+        );
+      }
     } catch (e) {
       this.presets = [];
     }
