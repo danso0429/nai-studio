@@ -32,8 +32,7 @@ const RCLONE_REMOTE_BASE = process.env.RCLONE_REMOTE_BASE || 'NAI-Studio';
 
 // 자동 업데이트 (POST /api/self-update) 동시 호출 차단 락.
 // 인증은 NAI 로그인 상태(nai.token 존재)로 판정 — 별도 admin token 입력 X.
-// risuai-nodeonly 패턴 정신("로그인되면 자동 인증")을 우리 환경(서버 측 단일
-// NAI token 보관)에 맞춰 단순화.
+// "로그인되면 자동 인증" 패턴을 우리 환경(서버 측 단일 NAI token 보관)에 맞춰 단순화.
 let selfUpdateInProgress = false;
 
 // ─── Ensure directories ────────────────────────────────────────────

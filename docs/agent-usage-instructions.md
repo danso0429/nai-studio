@@ -293,7 +293,7 @@ These have actually happened — listed to prevent recurrence.
 - **P15 catalog hallucination (2026-05-17)**: agent classified ~149 catalog
   entries; ~75% turned out stale on verification. Cause: open-ended "audit
   this catalog" prompt. Lesson: per-entry strict schema.
-- **risuai-nodeonly path search (2026-05-17)**: agent reported "file not
+- **external codebase path search (2026-05-17)**: agent reported "file not
   found" instead of running `find`. Cause: agent gave up early. Lesson: hand
   it the exact find command + require attempt evidence (memory
   [[feedback_search_paths_before_asking]]).
