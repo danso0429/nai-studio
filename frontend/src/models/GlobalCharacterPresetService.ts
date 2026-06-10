@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { backend, imageService } from '.';
 import { Session, CharacterPreset, ICharacterPreset } from './types';
 import { dataUriToBase64 } from './ImageService';
+import { DebouncedJsonStore } from './DebouncedJsonStore';
 
 const GLOBAL_CHAR_PRESETS_FILE = 'global_character_presets.json';
 const GLOBAL_CHAR_IMAGES_DIR = 'global_char_images';
@@ -24,83 +25,45 @@ export interface IGlobalCharacterPresetStore {
 // 글로벌(프로젝트 공통) 캐릭터 프리셋.
 // 캐릭터 프리셋 이미지는 세션 디렉터리에 종속되므로, 글로벌은 전용 디렉터리에
 // 이미지를 따로 보관하고(data URI 파일), 불러올 때 세션으로 복사한다.
-export class GlobalCharacterPresetService extends EventTarget {
+export class GlobalCharacterPresetService extends DebouncedJsonStore {
   @observable accessor presets: IGlobalCharacterPresetEntry[] = [];
-  @observable accessor loaded: boolean = false;
-  private saveTimeout: any = null;
 
   // ---------- lifecycle ----------
-  async load() {
-    // audit M4 — 다른 4서비스(ToggleGroup/PromptChunk/Sampling/GlobalPreset)와 달리
-    // readFile+JSON.parse를 한 try로 묶어, 손상 JSON 시 백업 없이 []로 두고 다음 save가
-    // 손상 파일을 백업 없이 덮어써 복구 불가였음. 레퍼런스와 동일하게 readFile(외부=파일없음)과
-    // parse(내부=손상)를 분리: 손상이면 .corrupt-<ts>로 백업 후 [] + 'corrupted' 이벤트.
-    try {
-      const str = await backend.readFile(GLOBAL_CHAR_PRESETS_FILE);
-      try {
-        const json = JSON.parse(str) as IGlobalCharacterPresetStore;
-        this.presets =
-          json && Array.isArray(json.presets)
-            ? json.presets.filter(
-                (p) =>
-                  p &&
-                  typeof p.id === 'string' &&
-                  typeof p.name === 'string' &&
-                  p.preset,
-              )
-            : [];
-      } catch (parseErr) {
-        const corruptName = `${GLOBAL_CHAR_PRESETS_FILE}.corrupt-${Date.now()}`;
-        try {
-          await backend.renameFile(GLOBAL_CHAR_PRESETS_FILE, corruptName);
-        } catch (e) {
-          // rename 실패는 무시 (백업 못 해도 빈 상태로 진행)
-        }
-        this.presets = [];
-        this.dispatchEvent(
-          new CustomEvent('corrupted', { detail: { backupName: corruptName } }),
-        );
-      }
-    } catch (e) {
-      this.presets = [];
-    }
-    this.loaded = true;
-    this.dispatchEvent(new CustomEvent('changed', {}));
+
+  protected getFileName(): string {
+    return GLOBAL_CHAR_PRESETS_FILE;
   }
 
-  async save() {
-    const store: IGlobalCharacterPresetStore = {
-      version: 1,
-      presets: this.presets,
-    };
-    const data = JSON.stringify(store);
-    const tmp = GLOBAL_CHAR_PRESETS_FILE + '.tmp';
-    try {
-      await backend.writeFile(tmp, data);
-      await backend.renameFile(tmp, GLOBAL_CHAR_PRESETS_FILE);
-    } catch (e) {
-      try {
-        await backend.writeFile(GLOBAL_CHAR_PRESETS_FILE, data);
-      } catch (e2) {
-        console.error('Failed to save global character presets:', e2);
-      }
-    }
+  protected saveErrorLabel(): string {
+    return 'global character presets';
   }
 
-  scheduleSave() {
-    if (this.saveTimeout) clearTimeout(this.saveTimeout);
-    this.saveTimeout = setTimeout(() => {
-      this.save();
-      this.saveTimeout = null;
-    }, 2000);
+  // audit B8 — load 완료 이벤트가 다른 4개와 달리 'changed'(기존 동작 보존).
+  // (base 상속으로 flushOnHide는 새로 획득 — 2초 debounce 중 탭 닫을 때 저장 손실 갭 fix.)
+  protected loadedEvent(): string {
+    return 'changed';
   }
 
-  async flushSave() {
-    if (this.saveTimeout) {
-      clearTimeout(this.saveTimeout);
-      this.saveTimeout = null;
-    }
-    await this.save();
+  protected buildStore(): IGlobalCharacterPresetStore {
+    return { version: 1, presets: this.presets };
+  }
+
+  protected applyParsed(json: any): void {
+    const j = json as IGlobalCharacterPresetStore;
+    this.presets =
+      j && Array.isArray(j.presets)
+        ? j.presets.filter(
+            (p) =>
+              p &&
+              typeof p.id === 'string' &&
+              typeof p.name === 'string' &&
+              p.preset,
+          )
+        : [];
+  }
+
+  protected resetState(): void {
+    this.presets = [];
   }
 
   // ---------- read ----------

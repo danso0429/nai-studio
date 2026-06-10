@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { backend, imageService, workFlowService } from '.';
 import { Session } from './types';
 import { dataUriToBase64 } from './ImageService';
+import { DebouncedJsonStore } from './DebouncedJsonStore';
 import {
   readJSONFromPNG,
   embedJSONInPNG,
@@ -35,105 +36,40 @@ export interface IGlobalPresetStore {
   presets: IGlobalPresetEntry[];
 }
 
-export class GlobalPresetService extends EventTarget {
+export class GlobalPresetService extends DebouncedJsonStore {
   @observable accessor presets: IGlobalPresetEntry[] = [];
-  @observable accessor loaded: boolean = false;
-  private saveTimeout: any = null;
-
-  constructor() {
-    super();
-    // scheduleSave()의 2초 debounce가 fire 전에 사용자가 탭 닫으면 손실. keepalive fetch로
-    // visibility hidden 시점 강제 flush. saveTimeout 있을 때만 (실제 pending인 경우만).
-    if (typeof document !== 'undefined') {
-      const flushOnHide = () => {
-        if (document.visibilityState !== 'hidden') return;
-        if (!this.saveTimeout) return;
-        clearTimeout(this.saveTimeout);
-        this.saveTimeout = null;
-        const store: IGlobalPresetStore = {
-          version: 1,
-          presets: this.presets,
-        };
-        backend.writeFileKeepalive(GLOBAL_PRESETS_FILE, JSON.stringify(store));
-      };
-      document.addEventListener('visibilitychange', flushOnHide);
-      window.addEventListener('pagehide', flushOnHide);
-    }
-  }
 
   // ---------- lifecycle ----------
 
-  async load(): Promise<void> {
-    try {
-      const str = await backend.readFile(GLOBAL_PRESETS_FILE);
-      try {
-        const json = JSON.parse(str) as IGlobalPresetStore;
-        if (json && Array.isArray(json.presets)) {
-          this.presets = json.presets.filter(
-            (p) =>
-              p &&
-              typeof p.id === 'string' &&
-              typeof p.name === 'string' &&
-              SUPPORTED_GLOBAL_PRESET_TYPES.includes(p.workflowType),
-          );
-        } else {
-          this.presets = [];
-        }
-      } catch (parseErr) {
-        // Corruption: rename and start fresh
-        const corruptName = `${GLOBAL_PRESETS_FILE}.corrupt-${Date.now()}`;
-        try {
-          await backend.renameFile(GLOBAL_PRESETS_FILE, corruptName);
-        } catch (e) {
-          // ignore rename errors
-        }
-        this.presets = [];
-        this.dispatchEvent(
-          new CustomEvent('corrupted', { detail: { backupName: corruptName } }),
-        );
-      }
-    } catch (e) {
-      // File missing or read failed — start empty
+  protected getFileName(): string {
+    return GLOBAL_PRESETS_FILE;
+  }
+
+  protected saveErrorLabel(): string {
+    return 'global presets';
+  }
+
+  protected buildStore(): IGlobalPresetStore {
+    return { version: 1, presets: this.presets };
+  }
+
+  protected applyParsed(json: any): void {
+    const j = json as IGlobalPresetStore;
+    if (j && Array.isArray(j.presets)) {
+      this.presets = j.presets.filter(
+        (p) =>
+          p &&
+          typeof p.id === 'string' &&
+          typeof p.name === 'string' &&
+          SUPPORTED_GLOBAL_PRESET_TYPES.includes(p.workflowType),
+      );
+    } else {
       this.presets = [];
     }
-    this.loaded = true;
-    this.dispatchEvent(new CustomEvent('loaded', {}));
   }
 
-  async save(): Promise<void> {
-    const store: IGlobalPresetStore = {
-      version: 1,
-      presets: this.presets,
-    };
-    const data = JSON.stringify(store);
-    const tmp = GLOBAL_PRESETS_FILE + '.tmp';
-    try {
-      await backend.writeFile(tmp, data);
-      await backend.renameFile(tmp, GLOBAL_PRESETS_FILE);
-    } catch (e) {
-      // Fallback: direct write if atomic rename fails
-      try {
-        await backend.writeFile(GLOBAL_PRESETS_FILE, data);
-      } catch (e2) {
-        console.error('Failed to save global presets:', e2);
-      }
-    }
-  }
-
-  scheduleSave(): void {
-    if (this.saveTimeout) clearTimeout(this.saveTimeout);
-    this.saveTimeout = setTimeout(() => {
-      this.save();
-      this.saveTimeout = null;
-    }, 2000);
-  }
-
-  async flushSave(): Promise<void> {
-    if (this.saveTimeout) {
-      clearTimeout(this.saveTimeout);
-      this.saveTimeout = null;
-    }
-    await this.save();
+  protected resetState(): void {
+    this.presets = [];
   }
 
   // ---------- read ----------

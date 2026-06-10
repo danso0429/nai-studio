@@ -1,6 +1,6 @@
 import { observable, action } from 'mobx';
 import { v4 as uuidv4 } from 'uuid';
-import { backend } from '.';
+import { DebouncedJsonStore } from './DebouncedJsonStore';
 
 const SAMPLING_PRESETS_FILE = 'sampling_presets.json';
 
@@ -38,95 +38,34 @@ export function isSamplingPresetEmpty(p: ISamplingPresetFields): boolean {
   );
 }
 
-export class SamplingPresetService extends EventTarget {
+export class SamplingPresetService extends DebouncedJsonStore {
   @observable accessor presets: ISamplingPreset[] = [];
-  @observable accessor loaded: boolean = false;
-  private saveTimeout: any = null;
 
-  constructor() {
-    super();
-    // 2초 debounce가 fire 전 탭 닫히면 손실 → visibility hidden 시 keepalive fetch로 강제 flush.
-    if (typeof document !== 'undefined') {
-      const flushOnHide = () => {
-        if (document.visibilityState !== 'hidden') return;
-        if (!this.saveTimeout) return;
-        clearTimeout(this.saveTimeout);
-        this.saveTimeout = null;
-        backend.writeFileKeepalive(
-          SAMPLING_PRESETS_FILE,
-          JSON.stringify(this.buildStore()),
-        );
-      };
-      document.addEventListener('visibilitychange', flushOnHide);
-      window.addEventListener('pagehide', flushOnHide);
-    }
+  protected getFileName(): string {
+    return SAMPLING_PRESETS_FILE;
   }
 
-  private buildStore(): ISamplingPresetStore {
+  protected saveErrorLabel(): string {
+    return 'sampling presets';
+  }
+
+  protected buildStore(): ISamplingPresetStore {
     return { version: 1, presets: this.presets };
   }
 
-  async load(): Promise<void> {
-    try {
-      const str = await backend.readFile(SAMPLING_PRESETS_FILE);
-      try {
-        const json = JSON.parse(str) as ISamplingPresetStore;
-        if (json && Array.isArray(json.presets)) {
-          this.presets = json.presets.filter(
-            (p) =>
-              p && typeof p.id === 'string' && typeof p.name === 'string',
-          );
-        } else {
-          this.presets = [];
-        }
-      } catch (parseErr) {
-        const corruptName = `${SAMPLING_PRESETS_FILE}.corrupt-${Date.now()}`;
-        try {
-          await backend.renameFile(SAMPLING_PRESETS_FILE, corruptName);
-        } catch (e) {
-          // ignore rename errors
-        }
-        this.presets = [];
-        this.dispatchEvent(
-          new CustomEvent('corrupted', { detail: { backupName: corruptName } }),
-        );
-      }
-    } catch (e) {
+  protected applyParsed(json: any): void {
+    const j = json as ISamplingPresetStore;
+    if (j && Array.isArray(j.presets)) {
+      this.presets = j.presets.filter(
+        (p) => p && typeof p.id === 'string' && typeof p.name === 'string',
+      );
+    } else {
       this.presets = [];
     }
-    this.loaded = true;
-    this.dispatchEvent(new CustomEvent('loaded', {}));
   }
 
-  async save(): Promise<void> {
-    const data = JSON.stringify(this.buildStore());
-    const tmp = SAMPLING_PRESETS_FILE + '.tmp';
-    try {
-      await backend.writeFile(tmp, data);
-      await backend.renameFile(tmp, SAMPLING_PRESETS_FILE);
-    } catch (e) {
-      try {
-        await backend.writeFile(SAMPLING_PRESETS_FILE, data);
-      } catch (e2) {
-        console.error('Failed to save sampling presets:', e2);
-      }
-    }
-  }
-
-  scheduleSave(): void {
-    if (this.saveTimeout) clearTimeout(this.saveTimeout);
-    this.saveTimeout = setTimeout(() => {
-      this.save();
-      this.saveTimeout = null;
-    }, 2000);
-  }
-
-  async flushSave(): Promise<void> {
-    if (this.saveTimeout) {
-      clearTimeout(this.saveTimeout);
-      this.saveTimeout = null;
-    }
-    await this.save();
+  protected resetState(): void {
+    this.presets = [];
   }
 
   list(): ISamplingPreset[] {

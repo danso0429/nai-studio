@@ -1,6 +1,6 @@
 import { observable, action } from 'mobx';
 import { v4 as uuidv4 } from 'uuid';
-import { backend } from '.';
+import { DebouncedJsonStore } from './DebouncedJsonStore';
 
 const PROMPT_CHUNKS_FILE = 'prompt_chunks.json';
 
@@ -30,105 +30,43 @@ export interface IPromptChunkStore {
 
 export const DEFAULT_CHUNK_COLOR = '#d4d4d8'; // 연회색 (zinc-300)
 
-export class PromptChunkService extends EventTarget {
+export class PromptChunkService extends DebouncedJsonStore {
   @observable accessor chunks: IPromptChunk[] = [];
   @observable accessor folders: IPromptChunkFolder[] = [];
-  @observable accessor loaded: boolean = false;
-  private saveTimeout: any = null;
 
-  constructor() {
-    super();
-    // 2초 debounce가 fire 전 탭 닫히면 손실 → visibility hidden 시 keepalive fetch로 강제 flush.
-    if (typeof document !== 'undefined') {
-      const flushOnHide = () => {
-        if (document.visibilityState !== 'hidden') return;
-        if (!this.saveTimeout) return;
-        clearTimeout(this.saveTimeout);
-        this.saveTimeout = null;
-        backend.writeFileKeepalive(
-          PROMPT_CHUNKS_FILE,
-          JSON.stringify(this.buildStore()),
-        );
-      };
-      document.addEventListener('visibilitychange', flushOnHide);
-      window.addEventListener('pagehide', flushOnHide);
-    }
+  protected getFileName(): string {
+    return PROMPT_CHUNKS_FILE;
   }
 
-  private buildStore(): IPromptChunkStore {
+  protected saveErrorLabel(): string {
+    return 'prompt chunks';
+  }
+
+  protected buildStore(): IPromptChunkStore {
     return { version: 1, chunks: this.chunks, folders: this.folders };
   }
 
-  async load(): Promise<void> {
-    try {
-      const str = await backend.readFile(PROMPT_CHUNKS_FILE);
-      try {
-        const json = JSON.parse(str) as IPromptChunkStore;
-        this.chunks = Array.isArray(json?.chunks)
-          ? json.chunks.filter(
-              (c) =>
-                c &&
-                typeof c.id === 'string' &&
-                typeof c.name === 'string' &&
-                typeof c.content === 'string',
-            )
-          : [];
-        this.folders = Array.isArray(json?.folders)
-          ? json.folders.filter(
-              (f) =>
-                f && typeof f.id === 'string' && typeof f.name === 'string',
-            )
-          : [];
-      } catch (parseErr) {
-        const corruptName = `${PROMPT_CHUNKS_FILE}.corrupt-${Date.now()}`;
-        try {
-          await backend.renameFile(PROMPT_CHUNKS_FILE, corruptName);
-        } catch (e) {
-          // ignore rename errors
-        }
-        this.chunks = [];
-        this.folders = [];
-        this.dispatchEvent(
-          new CustomEvent('corrupted', { detail: { backupName: corruptName } }),
-        );
-      }
-    } catch (e) {
-      this.chunks = [];
-      this.folders = [];
-    }
-    this.loaded = true;
-    this.dispatchEvent(new CustomEvent('loaded', {}));
+  protected applyParsed(json: any): void {
+    const j = json as IPromptChunkStore;
+    this.chunks = Array.isArray(j?.chunks)
+      ? j.chunks.filter(
+          (c) =>
+            c &&
+            typeof c.id === 'string' &&
+            typeof c.name === 'string' &&
+            typeof c.content === 'string',
+        )
+      : [];
+    this.folders = Array.isArray(j?.folders)
+      ? j.folders.filter(
+          (f) => f && typeof f.id === 'string' && typeof f.name === 'string',
+        )
+      : [];
   }
 
-  async save(): Promise<void> {
-    const data = JSON.stringify(this.buildStore());
-    const tmp = PROMPT_CHUNKS_FILE + '.tmp';
-    try {
-      await backend.writeFile(tmp, data);
-      await backend.renameFile(tmp, PROMPT_CHUNKS_FILE);
-    } catch (e) {
-      try {
-        await backend.writeFile(PROMPT_CHUNKS_FILE, data);
-      } catch (e2) {
-        console.error('Failed to save prompt chunks:', e2);
-      }
-    }
-  }
-
-  scheduleSave(): void {
-    if (this.saveTimeout) clearTimeout(this.saveTimeout);
-    this.saveTimeout = setTimeout(() => {
-      this.save();
-      this.saveTimeout = null;
-    }, 2000);
-  }
-
-  async flushSave(): Promise<void> {
-    if (this.saveTimeout) {
-      clearTimeout(this.saveTimeout);
-      this.saveTimeout = null;
-    }
-    await this.save();
+  protected resetState(): void {
+    this.chunks = [];
+    this.folders = [];
   }
 
   // ─── chunk ───
