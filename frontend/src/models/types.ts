@@ -718,9 +718,6 @@ export interface StyleContextAlt {
 
 export type ContextAlt = ImageContextAlt | SceneContextAlt | StyleContextAlt;
 
-export const encodeContextAlt = (x: ContextAlt) => JSON.stringify(x)!;
-export const decodeContextAlt = JSON.parse as (x: string) => ContextAlt;
-
 export const isValidSession = (session: any) => {
   return (
     typeof session.name === 'string' &&
