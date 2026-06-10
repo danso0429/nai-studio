@@ -555,7 +555,7 @@ Node.js 20.6+ (uses `process.loadEnvFile`, native `fetch`, `AbortSignal.timeout`
 - ✓ `74f7466` — `lib/nai-client.js:267, :303, :329` `Buffer.from(await res.arrayBuffer())` Critical 처리됨 (P17).
 - ⊘ Q4 — `lib/self-update.js:101-106` `triggerPm2Restart` graceful flush. 단일 사용자 환경 + pm2 자체 종료가 빠름 → graceful 비용 대비 효용 작음.
 - by-design — `lib/tag-search.js:9` `tagDB` module-global mutable (singleton).
-- by-design — `reconcile_image_map.js` sync I/O (one-shot script).
+- removed — `reconcile_image_map.js` 삭제(B4): 한 번도 수동 실행 안 함 + server boot reconcile와 표류(scenes만 vs inpaints도). 미사용 도구라 제거(자동 호출 0).
 - by-design correct — `ecosystem.config.js` `exec_mode: 'fork'` single-instance.
 - ✓ `5ab2326` — `server.js:1314-1315` `/api/config` uses `atomicWriteFile` (L15 P18 sub-6).
 - `server.js:1791-1797` `/api/fs/read` reads file as utf-8 unconditionally.
