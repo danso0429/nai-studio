@@ -268,6 +268,10 @@ let queueProcessing = false;
 let queuePaused = false;
 let pauseRequested = false; // 사용자 명시 pause (대량 삭제 등 race 방지용)
 let queueStats = { completed: 0, failed: 0, totalProcessTimeMs: 0, completedWithTiming: 0 };
+// audit B5 — 부팅 시 큐 상태 복원 실패(파일 손상) 정보. /api/queue/status로 노출돼
+// queue.html이 배너로 표시(console 로그만으론 사용자가 손실 인지 불가). 정상 부팅이면 null,
+// 손상 복원 실패 1회 발생 시 set. 다음 클린 재시작 때 모듈 재초기화로 자연 해소.
+let queueStateRestoreError = null;
 // KST 자정 기준 일간 리셋 — 전날 누적 completed/failed 초기화. pending/ETA는 영향 없음.
 let lastQueueStatsResetDay = Math.floor((Date.now() + 9 * 3600000) / 86400000);
 function resetQueueStatsIfNewDay() {
@@ -438,7 +442,10 @@ function loadTimingHistory() {
     } else {
       timingHistory = parsed;
     }
-  } catch {}
+  } catch (e) {
+    // audit B5 — ENOENT(첫 부팅)은 무음, 손상만 로그.
+    if (e.code !== 'ENOENT') console.error('[timing] history load failed:', e.message);
+  }
   // stats (영구). raw에서 재계산하지 않음 — raw는 prune되니까.
   // 단, tz 마커가 없거나 다르면 raw에서 재집계 (timezone 변경 마이그레이션).
   let needsBootstrap = false;
@@ -531,7 +538,10 @@ function loadCompletedJobs() {
     if (completedJobs.length > 0) {
       console.log('[NAI Studio] Loaded ' + completedJobs.length + ' completed jobs');
     }
-  } catch {}
+  } catch (e) {
+    // audit B5 — ENOENT(첫 부팅)은 무음, 손상만 로그.
+    if (e.code !== 'ENOENT') console.error('[completed] jobs load failed:', e.message);
+  }
 }
 
 // 본인 가끔 5천 초과 등록 (2026-05-23 P21 #3 페인 보고). 7000 한도 — saveQueueState
@@ -753,7 +763,21 @@ function loadQueueState() {
       }
     }
     fss.unlinkSync(QUEUE_STATE_FILE);
-  } catch {}
+  } catch (e) {
+    // audit B5 — 옛 코드는 전체 silent catch라 .queue_state.json 손상 시 큐를 무음으로
+    // 잃었음(로그로도 인지 불가). ENOENT(복원할 상태 없음=정상 부팅)는 그대로 무음.
+    // 손상이면: (1) 손상본을 .corrupt-<ts>로 보존(복구 가능 + 매 부팅 반복 실패 방지)
+    // (2) console.error (3) queueStateRestoreError set → /api/queue/status로 queue.html 배너.
+    if (e.code !== 'ENOENT') {
+      console.error('[queue] state load failed:', e.message);
+      let backup = null;
+      try {
+        backup = QUEUE_STATE_FILE + '.corrupt-' + Date.now();
+        fss.renameSync(QUEUE_STATE_FILE, backup);
+      } catch { backup = null; }
+      queueStateRestoreError = { at: Date.now(), message: e.message, backup };
+    }
+  }
 }
 
 // ─── imageMap reconcile (boot-time, background) ─────────────────────
@@ -2197,6 +2221,8 @@ app.get('/api/queue/status', async (req, res) => {
     etaMs,
     lastJobDurationMs: timingHistory.length > 0 ? timingHistory[timingHistory.length - 1][1] : null,
     recentErrors: queueErrorHistory.slice(-10), // 최근 10개 (queue.html 표시용)
+    // audit B5 — 부팅 시 큐 상태 복원 손상(있으면). queue.html이 배너로 표시.
+    stateRestoreError: queueStateRestoreError,
   });
 });
 

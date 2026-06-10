@@ -1119,7 +1119,8 @@
   // 정적 구조는 첫 tick에만 박고, 이후 tick은 슬롯 textContent / className만 갱신.
   // banner / timing panel / errors panel은 변경 감지(dataset.lastHtml) 후에만 innerHTML.
   function buildQueueShell() {
-    root.innerHTML = '<div id="q-banner"></div>'
+    root.innerHTML = '<div id="q-state-error"></div>'
+      + '<div id="q-banner"></div>'
       + '<div class="progress">'
       + '<div class="label">진행</div>'
       + '<div class="num"><span id="q-done">0</span> <span style="color:#6a6f78">/ <span id="q-total">0</span></span><span class="pct" id="q-pct">0.00%</span></div>'
@@ -1321,6 +1322,23 @@
         fetchFullState().then(() => { renderQueueTreePanel(); renderReservedTreePanel(); });
       }
       if (!document.getElementById('q-done')) buildQueueShell();
+
+      // audit B5 — 부팅 시 큐 상태 파일 손상으로 복원 실패했으면 상단 배너로 알림
+      // (서버 stateRestoreError. console 로그만으론 사용자가 손실 인지 불가).
+      if (d.stateRestoreError) {
+        const sre = d.stateRestoreError;
+        const when = new Date(sre.at).toLocaleString();
+        const backupNote = sre.backup
+          ? '손상본 백업: ' + escapeHtml(String(sre.backup).split('/').pop())
+          : '손상본 백업도 실패';
+        setSlot('q-state-error',
+          '<div class="err" style="border:1px solid #f87171;">'
+          + '⚠️ 서버 재시작 시 큐 상태 파일이 손상돼 복원하지 못했어요. 대기 중이던 작업이 유실됐을 수 있어요.<br>'
+          + '<span style="font-size:11px; color:#fca5a5;">' + escapeHtml(when) + ' · ' + backupNote + '</span>'
+          + '</div>');
+      } else {
+        setSlot('q-state-error', '');
+      }
 
       const total = (d.completed || 0) + (d.failed || 0) + (d.pending || 0);
       const done = (d.completed || 0) + (d.failed || 0);
