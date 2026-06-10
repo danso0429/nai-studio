@@ -125,12 +125,15 @@ export const AppContextMenu = observer(() => {
     } else if (id === 'move-back') {
       moveSceneBack(ctx);
     } else if (id === 'delete') {
+      // audit M2 — confirm 동안 프로젝트 전환 시 가변 curSession을 쓰면 전환된 프로젝트에
+      // ctx.scene(원래 프로젝트 소속)을 적용. dialog 연 시점 세션 캡처.
+      const session = appState.curSession!;
       appState.pushDialog({
         type: 'confirm',
         text: '정말로 삭제하시겠습니까? (휴지통으로 이동)',
         callback: async () => {
           const { trashService } = await import('../models');
-          await trashService.moveSceneToTrash(appState.curSession!, ctx.scene);
+          await trashService.moveSceneToTrash(session, ctx.scene);
         },
       });
     }
@@ -149,20 +152,23 @@ export const AppContextMenu = observer(() => {
   // 대상 씬에서도 즐겨찾기 유지. 대상에 같은 파일명 있으면 getUniqueFilename으로 회피.
   const moveImage = (ctx: GallaryImageContextAlt) => {
     const srcScene = ctx.scene;
+    // audit M2 — dropdown 선택(전환 가능) 후 callback이 가변 curSession을 쓰면 잘못된
+    // 프로젝트의 씬을 대상으로 함. dialog 연 시점 세션 캡처해 items+callback 일관 사용.
+    const session = appState.curSession!;
     appState.pushDialog({
       type: 'dropdown',
       text: '이미지를 어느 씬으로 이동할까요?',
-      items: Array.from(appState.curSession!.scenes.keys())
+      items: Array.from(session.scenes.keys())
         .filter((key) => !srcScene || key !== srcScene.name)
         .map((key) => ({ text: key, value: key })),
       callback: async (value) => {
         if (!value) return;
 
-        const target = appState.curSession!.scenes.get(value);
+        const target = session.scenes.get(value);
         if (!target) {
           return;
         }
-        const targetDir = imageService.getImageDir(appState.curSession!, target);
+        const targetDir = imageService.getImageDir(session, target);
 
         let moved = 0;
         for (const path of ctx.path) {
@@ -181,8 +187,8 @@ export const AppContextMenu = observer(() => {
           if (wasFav) target.mains.push(newName);
           moved++;
         }
-        if (srcScene) imageService.refresh(appState.curSession!, srcScene);
-        imageService.refresh(appState.curSession!, target);
+        if (srcScene) imageService.refresh(session, srcScene);
+        imageService.refresh(session, target);
         appState.pushMessage(moved + '장의 이미지를 이동했습니다');
       },
     });

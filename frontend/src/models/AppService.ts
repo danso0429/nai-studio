@@ -2021,9 +2021,13 @@ export class AppState {
       return;
     }
     if (appState.blockIfBusy()) return;
-    const curName = appState.curSession.name;
-    if (appState.exportingProjects.has(curName)) {
-      appState.pushMessage(`프로젝트 "${curName}"${josaIGa(curName)} 백그라운드 내보내기 중이에요. 끝난 뒤 다시 시도해주세요.`);
+    // audit M2 — dialog 동안 프로젝트 전환(selectSession은 sticky toast라 blockIfBusy
+    // 미차단) 시 callback이 가변 curSession을 쓰면 *잘못된 프로젝트*를 rename. dialog 연
+    // 시점의 세션 객체+이름을 캡처해 callback에서 일관 사용(전환해도 원래 대상에 적용).
+    const session = appState.curSession;
+    const oldName = session.name;
+    if (appState.exportingProjects.has(oldName)) {
+      appState.pushMessage(`프로젝트 "${oldName}"${josaIGa(oldName)} 백그라운드 내보내기 중이에요. 끝난 뒤 다시 시도해주세요.`);
       return;
     }
     appState.pushDialog({
@@ -2035,7 +2039,6 @@ export class AppState {
           appState.pushMessage('이미 존재하는 프로젝트 이름입니다.');
           return;
         }
-        const oldName = appState.curSession!.name;
         // dialog 띄운 사이 같은 프로젝트가 export 큐에 들어갔을 수도. callback 재검사.
         if (appState.exportingProjects.has(oldName)) {
           appState.pushMessage(`프로젝트 "${oldName}"${josaIGa(oldName)} 백그라운드 내보내기 중이에요. 끝난 뒤 다시 시도해주세요.`);
@@ -2043,7 +2046,7 @@ export class AppState {
         }
         await imageService.onRenameSession(oldName, inputValue);
         await sessionService.rename(oldName, inputValue);
-        appState.curSession!.name = inputValue;
+        session.name = inputValue;
         appState.pushMessage('프로젝트 이름이 변경되었습니다.');
       },
     });
@@ -2895,6 +2898,12 @@ export class AppState {
     type: 'scene' | 'inpaint',
     setBatchPicker: (item: BatchPickerItem | undefined) => void,
   ) {
+    // audit M2 — 이 메뉴가 열린 시점의 세션을 캡처. selected 씬들이 이 세션 소속이라,
+    // 이후 다이얼로그(이름 입력/confirm) 동안 프로젝트 전환돼도 merge가 *원래 세션*에
+    // 일관 적용돼야 함. 가변 this.curSession을 쓰면 파일은 캡처된 sessionName 폴더로
+    // 옮기는데(아래 mergeScenes) 씬 객체 removeScene/addScene은 전환된 세션을 건드려
+    // 불일치 + 전환된 세션의 동명 씬 오삭제. mergeScenes 핸들러에서 이 session 사용.
+    const session = this.curSession!;
     const removeBg = async (selected: GenericScene[]) => {
       if (!localAIService.ready) {
         appState.pushMessage('환경설정에서 배경 제거 기능을 활성화해주세요');
@@ -3292,8 +3301,8 @@ export class AppState {
             return;
           }
           const selectedNameSet = new Set(selected.map((s) => s.name));
-          // 새 이름이 선택 안 한 다른 씬과 충돌하면 거부
-          if (!selectedNameSet.has(newName) && this.curSession!.hasScene(type, newName)) {
+          // 새 이름이 선택 안 한 다른 씬과 충돌하면 거부 (audit M2 — 캡처 session)
+          if (!selectedNameSet.has(newName) && session.hasScene(type, newName)) {
             appState.pushMessage('이미 존재하는 씬 이름입니다 (선택 안 한 씬과 충돌)');
             return;
           }
@@ -3306,7 +3315,7 @@ export class AppState {
             callback: async () => {
               const pid = appState.pushProgressDialog('씬 통합 중...', 1);
               try {
-                const sessionName = this.curSession!.name;
+                const sessionName = session.name; // audit M2 — 캡처 session(가변 X)
                 const newDir = 'outs/' + sessionName + '/' + newName;
                 // 1. slots dedup (정확히 같은 JSON은 중복 제거)
                 const allSlotsRaw: any[] = [];
@@ -3422,9 +3431,9 @@ export class AppState {
                 if (type === 'scene') {
                   newJSON.sceneCharacterPrompts = allCharPrompts;
                 }
-                // 4. 원본 모두 삭제
+                // 4. 원본 모두 삭제 (audit M2 — 캡처 session에서 제거)
                 for (const s of selected) {
-                  this.curSession!.removeScene(type, s.name);
+                  session.removeScene(type, s.name);
                 }
                 // 5. 새 씬 추가
                 const newScene =
@@ -3435,10 +3444,10 @@ export class AppState {
                   appState.finishProgressDialog(pid, '✗ 통합 실패: 새 씬 생성 안 됨', false);
                   return;
                 }
-                this.curSession!.addScene(newScene);
+                session.addScene(newScene); // audit M2 — 캡처 session에 추가
                 // 6. imageService refresh (새 폴더의 파일 목록 갱신)
                 try {
-                  await imageService.refresh(this.curSession!, newScene);
+                  await imageService.refresh(session, newScene);
                 } catch {}
                 const dedupCount = allSlotsRaw.length - allSlots.length;
                 appState.finishProgressDialog(
@@ -3799,13 +3808,16 @@ export class AppState {
   @action
   async emptyProjectImageTrashWithConfirm() {
     if (!this.curSession) return;
+    // audit M2 — confirm 동안 프로젝트 전환 시 callback이 가변 curSession을 쓰면
+    // *전환된 프로젝트*의 트래시를 비움. dialog 연 시점 세션 캡처해 count+empty 일관.
+    const session = this.curSession;
     const { trashService } = await import('.');
     // 즉시 toast — 본인 페인 (E1): 60+ 씬 listFiles로 다이얼로그 뜨기까지 1~수초.
     // TrashService.countProjectImageTrash가 청크 8 병렬화로 단축되긴 했지만 큰
     // 프로젝트에선 여전히 체감 가능 → 사용자 입력 받았다는 신호 즉시 표시.
     this.pushMessage('🧹 트래시 계산 중...');
     const { totalImages, scenesWithTrash } =
-      await trashService.countProjectImageTrash(this.curSession);
+      await trashService.countProjectImageTrash(session);
     if (totalImages === 0) {
       this.pushMessage('삭제된 이미지가 없습니다.');
       return;
@@ -3816,9 +3828,7 @@ export class AppState {
         `이 프로젝트의 ${scenesWithTrash}개 씬에서 삭제된 이미지 ` +
         `${totalImages}개를 영구 삭제하시겠습니까? (복원 불가)`,
       callback: async () => {
-        const deleted = await trashService.emptyProjectImageTrash(
-          this.curSession!,
-        );
+        const deleted = await trashService.emptyProjectImageTrash(session);
         appState.pushDialog({
           type: 'yes-only',
           text: `${deleted}개의 이미지가 영구 삭제되었습니다.`,
