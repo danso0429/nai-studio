@@ -1125,7 +1125,7 @@ const TaskQueueControl = observer(() => {
       <button
         className={`round-button back-gray px-2 h-8 md:px-6`}
         onClick={() => {
-          taskQueueService.removeAllTasks();
+          taskQueueService.removeAllTasksWithConfirm();
         }}
       >
         <FaRegCalendarTimes size={18} />
@@ -1257,7 +1257,7 @@ export const TaskQueueControls = observer(() => {
       </div>
       <button
         className={`round-button back-gray px-2 h-8 md:px-6`}
-        onClick={() => { taskQueueService.removeAllTasks(); }}
+        onClick={() => { taskQueueService.removeAllTasksWithConfirm(); }}
       >
         <FaRegCalendarTimes size={18} />
       </button>

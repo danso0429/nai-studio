@@ -918,6 +918,26 @@ export class TaskQueueService extends EventTarget {
     this.dispatchEvent(new CustomEvent('stop', {}));
   }
 
+  // audit D1 — 전체 큐 취소(removeAllTasks)는 영속화로도 복구 불가라, 1클릭 즉시 실행은
+  // 실수 한 번에 대기 큐 전체 손실(905개 손실 트라우마와 결). confirm 게이트 래퍼.
+  // 비어있으면 묻지 않고 no-op. UI 버튼들은 removeAllTasks 직접 대신 이 래퍼를 호출.
+  // afterConfirm: "중지" 버튼처럼 취소 직후 stop() 등 후속이 필요한 호출부용. 큐가 비어
+  // 취소할 게 없으면 confirm 없이 afterConfirm만 실행(데이터 손실 없으니 묻지 않음).
+  removeAllTasksWithConfirm(afterConfirm?: () => void) {
+    if (this.queue.isEmpty() && this.mirroredTasks.size === 0) {
+      afterConfirm?.();
+      return;
+    }
+    appState.pushDialog({
+      type: 'confirm',
+      text: '대기 중인 큐 전체를 취소할까요? 복구할 수 없어요.',
+      callback: () => {
+        this.removeAllTasks();
+        afterConfirm?.();
+      },
+    });
+  }
+
   removeTasksFromScene(session: Session, scene: GenericScene) {
     // legacy queue: scene 매칭 task 제거 (reference equality라 cross-project 안전)
     const oldQueue = this.queue;

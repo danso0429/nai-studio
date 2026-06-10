@@ -977,7 +977,7 @@ const QueueControl = observer(
         } else if (action === 'queue-run') {
           taskQueueService.run();
         } else if (action === 'queue-clear') {
-          taskQueueService.removeAllTasks();
+          taskQueueService.removeAllTasksWithConfirm();
         }
       };
       window.addEventListener('shortcut-action', sceneNavHandler);

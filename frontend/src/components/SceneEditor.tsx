@@ -301,8 +301,9 @@ export const BigPromptEditor = observer(
                 <button
                   className="round-button back-red h-8 w-16 md:w-36 flex items-center justify-center"
                   onClick={() => {
-                    taskQueueService.removeAllTasks();
-                    taskQueueService.stop();
+                    taskQueueService.removeAllTasksWithConfirm(() =>
+                      taskQueueService.stop(),
+                    );
                   }}
                 >
                   <FaStop size={15} />
