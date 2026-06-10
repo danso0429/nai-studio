@@ -962,8 +962,10 @@ function rcloneCopytoOnce(localPath, remotePath, timeoutMs) {
     execFile('rclone', args, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err, _stdout, stderr) => {
       if (err) {
         const fileName = path.basename(localPath);
-        const reason = stderr ? stderr.trim().split('\n').pop() : (err.killed ? 'timeout' : `exit ${err.code}`);
-        resolve({ ok: false, error: `rclone failed: ${fileName} — ${reason}` });
+        const fullStderr = (stderr || '').trim();
+        const reason = fullStderr ? fullStderr.split('\n').pop() : (err.killed ? 'timeout' : `exit ${err.code}`);
+        // audit rclone — error는 UI용 간결(마지막 줄), stderr는 진단용 전체 보존(호출부가 로그).
+        resolve({ ok: false, error: `rclone failed: ${fileName} — ${reason}`, stderr: fullStderr });
       } else resolve({ ok: true });
     });
   });
@@ -1021,6 +1023,12 @@ async function processDriveRetryQueue({ ignoreSchedule = false, targetLocalPath 
       entry.attempts += 1;
       entry.lastError = result.error;
       entry.lastAttemptAt = Date.now();
+      // audit rclone — 옛 코드는 중간 실패를 콘솔에 안 남기고 최종 포기만 로그 + stderr
+      // 마지막 줄만 보존해 "왜 실패하는지" 진단 불가였음. 매 실패 시 전체 stderr 로그(1KB cap).
+      console.warn(
+        `[Drive retry] attempt ${entry.attempts}/${DRIVE_RETRY_MAX_ATTEMPTS} failed: ${path.basename(entry.localPath)} — ${entry.lastError}` +
+        (result.stderr ? `\n  stderr: ${result.stderr.slice(0, 1000)}` : ''),
+      );
       let willRetry = true;
       if (entry.attempts >= DRIVE_RETRY_MAX_ATTEMPTS) {
         entry.status = 'failed';
@@ -4153,8 +4161,24 @@ app.get('/api/drive/retry-status', (req, res) => {
 // 즉시 재시도 (스케줄 무시). 모든 pending entry를 한 번에 시도.
 app.post('/api/drive/retry-now', async (req, res) => {
   const before = driveRetryQueue.length;
+  // audit rclone — 옛 코드는 failed(6회 소진)를 skip해서 "전체 재시도"를 눌러도 안 됐음
+  // (사용자 페인: 재시도가 안 됨). 모든 failed→pending+attempts 0으로 되살린 뒤 처리해
+  // "전체 재시도"가 실제로 failed까지 재시도하게. (단일 행 [재시도]는 retry-one이 담당.)
+  let revived = 0;
+  for (const entry of driveRetryQueue) {
+    if (entry.status === 'failed') {
+      entry.status = 'pending';
+      entry.attempts = 0;
+      entry.nextRetryAt = Date.now();
+      revived++;
+    }
+  }
+  if (revived > 0) {
+    saveDriveRetryQueue();
+    console.log(`[Drive retry] retry-now: revived ${revived} failed entries`);
+  }
   const result = await processDriveRetryQueue({ ignoreSchedule: true });
-  res.json({ ok: true, before, after: driveRetryQueue.length, ...result });
+  res.json({ ok: true, before, after: driveRetryQueue.length, revived, ...result });
 });
 
 // 특정 entry 큐에서 제거 + 로컬 파일도 삭제. widget의 dismiss/포기 버튼용.
