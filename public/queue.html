@@ -505,12 +505,7 @@
           '<div class="batch-body">'
           + shown.map((j) => {
             const jmeta = j && j.meta;
-            let sn = (jmeta && jmeta.sceneName) || null;
-            if (!sn && j && j.outputFilePath) {
-              const parts = String(j.outputFilePath).split('/');
-              if (parts.length >= 3 && parts[0] === 'outs') sn = parts[parts.length - 2];
-            }
-            sn = sn || '(unknown)';
+            const sn = jobScene(j); // audit Q1 — 인라인 씬추출 중복 제거(jobScene와 동일)
             const idx = jmeta && jmeta.sceneJobIndex && jmeta.sceneJobTotal
               ? ' ' + jmeta.sceneJobIndex + '/' + jmeta.sceneJobTotal
               : '';
@@ -618,18 +613,8 @@
   // NO_FOLDER_KEY로 묶음. 씬 식별은 outputFilePath 우선(outs/<project>/<scene>/file.png),
   // 폴백으로 meta.sceneName. taskId가 같은 잡 묶음에서 jobIndex/jobTotal 가능.
   const NO_FOLDER_KEY = '(폴더 없음)';
-  function jobProject(j) {
-    if (j.meta && j.meta.sceneKey) {
-      const sk = String(j.meta.sceneKey);
-      const slash = sk.indexOf('/');
-      return slash > 0 ? sk.substring(0, slash) : sk;
-    }
-    if (j.outputFilePath) {
-      const parts = String(j.outputFilePath).split('/');
-      if (parts[0] === 'outs' && parts.length > 1) return parts[1];
-    }
-    return '(unknown)';
-  }
+  // audit Q1 — jobProject는 extractProject(가드 포함)와 동일 로직이라 제거, 호출부는
+  // extractProject 사용(buildQueueTree의 j는 항상 non-null이라 가드 흡수해도 동작 동일).
   function jobScene(j) {
     if (j.meta && j.meta.sceneName) return j.meta.sceneName;
     if (j.outputFilePath) {
@@ -642,7 +627,7 @@
     // folders: { [project]: folder|null }. 모르는 project는 NO_FOLDER_KEY로.
     const tree = new Map(); // folderKey → { name, hasFolder, projects: Map }
     for (const j of jobs) {
-      const project = jobProject(j);
+      const project = extractProject(j);
       const scene = jobScene(j);
       const folder = folders && project in folders ? folders[project] : null;
       const fKey = folder || NO_FOLDER_KEY;
