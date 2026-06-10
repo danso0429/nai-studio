@@ -12,6 +12,7 @@ import {
 } from 'react-icons/fa';
 import { sessionService } from '../models';
 import { appState } from '../models/AppService';
+import ModalOverlayCountMarker from './ModalOverlayCountMarker';
 
 interface Props {
   onClose: () => void;
@@ -213,6 +214,7 @@ const ProjectExportPickerDialog = observer(({ onClose }: Props) => {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onClick={onClose}
     >
+      <ModalOverlayCountMarker />
       <div
         className="bg-white dark:bg-slate-800 text-default rounded-lg w-full max-w-md max-h-[80vh] m-4 flex flex-col overflow-hidden border border-gray-300 dark:border-slate-600"
         onClick={(e) => e.stopPropagation()}

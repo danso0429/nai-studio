@@ -3,6 +3,7 @@ import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
 import { DropdownSelect, Option } from './UtilComponents';
 import { formatProjectNameConflict } from '../models/util';
+import ModalOverlayCountMarker from './ModalOverlayCountMarker';
 
 // 4개 이하면 페이지 1개. 그 이상이면 4개씩 페이지 나뉨.
 // 본인 spec (2026-05-17): 모바일 세로 + iOS 키보드 올라온 상태에서도 4개 입력칸 +
@@ -86,6 +87,7 @@ const MultiImportNameDialog = observer(() => {
 
   return (
     <div className="fixed inset-0 z-50 flex justify-center items-start pt-12 bg-black/40">
+      <ModalOverlayCountMarker />
       <div className="m-4 p-4 rounded-md shadow-xl bg-white dark:bg-slate-800 text-default w-full max-w-md max-h-[90vh] flex flex-col">
         <div className="text-default font-medium mb-1">
           {req.items.length}개 프로젝트 새로 임포트

@@ -9,6 +9,7 @@ import { sessionService } from '../models';
 import { appState } from '../models/AppService';
 import { josaRo } from '../models/util';
 import ProjectExportPickerDialog from './ProjectExportPickerDialog';
+import ModalOverlayCountMarker from './ModalOverlayCountMarker';
 
 interface Props {
   selectedName?: string;
@@ -279,6 +280,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
           onClick={() => setOpen(false)}
         >
+          <ModalOverlayCountMarker />
           <div
             className="bg-white dark:bg-gray-800 text-default rounded-lg w-full max-w-md max-h-[80vh] m-4 flex flex-col overflow-hidden border border-gray-300 dark:border-gray-600"
             onClick={(e) => e.stopPropagation()}

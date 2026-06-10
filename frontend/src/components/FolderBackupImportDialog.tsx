@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
+import ModalOverlayCountMarker from './ModalOverlayCountMarker';
 
 const PAGE_SIZE = 4;
 
@@ -53,6 +54,7 @@ const FolderBackupImportDialog = observer(() => {
 
   return (
     <div className="fixed inset-0 z-50 flex justify-center items-start pt-12 bg-black/40">
+      <ModalOverlayCountMarker />
       <div className="m-4 p-4 rounded-md shadow-xl bg-white dark:bg-slate-800 text-default w-full max-w-md max-h-[90vh] flex flex-col">
         <div className="text-default font-medium mb-1">
           {req.items.length}개 폴더 백업 복원

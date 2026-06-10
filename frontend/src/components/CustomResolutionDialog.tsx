@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
+import ModalOverlayCountMarker from './ModalOverlayCountMarker';
 
 // 커스텀 해상도 입력 폼. width/height를 한 다이얼로그에서 동시 입력 (예전: 너비 →
 // 높이 2단계 다이얼로그가 SceneEditor/InPaintEditor/onSceneQueueMenu 3곳에 중복).
@@ -43,6 +44,7 @@ const CustomResolutionDialog = observer(() => {
       style={{ zIndex: 5500, backgroundColor: 'rgba(0,0,0,0.7)' }}
       onClick={onCancel}
     >
+      <ModalOverlayCountMarker />
       <div
         className="bg-white dark:bg-slate-800 text-black dark:text-white rounded-md shadow-xl p-4 w-[92vw] max-w-sm"
         onClick={(e) => e.stopPropagation()}

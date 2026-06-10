@@ -21,6 +21,7 @@ import {
   IGlobalPresetEntry,
 } from '../models/GlobalPresetService';
 import { appState } from '../models/AppService';
+import ModalOverlayCountMarker from './ModalOverlayCountMarker';
 import Tooltip from './Tooltip';
 
 const GlobalVibeImage = observer(
@@ -694,6 +695,7 @@ export const GlobalPresetPickerOverlay = observer(() => {
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-[5000]"
       onClick={() => appState.closeGlobalPresetPicker()}
     >
+      <ModalOverlayCountMarker />
       <div
         className="bg-white dark:bg-slate-800 rounded-lg p-6 max-w-5xl w-11/12 max-h-[85vh] flex flex-col shadow-2xl"
         onClick={(e) => e.stopPropagation()}

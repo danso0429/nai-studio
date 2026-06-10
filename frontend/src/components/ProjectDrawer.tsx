@@ -23,6 +23,7 @@ import { sessionService, imageService, isMobile } from '../models';
 import { appState } from '../models/AppService';
 import Tooltip from './Tooltip';
 import MobileColorPicker from './MobileColorPicker';
+import ModalOverlayCountMarker from './ModalOverlayCountMarker';
 
 // 최근 프로젝트 기록 (localStorage — 업스트림 ProjectBrowser.pushRecentProject 대체).
 const pushRecentProject = (name: string) => {
@@ -667,6 +668,7 @@ const ProjectDrawer = observer(() => {
 
   return (
     <div className="fixed inset-0 titlebar-no-drag" style={{ zIndex: 2100 }} onClick={close}>
+      <ModalOverlayCountMarker />
       <div
         className="absolute inset-0"
         style={{

@@ -4,6 +4,7 @@ import { FaCloudUploadAlt, FaTimes, FaExclamationTriangle, FaFileArchive } from 
 import { appState } from '../models/AppService';
 import { backend } from '../models';
 import { DriveRetryEntry } from '../backend';
+import ModalOverlayCountMarker from './ModalOverlayCountMarker';
 
 const formatRelative = (ts: number | null): string => {
   if (ts == null) return '-';
@@ -93,6 +94,7 @@ const DriveRetryModal = observer(() => {
       style={{ zIndex: 5500, backgroundColor: 'rgba(0,0,0,0.8)' }}
       onClick={() => (appState.driveRetryModalOpen = false)}
     >
+      <ModalOverlayCountMarker />
       <div
         className="bg-white dark:bg-slate-800 text-black dark:text-white rounded-md shadow-xl p-4 max-w-2xl w-[90vw] max-h-[80vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}

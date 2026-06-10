@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
+import ModalOverlayCountMarker from './ModalOverlayCountMarker';
 
 // 씬 이름 내보내기 특수문자 변환 폼. 예전: 대체문자 input → 특수문자 checkbox
 // 2단계 다이얼로그. 신규: 한 폼에서 대체문자(text) + 변환할 특수문자(checkbox grid)
@@ -44,6 +45,7 @@ const SceneNameExportForm = observer(() => {
       style={{ zIndex: 5500, backgroundColor: 'rgba(0,0,0,0.7)' }}
       onClick={onCancel}
     >
+      <ModalOverlayCountMarker />
       <div
         className="bg-white dark:bg-slate-800 text-black dark:text-white rounded-md shadow-xl p-4 w-[92vw] max-w-md max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}

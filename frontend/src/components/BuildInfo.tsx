@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { apiUrl } from '../models/util';
 import { backend } from '../models';
 import { startVisibleInterval } from '../visibleInterval';
+import ModalOverlayCountMarker from './ModalOverlayCountMarker';
 
 const GITHUB_REPO_URL = 'https://github.com/danso0429/nai-studio';
 
@@ -322,6 +323,7 @@ const UpdateModal = ({ current, latest, notes, released, onClose }: UpdateModalP
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={backdropClick}
     >
+      <ModalOverlayCountMarker />
       <div
         className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6"
         onClick={(e) => e.stopPropagation()}

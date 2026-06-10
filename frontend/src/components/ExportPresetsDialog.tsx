@@ -3,6 +3,7 @@ import { observer } from 'mobx-react-lite';
 import { v4 } from 'uuid';
 import { FaPlay, FaPlus, FaTimes, FaEdit, FaTrash } from 'react-icons/fa';
 import { appState, ExportPreset } from '../models/AppService';
+import ModalOverlayCountMarker from './ModalOverlayCountMarker';
 
 const DEFAULT_PRESET = (): ExportPreset => ({
   id: v4(),
@@ -74,6 +75,7 @@ const ExportPresetsDialog = observer(() => {
       style={{ zIndex: 5500, backgroundColor: 'rgba(0,0,0,0.7)' }}
       onClick={close}
     >
+      <ModalOverlayCountMarker />
       <div
         className="bg-white dark:bg-slate-800 text-black dark:text-white rounded-md shadow-xl p-4 max-w-2xl w-[92vw] max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}

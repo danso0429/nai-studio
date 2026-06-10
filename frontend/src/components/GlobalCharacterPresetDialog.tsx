@@ -14,6 +14,7 @@ import { globalCharacterPresetService } from '../models';
 import { appState } from '../models/AppService';
 import { Session } from '../models/types';
 import { IGlobalCharacterPresetEntry } from '../models/GlobalCharacterPresetService';
+import ModalOverlayCountMarker from './ModalOverlayCountMarker';
 
 // 글로벌 프리셋 카드 대표 이미지 (대표/레퍼런스/바이브 첫 장). 업스트림 GlobalCardImage 단순화.
 const GlobalCardImage = ({
@@ -142,6 +143,7 @@ const GlobalCharacterPresetDialog = observer(
         className="fixed inset-0 z-[2200] flex items-center justify-center bg-black/50"
         onClick={onClose}
       >
+        <ModalOverlayCountMarker />
         <div
           className="bg-white dark:bg-gray-800 text-default rounded-lg w-full max-w-2xl max-h-[85vh] m-4 flex flex-col overflow-hidden border border-gray-300 dark:border-gray-600"
           onClick={(e) => e.stopPropagation()}
