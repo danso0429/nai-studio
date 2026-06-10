@@ -2780,34 +2780,13 @@ async function walkDir(basePath, depth) {
   return { files, dirs, truncated };
 }
 
-// ─── audit M5-MEASURE (임시 계측 — 측정 끝나면 이 블록 + 핸들러 내 호출 1줄 제거) ───
-// SessionService의 5초 폴링(getList → list-recursive 'projects')의 *실제* 빈도와 비용 측정.
-// 60초 윈도우로 호출수/평균·최대 ms/분당추정 로그. 폴링이 멈추면(백그라운드 suspend) 로그도
-// 멈췄다가, 재개 시 첫 호출에서 긴 elapsed로 찍혀 background gap이 드러남. 게이트 추가 가치 판정용.
-let _m5Win = { start: Date.now(), count: 0, totalMs: 0, maxMs: 0 };
-function _m5RecordListRecursive(reqPath, ms) {
-  if (reqPath !== 'projects') return;
-  _m5Win.count++;
-  _m5Win.totalMs += ms;
-  if (ms > _m5Win.maxMs) _m5Win.maxMs = ms;
-  const elapsed = Date.now() - _m5Win.start;
-  if (elapsed >= 60000) {
-    const perMin = (_m5Win.count / (elapsed / 60000)).toFixed(1);
-    const avg = (_m5Win.totalMs / Math.max(1, _m5Win.count)).toFixed(1);
-    console.log(`[M5-MEASURE] projects list-recursive: ${_m5Win.count} calls / ${Math.round(elapsed / 1000)}s (≈${perMin}/min), avg ${avg}ms, max ${_m5Win.maxMs}ms`);
-    _m5Win = { start: Date.now(), count: 0, totalMs: 0, maxMs: 0 };
-  }
-}
-
 app.get('/api/fs/list-recursive', async (req, res) => {
   try {
     const dirPath = resolvePath(req.query.path);
     await fs.mkdir(dirPath, { recursive: true });
     const parsed = parseInt(req.query.depth, 10);
     const depth = Math.max(0, Math.min(10, Number.isNaN(parsed) ? 1 : parsed));
-    const _m5t0 = Date.now();
     const result = await walkDir(dirPath, depth);
-    _m5RecordListRecursive(req.query.path, Date.now() - _m5t0); // audit M5-MEASURE (임시)
     res.json(result);
   } catch (e) { res.status(500).json({ error: e.message, files: [], dirs: [] }); }
 });
