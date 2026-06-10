@@ -3071,6 +3071,18 @@ function isRcloneNotFound(r) {
   return isNotFoundError((r && (r.stderr || r.stdout || r.error)) || '');
 }
 
+// audit B7 — rcloneRun 결과를 deleted/errors로 분류하는 동일 분기가 6곳에 중복됐음.
+// helper로 통합(동작 동일): ok → deletedArr에 deletedLabel push, not-found → skip,
+// 진짜 에러 → errorsArr에 'errorPrefix: stderr|error' push. 라벨은 순수 문자열이라
+// eager 평가해도 부작용 없음.
+function pushRcloneResult(r, deletedArr, deletedLabel, errorsArr, errorPrefix) {
+  if (r.ok) {
+    deletedArr.push(deletedLabel);
+  } else if (!isRcloneNotFound(r)) {
+    errorsArr.push(errorPrefix + ': ' + (r.stderr || r.error));
+  }
+}
+
 // projects 안에서 살아있는 프로젝트 basename set (폴더 depth 1 포함)
 async function listActiveProjectNames() {
   const projectsDir = resolvePath('projects');
@@ -3164,11 +3176,7 @@ async function permanentlyDeleteProjectFiles(name) {
       ['purge', remotePath, RCLONE_TRASH_BYPASS],
       60000,
     );
-    if (r.ok) {
-      deleted.drive.push(d + '/' + name);
-    } else if (!isRcloneNotFound(r)) {
-      errors.push('drive purge ' + d + '/' + name + ': ' + (r.stderr || r.error));
-    }
+    pushRcloneResult(r, deleted.drive, d + '/' + name, errors, 'drive purge ' + d + '/' + name);
   }));
 
   // 4b. Drive projects/ 안 <name>.json / <name>.deleted (폴더형 포함, lsf --recursive)
@@ -3189,11 +3197,7 @@ async function permanentlyDeleteProjectFiles(name) {
         ['deletefile', remoteFile, RCLONE_TRASH_BYPASS],
         30000,
       );
-      if (dr.ok) {
-        deleted.drive.push('projects/' + line);
-      } else if (!isRcloneNotFound(dr)) {
-        errors.push('drive del projects/' + line + ': ' + (dr.stderr || dr.error));
-      }
+      pushRcloneResult(dr, deleted.drive, 'projects/' + line, errors, 'drive del projects/' + line);
     }
   }
 
@@ -3213,11 +3217,7 @@ async function permanentlyDeleteProjectFiles(name) {
         ['deletefile', remoteFile, RCLONE_TRASH_BYPASS],
         30000,
       );
-      if (dr.ok) {
-        deleted.drive.push('exports/' + f);
-      } else if (!isRcloneNotFound(dr)) {
-        errors.push('drive del exports/' + f + ': ' + (dr.stderr || dr.error));
-      }
+      pushRcloneResult(dr, deleted.drive, 'exports/' + f, errors, 'drive del exports/' + f);
     }
   }
 
@@ -3290,11 +3290,7 @@ async function runDeleteFolder(jobId, folder, namesArray) {
     if (checkRcloneAvailable()) {
       const remoteFolderPath = `${RCLONE_REMOTE}:${RCLONE_REMOTE_BASE}/data/projects/${folder}`;
       const r = await rcloneRun(['purge', remoteFolderPath, RCLONE_TRASH_BYPASS], 60000);
-      if (r.ok) {
-        allDeleted.drive.push('projects/' + folder + '/');
-      } else if (!isRcloneNotFound(r)) {
-        allErrors.push('drive purge projects/' + folder + ': ' + (r.stderr || r.error));
-      }
+      pushRcloneResult(r, allDeleted.drive, 'projects/' + folder + '/', allErrors, 'drive purge projects/' + folder);
     } else {
       driveSkipped = true;
     }
@@ -3697,11 +3693,7 @@ async function runCleanupOrphans(jobId) {
           ['purge', remotePath, RCLONE_TRASH_BYPASS],
           60000,
         );
-        if (pr.ok) {
-          deleted.drive.push(item);
-        } else if (!isRcloneNotFound(pr)) {
-          errors.push('drive purge ' + item + ': ' + (pr.stderr || pr.error));
-        }
+        pushRcloneResult(pr, deleted.drive, item, errors, 'drive purge ' + item);
       }
     }
 
@@ -3725,11 +3717,7 @@ async function runCleanupOrphans(jobId) {
           ['deletefile', remoteFile, RCLONE_TRASH_BYPASS],
           30000,
         );
-        if (dr.ok) {
-          deleted.drive.push(item);
-        } else if (!isRcloneNotFound(dr)) {
-          errors.push('drive del ' + item + ': ' + (dr.stderr || dr.error));
-        }
+        pushRcloneResult(dr, deleted.drive, item, errors, 'drive del ' + item);
       }
     }
 
