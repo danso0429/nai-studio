@@ -3981,7 +3981,9 @@ app.get('/api/backup/full', async (req, res) => {
     const zip = new JSZip();
 
     const INCLUDE_DIRS = ['projects', 'vibes', 'inpaints', 'inpaint_orgs', 'inpaint_masks', 'references'];
-    const INCLUDE_FILES = ['config.json', 'TOKEN.txt', 'bookmarks.json', 'favorites.json', 'global_pieces.json', 'trash.json'];
+    // audit D2 — TOKEN.txt(NAI access token 평문) 제외. 옛 동작은 복원 시 로그인 유지였으나
+    // 백업 zip 유출 시 토큰 노출 위험 > 복원 후 1회 재로그인 편의. 본인 결정으로 제외.
+    const INCLUDE_FILES = ['config.json', 'bookmarks.json', 'favorites.json', 'global_pieces.json', 'trash.json'];
     const SKIP_NAMES = new Set(['fastcache', '.trash', 'tmp', '.cache']);
 
     let fileCount = 0;
