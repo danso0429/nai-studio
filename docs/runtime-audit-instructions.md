@@ -340,6 +340,20 @@ Severity × Effort Quadrant:
 The Top 5 ranking (in Final Summary) must use Quadrant first, then Severity.
 A Q1 Medium ranks above a Q4 Critical — the latter is a separate project.
 
+### No-waiver rule (Severity/Frequency never justifies dropping a finding)
+
+A low Severity or "Rare" Frequency NEVER justifies silently dropping a finding
+or labeling it "fix unnecessary" — there is no such category. Every reported
+finding lands in exactly one Quadrant:
+- Q1/Q2 → fix now / dedicated.
+- Q3 (Low/Medium + Quick win) → fold into a nearby commit and FIX it. "Rare"
+  lowers priority, not the obligation to fix a solvable Quick win.
+- Q4 (Low/Medium + Localized+) → defer ONLY with an explicit written rationale
+  stating why the fix cost outweighs the benefit *now* (concrete effort vs.
+  benefit). "Rare/Low, so skip" is NOT a rationale.
+If a fix carries a trade-off, state the trade-off and let the user decide — do
+not unilaterally waive it.
+
 ────────────────────────
 # Final Summary (Required)
 
@@ -397,6 +411,20 @@ Concrete failure modes to watch for, with fixes:
 - **Stale specifics**: function names / line numbers / API signatures
   drift between revisions. Always quote the line verbatim from the current
   file. If your quote doesn't match the current code, your claim is stale.
+- **Over-estimation (inflated impact)**: claims like "up to N concurrent / N
+  stacked" MUST be reconciled against the Architecture Summary fences (suspend
+  behavior, single-tab/session, job caps) — report the ACTUAL count after
+  fences, not the theoretical max. An impact inflated past its fence is as wrong
+  as a missed finding.
+- **Under-estimation (dismissed impact)**: never downgrade Severity/Frequency to
+  dodge the fix obligation. "Rare" is a Frequency label, not a waiver. If real
+  impact is small, say so with the bounding fence — it still gets a Quadrant.
+- **Lazy search**: before declaring "0 findings" for a category, list the exact
+  file:line ranges read for it. A category marked clean without a read-path list
+  is unverified, not clean.
+
+Every impact estimate (frequency, concurrency, growth) is a claim — re-verify by
+re-reading the relevant code + fences, not by intuition.
 
 If in doubt, mark Confidence: Low and explain what you couldn't verify. A
 Low-confidence claim is useful as a follow-up pointer; a confidently-wrong
