@@ -105,6 +105,11 @@ registerWorkFlows(workFlowService);
 
 export const cyclingSessionService = new CyclingSessionService();
 
+// 내보내기 프리셋을 localStorage → exportPresets.json(서버 파일)로 이관 + 로드.
+// (시작 후 비동기 — 파일 없으면 localStorage에서 1회 비파괴 이관. SDStudio 4.12)
+// 동적 import: AppService 조기 평가로 초기화 순서가 바뀌지 않도록 index 본문 이후로 미룸.
+import('./AppService').then((m) => m.appState.initExportPresets());
+
 (window as any).promptService = promptService;
 (window as any).sessionService = sessionService;
 (window as any).imageService = imageService;

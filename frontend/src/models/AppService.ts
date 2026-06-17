@@ -284,7 +284,11 @@ export class AppState {
     return localStorage.getItem('sdstudio-full-word-autocomplete') === 'true';
   })();
 
-  // 이미지 내보내기 프리셋 — localStorage에 영속화. exportPackage 시 다이얼로그 chain 건너뜀.
+  // 이미지 내보내기 프리셋 — exportPackage 시 다이얼로그 chain 건너뜀.
+  // 저장 위치: DATA_DIR/exportPresets.json (서버 파일 — /api/backup/full 백업에 포함).
+  // 과거엔 localStorage('sdstudio-export-presets')에 저장돼 비-로컬 데이터였고, 모바일
+  // 데이터 삭제 시 함께 증발 + 백업에 안 담겼음. 파일로 이관(initExportPresets, SDStudio 4.12).
+  // 초기값은 localStorage 동기 폴백(파일 비동기 로드 전 회귀 방지) → initExportPresets가 교체.
   @observable accessor exportPresets: ExportPreset[] = (() => {
     try {
       const raw = localStorage.getItem('sdstudio-export-presets');
@@ -292,6 +296,8 @@ export class AppState {
     } catch {}
     return [];
   })();
+  // 파일 로드/이관 완료 가드 — 늦은 init 로드가 그 사이 일어난 save를 덮어쓰지 않게.
+  private exportPresetsLoaded = false;
   @observable accessor exportPresetsDialogOpen: boolean = false;
   @observable accessor exportPresetsDialogType: 'scene' | 'inpaint' = 'scene';
 
@@ -398,13 +404,37 @@ export class AppState {
     this.sceneNameExportFormChars = null;
   }
 
-  saveExportPresets() {
+  // 시작 시 1회(index.ts). 파일을 읽고, 없으면 localStorage에서 비파괴 이관한다.
+  // (localStorage 원본은 롤백 안전망으로 남겨둠 — 삭제하지 않음.)
+  async initExportPresets() {
+    if (this.exportPresetsLoaded) return;
+    let presets: ExportPreset[] | null = null;
     try {
-      localStorage.setItem(
-        'sdstudio-export-presets',
-        JSON.stringify(this.exportPresets),
-      );
-    } catch {}
+      const raw = await backend.readFile('exportPresets.json');
+      presets = JSON.parse(raw);
+    } catch {
+      // 파일 없음 → localStorage 1회 비파괴 이관
+      try {
+        const ls = localStorage.getItem('sdstudio-export-presets');
+        if (ls) {
+          presets = JSON.parse(ls);
+          await backend.writeFile('exportPresets.json', JSON.stringify(presets));
+          console.log('[Migration] 내보내기 프리셋 localStorage → exportPresets.json 이관 완료');
+        }
+      } catch {}
+    }
+    // 로드 도중 saveExportPresets가 먼저 일어났다면(loaded=true) 덮어쓰지 않는다.
+    if (!this.exportPresetsLoaded) {
+      this.exportPresets = presets ?? [];
+      this.exportPresetsLoaded = true;
+    }
+  }
+
+  saveExportPresets() {
+    this.exportPresetsLoaded = true; // 이후 늦은 init 로드가 덮어쓰지 못하게
+    backend
+      .writeFile('exportPresets.json', JSON.stringify(this.exportPresets))
+      .catch((e) => console.error('내보내기 프리셋 저장 실패:', e));
   }
 
   openExportPresetsDialog(type: 'scene' | 'inpaint') {
