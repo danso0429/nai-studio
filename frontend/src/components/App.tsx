@@ -752,6 +752,21 @@ export const App = observer(() => {
     };
   }, []);
 
+  // 글로벌 프리셋 통합 마이그레이션 — 백업 실패로 보류됐을 때 알림 (원본은 안전)
+  useEffect(() => {
+    const handler = () => {
+      appState.pushDialog({
+        type: 'yes-only',
+        text:
+          '글로벌 프리셋 통합을 위한 백업에 실패해 통합을 보류했어요.\n원본은 그대로 유지되며, 다음 실행 때 다시 시도해요.',
+      });
+    };
+    window.globalPresetService?.addEventListener('unify-backup-failed', handler);
+    return () => {
+      window.globalPresetService?.removeEventListener('unify-backup-failed', handler);
+    };
+  }, []);
+
   const tabs = [
     {
       label: '이미지생성',

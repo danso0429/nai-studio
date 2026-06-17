@@ -686,7 +686,8 @@ export const GlobalPresetTab = observer(() => {
 export const GlobalPresetPickerOverlay = observer(() => {
   const picker = appState.globalPresetPicker;
   if (!picker) return null;
-  const entries = globalPresetService.list(picker.workflowType);
+  // 통합: 전체 프리셋을 보여주고, 선택 시 현재 모드(picker.workflowType)로 자동 변환 적용.
+  const entries = globalPresetService.list();
   const displayName =
     picker.workflowType === 'SDImageGenEasy' ? '그림체 (이지모드)' : '그림체';
 
@@ -702,7 +703,10 @@ export const GlobalPresetPickerOverlay = observer(() => {
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-default">
-            글로벌 프리셋에서 가져오기 — {displayName}
+            글로벌 프리셋에서 가져오기{' '}
+            <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
+              → 현재 모드({displayName})로 적용
+            </span>
           </h2>
           <button
             className="icon-button p-2 text-default"
@@ -716,7 +720,7 @@ export const GlobalPresetPickerOverlay = observer(() => {
             <div className="text-center text-gray-500 dark:text-gray-400 p-8 text-lg">
               저장된 글로벌 프리셋이 없습니다.
             </div>
-          ) : picker.workflowType === 'SDImageGenEasy' ? (
+          ) : (
             <div className="flex flex-wrap gap-4">
               {entries.map((entry) => (
                 <div
@@ -740,23 +744,6 @@ export const GlobalPresetPickerOverlay = observer(() => {
                     </div>
                   )}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div>
-              {entries.map((entry) => (
-                <button
-                  key={entry.id}
-                  className="w-full flex items-center gap-3 p-3 border-2 rounded-lg mb-2 text-left hover:bg-gray-100 dark:hover:bg-slate-700 border-gray-300 dark:border-slate-600"
-                  onClick={() => picker.onSelect(entry.id)}
-                >
-                  {entry.isDefault && (
-                    <FaStar className="text-orange-500" size={20} />
-                  )}
-                  <span className="flex-1 truncate text-default text-base font-medium">
-                    {entry.name}
-                  </span>
-                </button>
               ))}
             </div>
           )}

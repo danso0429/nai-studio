@@ -13,6 +13,8 @@ import {
 
 const GLOBAL_PRESETS_FILE = 'global_presets.json';
 const GLOBAL_VIBES_DIR = 'global_vibes';
+// v2: 이지/일반 통합. load 시 파일이 v1이면 migrateUnify 1회(이름 타입무관 고유화). (SDStudio 4.12)
+const GLOBAL_PRESETS_VERSION = 2;
 
 export type GlobalPresetType = 'SDImageGenEasy' | 'SDImageGen';
 export const SUPPORTED_GLOBAL_PRESET_TYPES: GlobalPresetType[] = [
@@ -32,12 +34,14 @@ export interface IGlobalPresetEntry {
 }
 
 export interface IGlobalPresetStore {
-  version: 1;
+  version: number;
   presets: IGlobalPresetEntry[];
 }
 
 export class GlobalPresetService extends DebouncedJsonStore {
   @observable accessor presets: IGlobalPresetEntry[] = [];
+  // load 시 파일 version < 2면 set — super.load() 후 migrateUnify 1회 트리거(이지/일반 통합).
+  private needsUnifyMigration = false;
 
   // ---------- lifecycle ----------
 
@@ -50,11 +54,14 @@ export class GlobalPresetService extends DebouncedJsonStore {
   }
 
   protected buildStore(): IGlobalPresetStore {
-    return { version: 1, presets: this.presets };
+    return { version: GLOBAL_PRESETS_VERSION, presets: this.presets };
   }
 
   protected applyParsed(json: any): void {
     const j = json as IGlobalPresetStore;
+    // 파일 버전 < 현재면 super.load() 후 통합 마이그레이션 필요(load 오버라이드에서 처리).
+    this.needsUnifyMigration =
+      (((j as any) && (j as any).version) || 1) < GLOBAL_PRESETS_VERSION;
     if (j && Array.isArray(j.presets)) {
       this.presets = j.presets.filter(
         (p) =>
@@ -70,6 +77,84 @@ export class GlobalPresetService extends DebouncedJsonStore {
 
   protected resetState(): void {
     this.presets = [];
+    this.needsUnifyMigration = false; // 신규/손상 → v2 빈 store로 save, 마이그레이션 불필요
+  }
+
+  // super.load() 후 v1→v2 통합 마이그레이션을 1회 트리거(applyParsed에서 needsUnifyMigration set).
+  // base load()는 sync applyParsed만 호출하므로, async migrateUnify(.bak 백업+save)는 여기서.
+  async load(): Promise<void> {
+    await super.load();
+    if (this.needsUnifyMigration) {
+      this.needsUnifyMigration = false;
+      try {
+        await this.migrateUnify();
+      } catch (e) {
+        console.error('글로벌 프리셋 통합 마이그레이션 실패:', e);
+      }
+    }
+  }
+
+  // v2 통합 마이그레이션: 타입(이지/일반) 구분 없이 이름이 겹치면 뒤(나중에 만든) 것에
+  // " (2)", " (3)"... 을 붙여 라이브러리 전체에서 이름을 고유하게 만든다. 비파괴(.bak 백업).
+  private async migrateUnify(): Promise<void> {
+    // 백업은 *필수*. migrateUnify는 super.load()가 파일을 v1으로 성공 파싱했을 때만 실행되므로
+    // (applyParsed가 needsUnifyMigration set, 읽기실패/손상이면 resetState로 false) 파일은 반드시
+    // 존재한다 — 옛 "파일 없으면 백업 불필요" 분기는 도달 불가였음. 백업이 실패(읽기/쓰기 어느 쪽이든)
+    // 하면 save()로 원본을 덮어쓰면 백업 없이 손실되므로, 덮어쓰지 않고 중단한다(version v1 유지 →
+    // 다음 로드가 원본에서 재시도 = 멱등). 사용자에게도 'unify-backup-failed'로 알린다.
+    try {
+      const cur = await backend.readFile(GLOBAL_PRESETS_FILE);
+      await backend.writeFile(
+        GLOBAL_PRESETS_FILE + '.bak-unify-' + Date.now(),
+        cur,
+      );
+    } catch (e) {
+      console.error(
+        '글로벌 프리셋 통합 — 백업 실패로 중단(원본 보존, 다음 로드 재시도):',
+        e,
+      );
+      this.dispatchEvent(new CustomEvent('unify-backup-failed', {}));
+      return;
+    }
+    if (this.presets.length > 0) {
+      // createdAt 오름차순 — 먼저 만든 프리셋이 원래 이름을 유지
+      const used = new Set<string>();
+      const ordered = [...this.presets].sort(
+        (a, b) => (a.createdAt || 0) - (b.createdAt || 0),
+      );
+      for (const entry of ordered) {
+        if (!used.has(entry.name)) {
+          used.add(entry.name);
+          continue;
+        }
+        let k = 2;
+        while (used.has(`${entry.name} (${k})`)) k++;
+        entry.name = `${entry.name} (${k})`;
+        used.add(entry.name);
+      }
+      this.presets = [...this.presets];
+    }
+    // 버전을 v2로 올려 저장 (빈 목록이어도 재실행 방지)
+    await this.save();
+  }
+
+  // 모드 간 프리셋 변환. 두 타입의 프리셋 구조 차이는 characterPrompts 위치뿐:
+  //  - SDImageGen: characterPrompts를 프리셋 레벨에 가짐
+  //  - SDImageGenEasy: 프리셋엔 없음(캐릭터는 씬/공유 레벨)
+  // 이지→일반은 무손실(빈 배열 보강), 일반→이지는 프리셋 레벨 characterPrompts를 버린다.
+  private convertPresetJSON(
+    presetJSON: any,
+    from: GlobalPresetType,
+    to: GlobalPresetType,
+  ): any {
+    if (from === to) return presetJSON;
+    const out = { ...presetJSON };
+    if (to === 'SDImageGenEasy') {
+      delete out.characterPrompts;
+    } else {
+      if (!Array.isArray(out.characterPrompts)) out.characterPrompts = [];
+    }
+    return out;
   }
 
   // ---------- read ----------
@@ -368,16 +453,35 @@ export class GlobalPresetService extends DebouncedJsonStore {
 
   // ---------- session ↔ global ----------
 
+  @action
+  async updatePreset(id: string, patch: Record<string, any>): Promise<void> {
+    const entry = this.get(id);
+    if (!entry) throw new Error('프리셋을 찾을 수 없습니다');
+    entry.preset = { ...(entry.preset || {}), ...patch };
+    entry.updatedAt = Date.now();
+    this.presets = [...this.presets];
+    this.scheduleSave();
+    this.dispatchEvent(new CustomEvent('changed', {}));
+  }
+
   async instantiateIntoSession(
     session: Session,
     id: string,
+    targetType?: GlobalPresetType,
   ): Promise<any> {
     const entry = this.get(id);
     if (!entry) throw new Error('프리셋을 찾을 수 없습니다');
 
-    // Deep clone preset JSON
-    const clone = JSON.parse(JSON.stringify(entry.preset));
-    clone.type = entry.workflowType;
+    // 적용 타깃 모드(미지정 시 원본 타입). 다르면 프리셋 구조를 변환한다.
+    const target =
+      targetType && SUPPORTED_GLOBAL_PRESET_TYPES.includes(targetType)
+        ? targetType
+        : entry.workflowType;
+
+    // Deep clone preset JSON + 모드 변환
+    let clone = JSON.parse(JSON.stringify(entry.preset));
+    clone = this.convertPresetJSON(clone, entry.workflowType, target);
+    clone.type = target;
     clone.name = entry.name;
 
     // Copy profile image from global_vibes -> session vibes
