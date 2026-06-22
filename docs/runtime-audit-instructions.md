@@ -1,431 +1,110 @@
-# 🤖 AI Agent Runtime Audit Prompt (JavaScript / TypeScript)
-
-Perform a static audit and generate a report for the following JavaScript or TypeScript source code from the perspectives of Memory Management, Runtime Stability, Async Safety, CPU Usage, and Resource Lifecycle.
-
-Prioritize detecting real runtime risks (OOM, Memory Leaks, Freezes, Race Conditions, Crashes, Event Loop Blocking) over style-related issues (ESLint, Prettier, formatting).
-
-Use static analysis only; do not assume execution results. If uncertain, explicitly label conclusions as estimated or speculative.
-
-Infer the likely execution environment whenever possible:
-- Browser
-- Node.js
-- Deno
-- Bun
-- Web Worker
-- Framework runtime
-- Serverless runtime
-
-Apply environment-specific audit criteria accordingly.
-
-────────────────────────
-# 0. Architecture & Boundary Inference (run BEFORE per-pattern detection)
-
-Before applying patterns 1–11, identify and document the audited code's
-architectural fences. This step is what prevents per-pattern detection from
-producing claims whose premise is already false in this codebase.
-
-Identify:
-- **Concurrency fences**: Where does the code serialize requests?
-  (server-side queues, single-flight gates, serial `while` loops, async
-  chains, semaphores, mutex helpers, rate-limit middleware)
-- **Boundary calls**: Which calls cross network / disk / IPC? For each,
-  classify the actual cost:
-  - **Cheap ACK** (submit-and-return, server-side queue, fire-and-forget)
-  - **Heavy work** (synchronous external API, large file I/O, long CPU)
-- **Submit-vs-await pattern**: Does API `X` synchronously wait for work to
-  complete, or submit it to a background worker and return immediately?
-  (This single distinction often invalidates "stacking" / "fan-out" claims.)
-- **Live-vs-dead paths**: Which exported symbols / handlers have zero callers
-  in the audited scope? Mark them DEAD and skip per-pattern analysis on them.
-- **Bounded concurrency primitives**: Existing chunked-map helpers, retry
-  caps, queue size limits, in-flight singletons — note their guarantees.
-
-Output this as a 5–15 line "Architecture Summary" at the top of the audit
-report (one bullet per fence/boundary). Subsequent per-pattern claims MUST
-reference this summary when asserting concurrency, stacking, fan-out, or
-unbounded growth. A claim that contradicts the architecture summary must
-either drop confidence to **Low** or be discarded.
-
-Example fences worth calling out explicitly:
-- "`backend.generateImage` is submit-and-return (POST `/queue/add`) — heavy
-  NAI work happens on server. Client-side 'stacking' claims must count
-  concurrent POST attempts, not concurrent NAI generations."
-- "Image fetch path uses an `acquireMutex(path)` FIFO chain — same-path
-  concurrent calls are serialized at the mutex layer."
-- "`processQueue` is a single `while` loop with `if (queueProcessing) return`
-  guard — exactly one job in flight at a time."
-
-────────────────────────
-# 1. Memory Pressure / Heap Overflow Risk (OOM)
-
-Detect:
-- Large array/object allocations
-- Repeated spread operations
-- Excessive Object.assign usage
-- Deep cloning
-- Repeated JSON.parse / JSON.stringify
-- Unbounded cache growth
-- Long-lived Map / Set
-- Large payload retention
-- Structures preventing memory release
-
-Evaluate:
-- Heap growth likelihood
-- Long-running OOM risk
-- Peak memory pressure potential
-
-Recommend:
-- Streaming
-- Pagination
-- Chunk processing
-- WeakMap / WeakSet
-- Lazy evaluation
-
-────────────────────────
-# 2. Memory Leak & Retained Reference Risk
-
-Detect unreleased resources:
-- setInterval
-- setTimeout
-- EventEmitter
-- WebSocket
-- Observer
-- Subscription
-- Missing AbortController cleanup
-- Promise retention
-- Closure retention
-- Singleton caches
-- Global accumulation
-
-Note:
-Prioritize objects retained by GC roots, not circular references alone.
-
-────────────────────────
-# 3. CPU Hotspot / Main Thread Blocking
-
-Detect:
-- Nested loops
-- O(n²)+ algorithms
-- Repeated sort/filter/reduce
-- Synchronous crypto
-- Synchronous compression
-- Heavy regex
-- Large JSON processing
-- Repeated serialization
-
-Estimate complexity:
-- O(1)
-- O(log n)
-- O(n)
-- O(n²)
-- O(n³)+
-
-Recommend:
-- Memoization
-- Workers
-- Incremental processing
-
-────────────────────────
-# 4. Async Safety & Race Conditions
-
-Detect:
-- Missing await
-- Unhandled Promises
-- Parallel request conflicts
-- Stale response overwrites
-- Retry storms
-- Race conditions
-- Duplicate requests
-- Infinite recursion
-- Polling leaks
-
-Evaluate impact:
-- Data corruption
-- State inconsistency
-- Unpredictable behavior
-
-────────────────────────
-# 5. Error Handling Robustness
-
-Detect missing:
-- try/catch
-- .catch()
-- finally
-- Timeout handling
-- Abort handling
-- Fallback logic
-
-Evaluate:
-- Crash potential
-- Silent failure risk
-- Resource leak risk
-
-────────────────────────
-# 6. Event Loop Starvation / Freeze Risk
-
-Detect:
-- Heavy loops
-- Sync I/O
-- Sync parsing
-- CPU-intensive tasks
-
-Impact:
-- UI freezes
-- Delayed timers
-- Reduced responsiveness
-
-Recommend:
-- queueMicrotask
-- requestIdleCallback
-- Worker threads
-- Chunk processing
-
-────────────────────────
-# 7. Large String / Binary Handling
-
-Detect:
-- Base64-heavy workflows
-- Repeated string concatenation
-- Large template literals
-- Buffer duplication
-- Large stringify operations
-
-Recommend:
-- Streams
-- Blob
-- ArrayBuffer
-- Chunk processing
-
-────────────────────────
-# 8. Resource Lifecycle Problems
-
-Detect unreleased:
-- File handles
-- DB connections
-- Sockets
-- Streams
-- Child processes
-- Locks
-
-Evaluate:
-Long-running accumulation risk
-
-────────────────────────
-# 9. Infinite Growth Risk
-
-Detect:
-- Cache
-- Queue
-- Retry lists
-- Metrics accumulation
-- Logs
-- In-memory state
-
-Evaluate:
-Long-term stability degradation risk
-
-────────────────────────
-# 10. Environment-Specific Runtime Risks
-
-Browser:
-- Detached DOM nodes
-- Event listener leaks
-- Animation loops
-- MutationObserver leaks
-- ResizeObserver leaks
-
-Node.js:
-- EventEmitter leaks
-- Open handles
-- Unresolved Promises
-- Worker leaks
-
-Serverless:
-- Cold start amplification
-- Global cache contamination
-- Memory reuse issues
-
-────────────────────────
-# 11. Security-Relevant Runtime Risks
-
-Detect:
-- eval()
-- Function()
-- Prototype pollution risks
-- Regex DoS
-- Unbounded input handling
-- Arbitrary code execution risks
-
-────────────────────────
-# Required Output Format
-
-Severity:
-(Critical / High / Medium / Low)
-
-Location:
-(file / function / line)
-
-Category:
-
-Issue:
-
-Technical Cause:
-
-Potential Runtime Impact:
-
-Estimated Frequency:
-(Always / Under Load / Rare)
-
-Confidence:
-(High / Medium / Low)
-
-Verification (REQUIRED — leave checkbox unticked if not done; unticked items
-force Confidence down):
-- [ ] Quoted the exact code line that creates the risk (verbatim, with
-      file:line — not paraphrased)
-- [ ] Counted call sites of the function/symbol (N callers — list them, or
-      mark "0 callers — DEAD" / "many — not enumerated")
-- [ ] Traced one full call graph from entry (HTTP route / WS event / UI
-      handler) to the leaf where the pattern fires
-- [ ] Confirmed the pattern is not fenced by a known concurrency boundary
-      from the Architecture Summary (Section 0)
-- [ ] For any claim asserting "concurrent" / "stacking" / "fan-out" /
-      "unbounded growth": counted the concrete invocation paths and ruled
-      out architectural fences
-
-Confidence calibration:
-- **High**: all five checkboxes ticked.
-- **Medium**: 3–4 ticked; one missing dimension is non-load-bearing.
-- **Low**: ≤ 2 ticked, OR the claim relies on a behavior pattern (stacking,
-  retry storm, OOM) without enumeration of concrete paths. Low-confidence
-  claims are reported but must not be ranked in the Top 5.
-
-Recommended Fix:
-
-Patch Example:
-
-Estimated Improvement:
-
-Change Surface (REQUIRED — drives Fix Effort classification):
-- Files touched: <count + path list>
-- Public interface changes: <none / function signature / type / new module>
-- Caller count to update: <number; list if ≤ 5>
-- Type-system caught: <Yes/No — would TS error catch incomplete migration?>
-- Manual test surface: <single endpoint / module / cross-feature flow>
-
-Fix Effort:
-(Quick win / Localized / Cross-cutting / Refactor project)
-
-Definitions:
-- **Quick win**: 1 file / encapsulated function / type system catches
-  incomplete migration. <30 lines diff likely.
-- **Localized**: 2–3 files in adjacent modules; signature unchanged or
-  one optional parameter added.
-- **Cross-cutting**: 4+ files OR public interface signature change OR
-  changes propagate across handler/backend/caller layers.
-- **Refactor project**: One subsystem rebuilt (e.g., collapse N maps into
-  one; change synchronization primitive). Single PR, dedicated test pass.
-
-Severity × Effort Quadrant:
-(Q1 Quick win / Q2 High value / Q3 Polish / Q4 Defer)
-
-| Severity        | Effort                | Quadrant                         |
-|-----------------|-----------------------|----------------------------------|
-| Critical / High | Quick win / Localized | Q1 — fix in current batch        |
-| Critical / High | Cross-cutting         | Q2 — standalone commit + L3      |
-| Critical / High | Refactor project      | Q2 — dedicated phase, user OK    |
-| Medium / Low    | Quick win             | Q3 — fold into nearby commit OK  |
-| Medium / Low    | Localized+            | Q4 — defer with rationale        |
-
-The Top 5 ranking (in Final Summary) must use Quadrant first, then Severity.
-A Q1 Medium ranks above a Q4 Critical — the latter is a separate project.
-
-### No-waiver rule (Severity/Frequency never justifies dropping a finding)
-
-A low Severity or "Rare" Frequency NEVER justifies silently dropping a finding
-or labeling it "fix unnecessary" — there is no such category. Every reported
-finding lands in exactly one Quadrant:
-- Q1/Q2 → fix now / dedicated.
-- Q3 (Low/Medium + Quick win) → fold into a nearby commit and FIX it. "Rare"
-  lowers priority, not the obligation to fix a solvable Quick win.
-- Q4 (Low/Medium + Localized+) → defer ONLY with an explicit written rationale
-  stating why the fix cost outweighs the benefit *now* (concrete effort vs.
-  benefit). "Rare/Low, so skip" is NOT a rationale.
-If a fix carries a trade-off, state the trade-off and let the user decide — do
-not unilaterally waive it.
-
-────────────────────────
-# Final Summary (Required)
-
-1. Architecture Summary recap (1–2 lines — the fences that bounded this audit)
-2. Number of critical issues (Critical/High by Severity, and Q1/Q2 by Quadrant)
-3. Memory leak risk score (0–10)
-4. CPU bottleneck risk score (0–10)
-5. Long-term runtime stability score (0–10)
-6. Estimated production failure likelihood (0–10)
-7. Top 5 highest-priority fixes (ranked by Quadrant first, Severity second —
-   Q1 items always rank above Q2 regardless of Severity, since Q2 needs
-   dedicated project)
-8. Deferred items (Q4): list with rationale — keep in report but explicitly
-   not actionable in casual batches
-
-────────────────────────
-# Important Rules
-
-Do NOT report the following unless they directly affect runtime behavior:
-- Semicolon usage
-- Prettier formatting
-- ESLint style rules
-- Naming preferences
-- Import ordering
-- Formatting-only concerns
-
-Prioritize production runtime risks over style opinions.
-
-────────────────────────
-# Anti-hallucination Guard
-
-Pattern-match findings are cheap; verified findings are rare. A claim that
-matches the surface pattern but contradicts this codebase's actual call
-graph wastes review time and erodes trust in the report.
-
-Concrete failure modes to watch for, with fixes:
-
-- **"Stacking" claims without serial-loop check**: If the call graph from
-  entry to the suspect line goes through a `while (next)` loop, `await
-  acquireMutex(...)`, or `if (running) return` guard, the in-flight count
-  is bounded by that primitive — not by retry count. Either count concrete
-  concurrent paths or drop confidence.
-- **"Fan-out" claims without thread-pool / chunked-map check**: Promise.all
-  across N items only fans out N tasks IF there's no upstream chunking and
-  the items represent real concurrent boundary calls. A 16-chunked-map
-  helper already present in the audited file invalidates the claim.
-- **"Submit-and-await" assumption when boundary is fire-and-forget**: If
-  the call is `POST /queue/add` to a server-side queue and returns on ACK,
-  the client never holds the heavy payload past upload completion. Claims
-  that the client retains the heavy payload "across stale flights" must
-  count concurrent uploads, not concurrent server-side jobs.
-- **"Unbounded growth" claims without retention-cap check**: If the audited
-  structure has an explicit `if (length > MAX)` truncation or LRU cap, the
-  claim must address how that cap is bypassed. Otherwise drop confidence.
-- **Stale specifics**: function names / line numbers / API signatures
-  drift between revisions. Always quote the line verbatim from the current
-  file. If your quote doesn't match the current code, your claim is stale.
-- **Over-estimation (inflated impact)**: claims like "up to N concurrent / N
-  stacked" MUST be reconciled against the Architecture Summary fences (suspend
-  behavior, single-tab/session, job caps) — report the ACTUAL count after
-  fences, not the theoretical max. An impact inflated past its fence is as wrong
-  as a missed finding.
-- **Under-estimation (dismissed impact)**: never downgrade Severity/Frequency to
-  dodge the fix obligation. "Rare" is a Frequency label, not a waiver. If real
-  impact is small, say so with the bounding fence — it still gets a Quadrant.
-- **Lazy search**: before declaring "0 findings" for a category, list the exact
-  file:line ranges read for it. A category marked clean without a read-path list
-  is unverified, not clean.
-
-Every impact estimate (frequency, concurrency, growth) is a claim — re-verify by
-re-reading the relevant code + fences, not by intuition.
-
-If in doubt, mark Confidence: Low and explain what you couldn't verify. A
-Low-confidence claim is useful as a follow-up pointer; a confidently-wrong
-claim is a tax on every future audit pass.
+# Runtime Audit — v2 (discovery → external anchor → triage)
+
+> **상태:** 실험 중. 기존 `runtime-audit-instructions.md`는 그대로 두고, 이 v2는 *fresh 케이스*(결과를 미리 모르는 변경)에서 따로 검증한 뒤 교체 여부를 정한다. CLAUDE.md의 L2.5 포인터는 검증 전까지 기존 doc을 가리킨다.
+>
+> **왜 v2:** 기존 방식은 멈춤점("언제 다 봤다고 하나")을 LLM의 *독단 판단*에 맡겨서, 환각·laziness·결과집중(보여주기식)·loop·배분왜곡(사소한 데 과하게/필요한 데 대충)이 전부 그 판단을 공격했다. 실제 사고: cleanup 한 줄을 *조건부 실행*인데 *무조건*으로 오독하고, "내 예상과 일치하는 줄을 찾으면 멈춤"으로 닫은 뒤 진짜 file:line까지 인용해 *검증처럼 보이게* 함(인용이 검증이 아니라 장식). v2는 멈춤점을 **외부에 고정**한다.
+
+---
+
+## Spine (한 문장)
+
+**평평하게 다 열거 → 각 leaf를 *외부 anchor*(경험적 = 측정 / 구조적 = 조건 해소된 코드 / 잔여 = 준비된 surface)에 바닥내기 — 절대 "내가 충분히 봤음"에 바닥내지 않기.**
+
+아래 Phase·규칙은 전부 이 한 줄의 부연이다. 별도 룰탑(닫힌 체크리스트)이 아니다 — 체크리스트가 되면 v2가 막으려던 그 함정으로 회귀한다.
+
+---
+
+## Phase 1 — 평평한 발견 (weight 금지)
+
+- 변경을 end-to-end 트레이스한다. 닿는 함수는 **이 pass에 직접 읽는다**. 일어나는 / 일어날 수 있는 **모든 동작·결과**를 **같은 attention**으로 열거한다.
+- **금지:** severity / frequency / importance / "깨지나" / "likely한가" 판단. 사소하든, 희귀하든, 발동 조건이 극단적이든 — *전부 같은 줄로* 올린다. "안 중요해 보여서 거른다" = Phase 1의 유일한 위반.
+- "같은 attention"의 뜻 = **폭(breadth): 하나도 빼지 않음** (얕은 *나열*, 싸다 — 큰 변경도 리스트 자체는 가볍다). 깊이는 Phase 2의 몫이지 여기 아님.
+- **카테고리는 발견 seed지 경계가 아니다.** seed: OOM / Memory Leak / CPU / Async Race / Error handling / Event Loop block / Binary·encoding / Resource(handle/fd/socket) / Infinite Growth / Env-specific(모바일·OS·네트워크) / Security. **이 11개 *밖*의 것도 반드시 surface한다** — 리스트가 coverage를 제한하지 못하게.
+- **artifact:** Phase 1 출력은 *severity 컬럼 없는 플랫 리스트*가 Phase 3(triage)보다 **먼저** 나온다. 순서 자체가 "weight를 미뤘나"를 self-enforce한다. 발견하면서 severity를 같이 적었으면 = 규칙 위반이 출력에 보인다.
+
+## Phase 2 — 각 leaf를 외부 anchor에 해소
+
+각 leaf claim을 **종류로 분기**한다 (importance가 아니라 종류 — importance로 깊이를 정하면 배분왜곡 재진입):
+
+- **구조적 claim** (뭐가 일어나나 · 조건 · 코드상 순서 · ceiling/cap) → **코드 사슬로 *적대적으로* 닫는다.**
+  - **적대적 break-finding (first-class, safety 주장 필수):** claim이 "안전 / 보존 / bounded / 무영향 / 멱등"류면, **default를 "깨진다"로 두고** *깨지는 시나리오를 먼저 만든 뒤* 그게 못 일어나는 코드를 보인다. 깨는 시나리오를 *말할 수 없으면* 해소 안 된 것(= "안전해 보임"으로 닫지 말 것). 이 break-finding은 아래 두 teeth로 구체화된다.
+  - **teeth-1 · 조건부 실행 ("도나"):** 사슬 안의 코드 사실이 *조건부로* 실행되면(핸들러 안 / 분기 안 / 특정 caller만 호출), 그 **발동 조건을 claim의 시나리오에 대해 해소하는 링크를 반드시 추가**한다. 인용한 줄은 *관련 경로에서 무조건 돌거나, 그 조건이 따로 해소된* 경우에만 leaf로 인정된다.
+  - **teeth-2 · side-effect 실패 경로 ("성공하나"):** 사슬 안의 코드 사실이 *실패할 수 있는 연산*(I/O write · save · readFile · 외부 호출 · 상태 변경 등)이면, **"도나"에서 멈추지 말고 "성공하나 → 실패하면 *어디서 잡히나(삼켜지나)* → 실패 *후* 코드가 무엇을 하나"까지** 링크를 잇는다. try/catch가 그 실패를 삼키고 *그 뒤 코드가 그대로 진행*하면, claim의 "안전" 보장은 *그 연산의 성공 조건부*다 — 그 조건을 안 해소하면 단정이 무너진다. (실패의 *종류*[디스크풀·권한 등]를 미리 나열하지 말 것 — "이 연산이 실패하면 그 뒤 어떻게 되나"라는 *생성형 질문*만; 종류 나열은 닫힌 체크리스트가 된다.)
+  - 코드 사실마다 던지는 두 필수 질문: **"① 이게 조건부인가? 그 조건이 지금 시나리오에서 성립하나? ② 이게 실패할 수 있는 연산인가? 실패하면 어디서 잡히고, 그 뒤 무슨 일이 일어나나?"** (옛 사고는 ①을 안 던져서 났고, 이후 fresh 검증에서 #7 "원본 보존"이 ②를 안 던져 *.bak 쓰기 실패를 삼킨 채 save 진행*을 놓쳤다.)
+- **경험적 claim** (실제 *빈도* · 실사용 *크기* · *환경* 동작[OS suspend 등] · cap이 *실제로 도달되나*) → **측정이 anchor.** 코드 읽기로 런타임 빈도/환경은 알 수 없다.
+  - 측정은 **비침습 채널 우선**(기존 로그 · 통계 · snapshot · 직접 쿼리). 계측을 *추가*하면 그 계측이 대상을 바꾸지 않는지 점검(관측자 효과 — 침습 측정은 증거가 무효일 수 있다).
+  - 싸게 측정 불가(드문 race · 긴 런타임 조건)면 → Phase 2의 surface로.
+
+**사슬 완성의 정의:** claim의 결론까지 모든 leaf가 다음 셋 중 하나에 *바닥나야* 한다 —
+1. **측정된 데이터**,
+2. **조건이 해소된 read-code** (file:line, *이 pass에 이 발견을 위해 새로 읽은 것*. 다른 목적으로 전에 읽은 줄 재활용은 leaf 아님 = 장식),
+3. **명시적 surface**(아래 형식).
+
+**"내가 충분히 봤음 / 내 예상과 일치함"은 유효한 바닥이 아니다.** 그게 v2가 막는 단 하나의 것이다.
+
+> claim의 *용어 자체*를 분해해 leaf까지 내린다: "consume됨" → "그 항목에 대해 삭제 코드가 *언제* 도나" / "bound됨" → "cap이 뭔지(구조) + 실제로 도달되나(경험)" / "누적 안 함" → "추가 빈도 vs 제거 빈도". 조건부-실행이 제일 흔한 gap이지만 유일은 아니다(수량 · 타이밍 · 환경도 같은 식으로 leaf까지).
+
+### "해당 없음 / 0건 / N/A"도 claim이다 — 사유 + 사유의 재검증
+
+항목·카테고리·leaf를 "해당 없음 / 발견 0 / N/A"로 닫는 것 *자체가 검증 대상 claim*이다. 비워두거나 "문제 없음"으로 넘기지 않고 둘을 단다:
+
+1. **사유 (외부 anchor)**: 왜 없는가를 measurement(0건) / 부재를 보인 read-code(grep · file:line, *이 pass*) / 구조적 불가능으로 바닥낸다. "안 보임 / 없을 듯 / 충분히 봤음"은 사유 아님 — 위 "유효한 바닥"과 동일 기준.
+2. **사유의 적대적 재검증**: 그 *사유 자체가 틀렸다면* 항목이 되살아난다 → 반례를 한 번 진지하게 만들어본다 (Phase 2의 break-finding을 *사유에* 적용). 예: 사유가 "이 파일에 X 호출 0[grep]"이면 → "동적 dispatch · 별칭 · 간접 호출 · 이벤트 이름으로 X가 불릴 경로는?"; 사유가 "lock으로 직렬"이면 → "lock 밖 진입점 · await로 열리는 창은?". 반례를 *만들면 다시 연다. 못 만들면 닫고, 자신 있게 "해당 없음 + 사유"를 적는다.*
+
+**양방향 함정 동시 차단:** LLM은 문제 '해결'에 편향돼 (a) 없는 문제를 지어내 보여주거나 (b) 없는 걸 *확인 없이* "없음"으로 도장 찍는다(문제가 없어도 없다고 *증명*은 안 함). 위 재검증이 (b)를, **"반례를 못 만들면 자신 있게 닫는다"가 (a)를** 막는다. **재검증 = 반례 *한 번* 진지한 시도지 강박이 아니다** — 정당한 "해당 없음"은 정당하게 닫는 게 정답이고, 억지 문제 생성은 (a) 위반이다. (이 룰의 목적은 "없음"을 *증명 대상으로 끌어올려* 게으른 0건인지 실제 0건인지가 출력에 드러나게 하는 것.)
+
+## Phase 3 — triage (이제서야 weight)
+
+- 열거·해소가 **끝난 뒤에만** severity / frequency를 매긴다.
+- **weight는 절대 발견을 삭제하지 못한다.** 모든 발견은 Q1~Q4 중 하나:
+  - 사소 → 풀 수 있으면 **fix** (Q3, "Low라 불필요"는 금지된 닫기).
+  - 희귀 · 극단 → 풀 수 있으면 **fix**. **"얼마나 극단적이어야 안 고쳐도 되나"는 사용자 결정**(Q4 trade-off).
+- **fence(단일 사용자 · 순차 · cap 등)는 Phase 3에서 severity를 *우측화*하는 데만 쓴다. Phase 1 진입 금지** — fence로 발견을 *삭제*하면(="fence 적용 → 무위험 → 0 actionable") 그게 사고의 정확한 패턴이다. fence는 과대평가만 깎지, 남는 증분(per-call write · 고아 entry 등)은 여전히 Q3/Q4로 분류된다.
+
+## surface 형식 (잔여를 사용자에게 — "전가" 아니라 *준비된 인계*)
+
+사용자를 *위해* 대신 하는 일인데 다시 사용자에게 떠넘기면 목적이 무너진다. surface하는 항목은 **반드시** 다음을 단다:
+
+1. **항목 / claim** — 뭘 따지던 중인지.
+2. **해소한 데까지** — 채운 사슬(여기까진 측정/코드로 닫음).
+3. **막힌 정확한 한 링크** — 어디서 멈췄는지(vague "전체 불확실" 금지 — *그 링크*).
+4. **왜 내가 못 했나 (내 한계를 *명명*)** — 예: "런타임 빈도라 코드로 결정 불가 + 여기서 그 측정을 못 돌림" / "측정하면 관측자 효과로 무효" / "사용자 사용 패턴 의존이라 관측 불가" / "OS 내부 동작이라 우리 코드 밖".
+5. **어떻게 봐줘야 하나** — 확인할 지점 + trade(이쪽이면 X / 저쪽이면 Y) + "안전 ↔ 위험으로 갈리는 신호".
+
+## cross-piece 통합 점검
+
+큰 변경을 쪼개 각 조각을 따로 audit하면 **A·B가 둘 다 있어야 나는 상호작용 버그는 각 조각 audit에 안 잡힌다.** 마지막에 *통합(interaction) 점검*을 따로 한다. (쪼갬은 tractability + 회귀 격리지 총비용을 줄이는 게 아니다. 자연히 쪼개지는 항목은 막지 않는다.)
+
+## 비용 / 범위
+
+- 비용은 **impact-surface에 self-scale**한다. 한 줄 변경 → 닿는 면 작음 → audit 작음. *"큰/작은 audit 스위치"를 판정하지 않는다*(그게 또 weighting) — 항상 "닿는 면 full coverage"이고, 작은 면이면 자동으로 작다.
+- 큰 *impact* 변경(hot 함수 한 줄 등)은 면이 커서 full audit가 진짜 비싸다. importance-triage 없이 이걸 싸게 만들 방법은 없다 — 정직한 레버는 "큰 audit를 싸게"가 아니라 **"변경을 쪼개라"(회귀 격리)** + 통합 점검. 안 쪼개면 비용을 치른다. 쪼갤 수 없는 atomic 변경은 그냥 치른다.
+
+## 이 방법이 *없애지 못하는* 잔여 (정직)
+
+- **분류(구조/경험) · 측정 가능성 · Phase 1 granularity**는 내 판단이다 = 판단 위양 = 사용자가 리스크를 진다. v2는 이걸 *제거*하지 못한다.
+- artifact(플랫 리스트 · 사슬에 leaf 종류와 해소 방식 명시)는 그 잔여를 **숨기지 않고 보이게** 할 뿐이다 — 오분류/조기멈춤이 출력에 *드러나서* 사용자/재독이 잡을 수 있게. 그게 최선이고, hard하게 못 만든다.
+
+---
+
+## 출력 형식 (요약)
+
+```
+[Phase 1 — 평평 발견]  (severity 없음)
+- 변경이 닿는 동작·결과 전부, 같은 줄 무게로 나열 (seed 11 + 그 밖)
+
+[Phase 2 — 해소]  각 항목:
+  · 종류: 구조적 / 경험적
+  · safety 주장이면: default "깨진다" → 깨는 시나리오 먼저 → 못 일어나는 코드
+  · 사슬: claim → … → leaf (각 leaf = 측정데이터 / file:line[이 pass] + 조건·실패경로 해소 / surface)
+  · teeth-1 조건부 코드면: 발동 조건 해소 링크 / teeth-2 실패가능 연산이면: 성공·실패삼킴·실패후 링크
+  · "해당 없음/0건"으로 닫는 leaf도 사유(외부 anchor) + 사유의 적대적 재검증(반례 1회) 명시
+
+[Phase 3 — triage]  (이제 weight)
+  · severity / frequency
+  · Q1~Q4: fix / 사용자 결정(극단) — 삭제 없음
+  · fence는 여기서만(우측화)
+
+[surface 항목]  5요소(항목/해소한데까지/막힌링크/내한계명명/봐줄방법)
+[cross-piece 통합 점검]  (쪼갠 경우)
+```
