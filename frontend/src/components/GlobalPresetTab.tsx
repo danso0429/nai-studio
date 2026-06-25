@@ -11,6 +11,8 @@ import {
   FaCheckSquare,
   FaSquare,
   FaFileUpload,
+  FaDownload,
+  FaPen,
 } from 'react-icons/fa';
 import {
   globalPresetService,
@@ -19,8 +21,12 @@ import {
 import { extractApiError } from '../models/util';
 import {
   IGlobalPresetEntry,
+  GlobalPresetType,
 } from '../models/GlobalPresetService';
 import { appState } from '../models/AppService';
+import { Sampling, NoiseSchedule } from '../backends/imageGen';
+import { FileUploadBase64 } from './UtilComponents';
+import PromptEditTextArea from './PromptEditTextArea';
 import ModalOverlayCountMarker from './ModalOverlayCountMarker';
 import Tooltip from './Tooltip';
 
@@ -83,6 +89,7 @@ interface EasyCardProps {
   onImportToSession: () => void;
   onToggleDefault: () => void;
   onRename: () => void;
+  onEdit: () => void;
   onExport: () => void;
   onDelete: () => void;
 }
@@ -96,37 +103,41 @@ const EasyCard = observer(
     onImportToSession,
     onToggleDefault,
     onRename,
+    onEdit,
     onExport,
     onDelete,
   }: EasyCardProps) => {
     // 모바일에선 호버가 없으므로:
     //  - 이미지 탭 시 자동 불러오기 금지 (대신 아래 "불러오기" 버튼)
     //  - 액션 버튼은 항상 표시
-    // 데스크탑에선 기존대로 이미지 탭 = 불러오기, 호버 시 버튼 노출
+    // 데스크탑에선 호버 시 중앙 불러오기 버튼 + 하단 액션 바 노출
     return (
       <div
         className={
-          'relative flex-none group rounded-lg overflow-hidden flex flex-col ' +
+          // 테두리 폭은 항상 border-2 로 고정(선택 시 크기 변화 방지).
+          // 선택 강조는 레이아웃에 영향 없는 안쪽 ring(ring-inset)으로 표현.
+          // 모바일은 한 줄에 2개(50%-half gap), 데스크톱은 고정폭.
+          'relative flex-none w-[calc(50%-8px)] md:w-64 group rounded-lg overflow-hidden flex flex-col border-2 ' +
           (selected
-            ? 'border-4 border-sky-500'
-            : 'border-2 border-gray-300 dark:border-slate-600')
+            ? 'border-sky-500 ring-2 ring-inset ring-sky-500'
+            : 'border-gray-300 dark:border-slate-600')
         }
       >
         <div
           className={
             'relative ' +
-            (multiSelectMode || !isMobile
+            (multiSelectMode
               ? 'cursor-pointer hover:brightness-95 active:brightness-90'
               : '')
           }
           onClick={() => {
+            // 실수 클릭 임포트 방지 — 임포트는 호버 시 나타나는 중앙 버튼으로만.
             if (multiSelectMode) onToggleSelect();
-            else if (!isMobile) onImportToSession();
           }}
         >
           <GlobalVibeImage
             profile={entry.profile}
-            className="w-56 h-80 md:w-64 md:h-96 object-cover"
+            className="w-full aspect-[3/4] md:aspect-auto md:h-96 object-cover"
           />
           {/* 이름 배지 */}
           <div
@@ -154,94 +165,131 @@ const EasyCard = observer(
               )}
             </div>
           )}
-          {/* 데스크탑 호버 툴바 */}
+          {/* PC: 호버 시 어두워지는 레이어 (버튼 클릭을 막지 않도록 pointer-events-none) */}
           {!multiSelectMode && !isMobile && (
-            <div className="absolute inset-x-0 top-0 p-2 flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-b from-black/60 to-transparent">
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/45 transition-colors duration-200 z-10 pointer-events-none" />
+          )}
+          {/* PC: 중앙 큰 불러오기 버튼 (솔리드 — 어둠 레이어와 무관하게 선명) */}
+          {!multiSelectMode && !isMobile && (
+            <button
+              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 flex items-center gap-2 whitespace-nowrap px-5 py-2.5 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-base font-semibold shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+              onClick={(e) => {
+                e.stopPropagation();
+                onImportToSession();
+              }}
+            >
+              <FaDownload size={16} />
+              불러오기
+            </button>
+          )}
+          {/* PC: 하단 액션 바 (솔리드 색·확대·균등 배치 — 씬 카드 스타일) */}
+          {!multiSelectMode && !isMobile && (
+            <div className="absolute bottom-0 left-0 right-0 z-20 flex justify-center items-center gap-2 py-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
               <Tooltip content={entry.isDefault ? '기본 해제' : '기본으로 지정'}>
                 <button
-                  className="icon-button bg-orange-500 p-2 rounded text-white"
+                  className="icon-button bg-orange-500 hover:bg-orange-600 p-3 !rounded-lg text-white shadow-lg"
                   onClick={(e) => {
                     e.stopPropagation();
                     onToggleDefault();
                   }}
                 >
-                  {entry.isDefault ? <FaStar size={16} /> : <FaRegStar size={16} />}
+                  {entry.isDefault ? <FaStar size={18} /> : <FaRegStar size={18} />}
                 </button>
               </Tooltip>
               <Tooltip content="이름 변경">
                 <button
-                  className="icon-button bg-green-500 p-2 rounded text-white"
+                  className="icon-button bg-green-500 hover:bg-green-600 p-3 !rounded-lg text-white shadow-lg"
                   onClick={(e) => {
                     e.stopPropagation();
                     onRename();
                   }}
                 >
-                  <FaFont size={16} />
+                  <FaFont size={18} />
+                </button>
+              </Tooltip>
+              <Tooltip content="편집 (프롬프트·설정·대표 이미지)">
+                <button
+                  className="icon-button bg-indigo-500 hover:bg-indigo-600 p-3 !rounded-lg text-white shadow-lg"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit();
+                  }}
+                >
+                  <FaPen size={18} />
                 </button>
               </Tooltip>
               <Tooltip content="PNG로 내보내기">
                 <button
-                  className="icon-button bg-sky-500 p-2 rounded text-white"
+                  className="icon-button bg-sky-500 hover:bg-sky-600 p-3 !rounded-lg text-white shadow-lg"
                   onClick={(e) => {
                     e.stopPropagation();
                     onExport();
                   }}
                 >
-                  <FaShare size={16} />
+                  <FaShare size={18} />
                 </button>
               </Tooltip>
               <Tooltip content="삭제">
                 <button
-                  className="icon-button bg-red-500 p-2 rounded text-white"
+                  className="icon-button bg-red-500 hover:bg-red-600 p-3 !rounded-lg text-white shadow-lg"
                   onClick={(e) => {
                     e.stopPropagation();
                     onDelete();
                   }}
                 >
-                  <FaTrash size={16} />
+                  <FaTrash size={18} />
                 </button>
               </Tooltip>
             </div>
           )}
         </div>
 
-        {/* 모바일 전용 액션 바 (항상 노출) */}
+        {/* 모바일 전용 액션 바 (항상 노출, 좁은 카드라 다단 배치 + 큰 터치 타깃) */}
         {!multiSelectMode && isMobile && (
-          <div className="flex gap-1 p-2 bg-gray-100 dark:bg-slate-800 border-t border-gray-300 dark:border-slate-600">
+          <div className="flex flex-col gap-1.5 p-2 bg-gray-100 dark:bg-slate-800 border-t border-gray-300 dark:border-slate-600">
             <button
-              className="flex-1 round-button back-sky text-sm py-2 font-medium"
+              className="w-full round-button back-sky text-sm py-2.5 font-medium"
               onClick={onImportToSession}
             >
               불러오기
             </button>
-            <button
-              className="icon-button bg-orange-500 p-2 rounded text-white"
-              onClick={onToggleDefault}
-              title={entry.isDefault ? '기본 해제' : '기본으로 지정'}
-            >
-              {entry.isDefault ? <FaStar size={16} /> : <FaRegStar size={16} />}
-            </button>
-            <button
-              className="icon-button bg-green-500 p-2 rounded text-white"
-              onClick={onRename}
-              title="이름 변경"
-            >
-              <FaFont size={16} />
-            </button>
-            <button
-              className="icon-button bg-sky-500 p-2 rounded text-white"
-              onClick={onExport}
-              title="내보내기"
-            >
-              <FaShare size={16} />
-            </button>
-            <button
-              className="icon-button bg-red-500 p-2 rounded text-white"
-              onClick={onDelete}
-              title="삭제"
-            >
-              <FaTrash size={16} />
-            </button>
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                className="icon-button bg-orange-500 py-2.5 rounded text-white flex items-center justify-center"
+                onClick={onToggleDefault}
+                title={entry.isDefault ? '기본 해제' : '기본으로 지정'}
+              >
+                {entry.isDefault ? <FaStar size={18} /> : <FaRegStar size={18} />}
+              </button>
+              <button
+                className="icon-button bg-green-500 py-2.5 rounded text-white flex items-center justify-center"
+                onClick={onRename}
+                title="이름 변경"
+              >
+                <FaFont size={18} />
+              </button>
+              <button
+                className="icon-button bg-indigo-500 py-2.5 rounded text-white flex items-center justify-center"
+                onClick={onEdit}
+                title="편집"
+              >
+                <FaPen size={18} />
+              </button>
+              <button
+                className="icon-button bg-sky-500 py-2.5 rounded text-white flex items-center justify-center"
+                onClick={onExport}
+                title="내보내기"
+              >
+                <FaShare size={18} />
+              </button>
+              <button
+                className="icon-button bg-red-500 py-2.5 rounded text-white flex items-center justify-center"
+                onClick={onDelete}
+                title="삭제"
+              >
+                <FaTrash size={18} />
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -249,102 +297,215 @@ const EasyCard = observer(
   },
 );
 
-interface GenRowProps {
-  entry: IGlobalPresetEntry;
-  selected: boolean;
-  multiSelectMode: boolean;
-  onToggleSelect: () => void;
-  onImportToSession: () => void;
-  onToggleDefault: () => void;
-  onRename: () => void;
-  onExport: () => void;
-  onDelete: () => void;
-}
+const GlobalPresetEditModal = observer(
+  ({ entry, onClose }: { entry: IGlobalPresetEntry; onClose: () => void }) => {
+    const p: any = entry.preset || {};
+    const asStr = (v: any) => (typeof v === 'string' ? v : '');
+    const [name, setName] = useState(entry.name);
+    const [frontPrompt, setFrontPrompt] = useState(asStr(p.frontPrompt));
+    const [backPrompt, setBackPrompt] = useState(asStr(p.backPrompt));
+    const [uc, setUc] = useState(asStr(p.uc));
+    const [steps, setSteps] = useState<number>(
+      typeof p.steps === 'number' ? p.steps : 28,
+    );
+    const [promptGuidance, setPromptGuidance] = useState<number>(
+      typeof p.promptGuidance === 'number' ? p.promptGuidance : 5,
+    );
+    const [cfgRescale, setCfgRescale] = useState<number>(
+      typeof p.cfgRescale === 'number' ? p.cfgRescale : 0,
+    );
+    const [sampling, setSampling] = useState<string>(
+      p.sampling ?? Sampling.KEulerAncestral,
+    );
+    const [noiseSchedule, setNoiseSchedule] = useState<string>(
+      p.noiseSchedule ?? NoiseSchedule.Karras,
+    );
+    const [newRepImage, setNewRepImage] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
 
-const GenRow = observer(
-  ({
-    entry,
-    selected,
-    multiSelectMode,
-    onToggleSelect,
-    onImportToSession,
-    onToggleDefault,
-    onRename,
-    onExport,
-    onDelete,
-  }: GenRowProps) => {
+    const save = async () => {
+      if (saving) return;
+      const nm = name.trim();
+      if (!nm) {
+        appState.pushMessage('이름을 입력해 주세요');
+        return;
+      }
+      setSaving(true);
+      try {
+        if (nm !== entry.name) await globalPresetService.rename(entry.id, nm);
+        await globalPresetService.updatePreset(entry.id, {
+          frontPrompt,
+          backPrompt,
+          uc,
+          steps,
+          promptGuidance,
+          cfgRescale,
+          sampling,
+          noiseSchedule,
+        });
+        if (newRepImage)
+          await globalPresetService.replaceProfileImage(entry.id, newRepImage);
+        appState.pushMessage('저장되었습니다.');
+        onClose();
+      } catch (e: any) {
+        appState.pushMessage(extractApiError(e) || '저장 실패');
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const numCls =
+      'mt-1 w-full px-2 py-1.5 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-default';
+
     return (
       <div
-        className={
-          'flex flex-col gap-2 p-3 border-2 rounded-lg mb-2 bg-white dark:bg-slate-800 ' +
-          (selected
-            ? 'border-sky-500 bg-sky-50 dark:bg-sky-900'
-            : 'border-gray-300 dark:border-slate-600')
-        }
+        className="fixed inset-0 bg-black/50 flex items-center justify-center z-[5000]"
+        onClick={onClose}
       >
-        {/* 1행: 기본 토글 + 이름 (전체 너비) */}
-        <div className="flex items-center gap-3 min-w-0">
-          {multiSelectMode && (
-            <button
-              className="icon-button flex-none"
-              onClick={onToggleSelect}
-            >
-              {selected ? (
-                <FaCheckSquare className="text-sky-500" size={22} />
-              ) : (
-                <FaSquare className="text-gray-400" size={22} />
-              )}
+        <ModalOverlayCountMarker />
+        <div
+          className="bg-white dark:bg-slate-800 rounded-lg p-5 max-w-2xl w-11/12 max-h-[88vh] flex flex-col shadow-2xl text-default"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between mb-3 flex-none">
+            <h2 className="text-lg font-bold">글로벌 프리셋 편집</h2>
+            <button className="icon-button p-2 text-default" onClick={onClose}>
+              <FaTimes size={20} />
             </button>
-          )}
-          <button
-            className="icon-button p-1 flex-none"
-            onClick={onToggleDefault}
-            title={entry.isDefault ? '기본 해제' : '기본으로 지정'}
-          >
-            {entry.isDefault ? (
-              <FaStar className="text-orange-500" size={22} />
-            ) : (
-              <FaRegStar className="text-gray-400" size={22} />
-            )}
-          </button>
-          <span className="flex-1 truncate text-default text-base font-medium">
-            {entry.name}
-          </span>
-        </div>
-        {/* 2행: 액션 버튼들 */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            className="round-button back-sky text-base px-4 py-2 flex-1 md:flex-none"
-            onClick={onImportToSession}
-            disabled={multiSelectMode}
-          >
-            세션으로 가져오기
-          </button>
-          <div className="flex gap-2 md:ml-auto">
-            <Tooltip content="이름 변경">
-              <button
-                className="icon-button bg-green-500 p-3 rounded text-white"
-                onClick={onRename}
-              >
-                <FaFont size={16} />
-              </button>
-            </Tooltip>
-            <Tooltip content="PNG로 내보내기">
-              <button
-                className="icon-button bg-sky-500 p-3 rounded text-white"
-                onClick={onExport}
-              >
-                <FaShare size={16} />
-              </button>
-            </Tooltip>
-            <Tooltip content="삭제">
-              <button
-                className="icon-button bg-red-500 p-3 rounded text-white"
-                onClick={onDelete}
-              >
-                <FaTrash size={16} />
-              </button>
-            </Tooltip>
+          </div>
+          <div className="flex-1 overflow-auto pr-1 flex flex-col gap-4">
+            {/* 이름 */}
+            <div>
+              <label className="text-sm font-medium mb-1 block">이름 *</label>
+              <input
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 text-default"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            {/* 대표 이미지 */}
+            <div className="p-3 border border-gray-200 dark:border-slate-600 rounded-lg">
+              <div className="text-sm font-medium mb-2">대표 이미지</div>
+              <div className="flex items-center gap-3">
+                <GlobalVibeImage
+                  profile={entry.profile}
+                  className="w-20 h-28 object-cover rounded-lg flex-none border border-gray-300 dark:border-slate-600"
+                />
+                <div className="flex flex-col gap-1.5">
+                  <div className="w-40">
+                    <FileUploadBase64
+                      notext
+                      onFileSelect={(b) => setNewRepImage(b)}
+                    />
+                  </div>
+                  {newRepImage && (
+                    <span className="text-xs text-green-600 dark:text-green-400">
+                      새 이미지 선택됨 (저장 시 적용)
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            {/* 프롬프트 */}
+            <div>
+              <div className="text-sm font-medium mb-1">상위 프롬프트</div>
+              <PromptEditTextArea
+                value={frontPrompt}
+                onChange={setFrontPrompt}
+                disabled={false}
+              />
+            </div>
+            <div>
+              <div className="text-sm font-medium mb-1">하위 프롬프트</div>
+              <PromptEditTextArea
+                value={backPrompt}
+                onChange={setBackPrompt}
+                disabled={false}
+              />
+            </div>
+            <div>
+              <div className="text-sm font-medium mb-1">네거티브 프롬프트</div>
+              <PromptEditTextArea value={uc} onChange={setUc} disabled={false} />
+            </div>
+            {/* 샘플링 설정 */}
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-sm">
+                스탭 수
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  step={1}
+                  value={steps}
+                  onChange={(e) => setSteps(Number(e.target.value))}
+                  className={numCls}
+                />
+              </label>
+              <label className="text-sm">
+                프롬프트 가이던스
+                <input
+                  type="number"
+                  min={0}
+                  max={10}
+                  step={0.1}
+                  value={promptGuidance}
+                  onChange={(e) => setPromptGuidance(Number(e.target.value))}
+                  className={numCls}
+                />
+              </label>
+              <label className="text-sm">
+                CFG 리스케일
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={cfgRescale}
+                  onChange={(e) => setCfgRescale(Number(e.target.value))}
+                  className={numCls}
+                />
+              </label>
+              <label className="text-sm">
+                샘플링
+                <select
+                  value={sampling}
+                  onChange={(e) => setSampling(e.target.value)}
+                  className={numCls}
+                >
+                  {Object.values(Sampling).map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm">
+                노이즈 스케줄
+                <select
+                  value={noiseSchedule}
+                  onChange={(e) => setNoiseSchedule(e.target.value)}
+                  className={numCls}
+                >
+                  {Object.values(NoiseSchedule).map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-4 flex-none">
+            <button className="round-button back-gray px-4 py-2" onClick={onClose}>
+              취소
+            </button>
+            <button
+              className="round-button back-sky px-4 py-2"
+              onClick={save}
+              disabled={saving}
+            >
+              {saving ? '저장 중...' : '저장'}
+            </button>
           </div>
         </div>
       </div>
@@ -356,9 +517,12 @@ export const GlobalPresetTab = observer(() => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // 통합: 이지/일반 구분 없이 하나의 라이브러리 + 검색/정렬
+  const [query, setQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'recent' | 'name' | 'default'>('recent');
+  const [editing, setEditing] = useState<IGlobalPresetEntry | null>(null);
 
-  const easyPresets = globalPresetService.list('SDImageGenEasy');
-  const genPresets = globalPresetService.list('SDImageGen');
+  const allPresets = globalPresetService.list();
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -373,6 +537,13 @@ export const GlobalPresetTab = observer(() => {
     setMultiSelectMode(false);
     setSelectedIds(new Set());
   };
+
+  // 적용 시 변환 대상 모드: 현재 활성 워크플로우가 일반(SDImageGen)이면 일반,
+  // 그 외(이지/미선택/기타)는 이지. (출처 타입이 아니라 "현재 활성 모드"를 따른다)
+  const targetMode = (): GlobalPresetType =>
+    appState.curSession?.selectedWorkflow?.workflowType === 'SDImageGen'
+      ? 'SDImageGen'
+      : 'SDImageGenEasy';
 
   const handleFiles = async (files: FileList) => {
     if (!files || files.length === 0) return;
@@ -389,7 +560,7 @@ export const GlobalPresetTab = observer(() => {
       try {
         const buf = await file.arrayBuffer();
         const base64 = Buffer.from(buf).toString('base64');
-        const entry = await globalPresetService.importFromPng(base64);
+        const entry = await globalPresetService.importFromImage(base64);
         if (entry) ok++;
         else {
           fail++;
@@ -463,6 +634,7 @@ export const GlobalPresetTab = observer(() => {
     await appState.importGlobalPresetIntoSession(
       appState.curSession,
       entry.id,
+      targetMode(),
     );
   };
 
@@ -502,9 +674,10 @@ export const GlobalPresetTab = observer(() => {
     });
     let done = 0;
     let fail = 0;
+    const target = targetMode();
     for (const id of selectedIds) {
       try {
-        await globalPresetService.instantiateIntoSession(session, id);
+        await globalPresetService.instantiateIntoSession(session, id, target);
       } catch (e) {
         fail++;
       }
@@ -534,19 +707,38 @@ export const GlobalPresetTab = observer(() => {
     exitMultiSelect();
   };
 
-  const total = easyPresets.length + genPresets.length;
+  const total = allPresets.length;
+  const q = query.trim().toLowerCase();
+  let visible = q
+    ? allPresets.filter((p) => p.name.toLowerCase().includes(q))
+    : allPresets.slice();
+  visible = [...visible].sort((a, b) => {
+    if (sortBy === 'name')
+      return a.name.localeCompare(b.name, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+    if (sortBy === 'default')
+      return (
+        (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0) ||
+        (b.updatedAt || 0) - (a.updatedAt || 0)
+      );
+    return (b.updatedAt || 0) - (a.updatedAt || 0); // recent
+  });
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden bg-white dark:bg-slate-900">
       {/* 상단 툴바 */}
       <div className="flex-none p-3 border-b border-gray-300 dark:border-slate-600 flex flex-wrap gap-3 items-center bg-gray-50 dark:bg-slate-800">
-        <button
-          className="round-button back-sky flex items-center gap-2 px-4 py-2 text-base"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <FaFileUpload size={18} />
-          <span>PNG 가져오기</span>
-        </button>
+        <Tooltip content="글로벌 프리셋 이미지뿐 아니라, 프롬프트 메타데이터가 있는 PNG도 그림체 프리셋으로 가져옵니다.">
+          <button
+            className="round-button back-sky flex items-center gap-2 px-4 py-2 text-base"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <FaFileUpload size={18} />
+            <span>PNG 가져오기</span>
+          </button>
+        </Tooltip>
         <input
           type="file"
           accept="image/png"
@@ -605,9 +797,26 @@ export const GlobalPresetTab = observer(() => {
           </>
         )}
         <div className="flex-1" />
-        <div className="text-sm text-gray-600 dark:text-gray-300">
-          총 {total}개 (그림체(이지모드) {easyPresets.length} / 그림체{' '}
-          {genPresets.length})
+        {/* 검색 */}
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="프리셋 검색..."
+          className="px-3 py-2 text-base rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-sky-400 w-44"
+        />
+        {/* 정렬 */}
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as any)}
+          className="px-2 py-2 text-base rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+        >
+          <option value="recent">최근 수정순</option>
+          <option value="name">이름순</option>
+          <option value="default">기본 우선</option>
+        </select>
+        <div className="text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
+          {q ? `검색 ${visible.length} / 총 ${total}개` : `총 ${total}개`}
         </div>
       </div>
 
@@ -625,56 +834,38 @@ export const GlobalPresetTab = observer(() => {
           </div>
         )}
 
-        {/* 그림체(이지모드) 섹션 */}
-        {easyPresets.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-xl font-bold mb-4 text-default border-b-2 border-gray-300 dark:border-slate-600 pb-2">
-              그림체 (이지모드)
-            </h2>
-            <div className="flex flex-wrap gap-4">
-              {easyPresets.map((entry) => (
-                <EasyCard
-                  key={entry.id}
-                  entry={entry}
-                  selected={selectedIds.has(entry.id)}
-                  multiSelectMode={multiSelectMode}
-                  onToggleSelect={() => toggleSelect(entry.id)}
-                  onImportToSession={() => handleImportToSession(entry)}
-                  onToggleDefault={() => handleToggleDefault(entry)}
-                  onRename={() => handleRename(entry)}
-                  onExport={() => handleExport(entry)}
-                  onDelete={() => handleDelete(entry)}
-                />
-              ))}
-            </div>
+        {/* 통합 카드 그리드 (이지/일반 구분 없음) */}
+        {total > 0 && visible.length === 0 && (
+          <div className="text-center text-gray-500 dark:text-gray-400 py-10">
+            "{query}" 검색 결과가 없습니다.
           </div>
         )}
-
-        {/* 그림체 섹션 */}
-        {genPresets.length > 0 && (
-          <div>
-            <h2 className="text-xl font-bold mb-4 text-default border-b-2 border-gray-300 dark:border-slate-600 pb-2">
-              그림체
-            </h2>
-            <div>
-              {genPresets.map((entry) => (
-                <GenRow
-                  key={entry.id}
-                  entry={entry}
-                  selected={selectedIds.has(entry.id)}
-                  multiSelectMode={multiSelectMode}
-                  onToggleSelect={() => toggleSelect(entry.id)}
-                  onImportToSession={() => handleImportToSession(entry)}
-                  onToggleDefault={() => handleToggleDefault(entry)}
-                  onRename={() => handleRename(entry)}
-                  onExport={() => handleExport(entry)}
-                  onDelete={() => handleDelete(entry)}
-                />
-              ))}
-            </div>
+        {visible.length > 0 && (
+          <div className="flex flex-wrap gap-4">
+            {visible.map((entry) => (
+              <EasyCard
+                key={entry.id}
+                entry={entry}
+                selected={selectedIds.has(entry.id)}
+                multiSelectMode={multiSelectMode}
+                onToggleSelect={() => toggleSelect(entry.id)}
+                onImportToSession={() => handleImportToSession(entry)}
+                onToggleDefault={() => handleToggleDefault(entry)}
+                onRename={() => handleRename(entry)}
+                onEdit={() => setEditing(entry)}
+                onExport={() => handleExport(entry)}
+                onDelete={() => handleDelete(entry)}
+              />
+            ))}
           </div>
         )}
       </div>
+      {editing && (
+        <GlobalPresetEditModal
+          entry={editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 });
