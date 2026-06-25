@@ -15,6 +15,7 @@ import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
 import { TaskLog } from '../models/TaskQueueService';
 import ModalOverlayCountMarker from './ModalOverlayCountMarker';
+import StorageManageModal from './StorageManageModal';
 import {
   FaUser,
   FaImage,
@@ -22,6 +23,7 @@ import {
   FaCog,
   FaTimes,
   FaKeyboard,
+  FaHdd,
 } from 'react-icons/fa';
 import { keyboardShortcutService, KeyboardShortcutService } from '../models/KeyboardShortcutService';
 
@@ -140,9 +142,10 @@ const ImageEditTab = ({
 /* ── 탭 3: 이미지 및 데이터 저장경로 ── */
 const StorageTab = ({
   saveLocation, selectFolder, clearImageCache,
-  refreshImage, setRefreshImage,
+  refreshImage, setRefreshImage, onClose,
 }: any) => {
   const [backupBusy, setBackupBusy] = useState(false);
+  const [storageManageOpen, setStorageManageOpen] = useState(false);
   const startBackup = () => {
     if (backupBusy) return;
     setBackupBusy(true);
@@ -189,6 +192,19 @@ const StorageTab = ({
         </button>
       </div>
       <hr className="border-gray-200 dark:border-slate-600" />
+      <div>
+        <label className="block text-sm font-semibold gray-label mb-1">프로젝트별 저장 공간</label>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+          프로젝트별로 차지하는 디스크 용량(이미지 포함)을 확인해요. 용량이 큰 프로젝트를 찾아 정리할 때 유용해요. (부하 방지를 위해 수동 계산)
+        </p>
+        <button
+          className="w-full back-sky py-2 rounded hover:brightness-95 active:brightness-90 flex items-center justify-center gap-2"
+          onClick={() => setStorageManageOpen(true)}
+        >
+          <FaHdd size={14} /> 프로젝트별 저장 공간 관리
+        </button>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
       <button className="w-full back-red py-2 rounded hover:brightness-95 active:brightness-90"
         onClick={clearImageCache}>
         이미지 캐시 초기화
@@ -212,6 +228,15 @@ const StorageTab = ({
           현재 프로젝트 이미지 복구
         </button>
       </div>
+      <StorageManageModal
+        isOpen={storageManageOpen}
+        onClose={() => setStorageManageOpen(false)}
+        onJump={(name: string) => {
+          setStorageManageOpen(false);
+          appState.selectSession(name);
+          onClose?.();
+        }}
+      />
     </div>
   );
 };
@@ -1106,7 +1131,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       case 1:
         return <ImageEditTab {...{ imageEditor, setImageEditor, useLocalBgRemoval, setUseLocalBgRemoval, ready, stage, progress, stageTexts, useGPU, setUseGPU, quality, setQuality }} />;
       case 2:
-        return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage }} />;
+        return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage, onClose }} />;
       case 3:
         return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, exportConcurrency, setExportConcurrency }} />;
       case 4:

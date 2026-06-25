@@ -3558,6 +3558,58 @@ app.get('/api/disk/usage', async (req, res) => {
   }
 });
 
+// 프로젝트별 차지 용량 (이미지 디렉터리 + project.json). 서버 재귀(sumDirAll)로
+// 1콜 계산 — 클라가 listFiles를 재귀 호출(HTTP 라운드트립 폭증)하는 대신.
+// (SDStudio 4.12 ⑤ — upstream ProjectSizeService.dirSize의 서버사이드 적응)
+const PROJECT_IMAGE_DIRS = ['outs', 'inpaints', 'inpaint_orgs', 'inpaint_masks', 'vibes', 'references'];
+
+async function computeProjectBytes(name) {
+  if (!name) return 0; // 빈 이름 방어: resolvePath(prefix)가 카테고리 전체 디렉터리를 가리켜 합산 폭증 방지
+  let bytes = 0;
+  for (const prefix of PROJECT_IMAGE_DIRS) {
+    let dir;
+    try { dir = resolvePath(path.join(prefix, name)); } catch { continue; }
+    bytes += (await sumDirAll(dir)).size;
+  }
+  // project.json (flat data/projects/<name>.json, nested <name>/project.json 폴백)
+  for (const cand of [path.join('projects', name + '.json'), path.join('projects', name, 'project.json')]) {
+    try { bytes += (await fs.stat(resolvePath(cand))).size; break; } catch {}
+  }
+  return bytes;
+}
+
+app.get('/api/project/size', async (req, res) => {
+  try {
+    const name = req.query.name;
+    if (!name || typeof name !== 'string') return res.status(400).json({ error: 'name required' });
+    res.json({ bytes: await computeProjectBytes(name) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 전체 백업(이미지 포함) 예상 용량 — 백업 시작 전 경고용(② 지원).
+// 모든 프로젝트 + 글로벌 이미지 디렉터리 재귀 합산.
+app.get('/api/backup/estimate', async (req, res) => {
+  try {
+    let bytes = 0;
+    let projectNames = [];
+    try {
+      const files = await fs.readdir(path.join(DATA_DIR, 'projects'), { withFileTypes: true });
+      projectNames = files
+        .filter((e) => e.isFile() && e.name.endsWith('.json') && !e.name.includes('.bak'))
+        .map((e) => e.name.slice(0, -5));
+    } catch {}
+    for (const name of projectNames) bytes += await computeProjectBytes(name);
+    for (const g of ['global_vibes', 'global_char_images']) {
+      try { bytes += (await sumDirAll(resolvePath(g))).size; } catch {}
+    }
+    res.json({ bytes, projects: projectNames.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/disk/cleanup', async (req, res) => {
   try {
     const targets = Array.isArray(req.body?.targets) ? req.body.targets : [];

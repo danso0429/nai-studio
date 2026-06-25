@@ -17,6 +17,7 @@ import { GlobalCharacterPresetService } from './GlobalCharacterPresetService';
 import { PromptChunkService } from './PromptChunkService';
 import { ToggleGroupService } from './ToggleGroupService';
 import { SamplingPresetService } from './SamplingPresetService';
+import { ProjectSizeService } from './ProjectSizeService';
 
 export const backend = new ServerBackend();
 
@@ -90,6 +91,8 @@ export const toggleGroupService = new ToggleGroupService();
 toggleGroupService.load();
 
 export const samplingPresetService = new SamplingPresetService();
+
+export const projectSizeService = new ProjectSizeService();
 samplingPresetService.load();
 
 export const promptService = new PromptService();
