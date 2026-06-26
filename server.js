@@ -3563,7 +3563,25 @@ app.get('/api/disk/usage', async (req, res) => {
 // (SDStudio 4.12 ⑤ — upstream ProjectSizeService.dirSize의 서버사이드 적응)
 const PROJECT_IMAGE_DIRS = ['outs', 'inpaints', 'inpaint_orgs', 'inpaint_masks', 'vibes', 'references'];
 
-async function computeProjectBytes(name) {
+// 모든 프로젝트 파일 재귀 열거. 프로젝트는 루트 projects/<name>.json 또는
+// 폴더 안 projects/<folder>/<name>.json 두 형태로 저장된다(폴더=조직용). 이름은
+// 전역 unique(basename), 이미지 dir(vibes/<name> 등)은 이름 기준(flat·폴더무관).
+async function listAllProjectFiles(dir, baseRel) {
+  dir = dir || path.join(DATA_DIR, 'projects');
+  baseRel = baseRel || '';
+  const out = [];
+  let entries;
+  try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return out; }
+  for (const e of entries) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...(await listAllProjectFiles(full, baseRel + e.name + '/')));
+    else if (e.isFile() && e.name.endsWith('.json') && !e.name.includes('.bak'))
+      out.push({ name: e.name.slice(0, -5), relPath: baseRel + e.name, absPath: full });
+  }
+  return out;
+}
+
+async function computeProjectBytes(name, jsonAbs) {
   if (!name) return 0; // 빈 이름 방어: resolvePath(prefix)가 카테고리 전체 디렉터리를 가리켜 합산 폭증 방지
   let bytes = 0;
   for (const prefix of PROJECT_IMAGE_DIRS) {
@@ -3571,10 +3589,12 @@ async function computeProjectBytes(name) {
     try { dir = resolvePath(path.join(prefix, name)); } catch { continue; }
     bytes += (await sumDirAll(dir)).size;
   }
-  // project.json (flat data/projects/<name>.json, nested <name>/project.json 폴백)
-  for (const cand of [path.join('projects', name + '.json'), path.join('projects', name, 'project.json')]) {
-    try { bytes += (await fs.stat(resolvePath(cand))).size; break; } catch {}
+  // project.json — 위치(루트/폴더)는 이름만으론 모르므로 재귀 열거로 찾음(없으면 0).
+  if (!jsonAbs) {
+    const found = (await listAllProjectFiles()).find((p) => p.name === name);
+    jsonAbs = found && found.absPath;
   }
+  if (jsonAbs) { try { bytes += (await fs.stat(jsonAbs)).size; } catch {} }
   return bytes;
 }
 
@@ -3588,23 +3608,19 @@ app.get('/api/project/size', async (req, res) => {
   }
 });
 
-// 전체 백업(이미지 포함) 예상 용량 — 백업 시작 전 경고용(② 지원).
-// 모든 프로젝트 + 글로벌 이미지 디렉터리 재귀 합산.
+// 백업 다운로드 예상 용량 — 백업 시작 전 경고용(② 지원).
+// 백업에 *실제로 담기는* 디렉토리만 합산(outs/exports 제외 — /api/backup/full INCLUDE_DIRS와 일치).
+// 생성 이미지(outs)는 백업에서 빠지므로 포함하면 다운로드 크기를 크게 과대평가함
+// (per-project size용 computeProjectBytes는 outs 포함 = 총 사용량, 백업 추정과는 다른 목적).
+const BACKUP_ESTIMATE_DIRS = ['projects', 'vibes', 'inpaints', 'inpaint_orgs', 'inpaint_masks', 'references', 'global_vibes', 'global_char_images'];
 app.get('/api/backup/estimate', async (req, res) => {
   try {
     let bytes = 0;
-    let projectNames = [];
-    try {
-      const files = await fs.readdir(path.join(DATA_DIR, 'projects'), { withFileTypes: true });
-      projectNames = files
-        .filter((e) => e.isFile() && e.name.endsWith('.json') && !e.name.includes('.bak'))
-        .map((e) => e.name.slice(0, -5));
-    } catch {}
-    for (const name of projectNames) bytes += await computeProjectBytes(name);
-    for (const g of ['global_vibes', 'global_char_images']) {
-      try { bytes += (await sumDirAll(resolvePath(g))).size; } catch {}
+    for (const d of BACKUP_ESTIMATE_DIRS) {
+      try { bytes += (await sumDirAll(resolvePath(d))).size; } catch {}
     }
-    res.json({ bytes, projects: projectNames.length });
+    const all = await listAllProjectFiles();
+    res.json({ bytes, projects: all.length });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -4039,10 +4055,20 @@ app.get('/api/backup/full', async (req, res) => {
     const JSZip = require('jszip');
     const zip = new JSZip();
 
-    const INCLUDE_DIRS = ['projects', 'vibes', 'inpaints', 'inpaint_orgs', 'inpaint_masks', 'references'];
+    // 이미지 디렉터리. global_vibes/global_char_images = 글로벌(그림체/캐릭터) 프리셋의
+    // 사용자 업로드 대표 이미지(비재생성) → 포함. outs/exports(생성물·재생성)는 제외 유지.
+    const INCLUDE_DIRS = ['projects', 'vibes', 'inpaints', 'inpaint_orgs', 'inpaint_masks', 'references', 'global_vibes', 'global_char_images'];
     // audit D2 — TOKEN.txt(NAI access token 평문) 제외. 옛 동작은 복원 시 로그인 유지였으나
     // 백업 zip 유출 시 토큰 노출 위험 > 복원 후 1회 재로그인 편의. 본인 결정으로 제외.
-    const INCLUDE_FILES = ['config.json', 'bookmarks.json', 'favorites.json', 'global_pieces.json', 'trash.json'];
+    // SDStudio 4.12 ②a — 글로벌/그림체/청크/샘플링/토글/내보내기 프리셋 + 폴더 메타가 백업에서
+    // 누락돼 전체 백업 복원 시 증발하던 버그 수정. project_sizes(⑤캐시)·stats-matches(별개)는 제외.
+    // 모두 fs.access 존재체크라 없는 파일은 자동 skip.
+    const INCLUDE_FILES = [
+      'config.json', 'bookmarks.json', 'favorites.json', 'trash.json',
+      'global_pieces.json', 'global_presets.json', 'global_character_presets.json',
+      'prompt_presets.json', 'prompt_chunks.json', 'sampling_presets.json',
+      'toggle_groups.json', 'exportPresets.json', 'folder_meta.json',
+    ];
     const SKIP_NAMES = new Set(['fastcache', '.trash', 'tmp', '.cache']);
 
     let fileCount = 0;
@@ -4096,6 +4122,189 @@ app.get('/api/backup/full', async (req, res) => {
   } catch (e) {
     console.error('[Backup] error:', e);
     if (!res.headersSent) res.status(500).json({ error: e.message });
+  }
+});
+
+// SDStudio 4.12 ②b — 전체 백업 복원 (업로드 zip → 서버 추출 + 병합).
+// 우리 flat zip 포맷(②a) 대상. upstream 의미 흡수: 프로젝트 동명 rename/skip/overwrite,
+// 설정 병합(기존 유지 + 백업 새 항목, 덮어쓰기 X), 글로벌 이미지 파일명 병합.
+// 안전망: 복원 전 현재 settings + projects 스냅샷(.restore-snapshot-*). Zip Slip은 resolvePath로 방어.
+const RESTORE_IMAGE_DIRS = ['vibes', 'inpaints', 'inpaint_orgs', 'inpaint_masks', 'references'];
+// 병합하지 않고 "없을 때만 복원"(현재 유지)할 루트 파일. config=기기설정, trash=휴지통,
+// project_sizes=⑤캐시(백업엔 없지만 방어), stats-matches=별개.
+const RESTORE_SKIP_MERGE = new Set(['config.json', 'trash.json', 'project_sizes.json', 'stats-matches.json']);
+
+// generic 병합: 기존 유지 + 백업의 새 항목/키만 추가 (스칼라/기존 항목 덮어쓰기 X).
+// 배열=id||name(객체)·value(원시) 기준 union, 객체=없는 키 추가 + 공통 키 재귀.
+function mergeJsonValue(cur, bak) {
+  if (Array.isArray(cur) && Array.isArray(bak)) {
+    const keyOf = (it) => (it && typeof it === 'object' ? (it.id ?? it.name ?? null) : it);
+    const seenObj = new Set();
+    const seenPrim = new Set();
+    for (const it of cur) {
+      if (it && typeof it === 'object') { const k = keyOf(it); if (k !== null) seenObj.add(k); }
+      else seenPrim.add(it);
+    }
+    const out = cur.slice();
+    for (const it of bak) {
+      if (it && typeof it === 'object') {
+        const k = keyOf(it);
+        if (k === null || !seenObj.has(k)) { out.push(it); if (k !== null) seenObj.add(k); }
+      } else if (!seenPrim.has(it)) { out.push(it); seenPrim.add(it); }
+    }
+    return out;
+  }
+  if (cur && bak && typeof cur === 'object' && typeof bak === 'object'
+      && !Array.isArray(cur) && !Array.isArray(bak)) {
+    const out = { ...cur };
+    for (const key of Object.keys(bak)) {
+      if (!(key in out)) out[key] = bak[key];
+      else out[key] = mergeJsonValue(out[key], bak[key]);
+    }
+    return out;
+  }
+  return cur; // 스칼라 충돌 → 현재 유지
+}
+
+app.post('/api/backup/restore', async (req, res) => {
+  const policy = ['rename', 'skip', 'overwrite'].includes(req.query.policy) ? req.query.policy : 'rename';
+  const tmpZip = path.join(DATA_DIR, 'tmp', 'restore-' + uuidv4() + '.zip');
+  let snapshotDir = null;
+  try {
+    await fs.mkdir(path.join(DATA_DIR, 'tmp'), { recursive: true });
+    // 1. 업로드 스트림 → tmp 파일 (메모리 스파이크 회피). 2GB 상한.
+    await new Promise((resolve, reject) => {
+      const ws = fss.createWriteStream(tmpZip);
+      let bytes = 0;
+      req.on('data', (c) => { bytes += c.length; if (bytes > 2 * 1024 * 1024 * 1024) { req.destroy(); ws.destroy(); reject(new Error('업로드 파일이 너무 큽니다 (>2GB)')); } });
+      req.pipe(ws);
+      ws.on('finish', resolve);
+      ws.on('error', reject);
+      req.on('error', reject);
+    });
+
+    // 2. zip 로드
+    const JSZip = require('jszip');
+    const zip = await JSZip.loadAsync(await fs.readFile(tmpZip));
+    const entryNames = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+    const projectFiles = entryNames.filter((n) => /^projects\/.+\.json$/.test(n) && !path.basename(n).includes('.bak'));
+
+    // 3. 안전망 — 복원 전 현재 settings(루트 json) + projects 디렉토리 스냅샷
+    const tsStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    snapshotDir = path.join(DATA_DIR, '.restore-snapshot-' + tsStr);
+    await fs.mkdir(snapshotDir, { recursive: true });
+    try {
+      const rootEntries = await fs.readdir(DATA_DIR, { withFileTypes: true });
+      for (const e of rootEntries) {
+        if (e.isFile() && e.name.endsWith('.json')) {
+          await fs.copyFile(path.join(DATA_DIR, e.name), path.join(snapshotDir, e.name)).catch(() => {});
+        }
+      }
+      await fs.cp(path.join(DATA_DIR, 'projects'), path.join(snapshotDir, 'projects'), { recursive: true }).catch(() => {});
+    } catch (e) { console.warn('[Restore] snapshot 일부 실패:', e.message); }
+
+    await fs.mkdir(path.join(DATA_DIR, 'projects'), { recursive: true });
+    // 기존 프로젝트(재귀): 이름=전역 unique. overwrite는 실제 경로(루트/폴더)를 알아야 함.
+    const existingList = await listAllProjectFiles();
+    const existing = new Set(existingList.map((p) => p.name));
+    const existingPathByName = new Map(existingList.map((p) => [p.name, p.absPath]));
+
+    let restored = 0, skipped = 0, renamed = 0, overwritten = 0, imgErrors = 0;
+
+    // 4. 프로젝트 복원 (이름=basename 전역 unique, 폴더 경로는 보존)
+    for (const pf of projectFiles) {
+      const relPath = pf.slice('projects/'.length);     // 'NSFW.json' | '강주/강주 nsfw.json'
+      const folderRel = path.dirname(relPath);           // '.' | '강주'
+      const origName = path.basename(relPath, '.json');   // 'NSFW' | '강주 nsfw'
+      let target = origName;
+      if (existing.has(origName)) {
+        if (policy === 'skip') { skipped++; continue; }
+        if (policy === 'overwrite') {
+          // 기존 동명 프로젝트(실제 경로=루트/폴더 무관) + 이미지 dir(이름 기준 flat) 삭제
+          const exAbs = existingPathByName.get(origName);
+          if (exAbs) { try { await fs.rm(exAbs, { force: true }); } catch {} }
+          for (const d of RESTORE_IMAGE_DIRS) {
+            try { await fs.rm(resolvePath(path.join(d, origName)), { recursive: true, force: true }); } catch {}
+          }
+          overwritten++;
+        } else {
+          let i = 2;
+          while (existing.has(origName + ' (' + i + ')')) i++;
+          target = origName + ' (' + i + ')';
+          renamed++;
+        }
+      } else restored++;
+
+      // 프로젝트 json → projects/<folder>/<target>.json (폴더 보존, name=target)
+      const destRel = (folderRel === '.' ? '' : folderRel + '/') + target + '.json';
+      let projDest;
+      try { projDest = resolvePath(path.join('projects', destRel)); }
+      catch { continue; } // Zip Slip 방어 — 비정상 경로 skip
+      const projJson = JSON.parse(await zip.files[pf].async('string'));
+      projJson.name = target;
+      await fs.mkdir(path.dirname(projDest), { recursive: true });
+      await fs.writeFile(projDest, JSON.stringify(projJson));
+      existing.add(target);
+
+      // 이미지 디렉토리 (이름 기준 flat: origName → target)
+      for (const d of RESTORE_IMAGE_DIRS) {
+        const prefix = d + '/' + origName + '/';
+        for (const n of entryNames) {
+          if (!n.startsWith(prefix)) continue;
+          const rel = n.slice(prefix.length);
+          let dest;
+          try { dest = resolvePath(path.join(d, target, rel)); }
+          catch { imgErrors++; continue; } // Zip Slip 방어
+          try {
+            await fs.mkdir(path.dirname(dest), { recursive: true });
+            await fs.writeFile(dest, await zip.files[n].async('nodebuffer'));
+          } catch { imgErrors++; }
+        }
+      }
+    }
+
+    // 5. 설정 병합 (루트 *.json만)
+    let merged = 0, settingsRestored = 0;
+    for (const n of entryNames) {
+      if (n.includes('/') || !n.endsWith('.json')) continue;
+      let curPath;
+      try { curPath = resolvePath(n); } catch { continue; }
+      let bakData;
+      try { bakData = JSON.parse(await zip.files[n].async('string')); } catch { continue; }
+      let curData = null, curExists = true;
+      try { curData = JSON.parse(await fs.readFile(curPath, 'utf8')); } catch { curExists = false; }
+      if (!curExists) { await fs.writeFile(curPath, JSON.stringify(bakData)); settingsRestored++; continue; }
+      if (RESTORE_SKIP_MERGE.has(n)) continue; // config/trash 등 현재 유지
+      await fs.writeFile(curPath, JSON.stringify(mergeJsonValue(curData, bakData)));
+      merged++;
+    }
+
+    // 6. 글로벌 이미지 병합 (없는 파일만 추가)
+    let globalImgs = 0;
+    for (const n of entryNames) {
+      if (!(n.startsWith('global_vibes/') || n.startsWith('global_char_images/'))) continue;
+      let dest;
+      try { dest = resolvePath(n); } catch { continue; }
+      try { await fs.access(dest); continue; } catch {}
+      try {
+        await fs.mkdir(path.dirname(dest), { recursive: true });
+        await fs.writeFile(dest, await zip.files[n].async('nodebuffer'));
+        globalImgs++;
+      } catch { imgErrors++; }
+    }
+
+    res.json({
+      ok: true, policy,
+      projects: { restored, renamed, skipped, overwritten },
+      settings: { merged, restored: settingsRestored },
+      globalImages: globalImgs, imgErrors,
+      snapshot: path.basename(snapshotDir),
+    });
+  } catch (e) {
+    console.error('[Restore] error:', e);
+    if (!res.headersSent) res.status(500).json({ error: e.message, snapshot: snapshotDir ? path.basename(snapshotDir) : null });
+  } finally {
+    try { await fs.rm(tmpZip, { force: true }); } catch {}
   }
 });
 
