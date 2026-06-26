@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   appUpdateNoticeService,
   backend,
@@ -9,7 +9,7 @@ import {
   sessionService,
   taskQueueService,
 } from '../models';
-import { extractApiError } from '../models/util';
+import { extractApiError, apiUrl } from '../models/util';
 import { Config, ImageEditor, RemoveBgQuality } from '../main/config';
 import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
@@ -165,6 +165,73 @@ const StorageTab = ({
       setBackupBusy(false);
     }, 30000);
   };
+
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const restoreInputRef = useRef<HTMLInputElement>(null);
+  const handleRestoreFile = async (file: File) => {
+    const policy = await appState.pushDialogAsync({
+      type: 'select',
+      text:
+        '백업을 복원합니다.\n설정(프리셋·청크·조각 등)은 병합돼요 — 현재 항목은 유지되고 백업의 새 항목만 추가됩니다.\n이름이 같은 프로젝트의 처리 방식을 선택하세요.',
+      items: [
+        { text: '동명은 새 이름 (2)로 복원 (권장)', value: 'rename' },
+        { text: '동명은 건너뛰기', value: 'skip' },
+        { text: '⚠️ 동명을 덮어쓰기 (기존 영구 삭제)', value: 'overwrite' },
+      ],
+    });
+    if (!policy) return;
+    if (policy === 'overwrite') {
+      const c1 = await appState.pushDialogAsync({
+        type: 'select',
+        text: '⚠️ 덮어쓰기: 이름이 같은 기존 프로젝트와 그 이미지가 영구 삭제되고 백업으로 대체됩니다.\n정말로 진행할까요?',
+        items: [{ text: '예, 덮어씁니다', value: 'yes' }],
+      });
+      if (c1 !== 'yes') return;
+      const c2 = await appState.pushDialogAsync({
+        type: 'select',
+        text: '정말 정말로 진행할까요?\n이 작업은 되돌릴 수 없습니다.',
+        items: [{ text: '예, 확실합니다', value: 'yes' }],
+      });
+      if (c2 !== 'yes') return;
+    }
+    setRestoreBusy(true);
+    const toastId = appState.pushMessage(
+      '백업 복원 중… (업로드 + 추출, 용량에 따라 수십 초 걸릴 수 있어요)',
+      { sticky: true },
+    );
+    try {
+      const res = await fetch(apiUrl('/api/backup/restore?policy=' + policy), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: file,
+      });
+      appState.dismissMessage(toastId);
+      if (!res.ok) {
+        let msg = '' + res.status;
+        try { msg = (await res.json()).error || msg; } catch {}
+        appState.pushMessage('복원 실패: ' + msg);
+        setRestoreBusy(false);
+        return;
+      }
+      const r = await res.json();
+      const p = r.projects || {};
+      await appState.pushDialogAsync({
+        type: 'yes-only',
+        text:
+          '복원이 완료되었어요.\n\n' +
+          `프로젝트 — 새로 복원 ${p.restored || 0} / 이름변경 ${p.renamed || 0} / 건너뜀 ${p.skipped || 0}` +
+          (p.overwritten ? ` / 덮어씀 ${p.overwritten}` : '') +
+          `\n설정 병합 ${r.settings?.merged || 0}개 (새 파일 ${r.settings?.restored || 0}) · 글로벌 이미지 ${r.globalImages || 0}` +
+          (r.imgErrors ? `\n(이미지 ${r.imgErrors}개 오류)` : '') +
+          '\n\n변경 사항을 모두 반영하기 위해 앱을 새로고침합니다.',
+      });
+      location.reload();
+    } catch (e: any) {
+      appState.dismissMessage(toastId);
+      appState.pushMessage('복원 실패: ' + (extractApiError(e) || e.message || e));
+      setRestoreBusy(false);
+    }
+  };
   return (
     <div className="space-y-4">
       <div>
@@ -189,6 +256,27 @@ const StorageTab = ({
           disabled={backupBusy}
         >
           {backupBusy ? '백업 zip 생성 중...' : '전체 데이터 백업 받기'}
+        </button>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 mb-2">
+          위 백업 zip을 불러와 복원해요. 동명 프로젝트는 새 이름으로(기본), 설정(프리셋 등)은 병합돼요(현재 유지 + 백업 새 항목 추가). 복원 전 현재 설정은 자동 스냅샷돼요.
+        </p>
+        <input
+          type="file"
+          accept=".zip,application/zip"
+          ref={restoreInputRef}
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (f) handleRestoreFile(f);
+          }}
+        />
+        <button
+          className="w-full back-gray py-2 rounded hover:brightness-95 active:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={() => restoreInputRef.current?.click()}
+          disabled={restoreBusy}
+        >
+          {restoreBusy ? '복원 중...' : '백업 복원 (zip 불러오기)'}
         </button>
       </div>
       <hr className="border-gray-200 dark:border-slate-600" />
