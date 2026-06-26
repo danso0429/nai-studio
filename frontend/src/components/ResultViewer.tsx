@@ -69,7 +69,7 @@ import {
 } from '../models';
 import { dataUriToBase64, deleteImageFiles } from '../models/ImageService';
 import { getThumbURL } from '../backends/serverBackend';
-import { getResultDirectory, renameScene } from '../models/SessionService';
+import { getResultDirectory, renameScene, mergeScene } from '../models/SessionService';
 import { getSceneKey, queueI2IWorkflow, queueWorkflow } from '../models/TaskQueueService';
 import { extractApiError, extractPromptDataFromBase64 } from '../models/util';
 import { appState } from '../models/AppService';
@@ -1290,6 +1290,7 @@ interface ResultViewerProps {
   isMainImage?: (path: string) => boolean;
   starScene?: Scene;
   onSampleExtract?: (seeds: number[]) => void;
+  onClose?: () => void;
 }
 
 const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
@@ -1302,6 +1303,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
       isMainImage,
       buttons,
       onSampleExtract,
+      onClose,
     }: ResultViewerProps,
     ref,
   ) => {
@@ -1786,8 +1788,35 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
                   if (!newName) return;
                   const trimmed = newName.trimEnd();
                   if (!trimmed || trimmed === scene.name) return;
-                  if (curSession!.scenes.has(trimmed)) {
-                    appState.pushMessage('해당 이름의 씬이 이미 존재합니다');
+                  // 중복 이름 — scenes/inpaints 는 Map 이므로 hasScene(type, name) 으로
+                  // 검사하고, 중복 시 병합/취소를 선택하게 한다.
+                  if (curSession!.hasScene(scene.type, trimmed)) {
+                    appState.pushDialog({
+                      type: 'confirm',
+                      green: false,
+                      text:
+                        `"${trimmed}" 씬이 이미 존재합니다.\n두 씬을 병합할까요?\n\n` +
+                        `• 이미지: 두 씬의 이미지가 "${trimmed}" 씬으로 합쳐집니다\n` +
+                        `• 프롬프트/설정: 기존 "${trimmed}" 씬의 것을 유지하고,\n  지금 씬의 프롬프트는 사라집니다\n\n` +
+                        `이 작업은 되돌릴 수 없습니다.`,
+                      callback: async () => {
+                        try {
+                          await mergeScene(
+                            curSession!,
+                            scene.name,
+                            trimmed,
+                            scene.type,
+                          );
+                          appState.pushMessage(`"${trimmed}" 씬으로 병합했습니다`);
+                          // 병합된(사라진) source 씬을 보던 결과 화면을 닫는다.
+                          if (onClose) onClose();
+                        } catch (e: any) {
+                          appState.pushMessage(
+                            '씬 병합 중 오류가 발생했습니다: ' + (e?.message ?? e),
+                          );
+                        }
+                      },
+                    });
                     return;
                   }
                   await renameScene(curSession!, scene.name, trimmed);

@@ -1429,6 +1429,10 @@ const QueueControl = observer(
               isMainImage={isMainImage}
               onFilenameChange={onFilenameChange}
               onEdit={onEdit}
+              onClose={() => {
+                gameService.refreshList(curSession!, displayScene);
+                setDisplayScene(undefined);
+              }}
               buttons={buttons}
               onSampleExtract={type === 'scene' ? (seeds: number[]) => {
                 const sourceScene = displayScene;
