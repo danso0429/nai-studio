@@ -1719,10 +1719,10 @@ const PreSetSelect = observer(({ workflowType }: { workflowType: string }) => {
     };
   });
   return (
-    <div className="flex gap-2 mt-2 items-center relative">
+    <div className="flex flex-wrap gap-2 mt-2 items-center relative">
       <div className="flex-none gray-label">사전세팅선택:</div>
       <div
-        className="round-button back-gray h-9 w-full"
+        className="round-button back-gray h-9 flex-auto min-w-0 truncate"
         onClick={() => {
           setIsOpen(!isOpen);
           clicked.current = true;
@@ -1730,6 +1730,7 @@ const PreSetSelect = observer(({ workflowType }: { workflowType: string }) => {
       >
         {curSession.selectedWorkflow?.presetName}
       </div>
+      <div className="flex gap-2 items-center flex-none">
       <button
         className={`icon-button`}
         onClick={async () => {
@@ -1798,6 +1799,7 @@ const PreSetSelect = observer(({ workflowType }: { workflowType: string }) => {
           <FaLayerGroup />
         </button>
       </Tooltip>
+      </div>
       {chunkOpen && (
         <PromptChunkManager onClose={() => setChunkOpen(false)} />
       )}
