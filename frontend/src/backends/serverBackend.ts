@@ -1,6 +1,6 @@
 import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderDone, DeleteFolderError, DeleteFolderProgress, DeleteFolderStart, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, ImageDeleteDone, ImageDeleteError, ImageDeleteProgress, ImageDeleteStart, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
+import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderDone, DeleteFolderError, DeleteFolderProgress, DeleteFolderStart, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, ImageDeleteDone, ImageDeleteError, ImageDeleteProgress, ImageDeleteStart, LoginValidity, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -437,6 +437,10 @@ export class ServerBackend extends Backend {
 
   async authStatus(): Promise<boolean> {
     return (await apiJSON('/auth/status')).loggedIn;
+  }
+
+  async validateLogin(): Promise<LoginValidity> {
+    return (await apiJSON('/auth/validate')).validity;
   }
 
   async encodeVibeImage(arg: EncodeVibeImageInput): Promise<string> {

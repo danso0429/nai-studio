@@ -1877,6 +1877,19 @@ app.get('/api/auth/status', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 토큰 실제 검증 (NAI /user/data 호출). status(파일 존재만)와 달리 만료를 감지한다.
+// LoginService.refresh가 시작 1회 + 크레딧 조회 실패 시 호출 (상시 폴링 X — NAI 부담 회피).
+app.get('/api/auth/validate', async (req, res) => {
+  try {
+    if (!nai.token) {
+      try { nai.token = await fs.readFile(resolvePath('TOKEN.txt', { allowSensitive: true }), 'utf-8'); } catch {}
+    }
+    if (!nai.token) return res.json({ validity: 'invalid' });
+    const validity = await nai.validateToken();
+    res.json({ validity });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/auth/credits', async (req, res) => {
   try {
     // Try to load token from file if not in memory

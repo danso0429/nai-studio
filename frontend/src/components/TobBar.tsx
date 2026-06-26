@@ -18,11 +18,20 @@ const TobBar = () => {
   useEffect(() => {
     const onChange = () => {
       setLoggedIn(loginService.loggedIn);
+      if (!loginService.loggedIn) {
+        setCredits(0);
+        return;
+      }
       (async () => {
         try {
           const credits = await backend.getRemainCredits();
           setCredits(credits);
-        } catch (e) {}
+        } catch (e) {
+          // 로그인 표기는 ON인데 크레딧 조회 실패 → 토큰 만료 의심 → 재검증.
+          // (만료면 OFF로 전환 — refresh가 changed일 때만 change 발생 + !loggedIn early
+          //  return으로 루프 종료. 네트워크 일시 오류면 'error'라 상태 유지) (SDStudio 4.13 630e0e5)
+          loginService.refresh();
+        }
       })();
     };
     // race fix: constructor refresh가 끝난 후 첫 setLoggedIn → UI flash 회피.

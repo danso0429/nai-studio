@@ -10,6 +10,9 @@ export interface FileEntry {
   path: string;
 }
 
+// 로그인(토큰) 검증 결과. valid=유효 / invalid=만료·무효(인증 거부) / error=네트워크 등 불확실(상태 유지). (SDStudio 4.13 630e0e5)
+export type LoginValidity = 'valid' | 'invalid' | 'error';
+
 export enum ImageOptimizeMethod {
   LOSSY = 1,
   LOSSLESS = 2,
@@ -219,6 +222,8 @@ export abstract class Backend {
   abstract login(email: string, password: string): Promise<void>;
   abstract loginWithToken(token: string): Promise<void>;
   abstract authStatus(): Promise<boolean>;
+  // 저장된 토큰이 NAI에서 실제 유효한지 검증 (만료 감지). status(파일 존재)와 달리 NAI 호출.
+  abstract validateLogin(): Promise<LoginValidity>;
   abstract encodeVibeImage(arg: EncodeVibeImageInput): Promise<string>;
   abstract showFile(arg: string): Promise<void>;
   // downloadName: 브라우저 다운로드 시 저장될 파일명. 미지정 시 server 파일명 사용.
