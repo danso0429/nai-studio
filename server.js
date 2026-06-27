@@ -2775,7 +2775,10 @@ async function walkDir(basePath, depth) {
       if (entry.name.startsWith('.')) continue;
       const rel = currentRel ? currentRel + '/' + entry.name : entry.name;
       if (entry.isDirectory()) {
-        if (currentDepth === 0) dirs.push(rel);
+        // 중첩폴더: 1depth뿐 아니라 모든 depth 폴더를 dirs에 담는다 (ProjectDrawer 트리 +
+        // getList folderList). dirs 소비자는 ResourceSyncService.getList뿐이고, 이미지
+        // listFilesRecursive는 files만 쓰며 씬 하위 폴더가 없어 영향 없음. (SDStudio 4.13 ① 중첩폴더)
+        dirs.push(rel);
         if (currentDepth < depth) {
           await walk(rel, currentDepth + 1);
         }

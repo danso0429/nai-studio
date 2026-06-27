@@ -10,6 +10,9 @@ export interface Serealizable {
 // readFile 재시도 간격. 첫 실패 후 500ms, 두 번째 실패 후 1500ms 대기 (총 시도 3회).
 const READ_RETRY_DELAYS_MS = [500, 1500];
 
+// 중첩 폴더 최대 깊이 (서버 walkDir max 10 이내). 정상 사용은 보통 2~3단계. (SDStudio 4.13 ① 중첩폴더)
+const MAX_FOLDER_DEPTH = 8;
+
 // 4xx는 파일 없음/권한 등 영속 에러라 재시도 무의미. 그 외(timeout, 5xx,
 // fetch reject)는 네트워크 일시 장애로 간주하고 재시도.
 function isTransientReadError(e: any): boolean {
@@ -296,21 +299,21 @@ export abstract class ResourceSyncService<
   }
 
   private async getList() {
-    // depth=1 recursive: includes files in 1-level subfolders.
-    // 정책: resource name은 basename(슬래시 없음). 폴더는 folderMap에 별도 매핑.
-    // 동명 충돌 시 첫 발견 우선 (안전 — 폴더 안/밖에 같은 이름 막기).
-    const result = await backend.listFilesRecursive(this.resourceDir, 1);
+    // 다depth(중첩) recursive: 깊이 MAX_FOLDER_DEPTH 까지 하위 폴더 파일 포함.
+    // 정책: resource name은 basename(파일명, 슬래시 없음). 폴더는 folderMap에 *path*로
+    // 매핑(중첩: 'f1/f2'). 동명 충돌 시 첫 발견 우선 (이름은 전역 unique).
+    const result = await backend.listFilesRecursive(this.resourceDir, MAX_FOLDER_DEPTH);
     this.folderList = result.dirs.slice();
     const newMap: { [name: string]: string | null } = {};
     const names: string[] = [];
     for (const f of result.files) {
       if (!f.endsWith('.json')) continue;
-      const slashIdx = f.indexOf('/');
+      const lastSlash = f.lastIndexOf('/'); // 마지막 슬래시 = 폴더 path와 파일명 경계
       let name: string;
       let folder: string | null;
-      if (slashIdx >= 0) {
-        folder = f.substring(0, slashIdx);
-        name = f.substring(slashIdx + 1, f.length - 5);
+      if (lastSlash >= 0) {
+        folder = f.substring(0, lastSlash); // 폴더 path (중첩: f1/f2)
+        name = f.substring(lastSlash + 1, f.length - 5);
       } else {
         folder = null;
         name = f.substring(0, f.length - 5);
