@@ -6,8 +6,11 @@ const AlertWindow = observer(() => {
   if (messages.length === 0) return null;
   return (
     <div
-      className="fixed top-0 left-0 right-0 flex flex-col gap-2 px-2 mt-2 pointer-events-none"
-      style={{ zIndex: 5000 }}
+      // 상단에 두면 TobBar(로고/크레딧/버튼 줄)를 가리고 클릭을 가로챔 → 하단 중앙으로.
+      // 하단 바는 가변 높이라 App.tsx가 측정한 --bottombar-h 위에 띄워 footer를 안 가림.
+      // (SDStudio 4.13 389d6fb 토스트 하단 이동을 우리 가변 footer에 맞춰 적응)
+      className="fixed left-0 right-0 flex flex-col items-center gap-2 px-2 pointer-events-none"
+      style={{ zIndex: 5000, bottom: 'calc(var(--bottombar-h, 57px) + 8px)' }}
     >
       {messages.map((m) => (
         <div
