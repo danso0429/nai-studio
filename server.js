@@ -3625,7 +3625,7 @@ app.get('/api/project/size', async (req, res) => {
 // 백업에 *실제로 담기는* 디렉토리만 합산(outs/exports 제외 — /api/backup/full INCLUDE_DIRS와 일치).
 // 생성 이미지(outs)는 백업에서 빠지므로 포함하면 다운로드 크기를 크게 과대평가함
 // (per-project size용 computeProjectBytes는 outs 포함 = 총 사용량, 백업 추정과는 다른 목적).
-const BACKUP_ESTIMATE_DIRS = ['projects', 'vibes', 'inpaints', 'inpaint_orgs', 'inpaint_masks', 'references', 'global_vibes', 'global_char_images'];
+const BACKUP_ESTIMATE_DIRS = ['projects', 'vibes', 'inpaints', 'inpaint_orgs', 'inpaint_masks', 'references', 'global_vibes', 'global_char_images', 'artist_library'];
 app.get('/api/backup/estimate', async (req, res) => {
   try {
     let bytes = 0;
@@ -4070,7 +4070,7 @@ app.get('/api/backup/full', async (req, res) => {
 
     // 이미지 디렉터리. global_vibes/global_char_images = 글로벌(그림체/캐릭터) 프리셋의
     // 사용자 업로드 대표 이미지(비재생성) → 포함. outs/exports(생성물·재생성)는 제외 유지.
-    const INCLUDE_DIRS = ['projects', 'vibes', 'inpaints', 'inpaint_orgs', 'inpaint_masks', 'references', 'global_vibes', 'global_char_images'];
+    const INCLUDE_DIRS = ['projects', 'vibes', 'inpaints', 'inpaint_orgs', 'inpaint_masks', 'references', 'global_vibes', 'global_char_images', 'artist_library'];
     // audit D2 — TOKEN.txt(NAI access token 평문) 제외. 옛 동작은 복원 시 로그인 유지였으나
     // 백업 zip 유출 시 토큰 노출 위험 > 복원 후 1회 재로그인 편의. 본인 결정으로 제외.
     // SDStudio 4.12 ②a — 글로벌/그림체/청크/샘플링/토글/내보내기 프리셋 + 폴더 메타가 백업에서
@@ -4081,6 +4081,7 @@ app.get('/api/backup/full', async (req, res) => {
       'global_pieces.json', 'global_presets.json', 'global_character_presets.json',
       'prompt_presets.json', 'prompt_chunks.json', 'sampling_presets.json',
       'toggle_groups.json', 'exportPresets.json', 'folder_meta.json',
+      'artist_library.json',
     ];
     const SKIP_NAMES = new Set(['fastcache', '.trash', 'tmp', '.cache']);
 
@@ -4292,10 +4293,12 @@ app.post('/api/backup/restore', async (req, res) => {
       merged++;
     }
 
-    // 6. 글로벌 이미지 병합 (없는 파일만 추가)
+    // 6. 글로벌 이미지 + 작가 라이브러리 이미지 병합 (없는 파일만 추가)
+    //    artist_library.json(메타)은 5번 루트 json 병합으로 처리되고, 여기선 그 이미지 폴더
+    //    (artist_library/<id>/<imgId>.png)를 복원한다. (SDStudio 4.13 작가 라이브러리)
     let globalImgs = 0;
     for (const n of entryNames) {
-      if (!(n.startsWith('global_vibes/') || n.startsWith('global_char_images/'))) continue;
+      if (!(n.startsWith('global_vibes/') || n.startsWith('global_char_images/') || n.startsWith('artist_library/'))) continue;
       let dest;
       try { dest = resolvePath(n); } catch { continue; }
       try { await fs.access(dest); continue; } catch {}

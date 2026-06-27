@@ -12,6 +12,7 @@ import { registerWorkFlows } from './workflows';
 import { TrashService } from './TrashService';
 import { CyclingSessionService } from './CyclingSessionService';
 import { GlobalPieceService } from './GlobalPieceService';
+import { ArtistLibraryService } from './ArtistLibraryService';
 import { GlobalPresetService } from './GlobalPresetService';
 import { GlobalCharacterPresetService } from './GlobalCharacterPresetService';
 import { PromptChunkService } from './PromptChunkService';
@@ -83,6 +84,9 @@ globalPresetService.load();
 
 export const globalCharacterPresetService = new GlobalCharacterPresetService();
 globalCharacterPresetService.load();
+
+export const artistLibraryService = new ArtistLibraryService();
+artistLibraryService.load();
 
 export const promptChunkService = new PromptChunkService();
 promptChunkService.load();

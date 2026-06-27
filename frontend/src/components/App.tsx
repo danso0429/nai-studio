@@ -7,7 +7,7 @@ import {
   useState,
   useRef,
 } from 'react';
-import { extractApiError } from '../models/util';
+import { extractApiError, buildDanbooruSearchUrl } from '../models/util';
 import SessionSelect from './SessionSelect';
 import PreSetEditor from './PreSetEditor';
 import { SceneCell, queueScene } from './SceneQueueControl';
@@ -29,8 +29,9 @@ import FolderBackupImportDialog from './FolderBackupImportDialog';
 import QueueControl from './SceneQueueControl';
 import { FloatView, FloatViewProvider } from './FloatView';
 import { observer } from 'mobx-react-lite';
-import { FaImages, FaPenFancy, FaStar } from 'react-icons/fa';
+import { FaImages, FaPenFancy, FaStar, FaPalette } from 'react-icons/fa';
 import { GlobalPresetTab, GlobalPresetPickerOverlay } from './GlobalPresetTab';
+import ArtistLibraryTab from './ArtistLibraryTab';
 import ModalOverlay from './ModalOverlay';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
@@ -142,6 +143,18 @@ export const App = observer(() => {
   // 높이만큼 비워야 가리지 않는데, 옛 CSS는 57px(1행) 하드코딩이라 3행이면 하단 바
   // 위쪽을 덮었음 (JOURNAL P28). 실제 높이를 측정해 --bottombar-h로 노출 → CSS가 사용.
   const bottomBarRef = useRef<HTMLDivElement>(null);
+  // 작가 라이브러리 카드/프롬프트에서 보낸 danbooru 검색 요청 → 새 탭으로 열기.
+  // 우리는 EmbeddedBrowser(PC 앱내 웹탭)가 없어 PC/모바일 모두 window.open. (SDStudio 4.13 389d6fb)
+  useEffect(() => {
+    const handleRequest = (e: Event) => {
+      const text = (e as CustomEvent).detail?.text;
+      if (!text) return;
+      const url = buildDanbooruSearchUrl(text);
+      if (url) window.open(url, '_blank');
+    };
+    window.addEventListener('danbooru-search-request', handleRequest);
+    return () => window.removeEventListener('danbooru-search-request', handleRequest);
+  }, []);
   useEffect(() => {
     const el = bottomBarRef.current;
     if (!el) return;
@@ -782,6 +795,12 @@ export const App = observer(() => {
       label: '글로벌 프리셋',
       content: <GlobalPresetTab />,
       emoji: <FaStar />,
+      banToggle: true,
+    },
+    {
+      label: '작가 라이브러리',
+      content: <ArtistLibraryTab />,
+      emoji: <FaPalette />,
       banToggle: true,
     },
   ];
