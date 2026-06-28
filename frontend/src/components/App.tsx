@@ -25,6 +25,7 @@ import PieceEditor, { PieceCell } from './PieceEditor';
 import PromptTooltip from './PromptTooltip';
 import ConfirmWindow from './ConfirmWindow';
 import MultiImportNameDialog from './MultiImportNameDialog';
+import ProjectCopyDialog from './ProjectCopyDialog';
 import FolderBackupImportDialog from './FolderBackupImportDialog';
 import QueueControl from './SceneQueueControl';
 import { FloatView, FloatViewProvider } from './FloatView';
@@ -922,6 +923,7 @@ export const App = observer(() => {
         <ConfirmWindow />
         <ProjectDrawer />
         <MultiImportNameDialog />
+        <ProjectCopyDialog />
         <FolderBackupImportDialog />
         <GlobalPresetPickerOverlay />
         <ProgressWindow

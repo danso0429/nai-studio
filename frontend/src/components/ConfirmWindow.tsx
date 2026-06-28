@@ -174,7 +174,7 @@ const ConfirmWindow = observer(() => {
                     return (
                       <button
                         key={idx}
-                        className={'w-full px-4 py-2 rounded mr-2 clickable ' + colorCls}
+                        className={'w-full px-4 py-2 rounded clickable whitespace-normal break-words ' + colorCls}
                         onClick={() => {
                           appState.dialogs.pop();
                           if (curDialog.callback) {

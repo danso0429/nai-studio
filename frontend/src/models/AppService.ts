@@ -215,6 +215,18 @@ export class AppState {
     onCancel: () => void;
   } | null = null;
 
+  // 프로젝트 복제/복사 다이얼로그 — 이름 + 폴더 + 이미지 포함을 한 화면에서(불러오기 패턴).
+  @observable accessor projectCopyRequest: {
+    sourceName: string;
+    defaultName: string;
+    defaultFolder: string | null; // 소스의 현재 폴더(기본 선택값)
+    existingNames: string[];
+    existingFolderMap: Record<string, string | null>;
+    availableFolders: string[];
+    onConfirm: (newName: string, folder: string | null, withImages: boolean) => void;
+    onCancel: () => void;
+  } | null = null;
+
   // 모달 오버레이 카운터 — ModalOverlay open/close 시 useEffect에서 증감. 메타데이터 D&D 차단용.
   @observable accessor modalOverlayCount: number = 0;
   @action
@@ -870,11 +882,9 @@ export class AppState {
     const items: { text: string; value: string; color?: 'amber' | 'green' | 'red' }[] = [];
     items.push({ text: '🚀 모든 씬 한 번에 큐 등록', value: '__enqueue_all__', color: 'amber' });
     items.push({ text: '📦 이미지 내보내기', value: '__export__' });
-    if (currentFolder !== null) items.push({ text: '루트로 이동', value: '__root__' });
-    for (const f of sessionService.getOrderedFolders()) {
-      if (f !== currentFolder) items.push({ text: '📁 ' + f + josaRo(f) + ' 이동', value: f });
-    }
-    items.push({ text: '📋 프로젝트 복제', value: '__duplicate__' });
+    // 폴더별 인라인 항목(폴더 많거나 중첩 path면 메뉴 비대) 대신 단일 진입 → 폴더 피커.
+    items.push({ text: '📂 폴더로 이동', value: '__move__' });
+    items.push({ text: '📋 복제 / 다른 폴더로 복사', value: '__duplicate__' });
     items.push({ text: '🗑️ 프로젝트 영구 삭제', value: '__delete__' });
     const target = await this.pushDialogAsync({ type: 'select', text: `"${name}" 설정`, items });
     if (!target) return;
@@ -889,46 +899,75 @@ export class AppState {
       this.exportProjectImages(name);
     } else if (target === '__delete__') {
       this.deleteProjectBackground(name);
-    } else if (target === '__duplicate__') {
-      const newName = await this.pushDialogAsync({
-        type: 'input-confirm',
-        text: `"${name}" 복제 — 새 프로젝트 이름`,
-      });
-      if (!newName) return;
-      if (sessionService.list().includes(newName)) {
-        this.pushMessage('이미 존재하는 프로젝트 이름입니다.');
-        return;
+    } else if (target === '__move__') {
+      const dest = await this.pickFolderDialog(`"${name}" 이동할 폴더`, { exclude: currentFolder });
+      if (dest === undefined) return;
+      try {
+        await sessionService.moveToFolder(name, dest);
+      } catch (e: any) {
+        this.pushMessage(e.message || '이동 실패');
       }
-      const mode = await this.pushDialogAsync({
-        type: 'select',
-        text: '이미지도 복사할까요?',
-        items: [
-          { text: '🖼️ 이미지 포함', value: 'with' },
-          { text: '⚙️ 설정만 (이미지 미포함)', value: 'without' },
-        ],
-      });
-      if (!mode) return;
+    } else if (target === '__duplicate__') {
       const session = await sessionService.get(name);
       if (!session) {
         this.pushMessage('프로젝트를 불러올 수 없어요');
         return;
       }
-      const toastId = this.pushMessage(`"${newName}"으로 복제 중…`, { sticky: true });
-      try {
-        await sessionService.duplicateSessionDeep(session, newName, mode === 'with');
-        this.dismissMessage(toastId);
-        this.pushMessage(`"${newName}"으로 복제했어요.`);
-      } catch (e: any) {
-        this.dismissMessage(toastId);
-        this.pushMessage(e.message || '복제 실패');
-      }
-    } else {
-      try {
-        await sessionService.moveToFolder(name, target === '__root__' ? null : target);
-      } catch (e: any) {
-        this.pushMessage(e.message || '이동 실패');
-      }
+      const existingNames = sessionService.list();
+      const existingFolderMap: Record<string, string | null> = {};
+      for (const n of existingNames) existingFolderMap[n] = sessionService.getFolderOf(n);
+      // 기본 이름 = "<원본> 복사" (충돌이면 숫자 붙임).
+      let defaultName = `${name} 복사`;
+      let n = 2;
+      while (existingNames.includes(defaultName)) defaultName = `${name} 복사 ${n++}`;
+      // 이름·폴더·이미지를 한 다이얼로그에서(불러오기 패턴) — ProjectCopyDialog.
+      this.projectCopyRequest = {
+        sourceName: name,
+        defaultName,
+        defaultFolder: currentFolder,
+        existingNames,
+        existingFolderMap,
+        availableFolders: sessionService.getOrderedFolders(),
+        onConfirm: async (newName, folder, withImages) => {
+          this.projectCopyRequest = null;
+          const toastId = this.pushMessage(`"${newName}"으로 복제 중…`, { sticky: true });
+          try {
+            await sessionService.duplicateSessionDeep(session, newName, withImages);
+            if (folder !== null) await sessionService.moveToFolder(newName, folder);
+            this.dismissMessage(toastId);
+            this.pushMessage(`"${newName}"${folder ? ` (${folder} 폴더)` : ''}으로 복제했어요.`);
+          } catch (e: any) {
+            this.dismissMessage(toastId);
+            this.pushMessage(e.message || '복제 실패');
+          }
+        },
+        onCancel: () => {
+          this.projectCopyRequest = null;
+        },
+      };
     }
+  }
+
+  // 폴더 선택 다이얼로그. 반환: undefined=취소 / null=루트(미분류) / string=폴더 path.
+  // exclude 지정 시 그 폴더 제외(이동 시 현재 폴더 제외). exclude===null이면 '루트' 항목 생략(이미 루트).
+  private async pickFolderDialog(
+    text: string,
+    opts: { exclude?: string | null } = {},
+  ): Promise<string | null | undefined> {
+    const exclude = opts.exclude;
+    const items: { text: string; value: string }[] = [];
+    if (exclude !== null) items.push({ text: '📤 루트(미분류)', value: '__root__' });
+    for (const f of sessionService.getOrderedFolders()) {
+      if (f === exclude) continue;
+      items.push({ text: '📁 ' + f, value: f });
+    }
+    if (items.length === 0) {
+      this.pushMessage('선택할 폴더가 없어요');
+      return undefined;
+    }
+    const target = await this.pushDialogAsync({ type: 'select', text, items });
+    if (!target) return undefined;
+    return target === '__root__' ? null : target;
   }
 
   // 폴더+프로젝트 영구 삭제 (우리 정책 — 휴지통 거치지 않음). ProjectDrawer withProjects 옵션.
