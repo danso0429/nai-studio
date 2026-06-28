@@ -2489,6 +2489,7 @@ const CharacterPromptEditor = observer(
                     }
                     chunkInsert={true}
                     chunkLabel="캐릭터 프롬프트"
+                    headerLabel="캐릭터 프롬프트"
                   />
                 </div>
                 {middlePromptMode && (
@@ -2508,11 +2509,6 @@ const CharacterPromptEditor = observer(
                     </div>
                   </>
                 )}
-                <div className="flex justify-between items-center mb-2">
-                  <div className="flex items-center gap-2 gray-label">
-                    네거티브 프롬프트
-                  </div>
-                </div>
                 <div className="mb-2">
                   <PromptEditTextArea
                     value={character.uc}
@@ -2521,6 +2517,7 @@ const CharacterPromptEditor = observer(
                     }
                     chunkInsert={true}
                     chunkLabel="캐릭터 네거티브 프롬프트"
+                    headerLabel="네거티브 프롬프트"
                   />
                 </div>
                 {preset.useCoords && (
@@ -2678,7 +2675,9 @@ const WFRInline = observer(({ element }: WFElementProps) => {
               }}
             />
           )}
-          <EditorField label={input.label} full={input.flex === 'flex-1'}>
+          {/* 라벨+버튼을 PromptEditTextArea 헤더 줄로(item ④: 입력창 위 absolute 버튼 → 라벨 줄).
+              EditorField의 라벨/래퍼를 직접 대체 — 라벨은 headerLabel로 넘김. */}
+          <div className={input.flex === 'flex-1' ? 'flex-1 min-h-0' : 'flex-none mt-3'}>
             <PromptEditTextArea
               key={key}
               value={getField()}
@@ -2686,9 +2685,11 @@ const WFRInline = observer(({ element }: WFElementProps) => {
               onChange={setField}
               chunkInsert={true}
               chunkLabel={input.label}
+              headerLabel={input.label}
+              headerFull={input.flex === 'flex-1'}
               searchEnabled={true}
             ></PromptEditTextArea>
-          </EditorField>
+          </div>
         </>
       );
     }

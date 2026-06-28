@@ -1153,6 +1153,10 @@ interface PromptEditTextAreaProps {
   chunkInsert?: boolean; // true면 우상단에 +chunk 버튼 표시 (상위/하위/네거티브 칸용)
   chunkLabel?: string; // +chunk 버튼 title에 넣을 칸 이름 (예: "상위 프롬프트")
   searchEnabled?: boolean; // true면 appState.promptSearchQuery로 태그/알약 하이라이트(찾기)
+  // headerLabel 지정 시: 입력창 위 absolute 버튼 대신 *라벨 줄*(헤더 행)에 라벨+버튼을 둔다
+  // (긴 프롬프트 세로 스크롤과 버튼 겹침 해소). 부모는 자기 라벨을 제거하고 이 prop으로 넘김.
+  headerLabel?: string;
+  headerFull?: boolean; // true면 헤더+textarea를 flex-col h-full로(부모가 고정높이 flex-1일 때)
 }
 
 function useLatest(value: any) {
@@ -1767,6 +1771,8 @@ const PromptEditTextArea = observer(
     chunkInsert,
     chunkLabel,
     searchEnabled,
+    headerLabel,
+    headerFull,
   }: PromptEditTextAreaProps) => {
     const { curSession } = appState;
     const editorRef = useRef<EditTextAreaRef | null>(null);
@@ -1976,32 +1982,45 @@ const PromptEditTextArea = observer(
     if (fullScreen) bgColor = 'bg-white dark:bg-slate-600 shadow-lg';
 
     const splitMode = fullScreen && tags.length > 0;
+    // +chunk / 확대(fullScreen일 땐 닫기 X) 버튼. headerLabel이면 라벨 줄(헤더)에서, 아니면
+    // 입력창 위 absolute에서 렌더. fullScreen 오버레이에선 항상 absolute(닫기 X).
+    const buttonsRow = (
+      <>
+        {chunkInsert && !disabled && (
+          <button
+            onMouseDown={(e) => {
+              // 포커스(커서) 잃기 직전에 현재 caret 저장 — chunk를 그 위치에 삽입.
+              e.preventDefault();
+              savedChunkCaretRef.current = editorRef.current?.getCaret?.() ?? null;
+            }}
+            onClick={() => setChunkSheetOpen(true)}
+            className="text-gray-500 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300 opacity-50 text-xs font-bold"
+            title={chunkLabel ? `${chunkLabel}에 chunk 삽입` : 'chunk 삽입'}
+          >
+            +chunk
+          </button>
+        )}
+        <button
+          onClick={() => {
+            // 헤더(라벨 줄)의 버튼은 textarea 밖이라 handleClick(flagRef 세팅)을 안 타서,
+            // window click 핸들러가 모바일에서 fullScreen을 즉시 닫아버림(확대 안 먹힘) →
+            // flagRef를 직접 세팅해 그 close를 가드. (absolute 위치에선 handleClick이 처리)
+            flagRef.current = true;
+            if (!disabled) setFullScreen(!fullScreen);
+          }}
+          className="text-gray-500 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300 opacity-50"
+        >
+          {!fullScreen ? <FaExpand></FaExpand> : <FaTimes></FaTimes>}
+        </button>
+      </>
+    );
     const textareaInner = (
       <>
-        <div className="absolute right-0 top-0 z-10 flex items-center gap-1.5 mr-1 mt-1">
-          {chunkInsert && !disabled && (
-            <button
-              onMouseDown={(e) => {
-                // 포커스(커서) 잃기 직전에 현재 caret 저장 — chunk를 그 위치에 삽입.
-                e.preventDefault();
-                savedChunkCaretRef.current = editorRef.current?.getCaret?.() ?? null;
-              }}
-              onClick={() => setChunkSheetOpen(true)}
-              className="text-gray-500 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300 opacity-50 text-xs font-bold"
-              title={chunkLabel ? `${chunkLabel}에 chunk 삽입` : 'chunk 삽입'}
-            >
-              +chunk
-            </button>
-          )}
-          <button
-            onClick={() => {
-              if (!disabled) setFullScreen(!fullScreen);
-            }}
-            className="text-gray-500 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300 opacity-50"
-          >
-            {!fullScreen ? <FaExpand></FaExpand> : <FaTimes></FaTimes>}
-          </button>
-        </div>
+        {(fullScreen || !headerLabel) && (
+          <div className="absolute right-0 top-0 z-10 flex items-center gap-1.5 mr-1 mt-1">
+            {buttonsRow}
+          </div>
+        )}
         {chunkSheetOpen && (
           <ChunkInsertSheet
             chunkLabel={chunkLabel}
@@ -2084,17 +2103,37 @@ const PromptEditTextArea = observer(
       );
     }
 
+    // textarea 컨테이너. headerFull이면 헤더 아래 남은 높이를 채우게 flex-1, 아니면 기존 h-full.
+    const textareaDiv = (
+      <div
+        ref={innerRef}
+        onClick={handleClick}
+        spellCheck={false}
+        onDragStart={(event) => event.preventDefault()}
+        className={
+          bgColor +
+          (headerLabel && headerFull
+            ? ' overflow-hidden flex-1 min-h-0 relative rounded-md'
+            : ' overflow-hidden h-full relative rounded-md')
+        }
+      >
+        {textareaInner}
+      </div>
+    );
     return (
       <>
-        <div
-          ref={innerRef}
-          onClick={handleClick}
-          spellCheck={false}
-          onDragStart={(event) => event.preventDefault()}
-          className={bgColor + ' overflow-hidden h-full relative rounded-md'}
-        >
-          {textareaInner}
-        </div>
+        {headerLabel != null ? (
+          // 라벨 줄(헤더)에 라벨 + 버튼 — 입력창 위 absolute 버튼 제거(긴 프롬프트 스크롤 겹침 해소).
+          <div className={'flex flex-col' + (headerFull ? ' h-full min-h-0' : '')}>
+            <div className="flex items-center justify-between gap-2 pt-2 pb-1 gray-label flex-none">
+              <span className="truncate min-w-0">{headerLabel}</span>
+              <div className="flex items-center gap-1.5 flex-none">{buttonsRow}</div>
+            </div>
+            {textareaDiv}
+          </div>
+        ) : (
+          textareaDiv
+        )}
         <PromptAutoComplete
           key={id}
           curWord={curWord}
