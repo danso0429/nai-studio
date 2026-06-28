@@ -807,9 +807,13 @@ export class AppState {
   // 폴더 내보내기 버튼/⋮ → 우리 고유 폴더 액션(큐등록/내보내기/백업). 이름변경·삭제·색상·
   // 새프로젝트는 ProjectDrawer 자체가 처리.
   async folderBackupMenu(folder: string) {
+    // 하위 폴더 프로젝트까지 포함(중첩) — 폴더 작업(큐/내보내기/백업)은 폴더 전체 트리 대상.
     const allProjects = sessionService
       .list()
-      .filter((n) => sessionService.getFolderOf(n) === folder);
+      .filter((n) => {
+        const fp = sessionService.getFolderOf(n);
+        return fp === folder || (fp || '').startsWith(folder + '/');
+      });
     const action = await this.pushDialogAsync({
       type: 'select',
       text: `폴더 "${folder}" 작업`,

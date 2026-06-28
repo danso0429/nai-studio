@@ -18,8 +18,10 @@ import {
   FaDownload,
   FaUpload,
   FaArchive,
+  FaSignInAlt,
 } from 'react-icons/fa';
 import { sessionService, imageService, isMobile } from '../models';
+import { MAX_FOLDER_DEPTH } from '../models/ResourceSyncService';
 import { appState } from '../models/AppService';
 import Tooltip from './Tooltip';
 import MobileColorPicker from './MobileColorPicker';
@@ -39,6 +41,20 @@ const pushRecentProject = (name: string) => {
 
 const naturalCmp = (a: string, b: string) =>
   a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+
+// 중첩 폴더 path 헬퍼. 폴더는 'f1/f2/f3' 형태 path. parent=마지막 슬래시 앞(없으면 최상위=null),
+// leaf=마지막 단계 이름(트리에서 표시명, 들여쓰기가 계층을 나타내므로 leaf만 보임).
+const parentOfFolder = (path: string): string | null => {
+  const i = path.lastIndexOf('/');
+  return i >= 0 ? path.substring(0, i) : null;
+};
+const leafOfFolder = (path: string): string => {
+  const i = path.lastIndexOf('/');
+  return i >= 0 ? path.substring(i + 1) : path;
+};
+// 폴더 깊이 = path 세그먼트 수(최상위=1). 깊이가 상한이면 하위 폴더를 더 못 만든다.
+const folderDepth = (path: string): number => path.split('/').length;
+const canAddSubfolder = (path: string): boolean => folderDepth(path) < MAX_FOLDER_DEPTH;
 
 // 폴더 색상 팔레트 (hex). 미지정 폴더는 기본색을 사용한다.
 const FOLDER_COLORS = [
@@ -237,7 +253,9 @@ const ProjectDrawer = observer(() => {
     if (folder) {
       setExpanded((prev) => {
         const next = new Set(prev);
-        next.add(folder);
+        // 중첩 폴더: 조상 폴더까지 모두 펼쳐야 트리에서 보임 ('f1/f2/f3' → f1, f1/f2, f1/f2/f3).
+        const segs = folder.split('/');
+        for (let i = 1; i <= segs.length; i++) next.add(segs.slice(0, i).join('/'));
         return next;
       });
     }
@@ -386,7 +404,7 @@ const ProjectDrawer = observer(() => {
   const startRename = (f: string) => {
     setColorPickerFor(null);
     setEditingFolder(f);
-    setEditValue(f);
+    setEditValue(leafOfFolder(f)); // 중첩 폴더는 leaf만 편집(부모 경로 보존)
   };
 
   const cancelRename = () => {
@@ -397,18 +415,21 @@ const ProjectDrawer = observer(() => {
   const commitRename = async () => {
     const f = editingFolder;
     if (!f) return;
-    const newName = editValue.trim();
-    if (!newName || newName === f) {
+    const newLeaf = editValue.trim();
+    if (!newLeaf || newLeaf === leafOfFolder(f)) {
       cancelRename();
       return;
     }
+    const parent = parentOfFolder(f);
+    const newPath = parent ? parent + '/' + newLeaf : newLeaf;
     try {
-      await sessionService.renameFolder(f, newName);
+      await sessionService.renameFolder(f, newLeaf);
+      // 펼침 상태도 폴더 자신 + 하위까지 path 키 remap(누락 시 rename 후 접힘).
       setExpanded((prev) => {
-        const next = new Set(prev);
-        if (next.has(f)) {
-          next.delete(f);
-          next.add(newName);
+        const next = new Set<string>();
+        for (const k of prev) {
+          if (k === f || k.startsWith(f + '/')) next.add(newPath + k.slice(f.length));
+          else next.add(k);
         }
         return next;
       });
@@ -422,9 +443,12 @@ const ProjectDrawer = observer(() => {
     const cleanup = () => {
       if (editingFolder === f) cancelRename();
     };
-    const count = sessionService
-      .list()
-      .filter((n) => sessionService.getFolderOf(n) === f).length;
+    // 하위 폴더 프로젝트까지 포함(중첩). 서버는 트리를 통째 삭제하므로 카운트도 subtree 기준.
+    const inSubtree = (n: string) => {
+      const fp = sessionService.getFolderOf(n);
+      return fp === f || (fp || '').startsWith(f + '/');
+    };
+    const count = sessionService.list().filter(inSubtree).length;
     // 빈 폴더 → 단순 확인
     if (count === 0) {
       appState.pushDialog({
@@ -451,12 +475,10 @@ const ProjectDrawer = observer(() => {
       ],
       callback: async (value) => {
         if (value === 'folderOnly') {
-          // 우리 deleteFolder는 안의 프로젝트를 영구삭제하므로, 먼저 미분류로 빼낸 뒤
-          // 빈 폴더를 삭제한다 (프로젝트 보존).
+          // 우리 deleteFolder는 안의 프로젝트를 영구삭제하므로, 먼저 (하위 폴더 포함) 모든
+          // 프로젝트를 미분류로 빼낸 뒤 빈 폴더 트리를 삭제한다 (프로젝트 보존).
           try {
-            const projects = sessionService
-              .list()
-              .filter((n) => sessionService.getFolderOf(n) === f);
+            const projects = sessionService.list().filter(inSubtree);
             for (const p of projects) {
               try { await sessionService.moveToFolder(p, null); } catch {}
             }
@@ -484,8 +506,11 @@ const ProjectDrawer = observer(() => {
   const openFolderMenu = async (f: string) => {
     const v = await appState.pushDialogAsync({
       type: 'select',
-      text: `폴더 "${f}"`,
+      text: `폴더 "${leafOfFolder(f)}"`,
       items: [
+        // 깊이 상한 도달 시 '하위 폴더 만들기' 숨김 (에러 토스트 없이 자연 차단).
+        ...(canAddSubfolder(f) ? [{ text: '📁 하위 폴더 만들기', value: 'subfolder' }] : []),
+        { text: '📂 폴더로 이동', value: 'move' },
         { text: '📤 내보내기/불러오기', value: 'export' },
         { text: '🎨 색상 변경', value: 'color' },
         { text: '✏️ 이름 편집', value: 'rename' },
@@ -494,7 +519,9 @@ const ProjectDrawer = observer(() => {
       ],
     });
     if (!v) return;
-    if (v === 'export') appState.folderBackupMenu(f);
+    if (v === 'subfolder') createSubFolder(f);
+    else if (v === 'move') moveFolderTo(f);
+    else if (v === 'export') appState.folderBackupMenu(f);
     else if (v === 'color') setColorPickerFor((p) => (p === f ? null : f));
     else if (v === 'rename') startRename(f);
     else if (v === 'delete') deleteFolderConfirm(f);
@@ -665,6 +692,79 @@ const ProjectDrawer = observer(() => {
     },
     onMenu: () => appState.projectActionMenu(n),
   });
+
+  // ===== 중첩 폴더 트리 =====
+  const childFoldersOf = (f: string): string[] =>
+    folders.filter((c) => parentOfFolder(c) === f);
+  // 폴더 자신 + 모든 하위 폴더의 직속 프로젝트 합산(접힌 폴더의 총 프로젝트 수 표시).
+  const subtreeProjectCount = (f: string): number => {
+    let n = (folderToProjects.get(f) || []).length;
+    for (const c of childFoldersOf(f)) n += subtreeProjectCount(c);
+    return n;
+  };
+  // 보이는 폴더를 트리 순서로 평탄화 — 조상이 모두 펼쳐진 폴더만 포함, depth로 들여쓰기.
+  const visibleFolders: { f: string; depth: number }[] = [];
+  const collectVisible = (f: string, depth: number) => {
+    visibleFolders.push({ f, depth });
+    if (expanded.has(f)) {
+      for (const c of childFoldersOf(f)) collectVisible(c, depth + 1);
+    }
+  };
+  for (const f of folders) if (parentOfFolder(f) === null) collectVisible(f, 0);
+
+  // 하위 폴더 만들기 (부모 path + leaf).
+  const createSubFolder = async (parent: string) => {
+    const value = await appState.pushDialogAsync({
+      type: 'input-confirm',
+      text: `"${leafOfFolder(parent)}" 안에 만들 하위 폴더 이름`,
+    });
+    if (!value) return;
+    const leaf = value.trim();
+    if (!leaf) return;
+    const full = parent + '/' + leaf;
+    try {
+      await sessionService.createFolder(full);
+      setExpanded((prev) => new Set(prev).add(parent).add(full));
+    } catch (e: any) {
+      appState.pushMessage(e.message || '폴더 생성에 실패했습니다.');
+    }
+  };
+
+  // 폴더(하위 폴더·프로젝트 통째)를 다른 폴더 안(또는 최상위)으로 이동.
+  const moveFolderTo = async (f: string) => {
+    const curParent = parentOfFolder(f);
+    // 옮기는 서브트리의 가장 깊은 폴더가 대상 아래로 가도 상한을 넘지 않아야 후보.
+    const subtree = folders.filter((k) => k === f || k.startsWith(f + '/'));
+    const relExtra = Math.max(...subtree.map((k) => folderDepth(k))) - folderDepth(f);
+    // 자신·하위·현재 부모·깊이초과 제외한 폴더 + (최상위가 아니면) 최상위.
+    const candidates = folders.filter(
+      (t) =>
+        t !== f &&
+        !t.startsWith(f + '/') &&
+        t !== curParent &&
+        folderDepth(t) + 1 + relExtra <= MAX_FOLDER_DEPTH,
+    );
+    const items: { text: string; value: string }[] = [
+      ...(curParent !== null ? [{ text: '⬆️ 최상위로 이동', value: '__root__' }] : []),
+      ...candidates.map((t) => ({ text: '📁 ' + t, value: t })),
+    ];
+    if (items.length === 0) {
+      appState.pushMessage('옮길 수 있는 다른 폴더가 없어요.');
+      return;
+    }
+    const target = await appState.pushDialogAsync({
+      type: 'select',
+      text: `"${leafOfFolder(f)}" 폴더 이동`,
+      items,
+    });
+    if (!target) return;
+    try {
+      await sessionService.moveFolder(f, target === '__root__' ? null : target);
+      if (target !== '__root__') setExpanded((prev) => new Set(prev).add(target));
+    } catch (e: any) {
+      appState.pushMessage(e.message || '폴더 이동에 실패했습니다.');
+    }
+  };
 
   return (
     <div className="fixed inset-0 titlebar-no-drag" style={{ zIndex: 2100 }} onClick={close}>
@@ -873,9 +973,10 @@ const ProjectDrawer = observer(() => {
               )}
 
               {/* 폴더들 */}
-              {folders.map((f) => {
+              {visibleFolders.map(({ f, depth }) => {
                 const projects = folderToProjects.get(f) || [];
                 const isOpen = expanded.has(f);
+                const childCount = childFoldersOf(f).length;
                 const color =
                   sessionService.getFolderColor(f) || DEFAULT_FOLDER_COLOR;
                 const picking = colorPickerFor === f;
@@ -887,6 +988,7 @@ const ProjectDrawer = observer(() => {
                     key={f}
                     className="mb-1.5 rounded-md transition-shadow"
                     style={{
+                      marginLeft: depth * 16, // 중첩 깊이 들여쓰기 (트리)
                       borderLeft: `3px solid ${color}`,
                       boxShadow: isDropping
                         ? `inset 0 0 0 2px ${color}`
@@ -980,9 +1082,9 @@ const ProjectDrawer = observer(() => {
                         >
                           <FaFolder size={14} style={{ color }} />
                         </span>
-                        <span className="truncate flex-1 text-left">{f}</span>
+                        <span className="truncate flex-1 text-left">{leafOfFolder(f)}</span>
                         <span className="text-xs text-gray-400 font-normal flex-none">
-                          {projects.length}
+                          {subtreeProjectCount(f)}
                         </span>
                       </button>
                       {selectMode ? (
@@ -1045,6 +1147,24 @@ const ProjectDrawer = observer(() => {
                             <FaPlus size={15} />
                           </button>
                           </Tooltip>
+                          {canAddSubfolder(f) && (
+                          <Tooltip content="하위 폴더 만들기">
+                          <button
+                            onClick={() => createSubFolder(f)}
+                            className="p-2 rounded-md flex-none text-gray-400 hover:text-sky-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                          >
+                            <FaFolderPlus size={15} />
+                          </button>
+                          </Tooltip>
+                          )}
+                          <Tooltip content="폴더로 이동">
+                          <button
+                            onClick={() => moveFolderTo(f)}
+                            className="p-2 rounded-md flex-none text-gray-400 hover:text-sky-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                          >
+                            <FaSignInAlt size={15} />
+                          </button>
+                          </Tooltip>
                         </>
                       )}
                     </div>
@@ -1104,7 +1224,7 @@ const ProjectDrawer = observer(() => {
                         )}
                       </div>
                     )}
-                    {isOpen && (
+                    {isOpen && (projects.length > 0 || childCount === 0) && (
                       <div className="pl-3 pb-1">
                         {projects.length === 0 ? (
                           <div className="text-xs text-gray-400 px-2 py-1.5">
