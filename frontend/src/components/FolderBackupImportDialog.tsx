@@ -52,8 +52,9 @@ const FolderBackupImportDialog = observer(() => {
     req.onConfirm(names.map((n) => n.trim()));
   };
 
+  // z-[3000]: 드로어(z-2100) 위 + ConfirmWindow(z-5000) 아래. z-50이면 드로어 뒤로 가렸음(불러오기 z-depth).
   return (
-    <div className="fixed inset-0 z-50 flex justify-center items-start pt-12 bg-black/40">
+    <div className="fixed inset-0 z-[3000] flex justify-center items-start pt-12 bg-black/40">
       <ModalOverlayCountMarker />
       <div className="m-4 p-4 rounded-md shadow-xl bg-white dark:bg-slate-800 text-default w-full max-w-md max-h-[90vh] flex flex-col">
         <div className="text-default font-medium mb-1">
