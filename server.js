@@ -2253,10 +2253,11 @@ app.get('/api/queue/full-state', async (req, res) => {
   let folders = {};
   try {
     const projectsDir = path.join(DATA_DIR, 'projects');
-    const walk = await walkDir(projectsDir, 1);
+    const walk = await walkDir(projectsDir, PROJECT_NEST_WALK_DEPTH);
     for (const f of walk.files) {
       if (!f.endsWith('.json')) continue;
-      const slash = f.indexOf('/');
+      // 중첩 폴더: 마지막 슬래시 = 폴더 path와 파일명 경계 (frontend getList와 동일 정책).
+      const slash = f.lastIndexOf('/');
       let project;
       let folder;
       if (slash >= 0) {
@@ -2760,6 +2761,10 @@ app.get('/api/fs/list-stats', async (req, res) => {
 // (예: 외부 backup folder) 시 메모리 폭주 + HTTP 응답 무한 지연 위험. 50k 하드 캡
 // + truncated flag로 클라에 신호.
 const WALK_DIR_MAX_NODES = 50000;
+// 중첩 폴더 프로젝트 전수 열거용 walk 깊이. 클라 MAX_FOLDER_DEPTH(8) ≤ 10(list-recursive 캡).
+// projects/ 트리는 작아 비용 무시. 옛 depth=1은 중첩폴더(4.13 ①) 도입 후 깊은 프로젝트를
+// 누락 → orphan 오삭제/카운트 누락 위험이라 전수 열거로 교체. (SDStudio 4.13 ① 중첩폴더)
+const PROJECT_NEST_WALK_DEPTH = 10;
 async function walkDir(basePath, depth) {
   const files = [];
   const dirs = [];
@@ -2953,7 +2958,7 @@ app.post('/api/trash/auto-cleanup', async (req, res) => {
     // 1. Clean orphan .deleted files (recursive: folders allowed at depth 1)
     const projectDir = resolvePath('projects');
     try {
-      const walked = await walkDir(projectDir, 1);
+      const walked = await walkDir(projectDir, PROJECT_NEST_WALK_DEPTH);
       for (const f of walked.files) {
         if (f.endsWith('.deleted')) {
           try { await fs.unlink(path.join(projectDir, f)); cleanedOrphans++; } catch {}
@@ -2964,9 +2969,10 @@ app.post('/api/trash/auto-cleanup', async (req, res) => {
     // 2. Clean expired image trash (walk server-side, folder-aware)
     const activeProjects = [];
     try {
-      const walked = await walkDir(projectDir, 1);
+      const walked = await walkDir(projectDir, PROJECT_NEST_WALK_DEPTH);
       for (const f of walked.files) {
-        if (f.endsWith('.json')) activeProjects.push(f.slice(0, -5));
+        // 중첩 폴더: 이미지 dir은 프로젝트명(basename) 기준 flat이라 path가 아닌 basename으로.
+        if (f.endsWith('.json')) activeProjects.push(path.basename(f, '.json'));
       }
     } catch {}
 
@@ -3014,6 +3020,18 @@ function sanitizeProjectName(name) {
   if (name === '.' || name === '..') return null;
   if (name.startsWith('.')) return null;
   return name;
+}
+
+// 중첩 폴더 path('f1/f2') 검증 — '/'는 허용하되 각 세그먼트는 프로젝트명 규칙(빈/'.'/'..'/'.'시작/'\\' 금지).
+// 최종 traversal은 resolvePath가 한 번 더 막지만, 여기서 segment 단위로 선제 차단. (SDStudio 4.13 ① 중첩폴더)
+function sanitizeFolderPath(p) {
+  if (typeof p !== 'string' || !p) return null;
+  if (p.includes('\\')) return null;
+  const segs = p.split('/');
+  for (const s of segs) {
+    if (!s || s === '.' || s === '..' || s.startsWith('.')) return null;
+  }
+  return p;
 }
 
 // rclone 가용성 캐시. Drive 미사용자 경로(매 export 호출)에서 execSync 2회 반복 부담 회피.
@@ -3109,7 +3127,7 @@ function pushRcloneResult(r, deletedArr, deletedLabel, errorsArr, errorPrefix) {
 // projects 안에서 살아있는 프로젝트 basename set (폴더 depth 1 포함)
 async function listActiveProjectNames() {
   const projectsDir = resolvePath('projects');
-  const walked = await walkDir(projectsDir, 1);
+  const walked = await walkDir(projectsDir, PROJECT_NEST_WALK_DEPTH);
   const names = new Set();
   for (const f of walked.files) {
     if (!f.endsWith('.json')) continue;
@@ -3332,7 +3350,7 @@ async function runDeleteFolder(jobId, folder, namesArray) {
 
 app.post('/api/project/delete-folder-now', async (req, res) => {
   try {
-    const folder = sanitizeProjectName(req.body && req.body.folder);
+    const folder = sanitizeFolderPath(req.body && req.body.folder);
     if (!folder) return res.status(400).json({ ok: false, error: 'Invalid folder name' });
 
     // 동시 호출 가드 — 같은 폴더가 진행 중이면 기존 jobId 반환 (재클릭 race 차단).
@@ -3347,11 +3365,14 @@ app.post('/api/project/delete-folder-now', async (req, res) => {
     const folderDir = resolvePath('projects/' + folder);
     const projectNames = new Set();
     try {
-      const entries = await fs.readdir(folderDir, { withFileTypes: true });
-      for (const e of entries) {
-        if (!e.isFile()) continue;
-        if (!e.name.endsWith('.json') && !e.name.endsWith('.deleted')) continue;
-        const base = path.basename(e.name, path.extname(e.name));
+      // 중첩 폴더: 하위 폴더 프로젝트까지 전수 열거. 직접 자식만 읽던 옛 코드는 하위 폴더
+      // 프로젝트의 이미지(outs/<name> 등)를 안 지워 orphan으로 잔류시켰음. fs.rm은 트리를
+      // 통째 지우지만 이미지 dir은 projects/ 밖이라 프로젝트별 정리가 필요. (SDStudio 4.13 ① 중첩폴더)
+      await fs.access(folderDir); // 폴더 존재 확인 (없으면 throw → 404)
+      const walked = await walkDir(folderDir, PROJECT_NEST_WALK_DEPTH);
+      for (const f of walked.files) {
+        if (!f.endsWith('.json') && !f.endsWith('.deleted')) continue;
+        const base = path.basename(f, path.extname(f));
         if (base) projectNames.add(base);
       }
     } catch {
