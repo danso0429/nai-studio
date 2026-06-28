@@ -5,7 +5,7 @@ import { backend, imageService, workFlowService, zipService } from '.';
 import { FileEntry } from '../backend';
 import defaultassets from '../defaultassets';
 import { dataUriToBase64 } from './ImageService';
-import { ResourceSyncService } from './ResourceSyncService';
+import { ResourceSyncService, MAX_FOLDER_DEPTH } from './ResourceSyncService';
 import {
   GenericScene,
   InpaintScene,
@@ -266,31 +266,90 @@ export class SessionService extends ResourceSyncService<Session> {
     return folder ? 'projects/' + folder + '/' + name + '.json' : 'projects/' + name + '.json';
   }
 
-  async createFolder(folderName: string): Promise<void> {
-    if (!folderName || folderName.includes('/')) {
+  // 폴더 생성. 중첩: folderPath에 '/'가 있으면 하위 폴더('f1/f2'). 각 세그먼트 비어있지 않아야.
+  async createFolder(folderPath: string): Promise<void> {
+    const segs = (folderPath || '').split('/');
+    if (!folderPath || segs.some((s) => s.trim() === '')) {
       throw new Error('폴더 이름이 올바르지 않습니다.');
     }
-    if (this.folderList.includes(folderName)) {
+    if (segs.length > MAX_FOLDER_DEPTH) {
+      throw new Error(`폴더는 최대 ${MAX_FOLDER_DEPTH}단계까지 중첩할 수 있어요.`);
+    }
+    if (this.folderList.includes(folderPath)) {
       throw new Error('이미 존재하는 폴더입니다.');
     }
-    // 빈 디렉토리 생성: fs/write는 dirname auto-mkdir이므로 .keep 마커 후 즉시 삭제로 빈 디렉토리만 남김.
-    const keepPath = this.folderPath(folderName) + '/.keep';
+    // 빈 디렉토리 생성: fs/write는 dirname auto-mkdir(중첩 path 자동 생성)이므로 .keep 마커
+    // 후 즉시 삭제로 빈 (중첩) 디렉토리만 남김.
+    const keepPath = this.folderPath(folderPath) + '/.keep';
     await backend.writeFile(keepPath, '');
     try { await backend.deleteFile(keepPath); } catch {}
     await this.update();
   }
 
-  async renameFolder(oldName: string, newName: string): Promise<void> {
-    if (!newName || newName.includes('/')) {
+  // 폴더 이름 변경. oldPath는 (중첩) 전체 경로, newLeaf는 *마지막 단계 이름*(슬래시 없음).
+  // 부모 경로는 보존하고 leaf만 바꾼다 ('f1/f2' rename → 'f1/newLeaf').
+  async renameFolder(oldPath: string, newLeaf: string): Promise<void> {
+    if (!newLeaf || newLeaf.includes('/') || newLeaf.trim() === '') {
       throw new Error('폴더 이름이 올바르지 않습니다.');
     }
-    if (oldName === newName) return;
-    if (this.folderList.includes(newName)) {
+    const lastSlash = oldPath.lastIndexOf('/');
+    const parent = lastSlash >= 0 ? oldPath.substring(0, lastSlash) : '';
+    const newPath = parent ? parent + '/' + newLeaf : newLeaf;
+    if (oldPath === newPath) return;
+    if (this.folderList.includes(newPath)) {
       throw new Error('이미 존재하는 폴더입니다.');
     }
-    await backend.renameDir(this.folderPath(oldName), this.folderPath(newName));
+    await backend.renameDir(this.folderPath(oldPath), this.folderPath(newPath));
+    // 색상·순서 메타는 폴더 자신 + 하위까지 path 키 마이그레이션(누락 시 색상·순서 유실).
+    this.migrateFolderMeta(oldPath, newPath);
+    await this.saveFolderMeta();
     // folderMap에 추적되던 프로젝트들의 folder 갱신은 update() 한 번이면 충분.
     await this.update();
+  }
+
+  // 폴더(하위 폴더·프로젝트 통째)를 다른 폴더 *안*으로 이동. newParent=null이면 최상위로.
+  async moveFolder(folderPath: string, newParent: string | null): Promise<void> {
+    const lastSlash = folderPath.lastIndexOf('/');
+    const leaf = lastSlash >= 0 ? folderPath.substring(lastSlash + 1) : folderPath;
+    const curParent = lastSlash >= 0 ? folderPath.substring(0, lastSlash) : '';
+    const targetParent = newParent ?? '';
+    if (curParent === targetParent) return; // 이미 그 부모 아래
+    // 자기 자신 또는 하위로 이동 금지(순환).
+    if (newParent && (newParent === folderPath || newParent.startsWith(folderPath + '/'))) {
+      throw new Error('폴더를 자기 자신 또는 하위 폴더로 옮길 수 없어요.');
+    }
+    if (newParent && !this.folderList.includes(newParent)) {
+      throw new Error('대상 폴더가 존재하지 않습니다.');
+    }
+    const newPath = targetParent ? targetParent + '/' + leaf : leaf;
+    if (this.folderList.includes(newPath)) {
+      throw new Error('대상 위치에 같은 이름의 폴더가 이미 있어요.');
+    }
+    // 가장 깊은 하위 폴더가 이동 후 MAX 깊이를 넘지 않는지 검사.
+    const subtree = this.folderList.filter((k) => k === folderPath || k.startsWith(folderPath + '/'));
+    const maxSubSegs = Math.max(...subtree.map((k) => k.split('/').length));
+    const newDeepest = maxSubSegs - folderPath.split('/').length + newPath.split('/').length;
+    if (newDeepest > MAX_FOLDER_DEPTH) {
+      throw new Error(`폴더는 최대 ${MAX_FOLDER_DEPTH}단계까지 중첩할 수 있어요.`);
+    }
+    await backend.renameDir(this.folderPath(folderPath), this.folderPath(newPath));
+    this.migrateFolderMeta(folderPath, newPath);
+    await this.saveFolderMeta();
+    await this.update();
+  }
+
+  // 폴더 경로 변경(rename/move) 시 색상·순서 메타 키를 폴더 자신 + 모든 하위 폴더까지 prefix
+  // 치환한다. oldPath='f1', newPath='x/f1'이면 'f1'→'x/f1', 'f1/sub'→'x/f1/sub'. 디스크는
+  // renameDir이 subtree 통째 이동하지만 색상/순서는 path 키라 따로 옮겨야 유실 안 됨.
+  private migrateFolderMeta(oldPath: string, newPath: string): void {
+    const matches = (k: string) => k === oldPath || k.startsWith(oldPath + '/');
+    const remap = (k: string) => newPath + k.slice(oldPath.length);
+    const newColors: Record<string, string> = {};
+    for (const [k, v] of Object.entries(this.folderColors)) {
+      newColors[matches(k) ? remap(k) : k] = v;
+    }
+    this.folderColors = newColors;
+    this.folderOrder = this.folderOrder.map((k) => (matches(k) ? remap(k) : k));
   }
 
   async deleteFolder(folderName: string): Promise<void> {
@@ -301,7 +360,11 @@ export class SessionService extends ResourceSyncService<Session> {
     if (this.deletingFolders.has(folderName)) {
       throw new Error(`"${folderName}" 폴더 삭제가 이미 진행 중이에요.`);
     }
-    const projectsInFolder = this.resourceList.filter(n => this.folderMap[n] === folderName);
+    // 폴더 자신 + 모든 하위 폴더 프로젝트(중첩). 서버는 projects/<folder> 트리를 통째 삭제하므로
+    // 하위 프로젝트의 클라 메모리 캐시/북마크/즐겨찾기도 같이 정리해야 잔재(stale)가 안 남는다.
+    const projectsInFolder = this.resourceList.filter(
+      (n) => this.folderMap[n] === folderName || (this.folderMap[n] || '').startsWith(folderName + '/'),
+    );
     // 메모리 캐시 + 북마크 + 즐겨찾기 정리는 클라가 책임 — 서버가 모르는 정보.
     let bmChanged = false;
     let favChanged = false;
@@ -347,9 +410,7 @@ export class SessionService extends ResourceSyncService<Session> {
   async moveToFolder(name: string, targetFolder: string | null): Promise<void> {
     const currentFolder = this.folderMap[name] ?? null;
     if (currentFolder === targetFolder) return;
-    if (targetFolder && targetFolder.includes('/')) {
-      throw new Error('폴더 이름이 올바르지 않습니다.');
-    }
+    // targetFolder는 (중첩) 폴더 path. 존재만 검증(중첩 path는 folderList에 그대로 들어있음).
     if (targetFolder && !this.folderList.includes(targetFolder)) {
       throw new Error('대상 폴더가 존재하지 않습니다.');
     }

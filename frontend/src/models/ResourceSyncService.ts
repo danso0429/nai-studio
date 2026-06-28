@@ -10,8 +10,9 @@ export interface Serealizable {
 // readFile 재시도 간격. 첫 실패 후 500ms, 두 번째 실패 후 1500ms 대기 (총 시도 3회).
 const READ_RETRY_DELAYS_MS = [500, 1500];
 
-// 중첩 폴더 최대 깊이 (서버 walkDir max 10 이내). 정상 사용은 보통 2~3단계. (SDStudio 4.13 ① 중첩폴더)
-const MAX_FOLDER_DEPTH = 8;
+// 중첩 폴더 최대 깊이(= path 세그먼트 수, 최상위=1). 3단계까지 — 무한 중첩은 무의미.
+// 상한 도달 폴더는 UI에서 '하위 폴더 만들기'를 숨김. (SDStudio 4.13 ① 중첩폴더)
+export const MAX_FOLDER_DEPTH = 3;
 
 // 4xx는 파일 없음/권한 등 영속 에러라 재시도 무의미. 그 외(timeout, 5xx,
 // fetch reject)는 네트워크 일시 장애로 간주하고 재시도.
