@@ -2150,11 +2150,26 @@ app.post('/api/queue/batch-enqueue', async (req, res) => {
 async function fillBatchInBackground(jobs, reservations, config, modelVersion) {
   const isV4 = modelVersion === '4-full' || modelVersion === '4-curated';
   const isV4_5 = modelVersion === '4-5-full' || modelVersion === '4-5-curated';
+  // 서버 bg fill이 batch 예약 heartbeat의 소유자 (진단 Med-6 세트 수정) — batch 예약은
+  // 클라가 fill하지 않으므로 클라 heartbeat 대상에서 제외됐고, 대신 여기서 "작업이 진행 중인
+  // 동안" 남은 예약들의 lastHeartbeat를 갱신해 orphan sweep(90s)이 작업 중 예약을 강탈
+  // (→ 클라 자동 재예약 = 이중 생성)하는 걸 막음. 루프가 끝나면(성공=fill로 소멸 /
+  // 실패=예약 잔존) 더는 bump 안 함 → 실패 예약은 90s 후 orphan → 클라 자동복구 인계.
+  const bumpRemaining = (fromIdx) => {
+    const now = Date.now();
+    for (let k = fromIdx; k < reservations.length; k++) {
+      const rid = reservations[k] && reservations[k].reservationId;
+      if (!rid) continue;
+      const r = reservedJobs.get(rid);
+      if (r) r.lastHeartbeat = now;
+    }
+  };
   for (let j = 0; j < jobs.length; j++) {
     const job = jobs[j];
     const reservation = reservations[j];
     if (!reservation || !reservation.reservationId) continue;
     if (!reservedJobs.has(reservation.reservationId)) continue; // 그사이 사용자 취소
+    bumpRemaining(j);
     try {
       const vibes = [];
       for (const v of (job.vibes || [])) {
@@ -2162,6 +2177,7 @@ async function fillBatchInBackground(jobs, reservations, config, modelVersion) {
           const image = await serverEncodeVibe(job.sessionName, v.name, v.info, config);
           if (image && image.length > 0) vibes.push({ image, info: v.info, strength: v.strength });
         } catch (e) { console.warn('[batch-enqueue] vibe 처리 실패, 건너뜀:', v.name, e.message); }
+        bumpRemaining(j); // 인코딩 1건이 수십 초 — 한 job 안에서도 90s 초과 방지
       }
       const references = [];
       for (const r of (job.references || [])) {
@@ -2172,6 +2188,7 @@ async function fillBatchInBackground(jobs, reservations, config, modelVersion) {
             referenceType: r.referenceType || 'character', description: r.referenceType || 'character',
           });
         } catch (e) { console.warn('[batch-enqueue] ref 처리 실패, 건너뜀:', r.name, e.message); }
+        bumpRemaining(j);
       }
       const finalReferences = isV4 ? [] : references;
       const finalVibes = (isV4_5 && finalReferences.length > 0) ? [] : vibes;
