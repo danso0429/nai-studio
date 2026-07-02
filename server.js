@@ -1361,27 +1361,69 @@ async function getDiskFreeGB() {
   return _diskFreeCache.value;
 }
 
-async function diskCleanupStage1() {
-  // tmp/, exports/ — 전부 삭제 가능
+// ─── exports 정리 정책 (진단 F3-1 통일, 2026-07-02 본인 결정 (b)) ───
+// exports/backups/(폴더 백업 = 사용자 복원 안전망)는 기본 *보존*. 삭제는 (1) 디스크
+// critical 최후 단계 (2) 디스크 정리 UI에서 'exports-backups' 명시 선택, 두 경로만.
+// 이 두 헬퍼가 exports 정리의 단일 정의 — stage1(자동)·/api/disk/cleanup(수동)이 공유.
+// (queue.html 전체 정리·ConfigScreen 폴더 정리는 비재귀 직속 파일만 = 원래 backups
+// 미포함이라 정책과 일치, 무변.)
+const EXPORTS_BACKUPS_DIRNAME = 'backups';
+async function cleanExportsDir({ includeBackups = false } = {}) {
+  const dirPath = path.join(DATA_DIR, 'exports');
   let cleaned = 0;
-  for (const dir of ['tmp', 'exports']) {
-    const dirPath = path.join(DATA_DIR, dir);
-    try {
-      const files = await fs.readdir(dirPath, { recursive: true });
-      for (const f of files) {
-        const fp = path.join(dirPath, f);
-        try {
-          const stat = await fs.stat(fp);
-          if (stat.isFile()) { await fs.unlink(fp); cleaned++; }
-        } catch {}
-      }
-      // Remove empty dirs
-      // audit B6 — execSync는 event loop 동기 블록(대량 파일 시 다른 HTTP/WS/큐 지연).
-      // execFileP(async)로 전환. shell 미경유라 2>/dev/null 불필요(stderr 분리 캡처).
-      await execFileP('find', [dirPath, '-mindepth', '1', '-type', 'd', '-empty', '-delete']);
-    } catch {}
-  }
-  if (cleaned > 0) console.log(`[Disk] Stage 1: deleted ${cleaned} tmp/exports files`);
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    for (const e of entries) {
+      if (!includeBackups && e.isDirectory() && e.name === EXPORTS_BACKUPS_DIRNAME) continue;
+      const full = path.join(dirPath, e.name);
+      try {
+        if (e.isFile()) {
+          await fs.unlink(full);
+          cleaned++;
+        } else {
+          const before = (await sumDirAll(full)).count;
+          await fs.rm(full, { recursive: true, force: true });
+          cleaned += before;
+        }
+      } catch {}
+    }
+  } catch {}
+  return cleaned;
+}
+async function cleanExportsBackups() {
+  const dirPath = path.join(DATA_DIR, 'exports', EXPORTS_BACKUPS_DIRNAME);
+  let cleaned = 0;
+  try {
+    const before = (await sumDirAll(dirPath)).count;
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    for (const e of entries) {
+      try { await fs.rm(path.join(dirPath, e.name), { recursive: true, force: true }); } catch {}
+    }
+    cleaned = before;
+  } catch {}
+  return cleaned;
+}
+
+async function diskCleanupStage1() {
+  // tmp/ 전부 + exports/ 직속(backups/ 보존 — 위 정책).
+  let cleaned = 0;
+  const tmpPath = path.join(DATA_DIR, 'tmp');
+  try {
+    const files = await fs.readdir(tmpPath, { recursive: true });
+    for (const f of files) {
+      const fp = path.join(tmpPath, f);
+      try {
+        const stat = await fs.stat(fp);
+        if (stat.isFile()) { await fs.unlink(fp); cleaned++; }
+      } catch {}
+    }
+    // Remove empty dirs
+    // audit B6 — execSync는 event loop 동기 블록(대량 파일 시 다른 HTTP/WS/큐 지연).
+    // execFileP(async)로 전환. shell 미경유라 2>/dev/null 불필요(stderr 분리 캡처).
+    await execFileP('find', [tmpPath, '-mindepth', '1', '-type', 'd', '-empty', '-delete']);
+  } catch {}
+  cleaned += await cleanExportsDir({ includeBackups: false });
+  if (cleaned > 0) console.log(`[Disk] Stage 1: deleted ${cleaned} tmp/exports files (backups 보존)`);
   return cleaned;
 }
 
@@ -1500,7 +1542,17 @@ async function ensureDiskSpace() {
   freeGB = await getDiskFreeGB();
   if (freeGB >= DISK_CRIT_GB) return true;
 
-  // Stage 5: 여전히 부족 — 일시정지
+  // Stage 5(최후 수단): exports/backups — 사용자 복원 안전망이라 다른 모든 단계가
+  // 실패했을 때만 삭제 (정책 (b), 2026-07-02). 삭제 사실을 명시 broadcast+로그.
+  const backupCleaned = await cleanExportsBackups();
+  if (backupCleaned > 0) {
+    broadcast('disk-warning', { freeGB: freeGB.toFixed(1), stage: 5, message: `디스크 공간 심각 부족 — 최후 수단으로 폴더 백업 ${backupCleaned}개 파일을 삭제했어요 (exports/backups)` });
+    console.warn(`[Disk] Stage 5 (LAST RESORT): deleted ${backupCleaned} files from exports/backups`);
+    freeGB = await getDiskFreeGB();
+    if (freeGB >= DISK_CRIT_GB) return true;
+  }
+
+  // Stage 6: 여전히 부족 — 일시정지
   broadcast('disk-critical', { freeGB: freeGB.toFixed(1), message: `디스크 공간 심각 부족 (${freeGB.toFixed(1)}GB) — 생성 일시정지. 수동으로 이미지를 삭제해주세요.` });
   console.error(`[Disk] CRITICAL: ${freeGB.toFixed(1)}GB free — queue paused`);
   return false;
@@ -3623,7 +3675,8 @@ app.get('/api/project/cleanup-preview', async (req, res) => {
 // 'outs-thumbnails'는 가상 카테고리 — outs/ 하위 fastcache/ 안 파일만. 옛 'outs'는
 // 전체(원본 + thumbnail) 통째 청소 옛 동작 유지. 본인 mental model: thumbnail은 재생성
 // 가능한 캐시라 별도 청소 옵션 의미 있음.
-const DISK_CLEANUP_CATEGORIES = ['outs', 'outs-thumbnails', 'exports', 'tmp', 'inpaints', 'vibes'];
+// 'exports'는 backups/ 제외(정책 (b) — cleanExportsDir 참조), 'exports-backups'가 그 백업 전용.
+const DISK_CLEANUP_CATEGORIES = ['outs', 'outs-thumbnails', 'exports', 'exports-backups', 'tmp', 'inpaints', 'vibes'];
 
 async function sumDirAll(dirPath, opts = {}) {
   let count = 0;
@@ -3650,6 +3703,13 @@ app.get('/api/disk/usage', async (req, res) => {
     for (const cat of DISK_CLEANUP_CATEGORIES) {
       if (cat === 'outs-thumbnails') {
         result[cat] = await sumDirAll(path.join(DATA_DIR, 'outs'), { fastcacheOnly: true });
+      } else if (cat === 'exports') {
+        // 'exports' 수치는 삭제 대상(backups 제외)만 — 'exports-backups'와 합산 시 전체.
+        const whole = await sumDirAll(path.join(DATA_DIR, 'exports'));
+        const backups = await sumDirAll(path.join(DATA_DIR, 'exports', EXPORTS_BACKUPS_DIRNAME));
+        result[cat] = { count: whole.count - backups.count, size: whole.size - backups.size };
+      } else if (cat === 'exports-backups') {
+        result[cat] = await sumDirAll(path.join(DATA_DIR, 'exports', EXPORTS_BACKUPS_DIRNAME));
       } else {
         result[cat] = await sumDirAll(path.join(DATA_DIR, cat));
       }
@@ -3746,6 +3806,39 @@ app.post('/api/disk/cleanup', async (req, res) => {
         try {
           await cleanupDirByPattern('*/fastcache/*', 'fastcache');
           const after = await sumDirAll(outsDir, { fastcacheOnly: true });
+          results[cat] = {
+            deletedFiles: before.count - after.count,
+            deletedBytes: before.size - after.size,
+          };
+        } catch (e) {
+          results[cat] = { error: e.message, deletedFiles: 0, deletedBytes: 0 };
+        }
+        continue;
+      }
+      if (cat === 'exports') {
+        // 정책 (b): exports 정리는 backups/ 보존 — cleanExportsDir(단일 정의) 사용.
+        // before/after는 exports 전체 기준이라 backups 불변분은 diff에서 상쇄됨.
+        const dirPath = path.join(DATA_DIR, 'exports');
+        const before = await sumDirAll(dirPath);
+        try {
+          await cleanExportsDir({ includeBackups: false });
+          const after = await sumDirAll(dirPath);
+          results[cat] = {
+            deletedFiles: before.count - after.count,
+            deletedBytes: before.size - after.size,
+          };
+        } catch (e) {
+          results[cat] = { error: e.message, deletedFiles: 0, deletedBytes: 0 };
+        }
+        continue;
+      }
+      if (cat === 'exports-backups') {
+        // 명시 선택 시에만 백업 삭제 (정책 (b)의 두 허용 경로 중 하나).
+        const dirPath = path.join(DATA_DIR, 'exports', EXPORTS_BACKUPS_DIRNAME);
+        const before = await sumDirAll(dirPath);
+        try {
+          await cleanExportsBackups();
+          const after = await sumDirAll(dirPath);
           results[cat] = {
             deletedFiles: before.count - after.count,
             deletedBytes: before.size - after.size,
