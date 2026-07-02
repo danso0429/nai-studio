@@ -309,7 +309,10 @@ type DiskCatSpec = { key: DiskCategory; label: string; defaultOn: boolean };
 const DISK_CATEGORIES: DiskCatSpec[] = [
   { key: 'outs', label: '출력 이미지 (outs, 원본+썸네일)', defaultOn: true },
   { key: 'outs-thumbnails', label: '└ 썸네일만 (outs/.../fastcache)', defaultOn: false },
-  { key: 'exports', label: 'export 산출물', defaultOn: true },
+  { key: 'exports', label: 'export 산출물 (백업 제외)', defaultOn: true },
+  // 폴더 백업 = 사용자 복원 안전망 — 명시 체크 시에만 삭제 (정책 (b), 진단 F3-1).
+  // 서버 usage의 'exports'는 backups 제외 수치라 둘을 합산해도 중복 없음.
+  { key: 'exports-backups', label: '└ 내보내기 백업 (exports/backups)', defaultOn: false },
   { key: 'tmp', label: '임시 파일 (tmp)', defaultOn: true },
   { key: 'inpaints', label: '인페인트 원본/마스크', defaultOn: false },
   { key: 'vibes', label: 'vibe 참조 이미지', defaultOn: false },

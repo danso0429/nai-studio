@@ -308,8 +308,9 @@ export type QueueFullEvent = { max: number; rejected: number; message: string };
 
 // 디스크 정리 API — queue popup의 manual trigger. 화이트리스트 6종.
 // 'outs' = 전체(원본 + thumbnail) 통째 청소. 'outs-thumbnails' = outs/ 하위 fastcache/만
-// (원본 보존, prewarm 시 자동 재생성).
-export type DiskCategory = 'outs' | 'outs-thumbnails' | 'exports' | 'tmp' | 'inpaints' | 'vibes';
+// (원본 보존, prewarm 시 자동 재생성). 'exports' = 백업(backups/) 제외 산출물만,
+// 'exports-backups' = 폴더 백업 전용(명시 선택 시에만 삭제 — 정책 (b)).
+export type DiskCategory = 'outs' | 'outs-thumbnails' | 'exports' | 'exports-backups' | 'tmp' | 'inpaints' | 'vibes';
 export type DiskUsageResult = Record<DiskCategory, { count: number; size: number }>;
 export type DiskCleanupResult = {
   results: Record<DiskCategory, { deletedFiles: number; deletedBytes: number; error?: string }>;
