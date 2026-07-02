@@ -193,6 +193,32 @@ export class SessionService extends ResourceSyncService<Session> {
     await this.saveBookmarks();
   }
 
+  // 씬 rename 시 씬이름 키 북마크 이전 — 씬 북마크(프로젝트당 1개)와 이미지 북마크
+  // (`프로젝트:씬이름` 키) 모두 프로젝트 스코프라 이동이 정답. (진단 F2-14)
+  async onSceneRenamed(
+    projectName: string,
+    oldName: string,
+    newName: string,
+    type: 'scene' | 'inpaint',
+  ) {
+    let changed = false;
+    const sb = this.bookmarkData.scenes[projectName];
+    if (sb && sb.name === oldName && sb.type === type) {
+      sb.name = newName;
+      changed = true;
+    }
+    const oldKey = projectName + ':' + oldName;
+    if (this.bookmarkData.images[oldKey] !== undefined) {
+      // 새 키에 잔재가 있어도 rename 대상의 북마크가 씬을 따라가는 게 맞음 — 덮어씀.
+      // (같은 이름으로의 rename은 merge 경로로 빠지므로 실사용 충돌은 없음.)
+      this.bookmarkData.images[projectName + ':' + newName] =
+        this.bookmarkData.images[oldKey];
+      delete this.bookmarkData.images[oldKey];
+      changed = true;
+    }
+    if (changed) await this.saveBookmarks();
+  }
+
   async run() {
     await this.loadFavorites();
     await this.loadBookmarks();
@@ -1151,6 +1177,12 @@ export const renameScene = async (
   scene.name = newName;
   map.delete(oldName);
   map.set(newName, scene);
+  // 씬이름 키 부가 데이터 이전 — 북마크(이동)·토글그룹 정의(복사, 일반 씬 전용 UI).
+  const { sessionService, toggleGroupService } = await import('.');
+  await sessionService.onSceneRenamed(session.name, oldName, newName, type);
+  if (type === 'scene') {
+    toggleGroupService.copyGroupsOnSceneRename(oldName, newName);
+  }
 };
 
 // 씬 병합: sourceName 씬을 기존 targetName 씬으로 합친다. (SDStudio 4.13 97a6aca 이식)

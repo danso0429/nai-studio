@@ -104,6 +104,23 @@ export class ToggleGroupService extends DebouncedJsonStore {
     this.dispatchEvent(new CustomEvent('changed', {}));
   }
 
+  // 씬 rename 시 그룹 정의 이관 — 정의는 "씬 이름" 전역 공유라 *복사*(옛 키 보존:
+  // 다른 프로젝트의 같은 이름 씬이 계속 사용 가능). 새 이름에 이미 정의가 있으면
+  // 그쪽을 존중(공유 의미 유지, 덮어쓰지 않음). id를 유지하므로 씬별
+  // toggleGroupStates(그룹 id 키)는 그대로 유효. (진단 F2-14)
+  @action
+  copyGroupsOnSceneRename(oldName: string, newName: string): void {
+    const src = this.groupsByScene[oldName];
+    if (!src || src.length === 0) return;
+    if (this.groupsByScene[newName]?.length) return;
+    this.groupsByScene = {
+      ...this.groupsByScene,
+      [newName]: src.map((g) => ({ id: g.id, name: g.name, tags: [...g.tags] })),
+    };
+    this.scheduleSave();
+    this.dispatchEvent(new CustomEvent('changed', {}));
+  }
+
   @action
   removeGroup(sceneName: string, id: string): void {
     const cur = this.groupsByScene[sceneName];
