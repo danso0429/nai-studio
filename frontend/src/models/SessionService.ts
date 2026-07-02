@@ -526,7 +526,9 @@ export class SessionService extends ResourceSyncService<Session> {
       }
     };
 
-    const projFile = 'projects/' + session.name + '.json';
+    // 폴더 안 프로젝트는 projects/<폴더>/<이름>.json — getPath(folderMap 기반)가 정본.
+    // 옛 루트 고정 경로는 폴더 프로젝트에서 project.json이 tar에 silent 누락되는 버그(진단 H2).
+    const projFile = this.getPath(session.name);
     const entries: FileEntry[] = [];
     for (const scene of session.scenes.values()) {
       const images = await ignoreError(
