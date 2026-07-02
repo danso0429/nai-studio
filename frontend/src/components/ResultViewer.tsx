@@ -1819,7 +1819,13 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
                     });
                     return;
                   }
-                  await renameScene(curSession!, scene.name, trimmed);
+                  try {
+                    await renameScene(curSession!, scene.name, trimmed, scene.type);
+                  } catch (e: any) {
+                    appState.pushMessage(
+                      '씬 이름 변경 실패: ' + (e?.message ?? e),
+                    );
+                  }
                 },
               });
             }}

@@ -1429,7 +1429,7 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
                 });
                 return;
               }
-              await renameScene(curSession!, scene.name, trimmedName);
+              await renameScene(curSession!, scene.name, trimmedName, scene.type);
             }}
           >
             이름 변경

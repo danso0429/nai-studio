@@ -1130,17 +1130,27 @@ export const getResultDirectory = (session: Session, scene: GenericScene) => {
   return imageService.getInPaintDir(session, scene);
 };
 
+// type으로 scenes/inpaints Map을 구분 (진단 H3a — 옛 코드는 scenes 전용이라 인페인트
+// 씬 rename 시 이미지 dir만 이동 후 TypeError로 파일/씬 연결이 끊어졌음).
+// 가드는 dir 이동 *앞* — Map에 없으면 아무것도 옮기기 전에 throw (고아 dir 방지).
 export const renameScene = async (
   session: Session,
   oldName: string,
   newName: string,
+  type: 'scene' | 'inpaint' = 'scene',
 ) => {
   newName = newName.trimEnd();
+  const map = (
+    type === 'inpaint' ? session.inpaints : session.scenes
+  ) as Map<string, GenericScene>;
+  const scene = map.get(oldName);
+  if (!scene) {
+    throw new Error(`씬 "${oldName}"을(를) 찾을 수 없어요 (${type})`);
+  }
   await imageService.onRenameScene(session, oldName, newName);
-  const scene = session.scenes.get(oldName)!;
   scene.name = newName;
-  session.scenes.delete(oldName);
-  session.scenes.set(newName, scene);
+  map.delete(oldName);
+  map.set(newName, scene);
 };
 
 // 씬 병합: sourceName 씬을 기존 targetName 씬으로 합친다. (SDStudio 4.13 97a6aca 이식)
