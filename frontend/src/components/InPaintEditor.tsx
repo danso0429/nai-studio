@@ -30,6 +30,7 @@ import {
   taskQueueService,
 } from '../models';
 import { dataUriToBase64 } from '../models/ImageService';
+import { renameScene, mergeScene } from '../models/SessionService';
 import { InpaintScene, PromptPiece } from '../models/types';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
@@ -54,6 +55,13 @@ let brushSizeSaved = 10;
 const InPaintEditor = observer(
   ({ editingScene, onConfirm, onDelete }: Props) => {
     const [, rerender] = useState({});
+    // 씬 이름은 로컬 state로만 편집하고 저장 버튼에서 renameScene으로 반영 (진단 H3b).
+    // 옛 코드는 editingScene.name 직접 변이 → inpaints Map 키/이미지 dir/직렬화 키가
+    // 전부 옛 이름에 남아 이미지 연결 유실 + 중복 이름 가드 우회.
+    const [curName, setCurName] = useState(editingScene.name);
+    useEffect(() => {
+      setCurName(editingScene.name);
+    }, [editingScene]);
     useEffect(() => {
       const handleProgress = () => {
         rerender({});
@@ -357,6 +365,40 @@ const InPaintEditor = observer(
 
     const confirm = async () => {
       await saveMask();
+      // 이름 변경 반영 — 중복이면 병합 확인, 아니면 renameScene(inpaint).
+      const trimmed = curName.trimEnd();
+      if (trimmed && trimmed !== editingScene.name) {
+        if (curSession!.hasScene('inpaint', trimmed)) {
+          appState.pushDialog({
+            type: 'confirm',
+            green: false,
+            text:
+              `"${trimmed}" 씬이 이미 존재합니다.\n두 씬을 병합할까요?\n\n` +
+              `• 이미지: 두 씬의 이미지가 "${trimmed}" 씬으로 합쳐집니다\n` +
+              `• 프롬프트/설정: 기존 "${trimmed}" 씬의 것을 유지하고,\n  지금 씬의 프롬프트는 사라집니다\n\n` +
+              `이 작업은 되돌릴 수 없습니다.`,
+            callback: async () => {
+              try {
+                await mergeScene(curSession!, editingScene.name, trimmed, 'inpaint');
+                appState.pushMessage(`"${trimmed}" 씬으로 병합했습니다`);
+                onConfirm();
+                onDelete(); // 병합으로 사라진 source 씬을 보던 결과 화면 정리
+              } catch (e: any) {
+                appState.pushMessage(
+                  '씬 병합 중 오류가 발생했습니다: ' + (e?.message ?? e),
+                );
+              }
+            },
+          });
+          return; // 본인 응답 전까지 에디터 유지
+        }
+        try {
+          await renameScene(curSession!, editingScene.name, trimmed, 'inpaint');
+        } catch (e: any) {
+          appState.pushMessage('씬 이름 변경 실패: ' + (e?.message ?? e));
+          return; // 실패 시 닫지 않음
+        }
+      }
       onConfirm();
     };
     return (
@@ -368,12 +410,9 @@ const InPaintEditor = observer(
               <input
                 type="text"
                 className="gray-input flex-1"
-                value={editingScene.name}
-                onBlur={(e) => {
-                  editingScene.name = e.target.value.trimEnd();
-                }}
+                value={curName}
                 onChange={(e) => {
-                  editingScene.name = e.target.value;
+                  setCurName(e.target.value);
                 }}
               />
               {editingScene && (
