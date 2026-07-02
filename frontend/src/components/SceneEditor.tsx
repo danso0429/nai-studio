@@ -1429,7 +1429,11 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
                 });
                 return;
               }
-              await renameScene(curSession!, scene.name, trimmedName, scene.type);
+              try {
+                await renameScene(curSession!, scene.name, trimmedName, scene.type);
+              } catch (e: any) {
+                appState.pushMessage('씬 이름 변경 실패: ' + (e?.message ?? e));
+              }
             }}
           >
             이름 변경
