@@ -1953,12 +1953,47 @@ app.post('/api/queue/add-batch', async (req, res) => {
   res.json({ jobIds, rejected });
 });
 
+// ─── 예약 idempotency dedupe (진단 Med-7) ───
+// reserve/batch-enqueue는 "생성" POST인데 클라가 transient 오류에 retries:3을 걸어,
+// "서버는 성공했는데 응답만 유실 → 재시도"가 예약 2벌(이중 enqueue·이중 Anlas)로 이어질 수 있음.
+// taskId(클라 생성 uuid)가 요청 identity → 최근 응답을 taskId 키로 기억했다가 재시도에 재반환.
+// 예약이 이미 fill/완료돼 reservedJobs에서 사라진 뒤의 재시도도 원 응답 그대로 커버.
+const recentReservationResponses = new Map(); // taskId → { entry, at }
+const RESERVATION_DEDUPE_TTL_MS = 10 * 60 * 1000; // 클라 retry는 수초 간격 — 넉넉한 상한
+function rememberReservationResponse(taskId, entry) {
+  if (!taskId) return;
+  recentReservationResponses.set(taskId, { entry, at: Date.now() });
+  if (recentReservationResponses.size > 2000) {
+    const now = Date.now();
+    for (const [k, v] of recentReservationResponses) {
+      if (now - v.at > RESERVATION_DEDUPE_TTL_MS) recentReservationResponses.delete(k);
+    }
+  }
+}
+function recallReservationResponse(taskId) {
+  if (!taskId) return null;
+  const hit = recentReservationResponses.get(taskId);
+  if (!hit) return null;
+  if (Date.now() - hit.at > RESERVATION_DEDUPE_TTL_MS) {
+    recentReservationResponses.delete(taskId);
+    return null;
+  }
+  return hit.entry;
+}
+
 // 예약 등록 — prep 전에 서버에 placeholder를 먼저 영속화. fill로 실제 params를 채우면 genQueue로 이동.
 app.post('/api/queue/reserve', (req, res) => {
   const metas = req.body.metas || [];
   const ownerId = req.body.ownerId || null;
   const count = metas.length;
   if (count === 0) return res.json({ reservationId: null, jobIds: [], rejected: 0 });
+  // idempotency: 같은 taskId의 재시도(응답 유실 후)면 원 응답 재반환 — 예약 2벌 방지.
+  const dedupeKey = metas[0] && metas[0].taskId;
+  const cached = recallReservationResponse(dedupeKey);
+  if (cached) {
+    console.log(`[queue] reserve dedupe hit (taskId=${dedupeKey}) — 원 응답 재반환`);
+    return res.json(cached);
+  }
   let reservedTotal = 0;
   for (const r of reservedJobs.values()) reservedTotal += r.jobs.length;
   const space = QUEUE_MAX_SIZE - genQueue.length - reservedTotal;
@@ -1977,7 +2012,9 @@ app.post('/api/queue/reserve', (req, res) => {
   }
   broadcastQueueStatus();
   saveQueueState();
-  res.json({ reservationId, jobIds: jobs.map((j) => j.jobId), rejected });
+  const response = { reservationId, jobIds: jobs.map((j) => j.jobId), rejected };
+  rememberReservationResponse(dedupeKey, response);
+  res.json(response);
 });
 
 // 예약 채우기 — prep 완료된 params를 reserved jobs에 채워 genQueue로 이동.
@@ -2061,6 +2098,15 @@ app.post('/api/queue/batch-enqueue', async (req, res) => {
     let reservedTotal = 0;
     for (const r of reservedJobs.values()) reservedTotal += r.jobs.length;
     for (const job of jobs) {
+      // idempotency: 같은 taskId 재시도(응답 유실 후)면 원 entry 재반환 — 배치 통째 2벌 방지.
+      // bg fill은 reservedJobs.has() 가드로 이미 fill된 예약을 skip, fill 실패로 남은 예약은
+      // 재시도의 bg fill이 다시 시도(유익한 재시도).
+      const cachedEntry = recallReservationResponse(job.taskId);
+      if (cachedEntry) {
+        console.log(`[batch-enqueue] dedupe hit (taskId=${job.taskId}) — 원 entry 재반환`);
+        reservations.push(cachedEntry);
+        continue;
+      }
       const samples = Math.max(1, job.samples || 1);
       const space = QUEUE_MAX_SIZE - genQueue.length - reservedTotal;
       const toReserve = Math.max(0, Math.min(samples, space));
@@ -2082,7 +2128,9 @@ app.post('/api/queue/batch-enqueue', async (req, res) => {
       }
       const now = Date.now();
       reservedJobs.set(reservationId, { jobs: jobsArr, createdAt: now, ownerId, lastHeartbeat: now, needsConsent: false });
-      reservations.push({ taskId: job.taskId, reservationId, jobIds: jobsArr.map((j) => j.jobId), rejected });
+      const entry = { taskId: job.taskId, reservationId, jobIds: jobsArr.map((j) => j.jobId), rejected };
+      rememberReservationResponse(job.taskId, entry);
+      reservations.push(entry);
       reservedTotal += toReserve;
     }
     const totalRejected = reservations.reduce((s, r) => s + (r.rejected || 0), 0);
