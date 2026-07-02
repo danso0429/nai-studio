@@ -1777,7 +1777,20 @@ export class AppState {
     }
     const pid = appState.pushProgressDialog('프로젝트 백업 압축 중..', 1);
     try {
-      await sessionService.exportSessionDeep(appState.curSession, path);
+      const { skipped } = await sessionService.exportSessionDeep(
+        appState.curSession,
+        path,
+      );
+      // 서버 zip이 없는 파일을 silent skip — 조용한 무결성 깨짐 방지로 경고 노출 (진단 H2b).
+      if (skipped.length > 0) {
+        const critical = skipped.some((s) => s.endsWith('.json'));
+        appState.pushMessage(
+          (critical
+            ? '⚠️ 프로젝트 파일(project.json)이 백업에서 빠졌어요 — 이 백업은 복원이 안 돼요.'
+            : `⚠️ 백업에서 파일 ${skipped.length}개가 빠졌어요.`) +
+            ` (예: ${skipped.slice(0, 2).join(', ')})`,
+        );
+      }
     } catch (e: any) {
       appState.finishProgressDialog(pid, '✗ 백업 압축 실패', false);
       return;
@@ -1831,7 +1844,7 @@ export class AppState {
       projectNames.length + 1,
     );
     try {
-      await sessionService.exportFolderDeep(
+      const { skipped } = await sessionService.exportFolderDeep(
         folderName,
         projectNames,
         path,
@@ -1840,6 +1853,16 @@ export class AppState {
         },
         includeImages,
       );
+      // 서버 zip silent skip 경고 (진단 H2b). project.json 누락 = 그 프로젝트 복원 불가.
+      if (skipped.length > 0) {
+        const critical = skipped.some((s) => s.endsWith('.json'));
+        appState.pushMessage(
+          (critical
+            ? '⚠️ 일부 프로젝트 파일(json)이 폴더 백업에서 빠졌어요 — 해당 프로젝트는 복원이 안 돼요.'
+            : `⚠️ 폴더 백업에서 파일 ${skipped.length}개가 빠졌어요.`) +
+            ` (예: ${skipped.slice(0, 2).join(', ')})`,
+        );
+      }
     } catch (e: any) {
       appState.finishProgressDialog(
         pid,

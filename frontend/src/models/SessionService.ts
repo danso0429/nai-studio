@@ -592,7 +592,8 @@ export class SessionService extends ResourceSyncService<Session> {
     }
     entries.push({ path: projFile, name: 'project.json' });
     // zipFiles 자체가 outPath 중복을 throw로 막음 — 외부 사전 체크 제거 (서로 다른 outPath는 병렬 OK).
-    await zipService.zipFiles(entries, outPath);
+    // 서버 zip은 없는 파일을 silent skip(skipped[])하므로 호출부가 경고할 수 있게 반환 (진단 H2b).
+    return await zipService.zipFiles(entries, outPath);
   }
 
   // 폴더 전체 백업. 안의 N개 프로젝트를 1개 tar로 묶음. tar 내부 layout은
@@ -692,13 +693,15 @@ export class SessionService extends ResourceSyncService<Session> {
     // zipFiles가 outPath 단위 중복을 throw로 막음 — 외부 사전 체크 제거 (서로 다른 폴더는 병렬 OK).
     onProgress?.('아카이브 압축 중...', total, total + 1);
     try {
-      await zipService.zipFiles(entries, outPath);
+      // 서버 zip의 silent skip(skipped[])을 호출부 경고용으로 반환 (진단 H2b).
+      const zipResult = await zipService.zipFiles(entries, outPath);
+      onProgress?.('완료', total + 1, total + 1);
+      return zipResult;
     } finally {
       try {
         await backend.deleteFile(markerPath);
       } catch {}
     }
-    onProgress?.('완료', total + 1, total + 1);
   }
 
   // 폴더 전체 백업 import. tar 안 folder-backup.json 마커로 검증 + 프로젝트 목록 추출.
