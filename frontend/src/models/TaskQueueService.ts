@@ -1286,7 +1286,11 @@ export class TaskQueueService extends EventTarget {
       for (const jobId of r.jobIds) {
         this.mirroredJobs.set(jobId, { taskId, outputFilePath: '' });
       }
-      this.outstandingReservations.add(taskId);
+      // batch 예약은 outstandingReservations에 넣지 않음 (진단 Med-6). fill은 서버 bg가
+      // 수행하므로 heartbeat 소유권도 서버 fill 루프에 있음(작업 중 bump). 클라가 넣으면
+      // ① delete 경로가 없어 영구 잔존 → idle에도 30s heartbeat 영구 발화
+      // ② 서버 fill 실패로 남은 예약을 살아있는 클라가 계속 bump → orphan 마킹 차단
+      //    → 자동복구가 클라 종료 전까지 발동 불가.
     }
     this.dispatchProgress();
   }
