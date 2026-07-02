@@ -3153,10 +3153,10 @@ async function permanentlyDeleteProjectFiles(name) {
   const deleted = { local: [], drive: [] };
   const errors = [];
 
-  // 1. 로컬 projects/<...>.json + <...>.deleted (폴더형 포함)
+  // 1. 로컬 projects/<...>.json + <...>.deleted (폴더형 포함, 중첩 폴더 깊이까지)
   const projectsDir = resolvePath('projects');
   try {
-    const walked = await walkDir(projectsDir, 1);
+    const walked = await walkDir(projectsDir, PROJECT_NEST_WALK_DEPTH);
     for (const f of walked.files) {
       if (!f.endsWith('.json') && !f.endsWith('.deleted')) continue;
       const base = path.basename(f, path.extname(f));
@@ -3906,7 +3906,7 @@ const SCENE_IMPORT_SCHEMA_EXAMPLE = {
 
 async function findProjectFile(name) {
   const projectsDir = resolvePath('projects');
-  const walked = await walkDir(projectsDir, 1);
+  const walked = await walkDir(projectsDir, PROJECT_NEST_WALK_DEPTH);
   for (const f of walked.files) {
     if (!f.endsWith('.json')) continue;
     if (path.basename(f, '.json') === name) {
