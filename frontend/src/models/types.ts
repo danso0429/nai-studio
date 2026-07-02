@@ -586,6 +586,15 @@ export class Session implements Serealizable {
         Scene.fromJSON(value),
       ]),
     );
+    // 자기치유 (진단 H3c): 옛 InPaintEditor가 scene.name을 직접 변이해 Map 키≠name
+    // 불일치가 저장된 프로젝트 복구. 이미지 dir은 키(옛 이름) 기준으로 남아있으므로
+    // 키를 정본으로 name을 되돌림 — 이미지/마스크 연결 복원. 정상 파일이면 no-op.
+    for (const [key, scene] of session.inpaints) {
+      if (scene.name !== key) scene.name = key;
+    }
+    for (const [key, scene] of session.scenes) {
+      if (scene.name !== key) scene.name = key;
+    }
     session.library = new Map(
       Object.entries(json.library).map(([key, value]) => [
         key,
