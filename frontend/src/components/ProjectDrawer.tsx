@@ -345,6 +345,9 @@ const ProjectDrawer = observer(() => {
       appState.pushMessage('이미 존재하는 프로젝트 이름입니다.');
       return;
     }
+    // 생성은 기본 프리셋 로드 + 서버 저장에 잠깐 걸리는데 표시가 없어 "만들어졌나?" 불안 →
+    // 진행 중 sticky 토스트 + 완료 시 "생성됨"으로 확실한 피드백.
+    const toastId = appState.pushMessage('프로젝트 만드는 중…', { sticky: true });
     try {
       await sessionService.add(name);
       if (folder) {
@@ -358,8 +361,11 @@ const ProjectDrawer = observer(() => {
         appState.curSession = session;
         pushRecentProject(name);
       }
+      appState.dismissMessage(toastId);
+      appState.pushMessage(`프로젝트 "${name}" 생성됨`);
       close();
     } catch (e: any) {
+      appState.dismissMessage(toastId);
       appState.pushMessage(e.message || '프로젝트 생성에 실패했습니다.');
     }
   };
