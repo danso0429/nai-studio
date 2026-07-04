@@ -30,9 +30,10 @@ import FolderBackupImportDialog from './FolderBackupImportDialog';
 import QueueControl from './SceneQueueControl';
 import { FloatView, FloatViewProvider } from './FloatView';
 import { observer } from 'mobx-react-lite';
-import { FaImages, FaPenFancy, FaStar, FaPalette } from 'react-icons/fa';
+import { FaImages, FaPenFancy, FaStar, FaPalette, FaSearch } from 'react-icons/fa';
 import { GlobalPresetTab, GlobalPresetPickerOverlay } from './GlobalPresetTab';
 import ArtistLibraryTab from './ArtistLibraryTab';
+import TagSearchTab from './TagSearchTab';
 import ModalOverlay from './ModalOverlay';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
@@ -802,6 +803,12 @@ export const App = observer(() => {
       label: '작가 라이브러리',
       content: <ArtistLibraryTab />,
       emoji: <FaPalette />,
+      banToggle: true,
+    },
+    {
+      label: '태그 검색',
+      content: <TagSearchTab />,
+      emoji: <FaSearch />,
       banToggle: true,
     },
   ];

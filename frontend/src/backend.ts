@@ -232,6 +232,7 @@ export abstract class Backend {
   abstract zipFiles(files: FileEntry[], outPath: string): Promise<{ skipped: string[] }>;
   abstract unzipFiles(tarPath: string, outPath: string): Promise<void>;
   abstract searchTags(word: string): Promise<any>;
+  abstract searchTagsFull(word: string, limit?: number): Promise<any>;
   abstract lookupTag(word: string): Promise<any>;
   abstract loadPiecesDB(pieces: string[]): Promise<void>;
   abstract searchPieces(word: string): Promise<any>;

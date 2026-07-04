@@ -471,6 +471,7 @@ export class ServerBackend extends Backend {
   }
 
   async searchTags(word: string): Promise<any> { return apiJSON(`/tags/search?q=${encodeURIComponent(word)}`); }
+  async searchTagsFull(word: string, limit?: number): Promise<any> { return apiJSON(`/tags/search-full?q=${encodeURIComponent(word)}${limit ? `&limit=${limit}` : ''}`); }
   async lookupTag(word: string): Promise<any> { return apiJSON(`/tags/lookup?q=${encodeURIComponent(word)}`); }
 
   async loadPiecesDB(pieces: string[]): Promise<void> {

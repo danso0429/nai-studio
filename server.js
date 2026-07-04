@@ -4955,6 +4955,12 @@ app.get('/api/tags/search', (req, res) => {
   res.json(results.map(({ aliases, ...rest }) => rest));
 });
 
+// 태그 검색 도구(⑥): substring 전체 검색 + freq 정렬 + 더 많은 결과. 자동완성과 분리.
+app.get('/api/tags/search-full', (req, res) => {
+  const results = tagSearch.searchTagsFull(req.query.q || '', req.query.limit);
+  res.json(results.map(({ aliases, ...rest }) => rest));
+});
+
 app.get('/api/tags/lookup', (req, res) => {
   const tag = tagSearch.lookupTag(req.query.q || '');
   if (tag) {
