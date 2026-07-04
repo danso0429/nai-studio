@@ -1284,6 +1284,7 @@ const EmulatedEditTextArea = observer(
         onEnter,
         onEsc,
         closeAutoComplete,
+        onFocus,
       }: EditTextAreaProps,
       ref: any,
     ) => {
@@ -1332,6 +1333,10 @@ const EmulatedEditTextArea = observer(
         // 프리셋 prefix 보호: 클릭으로 caret이 prefix 안에 들어가면 경계로 이동.
         const handleClickLock = (e: any) => editor.handleClick(e);
         editorRef.current.addEventListener('click', handleClickLock);
+        // 포커스 시 상위로 알림(모바일: 탭하면 자동 확대). NativeEditTextArea에만 있던 배선이
+        // 실제 엔진(Emulated)엔 없어 auto-확대가 죽어 있던 것 — 여기서 연결.
+        const handleFocus = () => onFocus && onFocus();
+        editorRef.current.addEventListener('focus', handleFocus);
         const handleWindowMouseDown = (e: any) => {
           closeAutoComplete();
           editor.handleWindowMouseDown(e);
@@ -1353,6 +1358,7 @@ const EmulatedEditTextArea = observer(
           }
           editorRef.current.removeEventListener('paste', handlePaste);
           editorRef.current.removeEventListener('click', handleClickLock);
+          editorRef.current.removeEventListener('focus', handleFocus);
         };
       }, []);
 
@@ -1848,6 +1854,10 @@ const PromptEditTextArea = observer(
     const onChangeRef = useLatest(onChange);
     const [fullScreen, setFullScreen] = useState(false);
     const [chunkSheetOpen, setChunkSheetOpen] = useState(false);
+    // 모바일 확대 시 키보드 위 가시영역(visualViewport)에 박스를 맞추기 위한 rect.
+    const [vvRect, setVvRect] = useState<{ top: number; height: number } | null>(
+      null,
+    );
 
     // chunk 삽입 (단계 2 — 현재 값 끝에 토큰 추가). caret 위치 정밀 삽입은 단계 3.
     const insertChunkToken = (token: string) => {
@@ -2029,6 +2039,24 @@ const PromptEditTextArea = observer(
       };
     }, []);
 
+    // 모바일 확대 시: visualViewport(키보드 뺀 가시영역)를 추적해 확대 박스를 그 안에 맞춤.
+    // 키보드가 오르내리며 resize/scroll 발화 → 박스 top/height를 재계산.
+    useEffect(() => {
+      const vv = window.visualViewport;
+      if (!isMobile || !fullScreen || !vv) {
+        setVvRect(null);
+        return;
+      }
+      const update = () => setVvRect({ top: vv.offsetTop, height: vv.height });
+      update();
+      vv.addEventListener('resize', update);
+      vv.addEventListener('scroll', update);
+      return () => {
+        vv.removeEventListener('resize', update);
+        vv.removeEventListener('scroll', update);
+      };
+    }, [isMobile, fullScreen]);
+
     let bgColor = whiteBg
       ? 'bg-gray-100 dark:bg-slate-700'
       : 'bg-gray-200 dark:bg-slate-700';
@@ -2117,7 +2145,22 @@ const PromptEditTextArea = observer(
     if (fullScreen) {
       return (
         <>
-          <div className="prompt-full-container">
+          <div
+            className="prompt-full-container"
+            // 모바일: CSS 고정 위치(top 20vh/24rem) 대신 키보드 위 가시영역에 맞춤
+            // (자동완성 목록 하단이 키보드에 안 가리게). 데스크탑은 CSS 유지.
+            style={
+              isMobile && vvRect
+                ? {
+                    top: vvRect.top + 6,
+                    left: '3vw',
+                    width: '94vw',
+                    height: vvRect.height - 12,
+                    maxHeight: 'none',
+                  }
+                : undefined
+            }
+          >
             <div
               ref={innerRef}
               onClick={handleClick}
