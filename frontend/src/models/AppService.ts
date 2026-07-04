@@ -563,6 +563,66 @@ export class AppState {
     });
   }
 
+  // 선택한 여러 프로젝트 영구 삭제 (드로어 선택 모드). 한 번 확인 → 백그라운드 순차 삭제.
+  // 순차인 이유: 각 삭제가 rclone Drive purge(직렬 5개)로 블로킹이라, 동시에 쏘면 rclone이
+  // 폭주한다. 순차 백그라운드 + sticky 진행 토스트로 UI는 안 막고 진행을 보여준다.
+  deleteProjectsBackground(names: string[], onConfirmed?: () => void) {
+    const targets = names.filter(
+      (n) =>
+        !sessionService.deletingProjects.has(n) &&
+        !this.exportingProjects.has(n),
+    );
+    if (targets.length === 0) {
+      this.pushMessage('삭제할 수 있는 프로젝트가 없어요 (이미 삭제/내보내기 중).');
+      return;
+    }
+    this.pushDialog({
+      type: 'confirm',
+      text: `선택한 ${targets.length}개 프로젝트를 영구 삭제합니다. 로컬과 Google Drive의 모든 데이터(outs/inpaints/vibes/inpaint_masks/inpaint_orgs/exports)가 함께 지워지며 되돌릴 수 없습니다. 진행할까요?`,
+      callback: () => {
+        onConfirmed?.(); // 확인 시에만 선택 해제(취소하면 선택 유지 — bulkMove와 일관).
+        // 응답 즉시 반환 + 백그라운드 순차 진행 (단일 삭제의 fire-and-forget과 동일 결).
+        (async () => {
+          let toastId = this.pushMessage(
+            `프로젝트 삭제 중… (0/${targets.length})`,
+            { sticky: true },
+          );
+          let done = 0;
+          let failed = 0;
+          for (const name of targets) {
+            if (
+              sessionService.deletingProjects.has(name) ||
+              this.exportingProjects.has(name)
+            ) {
+              continue;
+            }
+            sessionService.deletingProjects.add(name);
+            try {
+              await sessionService.delete(name);
+              imageService.onSessionDeleted(name);
+              if (this.curSession?.name === name) this.curSession = undefined;
+              done++;
+            } catch (e) {
+              failed++;
+            } finally {
+              sessionService.deletingProjects.delete(name);
+            }
+            // 진행 갱신: 옛 sticky 토스트 dismiss + 갱신 카운트로 재push.
+            this.dismissMessage(toastId);
+            toastId = this.pushMessage(
+              `프로젝트 삭제 중… (${done + failed}/${targets.length})`,
+              { sticky: true },
+            );
+          }
+          this.dismissMessage(toastId);
+          this.pushMessage(
+            `✓ ${done}개 프로젝트 삭제 완료${failed ? `, ${failed}개 실패` : ''}`,
+          );
+        })();
+      },
+    });
+  }
+
   @action
   openPieceEditor() {
     this.pieceEditorOpen = true;

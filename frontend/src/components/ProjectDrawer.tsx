@@ -638,6 +638,13 @@ const ProjectDrawer = observer(() => {
     });
   };
 
+  // 선택한 프로젝트 일괄 영구 삭제. 확인 다이얼로그는 appState가 띄우고, 확인 시에만
+  // 선택 해제(취소하면 선택 유지). 삭제는 백그라운드 순차(rclone Drive purge 폭주 방지).
+  const bulkDelete = () => {
+    if (selected.size === 0) return;
+    appState.deleteProjectsBackground(Array.from(selected), exitSelect);
+  };
+
   // ===== 선택 모드 — 그룹(폴더/즐겨찾기/미분류) 단위 전체선택 =====
   const groupState = (projs: string[]): 'all' | 'some' | 'none' => {
     if (projs.length === 0) return 'none';
@@ -854,13 +861,22 @@ const ProjectDrawer = observer(() => {
                 <FaUpload size={12} /> 내보내기
               </button>
             ) : (
-              <button
-                onClick={bulkMove}
-                disabled={selected.size === 0}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm bg-sky-500 hover:bg-sky-600 text-white disabled:opacity-40"
-              >
-                <FaFolder size={12} /> 이동
-              </button>
+              <>
+                <button
+                  onClick={bulkDelete}
+                  disabled={selected.size === 0}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm bg-red-500 hover:bg-red-600 text-white disabled:opacity-40"
+                >
+                  <FaTrashAlt size={12} /> 삭제
+                </button>
+                <button
+                  onClick={bulkMove}
+                  disabled={selected.size === 0}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm bg-sky-500 hover:bg-sky-600 text-white disabled:opacity-40"
+                >
+                  <FaFolder size={12} /> 이동
+                </button>
+              </>
             )}
             <button
               onClick={exitSelect}
