@@ -32,7 +32,13 @@ export class LoginService extends EventTarget {
       const validity = await backend.validateLogin();
       if (validity === 'valid') next = true;
       else if (validity === 'invalid') next = false;
-      // 'error' → 일시 오류로 보고 현재 상태 유지
+      else {
+        // 'error' = NAI가 401/403이 아닌 응답(400·5xx·네트워크 등)으로 검증 불가.
+        // 초기값 false에 갇히지 않도록 *토큰 존재 여부로 폴백*(⑧ 이전 동작): 토큰이 있으면
+        // 로그인 유지. NAI가 일시적으로 막아도(예: 400 "Please refresh NovelAI.net")
+        // 명시 로그인/저장한 토큰으로 계속 쓸 수 있게 — 만료(401/403)만 로그아웃.
+        next = await backend.authStatus();
+      }
     } catch (e: any) {
       // 예기치 못한 오류 → 상태 유지
     }
