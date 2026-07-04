@@ -170,19 +170,46 @@ interface TabComponentProps {
   toggleView?: React.ReactNode;
   className?: string;
   left?: boolean;
+  // 넘기면 활성 탭을 localStorage[persistKey]에 저장하고, *페이지 세션 첫 마운트에서만*
+  // 복원. 프로젝트 전환(컴포넌트 key 리마운트)은 기존대로 0번 탭으로 리셋됨 — 복원은
+  // PWA 부팅 1회로 한정(App 워크스페이스 탭 전용). prop 미전달 시 기존 동작(0번, 저장 X).
+  persistKey?: string;
 }
+
+// persistKey별로 "이 페이지 세션에서 이미 복원했는지" 기록. 부팅 후 첫 마운트만 복원값을
+// 소비하고, 이후 프로젝트 전환 리마운트는 0번으로(기존 동작 보존).
+const consumedTabPersistKeys = new Set<string>();
 
 export const TabComponent: React.FC<TabComponentProps> = ({
   left,
   tabs,
   toggleView,
+  persistKey,
 }) => {
-  const [activeTab, setActiveTab] = useState(0);
+  const [activeTab, setActiveTab] = useState(() => {
+    if (persistKey && !consumedTabPersistKeys.has(persistKey)) {
+      consumedTabPersistKeys.add(persistKey);
+      try {
+        const n = parseInt(localStorage.getItem(persistKey) ?? '', 10);
+        if (Number.isInteger(n) && n >= 0 && n < tabs.length) return n;
+      } catch {
+        // localStorage 접근 불가 — 복원만 skip.
+      }
+    }
+    return 0;
+  });
   const [toggleViewOpen, setToggleViewOpen] = useState(false);
 
   const handleTabClick = (index: number) => {
     tabs[index].onClick?.();
     setActiveTab(index);
+    if (persistKey) {
+      try {
+        localStorage.setItem(persistKey, String(index));
+      } catch {
+        // 저장 실패 — 다음 부팅 복원만 영향, 현재 동작엔 무관.
+      }
+    }
   };
 
   useEffect(() => {

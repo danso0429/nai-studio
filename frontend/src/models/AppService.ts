@@ -25,7 +25,7 @@ import {
   normalizePresetJson,
   readJSONFromPNG,
 } from './SessionService';
-import { action, observable } from 'mobx';
+import { action, observable, reaction } from 'mobx';
 import {
   CharacterPreset,
   GenericScene,
@@ -4349,6 +4349,23 @@ export class AppState {
 }
 
 export const appState = new AppState();
+
+// PWA 콜드 리로드 복구 — iOS가 홈화면 PWA를 백그라운드에서 kill하면 복귀 시 완전 리로드되어
+// 프로젝트 선택 화면으로 튕겨나감. 마지막 프로젝트 이름을 저장해 부팅 시 복원(App.tsx).
+// localStorage 사용 — sessionStorage는 PWA kill 후 재실행 시 소멸. curSession이 undefined로
+// 가도(프로젝트 닫힘) 지우지 않음 — 마지막으로 작업하던 프로젝트를 유지해야 복귀가 자연스러움.
+export const LAST_PROJECT_KEY = 'nai:lastProject';
+export const LAST_TAB_KEY = 'nai:lastTab';
+reaction(
+  () => appState.curSession?.name,
+  (name) => {
+    try {
+      if (name) localStorage.setItem(LAST_PROJECT_KEY, name);
+    } catch {
+      // localStorage 접근 불가(프라이빗 모드 등) — 복원 기능만 비활성, 앱 동작엔 무관.
+    }
+  },
+);
 
 // Drive retry status 폴링: 부팅 시 1회. Drive 사용 중일 때만 30s 주기 폴링 유지
 // (rclone 미설치 사용자의 모바일 데이터/배터리 낭비 차단). WS drive-sync-* 이벤트로

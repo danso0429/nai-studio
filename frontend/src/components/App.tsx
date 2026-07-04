@@ -55,7 +55,7 @@ import {
   imageService,
   isMobile,
 } from '../models';
-import { appState } from '../models/AppService';
+import { appState, LAST_PROJECT_KEY, LAST_TAB_KEY } from '../models/AppService';
 import { keyboardShortcutService } from '../models/KeyboardShortcutService';
 import { AppContextMenu } from './AppContextMenu';
 
@@ -536,6 +536,41 @@ export const App = observer(() => {
     };
   }, []);
 
+  // PWA 콜드 리로드 복구 — 부팅 시 마지막 프로젝트 자동 복원. iOS가 홈화면 PWA를
+  // 백그라운드에서 kill하면 복귀 시 완전 리로드되어 프로젝트 선택 화면으로 튕겨나가는데,
+  // 마지막으로 열려있던 프로젝트를 다시 열어 "하던 자리"로 되돌림. 탭 복원은 TabComponent
+  // persistKey가 담당(부팅 첫 마운트 1회). 저장 프로젝트가 삭제됐으면 조용히 선택 화면 유지.
+  useEffect(() => {
+    if (appState.curSession) return; // 이미 프로젝트 열림(정상 부팅선 없음)
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(LAST_PROJECT_KEY);
+    } catch {
+      // localStorage 불가 — 복원 skip.
+    }
+    if (!saved) return;
+    let done = false;
+    const tryRestore = () => {
+      if (done || appState.curSession) return;
+      // list()가 아직 안 채워졌거나 프로젝트가 삭제됐으면 대기/무시(조용히 선택 화면 유지).
+      if (!sessionService.list().includes(saved!)) return;
+      done = true;
+      sessionService.removeEventListener('listupdated', tryRestore);
+      appState.selectSession(saved!);
+    };
+    tryRestore(); // 목록이 이미 준비됐을 수 있음
+    sessionService.addEventListener('listupdated', tryRestore);
+    // 안전망: 일정 시간 뒤 리스너 정리(목록이 끝내 안 오거나 프로젝트 부재 시 무한 대기 방지).
+    const cleanupTimer = setTimeout(() => {
+      done = true;
+      sessionService.removeEventListener('listupdated', tryRestore);
+    }, 15000);
+    return () => {
+      clearTimeout(cleanupTimer);
+      sessionService.removeEventListener('listupdated', tryRestore);
+    };
+  }, []);
+
   // 큐 완전 종료(mirroredTasks 비어짐) 시점 안전망 — 누락된 scene refresh 일괄 cover.
   // restored mirror task가 진행 중에 끊어진 broadcast 다수 + scene-job-complete listener
   // 미설치 시점이 겹치면 카운터/썸네일 영구 stale. 'stop' event 시 refreshBatch.
@@ -870,6 +905,7 @@ export const App = observer(() => {
                           <StackGrow>
                             <TabComponent
                               key={appState.curSession.name}
+                              persistKey={LAST_TAB_KEY}
                               tabs={tabs}
                               toggleView={
                                 <PreSetEditor
