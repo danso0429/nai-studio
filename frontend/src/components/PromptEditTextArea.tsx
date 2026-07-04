@@ -874,6 +874,26 @@ class CursorMemorizeEditor {
     if (e.inputType === 'insertFromPaste' || e.inputType === 'insertFromDrop') return;
     e.preventDefault();
     await mutex.runExclusive(async () => {
+      // 우클릭/모바일 선택메뉴 "잘라내기" = beforeinput(deleteByCut). 클립보드 복사는 native
+      // cut 이벤트가 이미 처리하므로 여기선 선택 삭제만 한다(없으면 복사만 되고 선택이 안
+      // 지워지는 버그 — Ctrl+X는 keydown에서 처리되지만 메뉴 잘라내기는 keydown이 없음).
+      if (e.inputType === 'deleteByCut') {
+        let [start, end] = this.getCaretPosition();
+        const lp = this.lockedPrefixLength || 0;
+        if (lp) {
+          // prefix 보호: 삭제 범위를 잠긴 prefix 밖으로 clamp(Ctrl+X와 동일).
+          start = Math.max(start, lp);
+          end = Math.max(end, lp);
+        }
+        if (start === end) return;
+        this.pushHistory();
+        this.updateCurText(
+          this.curText.substring(0, start) + this.curText.substring(end),
+        );
+        this.updateDOM(this.curText, start);
+        await this.setCaretPosition([start, start]);
+        return;
+      }
       const koreanRegex = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/g;
       if (koreanRegex.test(e.data || '')) return;
       if (!e.data) return;
