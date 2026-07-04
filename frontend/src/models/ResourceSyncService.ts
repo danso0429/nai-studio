@@ -103,12 +103,10 @@ export abstract class ResourceSyncService<
     if (name in this.resources) {
       throw new Error('Resource already exists');
     }
-    const created = await this.createDefault(name);
-    // TOCTOU: createDefault await 사이에 동명이 등록됐으면 덮어쓰지 않는다(중복/유실 방지).
-    if (name in this.resources) {
-      throw new Error('Resource already exists');
-    }
-    this.resources[name] = created;
+    // (동시 same-name add의 TOCTOU 재확인은 넣었다 되돌림 — 신규 생성이 그 throw로 실패했고,
+    //  UI가 이미 add 전 list().includes(name)로 중복을 막아 동시 same-name 생성이 사실상 불가.
+    //  동시 로드 중복 방지는 get()의 #loading dedup으로 커버.)
+    this.resources[name] = await this.createDefault(name);
     await this.onAdded(name);
     this.#markUpdated(name);
     await this.update();
