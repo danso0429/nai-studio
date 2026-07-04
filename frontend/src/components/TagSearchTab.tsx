@@ -47,13 +47,15 @@ const TagSearchTab = observer(() => {
   // 입력 디바운스(250ms) 후 서버 full 검색. 최신 요청만 반영(cntRef 가드).
   useEffect(() => {
     const q = query.trim();
+    // cntRef를 항상 올려 직전 in-flight 요청을 무효화(빈 쿼리로 지웠는데 옛 응답이
+    // 돌아와 stale 결과가 뜨는 것 방지).
+    const myId = ++cntRef.current;
     if (!q) {
       setResults([]);
       setLoading(false);
       return;
     }
     setLoading(true);
-    const myId = ++cntRef.current;
     const t = setTimeout(async () => {
       try {
         const tags = await backend.searchTagsFull(q, 200);
