@@ -1106,7 +1106,14 @@ const PromptAutoComplete = ({
     );
   }
 
-  const popoverTop = isMobile ? Math.max(8, clientY - 222) : posY;
+  // 모바일: 캐럿 위에 띄움(222 = 팝오버 높이 200 + 갭 22 → 하단이 캐럿보다 22px 위).
+  // 위 공간이 부족하면(입력창이 화면 상단) 8px로 clamp되어 화면 최상단으로 튀며 입력창과
+  // 어긋났음 → 위 공간 부족 시 캐럿 *아래*로 flip해 입력창 위치에 맞춤(위 공간 충분 시 기존 동작 불변).
+  let popoverTop = posY;
+  if (isMobile) {
+    const above = clientY - 222;
+    popoverTop = above >= 8 ? above : clientY + 24;
+  }
   return (
     <div
       onMouseDown={(e) => {
