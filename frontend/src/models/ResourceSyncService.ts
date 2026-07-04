@@ -43,6 +43,11 @@ export abstract class ResourceSyncService<
   // 빈 인스턴스만 필요. 무거운 default presets 임포트 불필요. 별도 createDummy()
   // sync 메소드로 분리, race fix(dummyReady)도 자연 해소.
   dummy: T;
+  // 이름별 로딩 중 프로미스(동시 get() 디듀프). 같은 리소스를 동시에 열어도 한 번만
+  // 읽고 인스턴스도 하나만 만든다 — 중복 인스턴스로 UI가 잡은 쪽과 저장되는 쪽이 갈려
+  // 편집이 유실되고 reaction이 누수되던 경로 차단(SDStudio 4.13.5 8a3072c). (retry/에러
+  // 처리는 각 호출자 opts로: 공유 프로미스는 순수 로드만, throwOnError는 호출자별 적용.)
+  #loading: Map<string, Promise<T>> = new Map();
   constructor(resourceDir: string, interval: number) {
     super();
     this.resources = {};
@@ -98,7 +103,12 @@ export abstract class ResourceSyncService<
     if (name in this.resources) {
       throw new Error('Resource already exists');
     }
-    this.resources[name] = await this.createDefault(name);
+    const created = await this.createDefault(name);
+    // TOCTOU: createDefault await 사이에 동명이 등록됐으면 덮어쓰지 않는다(중복/유실 방지).
+    if (name in this.resources) {
+      throw new Error('Resource already exists');
+    }
+    this.resources[name] = created;
     await this.onAdded(name);
     this.#markUpdated(name);
     await this.update();
@@ -197,23 +207,39 @@ export abstract class ResourceSyncService<
     name: string,
     opts?: { throwOnError?: boolean; retry?: boolean },
   ): Promise<T | undefined> {
-    if (!(name in this.resources)) {
-      try {
-        const str = await this.readFileWithRetry(name, opts?.retry === true);
-        let obj = JSON.parse(str);
-        obj = await this.migrate(obj);
-        obj = await this.fillEmptyPresetVars(obj);
-        this.resources[name] = this.dummy.fromJSON(obj);
-        await this.onAdded(name);
-        this.dispatchEvent(
-          new CustomEvent<{ name: string }>('fetched', { detail: { name } }),
-        );
-      } catch (e: any) {
-        console.error('get library error:', e);
-        if (opts?.throwOnError) throw e;
-        return undefined;
-      }
+    if (name in this.resources) return this.resources[name];
+    // 동시 로드 디듀프: 같은 name 로드가 진행 중이면 그 프로미스를 공유해 인스턴스 하나만
+    // 만든다. throwOnError는 공유 프로미스가 아니라 각 호출자가 자기 opts로 적용.
+    let p = this.#loading.get(name);
+    if (!p) {
+      p = this.#doLoad(name, opts?.retry === true);
+      this.#loading.set(name, p);
+      p.catch(() => {}).finally(() => this.#loading.delete(name));
     }
+    try {
+      return await p;
+    } catch (e: any) {
+      console.error('get library error:', e);
+      if (opts?.throwOnError) throw e;
+      return undefined;
+    }
+  }
+
+  // 실제 로드(디스크 읽기→마이그레이트→인스턴스 등록). 에러는 삼키지 않고 throw —
+  // throwOnError 분기는 get() 호출자별로 처리한다.
+  async #doLoad(name: string, retry: boolean): Promise<T> {
+    const str = await this.readFileWithRetry(name, retry);
+    let obj = JSON.parse(str);
+    obj = await this.migrate(obj);
+    obj = await this.fillEmptyPresetVars(obj);
+    // TOCTOU: await 사이에 다른 경로(add/rename 등)가 이미 등록했으면 그것을 사용해
+    // 중복 인스턴스를 막는다.
+    if (name in this.resources) return this.resources[name];
+    this.resources[name] = this.dummy.fromJSON(obj);
+    await this.onAdded(name);
+    this.dispatchEvent(
+      new CustomEvent<{ name: string }>('fetched', { detail: { name } }),
+    );
     return this.resources[name];
   }
 
@@ -287,7 +313,14 @@ export abstract class ResourceSyncService<
 
   async run() {
     while (this.running) {
-      await this.update();
+      // update()는 dirty 쓰기(안전, allSettled) 후 getList()(네트워크)에서 throw할 수 있는데,
+      // 여기서 잡지 않으면 루프가 죽어 *주기 저장이 영구 정지*(다음 편집이 디스크에 안 닿음,
+      // visibility flush만 남음). 잡아서 다음 주기에 재시도한다(SDStudio 4.13.5 8ea25a4 결).
+      try {
+        await this.update();
+      } catch (e) {
+        console.warn('[ResourceSync] update 실패(루프 유지, 다음 주기 재시도):', e);
+      }
       await sleep(this.updateInterval);
     }
   }
