@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { flushSync } from 'react-dom';
 import Denque from 'denque';
 import {
   FaBook,
@@ -1266,6 +1267,7 @@ interface EditTextAreaRef {
   undo(): void;
   getCaret: () => number | null;
   insertChunkAtCaret: (token: string, pos: number) => void;
+  focusEditor?: () => void;
 }
 
 const EmulatedEditTextArea = observer(
@@ -1366,6 +1368,9 @@ const EmulatedEditTextArea = observer(
         refreshHighlight: () => {
           const m = editorModelRef.current;
           if (m) m.updateDOM(m.curText, 0, false);
+        },
+        focusEditor: () => {
+          editorRef.current?.focus();
         },
         onCloseAutoComplete: () => {
           editorModelRef.current.autocomplete = false;
@@ -2012,8 +2017,13 @@ const PromptEditTextArea = observer(
     };
 
     const onFoucs = () => {
-      if (isMobile) {
-        setFullScreen(true);
+      // 모바일: 탭 → 자동 확대. 확대 전환은 에디터를 remount시켜 iOS 키보드가 내려가므로,
+      // flushSync로 동기 렌더 후 *같은 탭 제스처 안에서* 새 에디터에 즉시 재포커스 → 키보드 유지.
+      // (!fullScreen 가드: 이 핸들러는 mount 시점 fullScreen을 캡처 — 첫(false) 에디터만 전환,
+      //  전환 후 mount된 새 에디터의 핸들러는 fullScreen=true를 캡처해 재진입 skip.)
+      if (isMobile && !fullScreen) {
+        flushSync(() => setFullScreen(true));
+        editorRef.current?.focusEditor?.();
       }
     };
 
