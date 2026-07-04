@@ -1122,27 +1122,27 @@ const PromptAutoComplete = ({
     );
   }
 
-  // 위치 결정:
-  //  - 모바일 + 박스 rect 있음: 입력창 박스(상위/하위/네거·씬 프롬프트칸 등) 바로 아래에
-  //    폭·좌측을 맞춰 붙임(그 칸이 어디든 인식). 캐럿 위치가 아니라 박스 기준이라 어긋남 없음.
-  //  - 모바일 + 박스 못 구함(fallback): 캐럿 위/아래 flip.
+  // 위치 결정(모바일):
+  //  - 세로: 커서(타이핑 줄) 바로 아래에 밀착(clientY + 24). iOS가 포커스된 입력창을 화면
+  //    상단으로 스크롤하므로 커서는 항상 상단부 → 아래로 붙여도 키보드에 안 가림. (박스 맨
+  //    아래로 붙이면 박스가 세로로 길 때 커서와 떨어져 어색 → 커서 밀착이 표준 자동완성 느낌.)
+  //  - 가로: 입력창 박스(상위/하위/네거·씬 프롬프트칸)의 left/width에 맞춰 그 칸과 정렬(있을 때).
   //  - 데스크탑: 캐럿 아래(caret-follow) 유지.
-  const boxMode = isMobile && !!boxRect;
   let popoverTop: number;
   let popoverLeft: number | string;
   let popoverWidth: number | string;
   let popoverMaxWidth: string | undefined;
-  if (boxMode) {
-    popoverTop = boxRect!.bottom;
-    popoverLeft = boxRect!.left;
-    popoverWidth = boxRect!.width;
-    popoverMaxWidth = undefined;
-  } else if (isMobile) {
-    const above = clientY - 222;
-    popoverTop = above >= 8 ? above : clientY + 24;
-    popoverLeft = '5vw';
-    popoverWidth = '90vw';
-    popoverMaxWidth = '400px';
+  if (isMobile) {
+    popoverTop = clientY + 24;
+    if (boxRect) {
+      popoverLeft = boxRect.left;
+      popoverWidth = boxRect.width;
+      popoverMaxWidth = undefined;
+    } else {
+      popoverLeft = '5vw';
+      popoverWidth = '90vw';
+      popoverMaxWidth = '400px';
+    }
   } else {
     popoverTop = posY;
     popoverLeft = posX;
