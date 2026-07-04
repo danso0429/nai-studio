@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
@@ -954,6 +955,7 @@ const PromptAutoComplete = ({
   selectedTag,
   onSelectTag,
   inline = false,
+  fieldBoxRef,
 }: {
   tags: WordTag[];
   curWord: string;
@@ -962,9 +964,23 @@ const PromptAutoComplete = ({
   selectedTag: number;
   onSelectTag: (idx: number) => void;
   inline?: boolean;
+  fieldBoxRef?: { current: HTMLElement | null };
 }) => {
   const [posX, setPosX] = useState(0);
   const [posY, setPosY] = useState(0);
+  // 모바일: 입력창 박스(테두리) rect — 그 칸 바로 아래에 팝오버를 붙이기 위함.
+  const [boxRect, setBoxRect] = useState<{
+    left: number;
+    bottom: number;
+    width: number;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const el = fieldBoxRef?.current;
+    if (el && tags.length > 0) {
+      const r = el.getBoundingClientRect();
+      setBoxRect({ left: r.left, bottom: r.bottom, width: r.width });
+    }
+  }, [tags, fieldBoxRef]);
   const [matchMasks, setMatchMasks] = useState<any[][]>([]);
   const listRef = createRef<any>();
   const categoryIcon = (category: number) => {
@@ -1106,13 +1122,32 @@ const PromptAutoComplete = ({
     );
   }
 
-  // 모바일: 캐럿 위에 띄움(222 = 팝오버 높이 200 + 갭 22 → 하단이 캐럿보다 22px 위).
-  // 위 공간이 부족하면(입력창이 화면 상단) 8px로 clamp되어 화면 최상단으로 튀며 입력창과
-  // 어긋났음 → 위 공간 부족 시 캐럿 *아래*로 flip해 입력창 위치에 맞춤(위 공간 충분 시 기존 동작 불변).
-  let popoverTop = posY;
-  if (isMobile) {
+  // 위치 결정:
+  //  - 모바일 + 박스 rect 있음: 입력창 박스(상위/하위/네거·씬 프롬프트칸 등) 바로 아래에
+  //    폭·좌측을 맞춰 붙임(그 칸이 어디든 인식). 캐럿 위치가 아니라 박스 기준이라 어긋남 없음.
+  //  - 모바일 + 박스 못 구함(fallback): 캐럿 위/아래 flip.
+  //  - 데스크탑: 캐럿 아래(caret-follow) 유지.
+  const boxMode = isMobile && !!boxRect;
+  let popoverTop: number;
+  let popoverLeft: number | string;
+  let popoverWidth: number | string;
+  let popoverMaxWidth: string | undefined;
+  if (boxMode) {
+    popoverTop = boxRect!.bottom;
+    popoverLeft = boxRect!.left;
+    popoverWidth = boxRect!.width;
+    popoverMaxWidth = undefined;
+  } else if (isMobile) {
     const above = clientY - 222;
     popoverTop = above >= 8 ? above : clientY + 24;
+    popoverLeft = '5vw';
+    popoverWidth = '90vw';
+    popoverMaxWidth = '400px';
+  } else {
+    popoverTop = posY;
+    popoverLeft = posX;
+    popoverWidth = '90vw';
+    popoverMaxWidth = '400px';
   }
   return (
     <div
@@ -1125,10 +1160,10 @@ const PromptAutoComplete = ({
           tags.length > 0 && (clientX !== 0 || clientY !== 0)
             ? 'block'
             : 'none',
-        width: '90vw',
-        maxWidth: '400px',
+        width: popoverWidth,
+        maxWidth: popoverMaxWidth,
         height: '200px',
-        left: isMobile ? '5vw' : posX,
+        left: popoverLeft,
         top: popoverTop,
       }}
     >
@@ -1783,6 +1818,17 @@ const PromptEditTextArea = observer(
   }: PromptEditTextAreaProps) => {
     const { curSession } = appState;
     const editorRef = useRef<EditTextAreaRef | null>(null);
+    // 입력창 박스(테두리) DOM — 모바일 자동완성을 이 칸 바로 아래에 붙이기 위해 측정.
+    // innerRef prop(PieceEditor 등이 사용)과 병합해 한 요소에 둘 다 설정.
+    const fieldBoxRef = useRef<HTMLDivElement | null>(null);
+    const setFieldBoxRef = useCallback(
+      (el: HTMLDivElement | null) => {
+        fieldBoxRef.current = el;
+        if (typeof innerRef === 'function') innerRef(el);
+        else if (innerRef) innerRef.current = el;
+      },
+      [innerRef],
+    );
     // +chunk 버튼 누르기 직전(mousedown, 포커스 잃기 전)에 저장한 caret. chunk를 그
     // 위치에 삽입하기 위함 — 버튼 click 시점엔 칸 포커스가 풀려 caret을 알 수 없음.
     const savedChunkCaretRef = useRef<number | null>(null);
@@ -2113,7 +2159,7 @@ const PromptEditTextArea = observer(
     // textarea 컨테이너. headerFull이면 헤더 아래 남은 높이를 채우게 flex-1, 아니면 기존 h-full.
     const textareaDiv = (
       <div
-        ref={innerRef}
+        ref={setFieldBoxRef}
         onClick={handleClick}
         spellCheck={false}
         onDragStart={(event) => event.preventDefault()}
@@ -2149,6 +2195,7 @@ const PromptEditTextArea = observer(
           clientY={clientY}
           selectedTag={selectedTag}
           onSelectTag={onSelectTag}
+          fieldBoxRef={fieldBoxRef}
         />
       </>
     );
