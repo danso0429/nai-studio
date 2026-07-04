@@ -81,7 +81,7 @@ const TagSearchTab = observer(() => {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="태그 검색 (예: breasts)"
+            placeholder="태그 검색"
             className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 dark:border-slate-500 bg-white dark:bg-slate-700 text-default focus:outline-none focus:border-sky-400"
           />
         </div>
