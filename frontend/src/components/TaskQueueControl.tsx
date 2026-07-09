@@ -1094,8 +1094,9 @@ const TaskQueueControl = observer(() => {
           value={appState.samples}
           onChange={(e: any) => {
             try {
-              const num = parseInt(e.currentTarget.value) ?? 0;
-              appState.samples = Math.max(1, Math.min(99, num));
+              // NaN 가드 (진단 F3B-2): parseInt('')=NaN은 ??를 통과해 카운터 NaN 전파.
+              const num = parseInt(e.currentTarget.value);
+              appState.samples = Number.isNaN(num) ? 1 : Math.max(1, Math.min(99, num));
             } catch (e: any) {
               appState.samples = 1;
             }
@@ -1244,8 +1245,9 @@ export const TaskQueueControls = observer(() => {
           value={appState.samples}
           onChange={(e: any) => {
             try {
-              const num = parseInt(e.currentTarget.value) ?? 0;
-              appState.samples = Math.max(1, Math.min(99, num));
+              // NaN 가드 (진단 F3B-2): parseInt('')=NaN은 ??를 통과해 카운터 NaN 전파.
+              const num = parseInt(e.currentTarget.value);
+              appState.samples = Number.isNaN(num) ? 1 : Math.max(1, Math.min(99, num));
             } catch (e: any) {
               appState.samples = 1;
             }
