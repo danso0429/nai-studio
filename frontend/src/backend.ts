@@ -249,6 +249,8 @@ export abstract class Backend {
   abstract copyDir(src: string, dest: string): Promise<void>;
   abstract readDataFile(arg: string): Promise<string>;
   abstract writeDataFile(filename: string, data: string): Promise<void>;
+  // raw 스트림 업로드 (tmp/ 전용) — GB급 tar를 base64 팽창 없이 (진단 Med-8).
+  abstract writeDataFileRaw(filename: string, data: Blob): Promise<void>;
   abstract writeDataFileAbsolute(absolutePath: string, data: string): Promise<void>;
   abstract existFileAbsolute(absolutePath: string): Promise<boolean>;
   abstract renameFile(oldfile: string, newfile: string): Promise<void>;

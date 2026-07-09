@@ -1986,17 +1986,10 @@ export class AppState {
           const upid = appState.pushProgressDialog(`폴더 백업 업로드 중... (${file.name})`, 1);
           let tarPath: string;
           try {
-            const base64: string = await new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = (e: any) => {
-                const result = e.target?.result as string;
-                resolve(result.split(',')[1] || result);
-              };
-              reader.onerror = reject;
-              reader.readAsDataURL(file);
-            });
+            // raw 스트림 업로드 (진단 Med-8) — 옛 FileReader base64+JSON 경로는 서버
+            // 100mb 한도(팽창 4/3 → 원본 ~75MB)에서 413 + 모바일 탭 메모리 스파이크.
             tarPath = 'tmp/import_folder_' + Date.now() + '_' + file.name;
-            await backend.writeDataFile(tarPath, base64);
+            await backend.writeDataFileRaw(tarPath, file);
             appState.finishProgressDialog(upid, '✓ 업로드 완료', true);
           } catch (e: any) {
             appState.finishProgressDialog(upid, '✗ 업로드 실패: ' + e.message, false);
@@ -2138,17 +2131,9 @@ export class AppState {
         const upid = appState.pushProgressDialog('프로젝트 백업 업로드 중...', 1);
         let tarPath: string;
         try {
-          const base64: string = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e: any) => {
-              const result = e.target?.result as string;
-              resolve(result.split(',')[1] || result);
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-          });
+          // raw 스트림 업로드 (진단 Med-8) — base64 팽창·100mb 한도·메모리 스파이크 없음.
           tarPath = 'tmp/import_' + Date.now() + '_' + file.name;
-          await backend.writeDataFile(tarPath, base64);
+          await backend.writeDataFileRaw(tarPath, file);
           appState.finishProgressDialog(upid, '✓ 업로드 완료', true);
         } catch (e: any) {
           appState.finishProgressDialog(upid, '✗ 업로드 실패: ' + e.message, false);

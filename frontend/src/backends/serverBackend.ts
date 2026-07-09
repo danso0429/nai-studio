@@ -553,6 +553,17 @@ export class ServerBackend extends Backend {
     await api('/fs/write-data', { method: 'POST', body: JSON.stringify({ path: filename, data }), timeout: BINARY_API_TIMEOUT_MS });
   }
 
+  async writeDataFileRaw(filename: string, data: Blob): Promise<void> {
+    // GB급 tar 업로드 — base64 팽창(4/3)·JSON 100mb 한도·탭 메모리 스파이크 없이
+    // raw 스트림 (진단 Med-8). 서버가 tmp/ 하위로 제한. 느린 회선 GB 업로드 감안 30분.
+    await api(`/fs/upload-raw?path=${encodeURIComponent(filename)}`, {
+      method: 'POST',
+      body: data,
+      headers: { 'Content-Type': 'application/octet-stream' },
+      timeout: 30 * 60_000,
+    });
+  }
+
   async writeDataFileAbsolute(absolutePath: string, data: string): Promise<void> {
     await api('/fs/write-data', { method: 'POST', body: JSON.stringify({ path: absolutePath, data, absolute: true }) });
   }
