@@ -1594,10 +1594,35 @@ async function interruptibleSleep(ms) {
   }
 }
 
+// 디스크 critical로 멈춘 큐의 자동 재개 (진단 Med-3) — 60s마다 여유 재측정, 풀리면
+// pause 해제 + 런너 재기동. 옛 코드는 "새 job 추가나 수동 개입 전까지" 영구 대기였음.
+let _diskRecheckTimer = null;
+function scheduleDiskRecheck() {
+  if (_diskRecheckTimer) return;
+  _diskRecheckTimer = setTimeout(async () => {
+    _diskRecheckTimer = null;
+    try {
+      if (pauseRequested) return; // 사용자 명시 pause — 재개는 사용자 몫 (resume이 다시 디스크 체크)
+      const freeGB = await getDiskFreeGB();
+      if (freeGB >= DISK_CRIT_GB) {
+        queuePaused = false;
+        broadcast('disk-warning', { freeGB: freeGB.toFixed(1), stage: 0, message: `디스크 공간 확보 (${freeGB.toFixed(1)}GB) — 큐 자동 재개` });
+        console.log(`[Disk] recovered (${freeGB.toFixed(1)}GB free) — resuming queue`);
+        broadcastQueueStatus();
+        processQueue().catch((e) => console.error('[queue] runner crashed (disk recheck):', e));
+        return;
+      }
+    } catch {}
+    if (genQueue.length > 0) scheduleDiskRecheck(); // 여전히 부족 — jobs 남은 동안 계속 감시
+  }, 60000);
+}
+
 async function processQueue() {
   if (queueProcessing) return;
   queueProcessing = true;
   queuePaused = false;
+  // 디스크 critical로 루프를 나갈 때 epilogue가 queuePaused를 지우지 않게 하는 플래그 (진단 Med-3).
+  let diskHold = false;
   while (genQueue.length > 0) {
     // 사용자 명시 pause: in-flight job 완료 후 다음 job 시작 안 함
     if (pauseRequested) {
@@ -1621,8 +1646,11 @@ async function processQueue() {
       await new Promise(r => setTimeout(r, 60000));
       const retryGB = await getDiskFreeGB();
       if (retryGB < DISK_CRIT_GB) {
-        // Still not enough — keep paused, exit loop
-        // Queue will resume when new job is added or manual intervention
+        // 여전히 부족 — paused를 *유지*한 채 루프 종료 + 60s 자동 재체크 예약 (진단 Med-3).
+        // 옛 코드는 epilogue가 queuePaused=false로 덮어 "정지도 진행도 아닌" 모순 상태
+        // + 재개 트리거 부재(새 job 추가 전까지 영구 대기)였음.
+        diskHold = true;
+        scheduleDiskRecheck();
         break;
       }
       queuePaused = false;
@@ -1718,7 +1746,7 @@ async function processQueue() {
     broadcastQueueStatus();
   }
   queueProcessing = false;
-  queuePaused = false;
+  if (!diskHold) queuePaused = false; // 디스크 hold면 paused 유지 (Med-3 — 재개는 scheduleDiskRecheck)
   flushQueueState();  // flush final state when queue goes idle
   broadcastQueueStatus();
 }
