@@ -512,9 +512,13 @@ const Cell = memo(
               mscene.round = undefined;
             }
             const draggedImageIndex = mscene.imageMap.indexOf(draggedPath);
-            mscene.imageMap.splice(draggedImageIndex, 1);
+            if (draggedImageIndex >= 0) mscene.imageMap.splice(draggedImageIndex, 1);
             const dropImageIndex = mscene.imageMap.indexOf(dropPath);
-            if (draggedIndex < index) {
+            if (dropImageIndex < 0) {
+              // drop 대상이 imageMap에 아직 없으면(디스크엔 있는데 목록 갱신 전)
+              // splice(-1)이 끝에서 두 번째에 꽂히는 edge — 끝에 추가로 정정 (진단 Low)
+              mscene.imageMap.push(draggedPath);
+            } else if (draggedIndex < index) {
               mscene.imageMap.splice(dropImageIndex, 0, draggedPath);
             } else {
               mscene.imageMap.splice(dropImageIndex + 1, 0, draggedPath);
