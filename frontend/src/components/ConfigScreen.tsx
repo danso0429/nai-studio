@@ -410,9 +410,12 @@ const FolderCleanupSection = ({ folder, label, description }: { folder: string; 
                 <button
                   className="text-sm back-red px-3 py-1.5 rounded hover:brightness-95 active:brightness-90"
                   onClick={() => {
-                    if (confirm(`${label}의 모든 파일(${files.length}개, ${formatSize(totalSize)})을 삭제합니다.`)) {
-                      deleteFiles(files);
-                    }
+                    // native confirm()은 iOS UX 정책 위반 — HTML 모달로 (진단 F3B-5)
+                    appState.pushDialog({
+                      type: 'confirm',
+                      text: `${label}의 모든 파일(${files.length}개, ${formatSize(totalSize)})을 삭제합니다.`,
+                      callback: () => deleteFiles(files),
+                    });
                   }}
                   disabled={cleaning}
                 >
