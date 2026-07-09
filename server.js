@@ -715,9 +715,15 @@ function _expandBlobsInPlace(state) {
   }
   delete state.blobs;
 }
+// 진단 Med-2: 큐 영속화가 유일하게 non-atomic write였음 — 크래시/전원 차단이 write
+// 도중이면 큐 파일 손상(재시작 시 큐 전체 유실). tmp+rename(atomic)으로 전환.
+// flush(sync)와 async save가 겹쳐도 rename은 원자적이라 파일은 항상 둘 중 하나의
+// *완전한* 스냅샷 (unique tmp suffix로 tmp 충돌도 없음).
 function _writeQueueStateSync() {
   try {
-    fss.writeFileSync(QUEUE_STATE_FILE, JSON.stringify(_queueSnapshot()));
+    const tmp = QUEUE_STATE_FILE + _tmpSuffix();
+    fss.writeFileSync(tmp, JSON.stringify(_queueSnapshot()));
+    fss.renameSync(tmp, QUEUE_STATE_FILE);
   } catch {}
 }
 // audit H6 — 옛 makeDebouncedSaver는 writeFileSync로 큐 잡 수천개 + reference 이미지
@@ -727,7 +733,7 @@ let _queueSaveTimer = null;
 let _queueSavePromise = null;
 async function _writeQueueStateAsync() {
   try {
-    await fs.writeFile(QUEUE_STATE_FILE, JSON.stringify(_queueSnapshot()));
+    await atomicWriteFile(QUEUE_STATE_FILE, JSON.stringify(_queueSnapshot()));
   } catch (e) {
     console.error('[queue] save failed:', e.message);
   }
