@@ -3182,7 +3182,9 @@ app.post('/api/trash/auto-cleanup', async (req, res) => {
 // 본인 정책: 휴지통 거치지 않고 즉시 영구 삭제. Drive 휴지통도 우회(--drive-use-trash=false).
 
 const RCLONE_TRASH_BYPASS = '--drive-use-trash=false';
-const PROJECT_SUB_DIRS = ['outs', 'inpaints', 'vibes', 'inpaint_masks', 'inpaint_orgs'];
+// references 포함 (진단 Med-5): 누락 시 프로젝트 삭제·orphan 정리가 references/<name>/을
+// 로컬+Drive 양쪽에 영구 잔존시켰음 (백업 INCLUDE_DIRS·복원·용량계산엔 이미 포함 = 표류였음).
+const PROJECT_SUB_DIRS = ['outs', 'inpaints', 'vibes', 'inpaint_masks', 'inpaint_orgs', 'references'];
 
 function sanitizeProjectName(name) {
   if (typeof name !== 'string' || !name) return null;
