@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  appUpdateNoticeService,
   backend,
   imageService,
   isMobile,
@@ -628,31 +627,35 @@ const OtherTab = ({
 }: any) => {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
 
+  // 진단 Med-10: 옛 코드는 electron 잔재 stub(appUpdateNoticeService.checkForUpdate —
+  // 무조건 {outdated:false})에 물려 실제 확인 없이 항상 "최신"을 거짓 보고했음.
+  // BuildInfo 배지와 동일한 실검증 경로(/api/version-check)로 재배선.
   const handleCheckUpdate = async () => {
     setCheckingUpdate(true);
     try {
-      const { outdated, latest } = await appUpdateNoticeService.checkForUpdate();
-      if (outdated) {
+      const r = await fetch(apiUrl('/api/version-check') + `?t=${Date.now()}`);
+      if (!r.ok) throw new Error('version-check ' + r.status);
+      const info: {
+        current: string | null;
+        latest: string | null;
+        updateAvailable: boolean;
+      } = await r.json();
+      if (info.updateAvailable && info.latest) {
         appState.pushDialog({
           type: 'select',
-          text: `새로운 버전(${latest})이 있습니다.\n새로 다운 받으시겠습니까?`,
+          text: `새로운 버전(${info.latest})이 있습니다.\n(현재: ${info.current ?? '?'})`,
           green: true,
-          items: [
-            { text: '다운로드 페이지 열기', value: 'open' },
-            { text: '다시 알리지 않음', value: 'dismiss' },
-          ],
+          items: [{ text: '릴리즈 페이지 열기', value: 'open' }],
           callback: (value?: string) => {
             if (value === 'open') {
               backend.openWebPage('https://github.com/danso0429/nai-studio/releases');
-            } else if (value === 'dismiss') {
-              appUpdateNoticeService.dismissVersion(latest);
             }
           },
         });
       } else {
         appState.pushDialog({
           type: 'yes-only',
-          text: `현재 최신 버전입니다. (${appUpdateNoticeService.current})`,
+          text: `현재 최신 버전입니다. (${info.current ?? '?'})`,
         });
       }
     } catch (e) {
