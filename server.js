@@ -3023,6 +3023,33 @@ app.post('/api/fs/write-data', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// raw 바이너리 업로드 → tmp/ 스테이징 (진단 Med-8). 옛 경로(write-data base64 JSON)는
+// express.json 100mb 한도 × base64 팽창(4/3)으로 ~75MB 초과 tar 복원 불가 + 모바일 탭
+// 메모리 스파이크였음. /api/backup/restore와 같은 스트림→파일 패턴(2GB 상한).
+// path는 tmp/ 하위로 제한 — 업로드 스테이징 전용이라 임의 파일 덮어쓰기 표면 차단.
+app.post('/api/fs/upload-raw', async (req, res) => {
+  try {
+    const rel = String(req.query.path || '');
+    if (!rel.startsWith('tmp/')) {
+      return res.status(400).json({ error: 'path must be under tmp/' });
+    }
+    const filePath = resolvePath(rel);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const tmpFile = filePath + _tmpSuffix();
+    await new Promise((resolve, reject) => {
+      const ws = fss.createWriteStream(tmpFile);
+      let bytes = 0;
+      req.on('data', (c) => { bytes += c.length; if (bytes > 2 * 1024 * 1024 * 1024) { req.destroy(); ws.destroy(); reject(new Error('업로드 파일이 너무 큽니다 (>2GB)')); } });
+      req.pipe(ws);
+      ws.on('finish', resolve);
+      ws.on('error', reject);
+      req.on('error', reject);
+    });
+    await fs.rename(tmpFile, filePath);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/fs/copy', async (req, res) => {
   try {
     const src = resolvePath(req.body.src);
