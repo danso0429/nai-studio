@@ -1159,9 +1159,15 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const clearImageCache = async () => {
     if (!curSession) return;
     appState.pushMessage('이미지 캐시 초기화 시작');
-    for (const scene of Object.values(curSession.scenes)) {
+    // 진단 Med-9: 옛 코드는 Object.values(Map)이라 항상 빈 배열 → 디스크 fastcache가
+    // 한 번도 안 지워지고 "완료" 토스트만 떴음. Map.values() 순회 + 인페인트 씬 포함.
+    const scenes = [
+      ...curSession.scenes.values(),
+      ...curSession.inpaints.values(),
+    ];
+    for (const scene of scenes) {
       try {
-        await backend.deleteDir(imageService.getImageDir(curSession, scene) + '/fastcache');
+        await backend.deleteDir(imageService.getOutputDir(curSession, scene) + '/fastcache');
       } catch (e) {}
     }
     imageService.cache.cache.clear();
