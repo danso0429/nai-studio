@@ -29,8 +29,18 @@ export class GlobalPieceService {
   }
 
   async load() {
+    // 손상/부재 분기 (진단 F2-13): 옛 코드는 통짜 catch → 빈 Map — 파싱 실패(손상)면
+    // 다음 save가 손상본을 빈 데이터로 덮어써 전역 조각 전체가 복구 불가로 소실됐음.
+    // DebouncedJsonStore와 같은 패턴: 손상은 .corrupt-<ts>로 원본 보존 후 빈 시작.
+    let str: string;
     try {
-      const str = await backend.readFile(GLOBAL_PIECES_FILE);
+      str = await backend.readFile(GLOBAL_PIECES_FILE);
+    } catch (e) {
+      // 파일 없음/read 실패 — 빈 state로 시작 (기존 동작).
+      this.library = new Map();
+      return;
+    }
+    try {
       const json: Record<string, IPieceLibrary> = JSON.parse(str);
       this.library = new Map(
         Object.entries(json).map(([key, value]) => [
@@ -39,6 +49,11 @@ export class GlobalPieceService {
         ]),
       );
     } catch (e) {
+      const corruptName = `${GLOBAL_PIECES_FILE}.corrupt-${Date.now()}`;
+      try {
+        await backend.renameFile(GLOBAL_PIECES_FILE, corruptName);
+        console.error(`[global-pieces] 손상 감지 — 원본을 ${corruptName}에 보존`);
+      } catch {}
       this.library = new Map();
     }
   }
