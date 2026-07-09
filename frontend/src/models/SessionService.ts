@@ -307,6 +307,12 @@ export class SessionService extends ResourceSyncService<Session> {
     if (!folderPath || segs.some((s) => s.trim() === '')) {
       throw new Error('폴더 이름이 올바르지 않습니다.');
     }
+    // 서버 sanitizeFolderPath와 정렬 (진단 F2-7): '.' 시작 세그먼트('.keep', '..' 포함)
+    // 차단 — createFolder는 fs/write 경유라 서버측 폴더 검증을 우회했음. DATA_DIR 밖은
+    // resolvePath가 막지만 'projects/../vibes' 같은 자기 데이터 오염은 여기서 막아야 함.
+    if (segs.some((s) => s.trim().startsWith('.'))) {
+      throw new Error("폴더 이름은 '.'으로 시작할 수 없어요.");
+    }
     if (segs.length > MAX_FOLDER_DEPTH) {
       throw new Error(`폴더는 최대 ${MAX_FOLDER_DEPTH}단계까지 중첩할 수 있어요.`);
     }
