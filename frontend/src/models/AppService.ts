@@ -3988,12 +3988,13 @@ export class AppState {
     if (!this.curSession) return;
     const session = this.curSession;
 
-    // outs/<세션명>/ 디렉토리에서 씬 폴더 목록 조회
+    // outs/<세션명>/ 디렉토리에서 씬 폴더 목록 조회.
+    // 진단 F2-12: 옛 "'.' 없으면 디렉토리" 휴리스틱은 이름에 '.'이 든 씬을 복구에서
+    // 누락 — listFilesRecursive(depth 0)의 dirs(실제 디렉토리 목록)를 사용.
     let sceneDirs: string[] = [];
     try {
-      const entries = await backend.listFiles('outs/' + session.name);
-      // 디렉토리만 필터링 (확장자 없는 항목 = 디렉토리)
-      sceneDirs = entries.filter((e: string) => !e.includes('.'));
+      const listed = await backend.listFilesRecursive('outs/' + session.name, 0);
+      sceneDirs = listed.dirs.filter((d) => d !== 'fastcache' && d !== '.trash');
     } catch {
       // outs 디렉토리 자체가 없으면 복구할 것 없음
     }
