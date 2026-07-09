@@ -45,13 +45,32 @@ async function ensureDirs() {
 }
 
 // ─── Config ─────────────────────────────────────────────────────────
+// 진단 Med-1: 옛 코드는 *모든* read 실패에 {}를 디스크에 덮어써서, 일시적 I/O 오류나
+// 파싱 실패 한 번에 로그인 토큰 외 전 설정이 영구 소실될 수 있었음. 실패 원인별 분기:
+// - ENOENT(첫 실행) → 기본값 생성 (기존 동작 유지)
+// - 파싱 실패(손상) → 원본을 .corrupt-<ts>로 보존 후 기본값 생성 (수동 복구 여지)
+// - 그 외 I/O 오류(일시적) → 디스크 안 건드리고 {} 반환 (다음 호출에서 정상 회복)
 async function loadConfig() {
   try {
     return JSON.parse(await fs.readFile(CONFIG_PATH, 'utf-8'));
-  } catch {
-    const def = {};
-    await fs.writeFile(CONFIG_PATH, JSON.stringify(def));
-    return def;
+  } catch (e) {
+    if (e && e.code === 'ENOENT') {
+      const def = {};
+      await fs.writeFile(CONFIG_PATH, JSON.stringify(def));
+      return def;
+    }
+    if (e instanceof SyntaxError) {
+      const backup = CONFIG_PATH + '.corrupt-' + Date.now();
+      try {
+        await fs.copyFile(CONFIG_PATH, backup);
+        console.error(`[config] config.json 손상 — 원본을 ${backup}에 보존하고 기본값으로 재생성`);
+      } catch {}
+      const def = {};
+      await fs.writeFile(CONFIG_PATH, JSON.stringify(def));
+      return def;
+    }
+    console.error('[config] config.json 읽기 실패 (일시적, 덮어쓰지 않음):', e.message);
+    return {};
   }
 }
 
