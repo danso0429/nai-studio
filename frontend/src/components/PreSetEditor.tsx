@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useContext, useEffect, useRef, useState } from 'react';
+import { Buffer } from 'buffer';
 import {
   TextAreaWithUndo,
   NumberSelect,
@@ -1252,6 +1253,7 @@ const ProfilePreSetSelect = observer(({}) => {
     useContext(WFElementContext)!;
   const presets = curSession!.presets.get(type)!;
   const [selected, setSelected] = useState<any | undefined>(undefined);
+  const multiImportInputRef = React.useRef<HTMLInputElement>(null);
   const { show, hideAll } = useContextMenu({
     id: ContextMenuType.Style,
   });
@@ -1356,13 +1358,30 @@ const ProfilePreSetSelect = observer(({}) => {
           <Tooltip content="여러 그림체 파일 가져오기">
           <div
             className="flex-1 w-10 flex m-4 items-center justify-center rounded-xl clickable back-lllgray"
-            onClick={async () => {
-              await appState.importMultiplePresets();
-            }}
+            onClick={() => multiImportInputRef.current?.click()}
           >
             <FaFolderOpen />
           </div>
           </Tooltip>
+          {/* 진단 Med-12: 웹은 selectFiles 불가 — file input으로 읽어 base64 리스트 전달 */}
+          <input
+            type="file"
+            accept="image/png"
+            multiple
+            ref={multiImportInputRef}
+            className="hidden"
+            onChange={async (e) => {
+              const files = e.target.files;
+              e.target.value = '';
+              if (!files || files.length === 0) return;
+              const list: Array<{ name: string; base64: string }> = [];
+              for (const file of Array.from(files)) {
+                const buf = await file.arrayBuffer();
+                list.push({ name: file.name, base64: Buffer.from(buf).toString('base64') });
+              }
+              await appState.importMultiplePresets(list);
+            }}
+          />
           <Tooltip content="글로벌 프리셋에서 가져오기">
           <div
             className="flex-1 w-10 flex m-4 items-center justify-center rounded-xl clickable back-lllgray"

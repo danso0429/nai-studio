@@ -4253,29 +4253,42 @@ export class AppState {
   }
 
   /**
-   * 여러 그림체 파일을 한번에 가져오기
+   * 여러 그림체 파일을 한번에 가져오기.
+   * 진단 Med-12: 옛 경로는 backend.selectFiles(웹에서 항상 []) 의존이라 버튼이 조용한
+   * 무동작이었음 — UI가 <input type="file" multiple>로 읽은 {name, base64} 리스트를
+   * 직접 넘기는 웹 경로 추가. 인자 없으면 옛 selectFiles 경로(데스크탑 잔재) 유지.
    */
-  async importMultiplePresets() {
+  async importMultiplePresets(fileData?: Array<{ name: string; base64: string }>) {
     if (!this.curSession) {
       this.pushMessage('세션을 먼저 선택해주세요.');
       return;
     }
 
-    const files = await backend.selectFiles({
-      filters: [
-        { name: 'PNG 이미지', extensions: ['png'] },
-        { name: '모든 파일', extensions: ['*'] },
-      ],
-    });
-
-    if (!files || files.length === 0) {
-      return;
+    let items: Array<{ name: string; base64: string | null }>;
+    if (fileData && fileData.length > 0) {
+      items = fileData;
+    } else {
+      const files = await backend.selectFiles({
+        filters: [
+          { name: 'PNG 이미지', extensions: ['png'] },
+          { name: '모든 파일', extensions: ['*'] },
+        ],
+      });
+      if (!files || files.length === 0) {
+        return;
+      }
+      items = files.map((filePath) => ({
+        name: filePath.split('/').pop() || filePath.split('\\').pop() || filePath,
+        base64: null, // 아래 루프에서 경로로 lazy read
+      }));
+      // 경로 보존용 — base64 null이면 readBinaryFile(filePath)로 읽음
+      for (let i = 0; i < files.length; i++) (items[i] as any).filePath = files[i];
     }
 
     this.setProgressDialog({
       text: '그림체 가져오는 중...',
       done: 0,
-      total: files.length,
+      total: items.length,
     });
 
     const results = {
@@ -4284,17 +4297,15 @@ export class AppState {
       failedNames: [] as string[],
     };
 
-    for (let i = 0; i < files.length; i++) {
-      const filePath = files[i];
-      const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
-      
+    for (let i = 0; i < items.length; i++) {
+      const fileName = items[i].name;
       try {
-        // 파일 읽기
-        const base64 = await backend.readBinaryFile(filePath);
-        
+        const base64 =
+          items[i].base64 ?? (await backend.readBinaryFile((items[i] as any).filePath));
+
         // 프리셋 가져오기
         const preset = await importPreset(this.curSession!, base64);
-        
+
         if (preset) {
           results.success++;
         } else {
@@ -4310,7 +4321,7 @@ export class AppState {
       this.setProgressDialog({
         text: '그림체 가져오는 중...',
         done: i + 1,
-        total: files.length,
+        total: items.length,
       });
     }
 
