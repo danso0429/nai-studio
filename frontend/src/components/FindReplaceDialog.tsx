@@ -27,8 +27,11 @@ function collectResults(
   const q = query;
 
   if (scopes.scene) {
-    for (const scene of session.scenes.values()) {
-      const sceneName = scene.name;
+    // 인페인트 씬도 slots를 가지므로 포함 (진단 Low — P39에서 인페인트 slots 도입 후 표류)
+    const allScenes = [...session.scenes.values(), ...session.inpaints.values()];
+    for (const scene of allScenes) {
+      const sceneName =
+        (scene.type === 'inpaint' ? '🎨 ' : '') + scene.name;
       scene.slots.forEach((slot, si) => {
         slot.forEach((piece, pi) => {
           if (piece.prompt.includes(q)) {
