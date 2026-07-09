@@ -1,4 +1,4 @@
-import { backend, isMobile, gameService, imageService } from '.';
+import { backend, isMobile, gameService, imageService, getInitialThumbSize } from '.';
 import { GenericScene, InpaintScene, Scene, Session } from './types';
 import { assert } from './util';
 import { v4 } from 'uuid';
@@ -759,13 +759,26 @@ export class ImageService extends EventTarget {
       path.split('/').pop()!,
     ]);
     session.scenes.get(scene)?.imageMap.push(path.split('/').pop()!);
-    if (isMobile)
-      for (const size of supportedImageSizes) this.fetchImageSmall(path, size);
+    this.prefetchCompletedImage(path);
     this.dispatchEvent(
       new CustomEvent('updated', {
         detail: { batch: false, session, scene: session.scenes.get(scene) },
       }),
     );
+  }
+
+  // 완료 이미지 prefetch — 진단 축3 (F2-8, 본인 확정 2026-07-02): 옛 3사이즈(200/400/500)
+  // eager fetch는 P21 서버 prewarm 1사이즈 축소와 표류 — 요청·리사이즈 3배(모바일 발열·
+  // 디스크)에 모바일 그리드는 200 고정이라 400/500 대부분 사장. 정책 = "fetch 시점의
+  // 유효 표시 사이즈 1개"(서버 prewarm과 동일 규칙): 설정 변경 이후 완성분부터 자동
+  // 반영, 옛 이미지는 표시 시점 on-demand 1회 생성(소급 재생성 없음 — 발열 재도입 방지).
+  private prefetchCompletedImage(path: string) {
+    if (!isMobile) return;
+    import('./AppService')
+      .then(({ appState }) =>
+        this.fetchImageSmall(path, getInitialThumbSize(appState.initialThumbSize)),
+      )
+      .catch(() => {});
   }
 
   onAddInPaint(session: Session, scene: string, path: string) {
@@ -779,8 +792,7 @@ export class ImageService extends EventTarget {
       scene
     ].concat([path.split('/').pop()!]);
     session.inpaints.get(scene)?.imageMap.push(path.split('/').pop()!);
-    if (isMobile)
-      for (const size of supportedImageSizes) this.fetchImageSmall(path, size);
+    this.prefetchCompletedImage(path);
     this.dispatchEvent(
       new CustomEvent('updated', {
         detail: { batch: false, session, scene: session.inpaints.get(scene) },
@@ -880,7 +892,8 @@ export const deleteImageFiles = async (
     // 캐시 일괄 무효화 (순차 mutex 대신 batch)
     for (const path of paths) {
       imageService.cache.delete(path);
-      for (const sz of [200, 400]) {
+      // 전 사이즈 무효화 — 옛 [200,400] 하드코딩은 500 캐시 잔존 (진단 축3 동반 정리)
+      for (const sz of supportedImageSizes) {
         const dir = path.substring(0, path.lastIndexOf('/'));
         const name = path.substring(path.lastIndexOf('/') + 1);
         imageService.cache.delete(dir + '/fastcache/' + sz + '_' + name);

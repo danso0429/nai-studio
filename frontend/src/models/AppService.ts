@@ -17,7 +17,7 @@ import type { GlobalPresetType, IGlobalPresetEntry } from './GlobalPresetService
 import { SUPPORTED_GLOBAL_PRESET_TYPES } from './GlobalPresetService';
 import { Dialog } from '../components/ConfirmWindow';
 import { getSceneKey, queueI2IWorkflow, queueMirrorWorkflow, queueWorkflow, Task } from './TaskQueueService';
-import { cropMirrorResultFromDataUri, dataUriToBase64 } from './ImageService';
+import { cropMirrorResultFromDataUri, dataUriToBase64, supportedImageSizes } from './ImageService';
 import {
   createImageWithText,
   embedJSONInPNG,
@@ -866,7 +866,8 @@ export class AppState {
       imageService.cache.delete(path);
       const dir = path.substring(0, path.lastIndexOf('/'));
       const name = path.substring(path.lastIndexOf('/') + 1);
-      for (const sz of [200, 400]) {
+      // 전 사이즈 무효화 — 옛 [200,400] 하드코딩은 500 캐시 잔존 (진단 축3 동반 정리)
+      for (const sz of supportedImageSizes) {
         imageService.cache.delete(dir + '/fastcache/' + sz + '_' + name);
       }
     }
