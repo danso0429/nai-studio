@@ -1009,6 +1009,18 @@ export const CharacterPresetEditor = observer(({
     if (isNew) {
       curSession.addCharacterPreset(preset);
     } else {
+      // 진단 Med-11: rename이 *다른 기존 프리셋* 이름과 겹치면 updateCharacterPreset이
+      // 확인 없이 그 프리셋을 대체(소실)했음 — 편집기 유지한 채 거부 (add 경로의
+      // 자동 suffix 방어와 달리 update만 무방비였음).
+      if (
+        preset.name !== editingPreset!.name &&
+        curSession.hasCharacterPreset(preset.name)
+      ) {
+        appState.pushMessage(
+          `"${preset.name}" 이름의 프리셋이 이미 있어요 — 다른 이름을 입력해 주세요.`,
+        );
+        return;
+      }
       curSession.updateCharacterPreset(editingPreset!.name, preset);
     }
     setEditingPreset(null);
