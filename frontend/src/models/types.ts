@@ -601,11 +601,20 @@ export class Session implements Serealizable {
         PieceLibrary.fromJSON(value),
       ]),
     );
+    // forward-compat (진단 Low): 미지의 workflow type shared는 drop — 옛 코드는
+    // sharedFromJSON throw로 미래 버전/포크 프로젝트 로드가 통째 실패했음 (presets의
+    // null 필터 관대 처리와 비대칭). drop돼도 PreSetEditor가 buildShared로 재생성.
     session.presetShareds = new Map(
-      Object.entries(json.presetShareds).map(([key, value]) => [
-        key,
-        workFlowService.sharedFromJSON(value),
-      ]),
+      Object.entries(json.presetShareds)
+        .map(([key, value]) => {
+          try {
+            return [key, workFlowService.sharedFromJSON(value)] as const;
+          } catch (e) {
+            console.warn(`[session] 미지의 workflow shared drop: ${key}`, e);
+            return null;
+          }
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null),
     );
     // 캐릭터 프리셋 로드
     session.characterPresets = new Map(
