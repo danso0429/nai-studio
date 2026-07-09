@@ -119,7 +119,9 @@ export class SessionService extends ResourceSyncService<Session> {
       throw new Error('이미 존재하는 프로젝트 이름입니다.');
     }
     if (withImages) {
-      const imageDirs = ['outs', 'inpaints', 'vibes', 'inpaint_masks', 'inpaint_orgs'];
+      // references 포함 (진단 Med-5): 누락 시 복제본에서 캐릭터 레퍼런스 이미지 fetch 실패
+      // → 레퍼런스 없이 생성되던 silent 결손.
+      const imageDirs = ['outs', 'inpaints', 'vibes', 'inpaint_masks', 'inpaint_orgs', 'references'];
       for (const dir of imageDirs) {
         try {
           await backend.copyDir(dir + '/' + session.name, dir + '/' + newName);
