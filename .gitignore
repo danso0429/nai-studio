@@ -43,6 +43,7 @@ PHASE*_HANDOFF.md
 
 # 개발자 개인 노트 / 메타 (public repo에 노출 X — 2026-05-20 history sanitize 후 영구 제외)
 CLAUDE.md
+AGENTS.md
 JOURNAL.md
 docs/JOURNAL-archive.md
 .code-review/
