@@ -204,7 +204,6 @@ export interface CleanupOrphansError {
 export abstract class Backend {
   abstract getConfig(): Promise<Config>;
   abstract setConfig(newConfig: Config): Promise<void>;
-  abstract getVersion(): Promise<string>;
   abstract openWebPage(url: string): Promise<void>;
   abstract generateImage(arg: ImageGenInput): Promise<void>;
   abstract queueAddBatch(items: Array<{ params: ImageGenInput; meta?: QueueJobMeta }>): Promise<{ jobIds: string[]; rejected: number }>;

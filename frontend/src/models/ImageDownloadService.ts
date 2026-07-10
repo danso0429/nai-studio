@@ -294,13 +294,12 @@ export class ImageDownloadService {
     }
 
     try {
-      // 저장 경로 선택 — selectDir 가능시만 절대 경로(desktop). 웹은 selectDir undefined →
-      // 브라우저 다운로드로 N번 fallback.
-      let savePath = this.settings.lastSavePath;
-      if (!savePath) {
-        savePath = await backend.selectDir();
-        if (savePath) await this.updateLastSavePath(savePath);
-      }
+      // 저장 경로 선택 — selectDir가 *실제로 동작*할 때만 절대 경로(desktop). 웹은 항상
+      // undefined → 브라우저 다운로드로 N번 fallback.
+      // 진단 F2-5: settings.lastSavePath(옛 데스크탑 설정 이관 잔재)를 신뢰하면 웹 미지원
+      // writeDataFileAbsolute 경로로 빠져 다운로드 전량 실패 — 저장값은 참조하지 않음.
+      let savePath = await backend.selectDir();
+      if (savePath) await this.updateLastSavePath(savePath);
 
       this.isDownloading = true;
       this.downloadProgress = 0;

@@ -128,13 +128,13 @@ import('./AppService').then((m) => m.appState.initExportPresets());
 (window as any).toggleGroupService = toggleGroupService;
 (window as any).samplingPresetService = samplingPresetService;
 
-backend.onClose(() => {
-  (async () => {
-    await sessionService.saveAll();
-  })();
-});
+// electron 잔재 정리 (진단 [동작 변경 제안], 2026-07-09):
+// - backend.onClose saveAll 등록 제거 — 서버가 'close'를 broadcast하는 코드가 0이라
+//   절대 발화하지 않던 죽은 배선 (웹 저장은 주기 저장 + flushOnHide가 담당).
+// - appUpdateNoticeService stub 제거 — 소비처였던 App.tsx 리스너(미발화)와 환경설정
+//   버튼(Med-10에서 /api/version-check 재배선) 모두 정리돼 참조 0.
 
-// LocalAIService and AppUpdateNoticeService stubs for web mode
+// LocalAIService stub for web mode
 class NoopEventTarget extends EventTarget {}
 
 const _localAITarget = new NoopEventTarget();
@@ -148,16 +148,4 @@ export const localAIService = Object.assign(_localAITarget, {
   modelChanged: () => {},
   notifyDownloadProgress: (_p: number) => {},
   removeBg: async (_image: string, _outputPath: string) => {},
-});
-
-const _updateTarget = new NoopEventTarget();
-export const appUpdateNoticeService = Object.assign(_updateTarget, {
-  run: () => {},
-  notice: undefined as string | undefined,
-  outdated: false,
-  latestVersion: '',
-  current: '2.0.0-web',
-  isDismissed: (_v: string) => true,
-  dismissVersion: (_v: string) => {},
-  checkForUpdate: async () => ({ outdated: false, latest: '2.0.0-web' }),
 });

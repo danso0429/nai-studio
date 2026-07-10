@@ -50,7 +50,6 @@ import {
   taskQueueService,
   backend,
   sessionService,
-  appUpdateNoticeService,
   localAIService,
   imageService,
   isMobile,
@@ -323,33 +322,9 @@ export const App = observer(() => {
       sessionService.removeEventListener('config-changed', refreshDarkMode);
     };
   }, []);
-  useEffect(() => {
-    const handleUpdate = () => {
-      const latest = appUpdateNoticeService.latestVersion;
-      if (appUpdateNoticeService.outdated && !appUpdateNoticeService.isDismissed(latest)) {
-        appState.pushDialog({
-          type: 'select',
-          text: `새로운 버전(${latest})이 있습니다.\n새로 다운 받으시겠습니까?`,
-          green: true,
-          items: [
-            { text: '다운로드 페이지 열기', value: 'open' },
-            { text: '다시 알리지 않음', value: 'dismiss' },
-          ],
-          callback: (value?: string) => {
-            if (value === 'open') {
-              backend.openWebPage('https://github.com/danso0429/nai-studio/releases');
-            } else if (value === 'dismiss') {
-              appUpdateNoticeService.dismissVersion(latest);
-            }
-          },
-        });
-      }
-    };
-    appUpdateNoticeService.addEventListener('updated', handleUpdate);
-    return () => {
-      appUpdateNoticeService.removeEventListener('updated', handleUpdate);
-    };
-  }, []);
+  // (electron 잔재 정리) appUpdateNoticeService 'updated' 리스너 제거 — 웹 stub은
+  // 이벤트를 절대 dispatch하지 않아 미발화 죽은 경로였음. 실제 업데이트 알림은
+  // BuildInfo 배지(/api/version-check)가 담당.
   useEffect(() => {
     const removeDownloadProgressListener = backend.onDownloadProgress(
       (progress: any) => {

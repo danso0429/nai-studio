@@ -219,7 +219,6 @@ export class ServerBackend extends Backend {
 
   async getConfig(): Promise<Config> { return apiJSON('/config'); }
   async setConfig(newConfig: Config): Promise<void> { await api('/config', { method: 'POST', body: JSON.stringify(newConfig) }); }
-  async getVersion(): Promise<string> { return (await apiJSON('/version')).version; }
   async openWebPage(url: string): Promise<void> { window.open(url, '_blank'); }
 
   async generateImage(arg: ImageGenInput): Promise<void> {

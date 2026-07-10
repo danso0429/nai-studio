@@ -1930,9 +1930,8 @@ app.get('/api/build-info', (req, res) => {
   } catch {}
   res.json({ buildTime: 'unknown', gitHash: 'unknown' });
 });
-app.get('/api/version', (req, res) => {
-  res.json({ version: '2.0.0-web' });
-});
+// (electron 잔재 정리) /api/version 제거 — 소비처였던 클라 Backend.getVersion과 함께
+// 죽은 체인(호출 0). 실버전은 /api/build-info + /api/version-check가 담당.
 
 // ─── API: Auth ──────────────────────────────────────────────────────
 // /api/auth/login + /api/auth/login-token rate limit. NAI 측 자체 throttle이 있지만
