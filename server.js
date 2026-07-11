@@ -3029,10 +3029,13 @@ app.post('/api/fs/write-data', async (req, res) => {
 app.post('/api/fs/upload-raw', async (req, res) => {
   try {
     const rel = String(req.query.path || '');
-    if (!rel.startsWith('tmp/')) {
+    const filePath = resolvePath(rel);
+    const tmpRoot = resolvePath('tmp');
+    // 문자열 prefix는 `tmp/../projects/x.json`을 통과시킨다. 정규화가 끝난 절대경로가
+    // 실제 data/tmp 하위인지 검사해야 staging 밖 사용자 데이터 덮어쓰기를 막을 수 있다.
+    if (!filePath.startsWith(tmpRoot + path.sep)) {
       return res.status(400).json({ error: 'path must be under tmp/' });
     }
-    const filePath = resolvePath(rel);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     const tmpFile = filePath + _tmpSuffix();
     await new Promise((resolve, reject) => {
