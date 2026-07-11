@@ -229,7 +229,9 @@ const BrushTool = forwardRef<BrushToolRef, Props>(
       if (mask) {
         setLoaded(false);
         const img = new Image();
+        let cancelled = false;
         img.onload = () => {
+          if (cancelled) return;
           ctx.drawImage(img, 0, 0);
           const imageData = ctx.getImageData(
             0,
@@ -264,6 +266,10 @@ const BrushTool = forwardRef<BrushToolRef, Props>(
           setLoaded(true);
         };
         img.src = mask;
+        return () => {
+          cancelled = true;
+          img.onload = null;
+        };
       } else {
         setLoaded(true);
       }
