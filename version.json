@@ -1,6 +1,6 @@
 {
-  "version": "1.11.3",
+  "version": "1.11.4",
   "sdstudioBase": "4.13.5",
-  "released": "2026-07-05",
-  "notes": "v1.11.2 → v1.11.3 — patch (iOS 홈 화면 앱 새로고침 복구). iOS에서 NAI를 홈 화면에 추가해 쓰다가 다른 앱(RisuAI 등)을 오래 사용하면, iOS가 메모리 확보를 위해 백그라운드의 NAI를 종료해 복귀 시 새로고침되고 프로젝트 선택 화면으로 튕기던 문제. 새로고침 자체는 iOS 동작이라 막을 수 없지만, 마지막으로 열려 있던 프로젝트와 탭을 자동 복원해 '하던 자리'로 되돌아오게 함. (원인은 iOS 메모리 관리이지 서버(Oracle)나 접속(Tailscale)과 무관.)"
+  "released": "2026-07-11",
+  "notes": "v1.11.3 → v1.11.4 — patch (전체 코드 진단 안정성 수정). 폴더만 삭제 시 프로젝트 보존을 클라이언트·서버 양쪽에서 보장하고, 전역 JSON 7종의 네트워크 읽기 실패가 빈 상태 저장으로 이어지지 않게 차단. raw upload 경로·임시 파일, scene import reaction 누수, 일괄 이동 오정보, shared load retry 순서 의존, stale mask decode를 수정. ws/ExifReader DoS 취약점 해소, 미사용 react-router 제거, 태그 검색 고속화."
 }
