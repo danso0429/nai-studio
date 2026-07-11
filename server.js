@@ -3069,6 +3069,7 @@ app.post('/api/fs/write-data', async (req, res) => {
 // 메모리 스파이크였음. /api/backup/restore와 같은 스트림→파일 패턴(2GB 상한).
 // path는 tmp/ 하위로 제한 — 업로드 스테이징 전용이라 임의 파일 덮어쓰기 표면 차단.
 app.post('/api/fs/upload-raw', async (req, res) => {
+  let tmpFile = null;
   try {
     const rel = String(req.query.path || '');
     const filePath = resolvePath(rel);
@@ -3079,7 +3080,7 @@ app.post('/api/fs/upload-raw', async (req, res) => {
       return res.status(400).json({ error: 'path must be under tmp/' });
     }
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    const tmpFile = filePath + _tmpSuffix();
+    tmpFile = filePath + _tmpSuffix();
     await new Promise((resolve, reject) => {
       const ws = fss.createWriteStream(tmpFile);
       let bytes = 0;
@@ -3090,8 +3091,20 @@ app.post('/api/fs/upload-raw', async (req, res) => {
       req.on('error', reject);
     });
     await fs.rename(tmpFile, filePath);
+    tmpFile = null; // rename 성공 뒤에는 완성 파일이므로 catch cleanup 대상에서 제외.
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    if (tmpFile) {
+      try {
+        await fs.unlink(tmpFile);
+      } catch (cleanupError) {
+        if (cleanupError && cleanupError.code !== 'ENOENT') {
+          console.warn('[fs/upload-raw] partial tmp cleanup failed:', cleanupError.message);
+        }
+      }
+    }
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/fs/copy', async (req, res) => {
