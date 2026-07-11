@@ -1,7 +1,7 @@
 import { observable, action } from 'mobx';
 import { v4 as uuidv4 } from 'uuid';
 import { backend } from '.';
-import { isBackendNotFoundError } from '../backend';
+import { isBackendNotFoundError } from '../backends/apiError';
 
 // 작가 라이브러리 전역 데이터.
 // 프로젝트(세션)와 무관하게 앱 루트의 artist_library.json + artist_library/ 폴더에 저장.

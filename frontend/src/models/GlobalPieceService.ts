@@ -1,7 +1,7 @@
 import { observable, action } from 'mobx';
 import { PieceLibrary, IPieceLibrary } from './types';
 import { backend } from '.';
-import { isBackendNotFoundError } from '../backend';
+import { isBackendNotFoundError } from '../backends/apiError';
 
 const GLOBAL_PIECES_FILE = 'global_pieces.json';
 

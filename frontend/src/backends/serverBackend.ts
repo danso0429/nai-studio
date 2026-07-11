@@ -1,6 +1,7 @@
 import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, BackendApiError, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderDone, DeleteFolderError, DeleteFolderProgress, DeleteFolderStart, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, ImageDeleteDone, ImageDeleteError, ImageDeleteProgress, ImageDeleteStart, LoginValidity, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
+import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderDone, DeleteFolderError, DeleteFolderProgress, DeleteFolderStart, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, ImageDeleteDone, ImageDeleteError, ImageDeleteProgress, ImageDeleteStart, LoginValidity, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
+import { BackendApiError } from './apiError';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 

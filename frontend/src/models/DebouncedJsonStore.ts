@@ -1,6 +1,6 @@
 import { observable } from 'mobx';
 import { backend } from '.';
-import { isBackendNotFoundError } from '../backend';
+import { isBackendNotFoundError } from '../backends/apiError';
 
 // audit B8 — ToggleGroup/PromptChunk/Sampling/GlobalPreset/GlobalCharacterPreset 5개
 // 서비스가 JSON 파일 영속화를 거의 verbatim 중복(atomic save tmp+rename+fallback / 2s
