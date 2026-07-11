@@ -643,10 +643,24 @@ const ProjectDrawer = observer(() => {
     });
     if (!target) return;
     const folder = target === '__root__' ? null : target;
+    const failed: string[] = [];
     for (const name of selected) {
       try {
         await sessionService.moveToFolder(name, folder);
-      } catch (e) {}
+      } catch {
+        failed.push(name);
+      }
+    }
+    if (failed.length > 0) {
+      // 실패 항목만 선택 상태로 남겨 같은 동작을 바로 재시도할 수 있게 한다.
+      setSelected(new Set(failed));
+      const succeeded = count - failed.length;
+      const preview = failed.slice(0, 3).join(', ');
+      const more = failed.length > 3 ? ` 외 ${failed.length - 3}개` : '';
+      appState.pushMessage(
+        `${succeeded}개 이동 완료, ${failed.length}개 이동 실패: ${preview}${more}`,
+      );
+      return;
     }
     exitSelect();
     appState.pushMessage(`${count}개 프로젝트를 이동했습니다.`);
