@@ -98,7 +98,7 @@
 | ① 검증 수단 (동작 고정·실측) | L1(tsc+vite build)+L2(API health), 일회성 node 실측 스크립트 | 그 프로젝트의 빌드/헬스체크/round-trip 수단 |
 | ② 축 4 의존성 축 | 외부 이미지 생성 API 의존 / 포그라운드 탭 의존 / 백그라운드 폴링 | 사용자가 지정 (없으면 착수 전 확인) |
 | ③ severity 환경 보강 | iOS Safari 장시간 세션 + pm2 서버 장기 운영. 큐는 디스크 영속화(restart 안전) | 그 시스템의 주 사용 환경·영속화 특성 (예: 영속화 없는 시스템은 restart 자체가 유실 축) |
-| ④ 기존 fence/기각 기록 | `docs/runtime-audit-report.md`(⊘ 항목) + JOURNAL 통찰·N/A 확정 | 해당 기록 위치, 없으면 "fence 없음" 명시 |
+| ④ 기존 fence/기각 기록 | `docs/runtime-audit-report.md`(⊘ 항목) + JOURNAL 통찰·N/A 확정 + **JOURNAL 백로그(해결/drop 이력 — nai `## 살아있는 백로그`, risuai `### 백로그 — RisuAI`)** | 해당 기록 위치 + **그 프로젝트의 백로그(이미 측정·검증으로 drop된 항목)**, 없으면 "fence 없음" 명시 |
 | ⑤ 산출물 위치 | `.code-review/` (gitignored) | gitignored 또는 repo 밖 경로 (개인정보 sweep 대상 아님이 조건) |
 | ⑥ 의존 그래프 도구 | `npx madge --circular --extensions ts,tsx frontend/src` | 언어에 맞는 도구 (pydeps 등), 없으면 "눈 추측 — 신뢰도 낮음" 표시 |
 | ⑦ 제외 경로 | node_modules / public/build / data / docs / 산출물 dir | 빌드 산출물·데이터·의존성 dir |
