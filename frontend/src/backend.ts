@@ -285,7 +285,7 @@ export abstract class Backend {
   abstract onClose(callback: () => void): () => void;
   abstract onWsReconnect(callback: () => void): () => void;
   abstract deleteProjectNow(name: string): Promise<DeleteProjectResult>;
-  abstract deleteFolderNow(folder: string): Promise<DeleteFolderStart>;
+  abstract deleteFolderNow(folder: string, preserveProjects?: boolean): Promise<DeleteFolderStart>;
   abstract onDeleteFolderStart(callback: (data: { jobId: string; folder: string; total: number }) => void): () => void;
   abstract onDeleteFolderProgress(callback: (data: DeleteFolderProgress) => void): () => void;
   abstract onDeleteFolderDone(callback: (data: DeleteFolderDone) => void): () => void;

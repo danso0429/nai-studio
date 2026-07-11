@@ -671,9 +671,12 @@ export class ServerBackend extends Backend {
     return await apiJSON('/project/delete-now', { method: 'POST', body: JSON.stringify({ name }) });
   }
 
-  async deleteFolderNow(folder: string): Promise<DeleteFolderStart> {
+  async deleteFolderNow(folder: string, preserveProjects = false): Promise<DeleteFolderStart> {
     // fire-and-forget: 즉시 jobId 반환, 실제 삭제는 서버 백그라운드 + WS 진행도.
-    return await apiJSON('/project/delete-folder-now', { method: 'POST', body: JSON.stringify({ folder }) });
+    return await apiJSON('/project/delete-folder-now', {
+      method: 'POST',
+      body: JSON.stringify({ folder, preserveProjects }),
+    });
   }
 
   onDeleteFolderStart(callback: (data: { jobId: string; folder: string; total: number }) => void): () => void {

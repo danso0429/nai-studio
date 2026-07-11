@@ -393,7 +393,7 @@ export class SessionService extends ResourceSyncService<Session> {
     this.folderOrder = this.folderOrder.map((k) => (matches(k) ? remap(k) : k));
   }
 
-  async deleteFolder(folderName: string): Promise<void> {
+  async deleteFolder(folderName: string, preserveProjects = false): Promise<void> {
     // 폴더 안 N 프로젝트 영구 삭제 + 폴더 dir + Drive. rclone Drive purge 다수로 수 분
     // 걸려(7개 ~2.5분) 서버 fire-and-forget + WS 진행도 방식 (App.tsx 글로벌 구독이
     // 진행/완료 처리). 옛 동기 응답은 사용자가 응답을 못 기다리고 재클릭 → 동시 호출
@@ -406,6 +406,9 @@ export class SessionService extends ResourceSyncService<Session> {
     const projectsInFolder = this.resourceList.filter(
       (n) => this.folderMap[n] === folderName || (this.folderMap[n] || '').startsWith(folderName + '/'),
     );
+    if (preserveProjects && projectsInFolder.length > 0) {
+      throw new Error(`폴더 안에 프로젝트 ${projectsInFolder.length}개가 남아 있어 삭제를 중단했습니다.`);
+    }
     // 메모리 캐시 + 북마크 + 즐겨찾기 정리는 클라가 책임 — 서버가 모르는 정보.
     let bmChanged = false;
     let favChanged = false;
@@ -436,7 +439,7 @@ export class SessionService extends ResourceSyncService<Session> {
     this.deletingFolders.add(folderName);
     let start;
     try {
-      start = await backend.deleteFolderNow(folderName);
+      start = await backend.deleteFolderNow(folderName, preserveProjects);
     } catch (e) {
       this.deletingFolders.delete(folderName);
       throw e;

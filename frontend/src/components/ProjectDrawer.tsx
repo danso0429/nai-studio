@@ -462,7 +462,7 @@ const ProjectDrawer = observer(() => {
         text: `폴더 "${f}"를 삭제할까요?`,
         callback: async () => {
           try {
-            await sessionService.deleteFolder(f);
+            await sessionService.deleteFolder(f, true);
             cleanup();
           } catch (e: any) {
             appState.pushMessage(e.message || '폴더 삭제에 실패했습니다.');

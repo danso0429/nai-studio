@@ -3485,7 +3485,20 @@ app.post('/api/project/delete-now', async (req, res) => {
 // → cleanup-orphans와 동일한 fire-and-forget + WS 진행도 + 폴더별 lock(같은 폴더 동시 차단).
 const deleteFolderJobs = new Map(); // folder -> jobId (진행 중 동시 호출 가드)
 
-async function runDeleteFolder(jobId, folder, namesArray) {
+// 프로젝트 보존 모드용: 파일·심볼릭 링크는 하나도 지우지 않고 빈 디렉터리만 bottom-up 제거.
+// readdir 뒤 다른 요청이 파일을 만들면 마지막 rmdir가 ENOTEMPTY로 실패하므로 race에서도 안전하다.
+async function removeEmptyFolderTree(dirPath) {
+  const entries = await fs.readdir(dirPath, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      throw new Error('Folder is not empty; project preservation aborted');
+    }
+    await removeEmptyFolderTree(path.join(dirPath, entry.name));
+  }
+  await fs.rmdir(dirPath);
+}
+
+async function runDeleteFolder(jobId, folder, namesArray, preserveProjects = false) {
   const allDeleted = { local: [], drive: [] };
   const allErrors = [];
   const deletedProjects = [];
@@ -3495,7 +3508,10 @@ async function runDeleteFolder(jobId, folder, namesArray) {
   // peak rclone child ~15개 — rcloneRun --tpslimit 10으로 Drive API throttle 안전.
   const CONCURRENCY = 3;
   try {
-    for (let i = 0; i < namesArray.length; i += CONCURRENCY) {
+    if (preserveProjects && namesArray.length > 0) {
+      throw new Error(`Folder is not empty (${namesArray.length} projects); project preservation aborted`);
+    }
+    for (let i = 0; !preserveProjects && i < namesArray.length; i += CONCURRENCY) {
       const chunk = namesArray.slice(i, i + CONCURRENCY);
       const chunkResults = await Promise.all(chunk.map(async (name) => {
         try {
@@ -3520,11 +3536,15 @@ async function runDeleteFolder(jobId, folder, namesArray) {
       });
     }
 
-    // 폴더 dir 자체 삭제 (.keep 등 잔류 정리)
+    // 보존 모드는 빈 디렉터리만 제거(race 중 파일 유입 시 ENOTEMPTY). 명시적 전체 삭제만
+    // recursive rm을 사용해 .keep 등 잔류까지 정리한다.
     try {
-      await fs.rm(resolvePath('projects/' + folder), { recursive: true, force: true });
+      const folderPath = resolvePath('projects/' + folder);
+      if (preserveProjects) await removeEmptyFolderTree(folderPath);
+      else await fs.rm(folderPath, { recursive: true, force: true });
       allDeleted.local.push('projects/' + folder + '/');
     } catch (e) {
+      if (preserveProjects) throw e;
       allErrors.push('local rm folder: ' + e.message);
     }
 
@@ -3552,6 +3572,7 @@ async function runDeleteFolder(jobId, folder, namesArray) {
 app.post('/api/project/delete-folder-now', async (req, res) => {
   try {
     const folder = sanitizeFolderPath(req.body && req.body.folder);
+    const preserveProjects = req.body && req.body.preserveProjects === true;
     if (!folder) return res.status(400).json({ ok: false, error: 'Invalid folder name' });
 
     // 동시 호출 가드 — 같은 폴더가 진행 중이면 기존 jobId 반환 (재클릭 race 차단).
@@ -3582,11 +3603,18 @@ app.post('/api/project/delete-folder-now', async (req, res) => {
     }
 
     const namesArray = Array.from(projectNames);
+    if (preserveProjects && namesArray.length > 0) {
+      deleteFolderJobs.delete(folder);
+      return res.status(409).json({
+        ok: false,
+        error: `Folder is not empty (${namesArray.length} projects); project preservation aborted`,
+      });
+    }
     console.log(`[Project] delete-folder-now started jobId=${jobId} "${folder}": total=${namesArray.length}`);
     broadcast('delete-folder-start', { jobId, folder, total: namesArray.length });
     res.json({ ok: true, jobId, folder, total: namesArray.length, alreadyRunning: false });
     // fire-and-forget — 응답 보낸 뒤 백그라운드 진행 (WS 진행도 broadcast)
-    runDeleteFolder(jobId, folder, namesArray);
+    runDeleteFolder(jobId, folder, namesArray, preserveProjects);
   } catch (e) {
     console.error('[Project] delete-folder-now error:', e);
     res.status(500).json({ ok: false, error: e.message });
