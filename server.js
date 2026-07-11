@@ -16,6 +16,7 @@ const tagSearch = require('./lib/tag-search');
 const versionCheck = require('./lib/version-check');
 const sdstudioVersionCheck = require('./lib/sdstudio-version-check');
 const selfUpdate = require('./lib/self-update');
+const statsSteam = require('./lib/stats-steam');
 
 // .env.local 자동 로드 (Node 20.6+ 네이티브). 첫 install에서 `node server.js`만으로
 // PORT/URL_PREFIX가 동작하게. pm2 ecosystem이 이미 주입한 값은 덮어쓰지 않음 (Node 동작).
@@ -1946,6 +1947,42 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many login attempts. Try again in 1 minute.' },
+});
+
+// ─── API: TF2 Stats (/stats) — Steam GCPD 매치 히스토리 ───
+// 인증/쿠키/토큰은 lib/stats-steam.js가 전부 메모리에만 보관(디스크 0). authLimiter는 위(1839) 정의.
+app.get('/stats', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'public/stats.html'));
+});
+app.post('/api/stats/auth/login', authLimiter, async (req, res) => {
+  try {
+    const { accountName, password, steamGuardCode } = req.body || {};
+    if (!accountName || !password) return res.status(400).json({ status: 'error', error: '아이디와 비밀번호를 입력하세요.' });
+    res.json(await statsSteam.startLogin(accountName, password, steamGuardCode));
+  } catch (e) { res.status(500).json({ status: 'error', error: e.message }); }
+});
+app.post('/api/stats/auth/guard', authLimiter, async (req, res) => {
+  try {
+    const { code } = req.body || {};
+    if (!code) return res.status(400).json({ status: 'error', error: '코드를 입력하세요.' });
+    res.json(await statsSteam.submitGuardCode(code));
+  } catch (e) { res.status(500).json({ status: 'error', error: e.message }); }
+});
+app.get('/api/stats/auth/status', (req, res) => res.json(statsSteam.getAuthStatus()));
+app.post('/api/stats/auth/logout', (req, res) => res.json(statsSteam.logout()));
+app.post('/api/stats/fetch', async (req, res) => {
+  try {
+    const maxPages = parseInt((req.body && req.body.maxPages) || 0, 10) || 0;
+    res.json({ ok: true, ...(await statsSteam.fetchAndMerge({ maxPages })) });
+  } catch (e) {
+    const code = (e.code === 'NO_AUTH' || e.code === 'COOKIE_EXPIRED') ? 401 : 500;
+    res.status(code).json({ ok: false, error: e.message, code: e.code });
+  }
+});
+app.get('/api/stats/data', async (req, res) => {
+  try { res.json(await statsSteam.getProcessedSummary()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/auth/login', authLimiter, async (req, res) => {
