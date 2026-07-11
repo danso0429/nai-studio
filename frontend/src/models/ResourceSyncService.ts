@@ -45,8 +45,8 @@ export abstract class ResourceSyncService<
   dummy: T;
   // 이름별 로딩 중 프로미스(동시 get() 디듀프). 같은 리소스를 동시에 열어도 한 번만
   // 읽고 인스턴스도 하나만 만든다 — 중복 인스턴스로 UI가 잡은 쪽과 저장되는 쪽이 갈려
-  // 편집이 유실되고 reaction이 누수되던 경로 차단(SDStudio 4.13.5 8a3072c). (retry/에러
-  // 처리는 각 호출자 opts로: 공유 프로미스는 순수 로드만, throwOnError는 호출자별 적용.)
+    // 편집이 유실되고 reaction이 누수되던 경로 차단(SDStudio 4.13.5 8a3072c). transient
+    // retry는 공유 load 자체 정책, throwOnError만 각 호출자 opts로 적용.)
   #loading: Map<string, Promise<T>> = new Map();
   constructor(resourceDir: string, interval: number) {
     super();
@@ -226,14 +226,16 @@ export abstract class ResourceSyncService<
 
   async get(
     name: string,
-    opts?: { throwOnError?: boolean; retry?: boolean },
+    opts?: { throwOnError?: boolean },
   ): Promise<T | undefined> {
     if (name in this.resources) return this.resources[name];
     // 동시 로드 디듀프: 같은 name 로드가 진행 중이면 그 프로미스를 공유해 인스턴스 하나만
     // 만든다. throwOnError는 공유 프로미스가 아니라 각 호출자가 자기 opts로 적용.
     let p = this.#loading.get(name);
     if (!p) {
-      p = this.#doLoad(name, opts?.retry === true);
+      // read는 idempotent이고 transient 오류만 재시도한다. 첫 호출자의 옵션에 retry를
+      // 맡기면 뒤에 합류한 사용자 선택 get이 호출 순서에 따라 재시도를 잃으므로 항상 적용.
+      p = this.#doLoad(name);
       this.#loading.set(name, p);
       p.catch(() => {}).finally(() => this.#loading.delete(name));
     }
@@ -248,8 +250,8 @@ export abstract class ResourceSyncService<
 
   // 실제 로드(디스크 읽기→마이그레이트→인스턴스 등록). 에러는 삼키지 않고 throw —
   // throwOnError 분기는 get() 호출자별로 처리한다.
-  async #doLoad(name: string, retry: boolean): Promise<T> {
-    const str = await this.readFileWithRetry(name, retry);
+  async #doLoad(name: string): Promise<T> {
+    const str = await this.readFileWithRetry(name);
     let obj = JSON.parse(str);
     obj = await this.migrate(obj);
     obj = await this.fillEmptyPresetVars(obj);
@@ -264,12 +266,8 @@ export abstract class ResourceSyncService<
     return this.resources[name];
   }
 
-  private async readFileWithRetry(
-    name: string,
-    retry: boolean,
-  ): Promise<string> {
+  private async readFileWithRetry(name: string): Promise<string> {
     const path = this.getPath(name);
-    if (!retry) return backend.readFile(path);
     let lastErr: any;
     for (let attempt = 0; attempt <= READ_RETRY_DELAYS_MS.length; attempt++) {
       if (attempt > 0) await sleep(READ_RETRY_DELAYS_MS[attempt - 1]);

@@ -1048,7 +1048,7 @@ export class AppState {
     this.pendingSelection = name;
     const toastId = this.pushMessage(`프로젝트 "${name}" 로딩 중…`, { sticky: true });
     sessionService
-      .get(name, { throwOnError: true, retry: true })
+      .get(name, { throwOnError: true })
       .then((session) => {
         this.dismissMessage(toastId);
         if (this.pendingSelection !== name) return;
