@@ -138,6 +138,29 @@ export abstract class ResourceSyncService<
     await this.getHook(this.resources[name], name);
   }
 
+  // 외부 도구가 디스크의 resource를 직접 바꾼 뒤 다음 get()에서 새로 읽게 하는 공식 경로.
+  // resources만 delete하면 reaction이 옛 객체를 영구 참조하고, 새 load가 disposer slot을
+  // 덮어 old disposer handle까지 잃는다. 진행 중 load도 끝까지 기다린 뒤 함께 정리한다.
+  async invalidate(name: string): Promise<void> {
+    const loading = this.#loading.get(name);
+    if (loading) {
+      try {
+        await loading;
+      } catch {
+        // 실패한 load도 finally에서 #loading이 정리된다. 아래 cache cleanup은 동일하게 수행.
+      }
+      // get()의 finally microtask보다 먼저 resume되면 resolved old promise가 잠깐 Map에 남아
+      // 즉시 뒤따르는 get()이 그것을 재사용할 수 있다. 같은 promise일 때만 명시 제거.
+      if (this.#loading.get(name) === loading) this.#loading.delete(name);
+    }
+    if (this.disposes[name]) {
+      this.disposes[name]();
+      delete this.disposes[name];
+    }
+    delete this.resources[name];
+    delete this.dirty[name];
+  }
+
   getPath(name: string) {
     const folder = this.folderMap[name];
     return folder

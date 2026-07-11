@@ -181,12 +181,12 @@ const SceneImporterDialog = observer(() => {
       );
       // 현재 세션과 같은 프로젝트면 메모리 캐시 invalidate 후 재로딩
       if (appState.curSession?.name === targetProject) {
-        delete sessionService.resources[targetProject];
+        await sessionService.invalidate(targetProject);
         const fresh = await sessionService.get(targetProject);
         if (fresh) appState.curSession = fresh;
       } else {
         // 다른 프로젝트 캐시만 invalidate (다음 열 때 fresh)
-        delete sessionService.resources[targetProject];
+        await sessionService.invalidate(targetProject);
       }
     } catch (e: any) {
       appState.dismissMessage(toastId);
