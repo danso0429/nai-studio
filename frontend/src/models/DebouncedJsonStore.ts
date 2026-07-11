@@ -1,5 +1,6 @@
 import { observable } from 'mobx';
 import { backend } from '.';
+import { isBackendNotFoundError } from '../backend';
 
 // audit B8 — ToggleGroup/PromptChunk/Sampling/GlobalPreset/GlobalCharacterPreset 5개
 // 서비스가 JSON 파일 영속화를 거의 verbatim 중복(atomic save tmp+rename+fallback / 2s
@@ -13,6 +14,7 @@ import { backend } from '.';
 // 상태 0 = 단순 위임(취성 안 늘어남). instruction 우선순위(정확성=견고성→단순함)로 수용.
 export abstract class DebouncedJsonStore extends EventTarget {
   @observable accessor loaded: boolean = false;
+  @observable accessor loadError: string | null = null;
   private saveTimeout: any = null;
 
   constructor() {
@@ -59,6 +61,8 @@ export abstract class DebouncedJsonStore extends EventTarget {
   // ── 공통 영속화 ──
   async load(): Promise<void> {
     const file = this.getFileName();
+    this.loaded = false;
+    this.loadError = null;
     try {
       const str = await backend.readFile(file);
       try {
@@ -77,9 +81,22 @@ export abstract class DebouncedJsonStore extends EventTarget {
           new CustomEvent('corrupted', { detail: { backupName: corruptName } }),
         );
       }
-    } catch (e) {
-      // 파일 없음/read 실패 — 빈 state로 시작.
-      this.resetState();
+    } catch (e: any) {
+      if (isBackendNotFoundError(e)) {
+        // 404만 신규/미생성 파일로 인정한다.
+        this.resetState();
+      } else {
+        // 네트워크·timeout·5xx는 기존 파일이 있을 수 있다. 빈 정상 상태로 승격하지 않고
+        // loaded=false를 유지해 이후 save/keepalive가 원본을 덮지 못하게 fail-closed.
+        this.loadError = String(e?.message || e || 'unknown read error');
+        if (this.saveTimeout) clearTimeout(this.saveTimeout);
+        this.saveTimeout = null;
+        console.error(`[global-store] ${file} load failed; writes blocked:`, e);
+        this.dispatchEvent(new CustomEvent('load-failed', {
+          detail: { file, error: this.loadError },
+        }));
+        return;
+      }
     }
     this.loaded = true;
     this.dispatchEvent(new CustomEvent(this.loadedEvent(), {}));
@@ -87,6 +104,9 @@ export abstract class DebouncedJsonStore extends EventTarget {
 
   async save(): Promise<void> {
     const file = this.getFileName();
+    if (!this.loaded || this.loadError) {
+      throw new Error(`${file} is not loaded; write blocked to preserve existing data`);
+    }
     const data = JSON.stringify(this.buildStore());
     const tmp = file + '.tmp';
     try {
@@ -103,10 +123,13 @@ export abstract class DebouncedJsonStore extends EventTarget {
   }
 
   scheduleSave(): void {
+    if (!this.loaded || this.loadError) return;
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
     this.saveTimeout = setTimeout(() => {
-      this.save();
       this.saveTimeout = null;
+      this.save().catch((e) =>
+        console.error('Failed to save ' + this.saveErrorLabel() + ':', e),
+      );
     }, 2000);
   }
 
@@ -115,6 +138,7 @@ export abstract class DebouncedJsonStore extends EventTarget {
       clearTimeout(this.saveTimeout);
       this.saveTimeout = null;
     }
+    if (!this.loaded || this.loadError) return;
     await this.save();
   }
 }

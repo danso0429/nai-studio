@@ -2985,7 +2985,12 @@ app.get('/api/fs/read', async (req, res) => {
     const filePath = resolvePath(req.query.path);
     const content = await fs.readFile(filePath, 'utf-8');
     res.json({ content });
-  } catch (e) { res.status(404).json({ error: e.message }); }
+  } catch (e) {
+    // 파일 부재만 신규 store 판정에 쓰인다. 권한/I/O 오류까지 404로 내리면 클라가 빈
+    // 정상 상태로 오인해 기존 전역 JSON을 덮을 수 있으므로 나머지는 500으로 구분한다.
+    const status = e && e.code === 'ENOENT' ? 404 : 500;
+    res.status(status).json({ error: e.message });
+  }
 });
 
 app.post('/api/fs/write', async (req, res) => {

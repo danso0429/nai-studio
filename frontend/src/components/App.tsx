@@ -53,6 +53,13 @@ import {
   localAIService,
   imageService,
   isMobile,
+  globalPieceService,
+  globalPresetService,
+  globalCharacterPresetService,
+  artistLibraryService,
+  promptChunkService,
+  toggleGroupService,
+  samplingPresetService,
 } from '../models';
 import { appState, LAST_PROJECT_KEY, LAST_TAB_KEY } from '../models/AppService';
 import { keyboardShortcutService } from '../models/KeyboardShortcutService';
@@ -66,6 +73,9 @@ import { BuildInfoBadge } from './BuildInfo';
 configure({
   enforceActions: 'never',
 });
+
+// React remount/StrictMode에서도 같은 store read 실패를 한 페이지에서 중복 안내하지 않는다.
+const reportedGlobalStoreLoadFailures = new Set<string>();
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -757,6 +767,62 @@ export const App = observer(() => {
       clearTimeout(t);
       offOrphan();
       offReconnect();
+    };
+  }, []);
+
+  // 전역 JSON store read 실패: 404가 아닌 network/timeout/5xx에서는 store가 fail-closed로
+  // 쓰기를 막는다. 여러 파일이 같은 서버 장애로 함께 실패하면 한 안내로 묶는다.
+  useEffect(() => {
+    const stores: Array<{
+      service: EventTarget & { loadError: string | null };
+      file: string;
+      label: string;
+    }> = [
+      { service: globalPieceService, file: 'global_pieces.json', label: '글로벌 조각' },
+      { service: globalPresetService, file: 'global_presets.json', label: '글로벌 프리셋' },
+      { service: globalCharacterPresetService, file: 'global_character_presets.json', label: '글로벌 캐릭터 프리셋' },
+      { service: artistLibraryService, file: 'artist_library.json', label: '작가 라이브러리' },
+      { service: promptChunkService, file: 'prompt_chunks.json', label: '프롬프트 청크' },
+      { service: toggleGroupService, file: 'toggle_groups.json', label: '토글 그룹' },
+      { service: samplingPresetService, file: 'sampling_presets.json', label: '샘플링 프리셋' },
+    ];
+    const pending = new Map<string, string>();
+    let notifyTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const flushNotice = () => {
+      notifyTimer = null;
+      const failures = Array.from(pending.entries()).filter(
+        ([file]) => !reportedGlobalStoreLoadFailures.has(file),
+      );
+      pending.clear();
+      if (failures.length === 0) return;
+      for (const [file] of failures) reportedGlobalStoreLoadFailures.add(file);
+      appState.pushDialog({
+        type: 'yes-only',
+        text:
+          '전역 데이터를 불러오지 못했어요.\n\n' +
+          failures.map(([, label]) => `• ${label}`).join('\n') +
+          '\n\n기존 파일 보호를 위해 이 항목들의 저장을 차단했어요.' +
+          '\n현재 변경은 저장되지 않으니 연결을 확인한 뒤 앱을 새로고침해 주세요.',
+      });
+    };
+    const queueNotice = (file: string, label: string) => {
+      if (reportedGlobalStoreLoadFailures.has(file)) return;
+      pending.set(file, label);
+      if (notifyTimer) clearTimeout(notifyTimer);
+      notifyTimer = setTimeout(flushNotice, 100);
+    };
+
+    const subscriptions = stores.map(({ service, file, label }) => {
+      const handler = () => queueNotice(file, label);
+      service.addEventListener('load-failed', handler);
+      // models/index의 module-level load가 App effect보다 먼저 실패한 경우도 회수한다.
+      if (service.loadError) queueNotice(file, label);
+      return () => service.removeEventListener('load-failed', handler);
+    });
+    return () => {
+      if (notifyTimer) clearTimeout(notifyTimer);
+      for (const unsubscribe of subscriptions) unsubscribe();
     };
   }, []);
 

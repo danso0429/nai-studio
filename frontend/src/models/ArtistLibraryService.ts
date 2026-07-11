@@ -1,6 +1,7 @@
 import { observable, action } from 'mobx';
 import { v4 as uuidv4 } from 'uuid';
 import { backend } from '.';
+import { isBackendNotFoundError } from '../backend';
 
 // 작가 라이브러리 전역 데이터.
 // 프로젝트(세션)와 무관하게 앱 루트의 artist_library.json + artist_library/ 폴더에 저장.
@@ -33,6 +34,7 @@ export class ArtistLibraryService extends EventTarget {
   @observable accessor artists: IArtistEntry[] = [];
   @observable accessor tagPresets: string[] = [];
   @observable accessor loaded: boolean = false;
+  @observable accessor loadError: string | null = null;
   private saveTimeout: any = null;
 
   constructor() {
@@ -52,6 +54,8 @@ export class ArtistLibraryService extends EventTarget {
   // ---------- lifecycle ----------
 
   async load(): Promise<void> {
+    this.loaded = false;
+    this.loadError = null;
     try {
       const str = await backend.readFile(ARTIST_LIBRARY_FILE);
       try {
@@ -77,16 +81,30 @@ export class ArtistLibraryService extends EventTarget {
         this.artists = [];
         this.tagPresets = [];
       }
-    } catch (e) {
-      // 파일 없음 — 빈 상태로 시작
-      this.artists = [];
-      this.tagPresets = [];
+    } catch (e: any) {
+      if (isBackendNotFoundError(e)) {
+        // 신규/미생성 파일만 빈 상태로 시작.
+        this.artists = [];
+        this.tagPresets = [];
+      } else {
+        this.loadError = String(e?.message || e || 'unknown read error');
+        if (this.saveTimeout) clearTimeout(this.saveTimeout);
+        this.saveTimeout = null;
+        console.error('[global-store] artist_library.json load failed; writes blocked:', e);
+        this.dispatchEvent(new CustomEvent('load-failed', {
+          detail: { file: ARTIST_LIBRARY_FILE, error: this.loadError },
+        }));
+        return;
+      }
     }
     this.loaded = true;
     this.dispatchEvent(new CustomEvent('loaded', {}));
   }
 
   async save(): Promise<void> {
+    if (!this.loaded || this.loadError) {
+      throw new Error(`${ARTIST_LIBRARY_FILE} is not loaded; write blocked to preserve existing data`);
+    }
     const store: IArtistLibraryStore = {
       version: 1,
       artists: this.artists,
@@ -107,10 +125,11 @@ export class ArtistLibraryService extends EventTarget {
   }
 
   scheduleSave(): void {
+    if (!this.loaded || this.loadError) return;
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
     this.saveTimeout = setTimeout(() => {
-      this.save();
       this.saveTimeout = null;
+      this.save().catch((e) => console.error('Failed to save artist library:', e));
     }, 1500);
   }
 
@@ -119,6 +138,7 @@ export class ArtistLibraryService extends EventTarget {
       clearTimeout(this.saveTimeout);
       this.saveTimeout = null;
     }
+    if (!this.loaded || this.loadError) return;
     await this.save();
   }
 

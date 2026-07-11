@@ -1,14 +1,18 @@
 import { observable, action } from 'mobx';
 import { PieceLibrary, IPieceLibrary } from './types';
 import { backend } from '.';
+import { isBackendNotFoundError } from '../backend';
 
 const GLOBAL_PIECES_FILE = 'global_pieces.json';
 
-export class GlobalPieceService {
+export class GlobalPieceService extends EventTarget {
   @observable accessor library: Map<string, PieceLibrary> = new Map();
+  @observable accessor loaded: boolean = false;
+  @observable accessor loadError: string | null = null;
   private saveTimeout: any = null;
 
   constructor() {
+    super();
     // scheduleSave()의 2초 debounce가 fire 전에 사용자가 탭 닫으면 손실. keepalive fetch로
     // visibility hidden 시점 강제 flush. saveTimeout 있을 때만 (실제 pending인 경우만).
     if (typeof document !== 'undefined') {
@@ -17,6 +21,7 @@ export class GlobalPieceService {
         if (!this.saveTimeout) return;
         clearTimeout(this.saveTimeout);
         this.saveTimeout = null;
+        if (!this.loaded || this.loadError) return;
         const json: Record<string, any> = {};
         for (const [key, value] of this.library.entries()) {
           json[key] = value.toJSON();
@@ -32,12 +37,25 @@ export class GlobalPieceService {
     // 손상/부재 분기 (진단 F2-13): 옛 코드는 통짜 catch → 빈 Map — 파싱 실패(손상)면
     // 다음 save가 손상본을 빈 데이터로 덮어써 전역 조각 전체가 복구 불가로 소실됐음.
     // DebouncedJsonStore와 같은 패턴: 손상은 .corrupt-<ts>로 원본 보존 후 빈 시작.
+    this.loaded = false;
+    this.loadError = null;
     let str: string;
     try {
       str = await backend.readFile(GLOBAL_PIECES_FILE);
-    } catch (e) {
-      // 파일 없음/read 실패 — 빈 state로 시작 (기존 동작).
-      this.library = new Map();
+    } catch (e: any) {
+      if (isBackendNotFoundError(e)) {
+        this.library = new Map();
+        this.loaded = true;
+        this.dispatchEvent(new CustomEvent('loaded', {}));
+        return;
+      }
+      this.loadError = String(e?.message || e || 'unknown read error');
+      if (this.saveTimeout) clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+      console.error('[global-store] global_pieces.json load failed; writes blocked:', e);
+      this.dispatchEvent(new CustomEvent('load-failed', {
+        detail: { file: GLOBAL_PIECES_FILE, error: this.loadError },
+      }));
       return;
     }
     try {
@@ -56,9 +74,14 @@ export class GlobalPieceService {
       } catch {}
       this.library = new Map();
     }
+    this.loaded = true;
+    this.dispatchEvent(new CustomEvent('loaded', {}));
   }
 
   async save() {
+    if (!this.loaded || this.loadError) {
+      throw new Error(`${GLOBAL_PIECES_FILE} is not loaded; write blocked to preserve existing data`);
+    }
     const json: Record<string, any> = {};
     for (const [key, value] of this.library.entries()) {
       json[key] = value.toJSON();
@@ -67,8 +90,12 @@ export class GlobalPieceService {
   }
 
   scheduleSave() {
+    if (!this.loaded || this.loadError) return;
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
-    this.saveTimeout = setTimeout(() => this.save(), 2000);
+    this.saveTimeout = setTimeout(() => {
+      this.saveTimeout = null;
+      this.save().catch((e) => console.error('Failed to save global pieces:', e));
+    }, 2000);
   }
 
   @action
