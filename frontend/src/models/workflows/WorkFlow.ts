@@ -217,6 +217,11 @@ export interface WFIMiddlePlaceholderInput extends WFIAbstract {
   label: string;
 }
 
+export interface WFIExtraPromptInput extends WFIAbstract {
+  type: 'extraPrompt';
+  label: string;
+}
+
 export interface WFIShowImage extends WFIAbstract {
   type: 'showImage';
   field: string;
@@ -235,6 +240,7 @@ export type WFIElement =
   | WFIInlineInput
   | WFIGroup
   | WFIMiddlePlaceholderInput
+  | WFIExtraPromptInput
   | WFIPush
   | WFIIfIn
   | WFISceneOnly
@@ -571,6 +577,10 @@ export function wfiMiddlePlaceholderInput(
   label: string,
 ): WFIMiddlePlaceholderInput {
   return { type: 'middlePlaceholder', label };
+}
+
+export function wfiExtraPromptInput(label: string): WFIExtraPromptInput {
+  return { type: 'extraPrompt', label };
 }
 
 export function wfiPush(

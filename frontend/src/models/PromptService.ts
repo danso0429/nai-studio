@@ -445,6 +445,10 @@ export const createSDPrompts = async (
         front = newFront.concat(rest);
       }
 
+      // 프로젝트 귀속 추가 프롬프트는 상위(이지 모드 재배열 포함) 뒤,
+      // 중간(씬 전용) 앞에 삽입한다.
+      front = front.concat(toPARR(session.extraPrompt || ''));
+
       let middle: string[] = [];
       for (const comb of promptComb) {
         middle = middle.concat(toPARR(comb ?? ''));

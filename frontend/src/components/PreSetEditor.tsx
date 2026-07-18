@@ -56,6 +56,7 @@ import { observer } from 'mobx-react-lite';
 import {
   WFAbstractVar,
   WFIElement,
+  WFIExtraPromptInput,
   WFIGroup,
   WFIIfIn,
   WFIInlineInput,
@@ -2039,6 +2040,26 @@ interface IWFGroupContext {
 
 const WFGroupContext = React.createContext<IWFGroupContext | null>(null);
 
+const PROMPT_FOLD_LS_KEY = 'sdstudio-prompt-fold';
+function loadPromptFold(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(PROMPT_FOLD_LS_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+function getPromptFold(key: string, defaultFolded: boolean): boolean {
+  const state = loadPromptFold();
+  return typeof state[key] === 'boolean' ? state[key] : defaultFolded;
+}
+function persistPromptFold(key: string, folded: boolean): void {
+  const state = loadPromptFold();
+  state[key] = folded;
+  try {
+    localStorage.setItem(PROMPT_FOLD_LS_KEY, JSON.stringify(state));
+  } catch {}
+}
+
 const WFRenderElement = observer(({ element }: WFElementProps) => {
   switch (element.type) {
     case 'stack':
@@ -2055,6 +2076,8 @@ const WFRenderElement = observer(({ element }: WFElementProps) => {
       return <WFRPush element={element} />;
     case 'middlePlaceholder':
       return <WFRMiddlePlaceholder element={element} />;
+    case 'extraPrompt':
+      return <WFRExtraPrompt element={element} />;
     case 'showImage':
       return <WFRShowImage element={element} />;
     case 'ifIn':
@@ -2141,6 +2164,36 @@ const WFRMiddlePlaceholder = observer(({ element }: WFElementProps) => {
         onChange={onMiddlePromptChange!}
       ></PromptEditTextArea>
     </EditorField>
+  );
+});
+
+const WFRExtraPrompt = observer(({ element }: WFElementProps) => {
+  const { editVibe, showGroup } = useContext(WFElementContext)!;
+  const session = appState.curSession;
+  const input = element as WFIExtraPromptInput;
+  const [folded, setFolded] = useState(() => getPromptFold('extraPrompt', true));
+  if (!session || showGroup || editVibe) return <></>;
+  const toggle = () => {
+    const next = !folded;
+    persistPromptFold('extraPrompt', next);
+    setFolded(next);
+  };
+  return (
+    <div className={folded ? 'flex-none' : 'flex-1 min-h-0'}>
+      <PromptEditTextArea
+        value={session.extraPrompt}
+        disabled={false}
+        onChange={(value) => { session.extraPrompt = value; }}
+        chunkInsert={true}
+        chunkLabel={input.label}
+        headerLabel={input.label}
+        headerFull={!folded}
+        headerCollapsed={folded}
+        headerBadge={session.extraPrompt.trim() ? '작성됨' : undefined}
+        onHeaderToggle={toggle}
+        searchEnabled={true}
+      />
+    </div>
   );
 });
 
@@ -2628,6 +2681,10 @@ const WFRInline = observer(({ element }: WFElementProps) => {
     useContext(WFElementContext)!;
   const { curGroup } = useContext(WFGroupContext)!;
   const input = element as WFIInlineInput;
+  const promptFoldKey = input.flex === 'flex-1' ? input.field : '';
+  const [promptFolded, setPromptFolded] = useState(() =>
+    promptFoldKey ? getPromptFold(promptFoldKey, false) : false,
+  );
   const field = workFlowService.getVarDef(type, input.fieldType, input.field)!;
   const getField = () => {
     if (input.fieldType === 'preset') {
@@ -2696,7 +2753,7 @@ const WFRInline = observer(({ element }: WFElementProps) => {
           )}
           {/* 라벨+버튼을 PromptEditTextArea 헤더 줄로(item ④: 입력창 위 absolute 버튼 → 라벨 줄).
               EditorField의 라벨/래퍼를 직접 대체 — 라벨은 headerLabel로 넘김. */}
-          <div className={input.flex === 'flex-1' ? 'flex-1 min-h-0' : 'flex-none mt-3'}>
+          <div className={promptFolded ? 'flex-none' : input.flex === 'flex-1' ? 'flex-1 min-h-0' : 'flex-none mt-3'}>
             <PromptEditTextArea
               key={key}
               value={getField()}
@@ -2705,7 +2762,14 @@ const WFRInline = observer(({ element }: WFElementProps) => {
               chunkInsert={true}
               chunkLabel={input.label}
               headerLabel={input.label}
-              headerFull={input.flex === 'flex-1'}
+              headerFull={input.flex === 'flex-1' && !promptFolded}
+              headerCollapsed={promptFolded}
+              headerBadge={typeof getField() === 'string' && getField().trim() ? '작성됨' : undefined}
+              onHeaderToggle={promptFoldKey ? () => {
+                const next = !promptFolded;
+                persistPromptFold(promptFoldKey, next);
+                setPromptFolded(next);
+              } : undefined}
               searchEnabled={true}
             ></PromptEditTextArea>
           </div>

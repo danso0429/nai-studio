@@ -409,6 +409,9 @@ export interface ISession {
   mirrorMode?: 'blank' | 'duplicate'; // 미러 캔버스 모드 (blank=우측 빈 캔버스, duplicate=우측 이미지 복제)
   sceneCardStyle?: { scene?: string; inpaint?: string }; // 탭별 씬 카드 종횡비
   samplingPresetId?: string | null; // 샘플링 프리셋 — undefined=글로벌 기본 따름, string=프로젝트 전용, null=이 프로젝트는 끔
+  // 상위와 중간(씬 전용) 사이에 삽입되는 프로젝트 귀속 추가 프롬프트.
+  // 프리셋·글로벌 프리셋에는 포함하지 않는다.
+  extraPrompt?: string;
 }
 
 export class Session implements Serealizable {
@@ -426,6 +429,7 @@ export class Session implements Serealizable {
   @observable accessor mirrorMode: 'blank' | 'duplicate' = 'blank';
   @observable accessor sceneCardStyle: { scene?: string; inpaint?: string } = {};
   @observable accessor samplingPresetId: string | null | undefined = undefined;
+  @observable accessor extraPrompt: string = '';
 
   constructor() {
     makeObservable(this);
@@ -628,6 +632,7 @@ export class Session implements Serealizable {
     session.mirrorMode = json.mirrorMode || 'blank';
     session.sceneCardStyle = json.sceneCardStyle || {};
     session.samplingPresetId = json.samplingPresetId;
+    session.extraPrompt = json.extraPrompt || '';
     return session;
   }
 
@@ -681,6 +686,8 @@ export class Session implements Serealizable {
       mirrorMode: this.mirrorMode,
       sceneCardStyle: this.sceneCardStyle,
       samplingPresetId: this.samplingPresetId,
+      // 미사용 프로젝트 JSON에는 필드를 남기지 않는다.
+      extraPrompt: this.extraPrompt || undefined,
     };
   }
 }

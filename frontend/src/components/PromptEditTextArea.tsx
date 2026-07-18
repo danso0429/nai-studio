@@ -15,6 +15,8 @@ import Denque from 'denque';
 import {
   FaBook,
   FaBox,
+  FaChevronDown,
+  FaChevronRight,
   FaDatabase,
   FaExpand,
   FaPaintBrush,
@@ -1220,6 +1222,9 @@ interface PromptEditTextAreaProps {
   // (긴 프롬프트 세로 스크롤과 버튼 겹침 해소). 부모는 자기 라벨을 제거하고 이 prop으로 넘김.
   headerLabel?: string;
   headerFull?: boolean; // true면 헤더+textarea를 flex-col h-full로(부모가 고정높이 flex-1일 때)
+  headerCollapsed?: boolean;
+  headerBadge?: string;
+  onHeaderToggle?: () => void;
 }
 
 function useLatest(value: any) {
@@ -1846,6 +1851,9 @@ const PromptEditTextArea = observer(
     searchEnabled,
     headerLabel,
     headerFull,
+    headerCollapsed,
+    headerBadge,
+    onHeaderToggle,
   }: PromptEditTextAreaProps) => {
     const { curSession } = appState;
     const editorRef = useRef<EditTextAreaRef | null>(null);
@@ -2250,26 +2258,46 @@ const PromptEditTextArea = observer(
       <>
         {headerLabel != null ? (
           // 라벨 줄(헤더)에 라벨 + 버튼 — 입력창 위 absolute 버튼 제거(긴 프롬프트 스크롤 겹침 해소).
-          <div className={'flex flex-col' + (headerFull ? ' h-full min-h-0' : '')}>
+          <div className={'flex flex-col' + (headerFull && !headerCollapsed ? ' h-full min-h-0' : '')}>
             <div className="flex items-center justify-between gap-2 pt-2 pb-1 gray-label flex-none">
-              <span className="truncate min-w-0">{headerLabel}</span>
-              <div className="flex items-center gap-1.5 flex-none">{buttonsRow}</div>
+              <button
+                type="button"
+                className={'truncate min-w-0 flex items-center text-left' + (onHeaderToggle ? ' cursor-pointer' : '')}
+                onClick={onHeaderToggle}
+              >
+                {onHeaderToggle && (
+                  <span className="inline-block mr-1 text-faint flex-none">
+                    {headerCollapsed ? <FaChevronRight size={9} /> : <FaChevronDown size={9} />}
+                  </span>
+                )}
+                <span className="truncate">{headerLabel}</span>
+                {headerCollapsed && headerBadge && (
+                  <span className="ml-1.5 text-xs text-sky-500 dark:text-sky-400 flex-none">
+                    {headerBadge}
+                  </span>
+                )}
+              </button>
+              {!headerCollapsed && (
+                <div className="flex items-center gap-1.5 flex-none">{buttonsRow}</div>
+              )}
             </div>
-            {textareaDiv}
+            {!headerCollapsed && textareaDiv}
           </div>
         ) : (
           textareaDiv
         )}
-        <PromptAutoComplete
-          key={id}
-          curWord={curWord}
-          tags={tags}
-          clientX={clientX}
-          clientY={clientY}
-          selectedTag={selectedTag}
-          onSelectTag={onSelectTag}
-          fieldBoxRef={fieldBoxRef}
-        />
+        {!headerCollapsed && (
+          <PromptAutoComplete
+            key={id}
+            curWord={curWord}
+            tags={tags}
+            clientX={clientX}
+            clientY={clientY}
+            selectedTag={selectedTag}
+            onSelectTag={onSelectTag}
+            fieldBoxRef={fieldBoxRef}
+          />
+        )}
       </>
     );
   },

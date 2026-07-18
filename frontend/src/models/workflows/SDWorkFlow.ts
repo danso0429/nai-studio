@@ -1,6 +1,7 @@
 import { NoiseSchedule, Sampling } from '../../backends/imageGen';
 import {
   WFDefBuilder,
+  wfiExtraPromptInput,
   wfiGroup,
   wfiInlineInput,
   wfiMiddlePlaceholderInput,
@@ -60,6 +61,7 @@ const SDImageGenShared = new WFVarBuilder()
 const SDImageGenUI = wfiStack([
   wfiPresetSelect(),
   wfiInlineInput('상위 프롬프트', 'frontPrompt', 'preset', 'flex-1'),
+  wfiExtraPromptInput('추가 프롬프트'),
   wfiMiddlePlaceholderInput('중간 프롬프트 (이 씬에만 적용됨)'),
   wfiInlineInput('하위 프롬프트', 'backPrompt', 'preset', 'flex-1'),
   wfiInlineInput('네거티브 프롬프트', 'uc', 'preset', 'flex-1'),
@@ -125,6 +127,7 @@ const SDImageGenEasyShared = SDImageGenShared.clone()
 const SDImageGenEasyUI = wfiStack([
   wfiProfilePresetSelect(),
   wfiInlineInput('캐릭터 관련 태그', 'characterPrompt', 'shared', 'flex-1'),
+  wfiExtraPromptInput('추가 프롬프트'),
   wfiMiddlePlaceholderInput('중간 프롬프트 (이 씬에만 적용됨)'),
   wfiInlineInput('배경 관련 태그', 'backgroundPrompt', 'shared', 'flex-1'),
   wfiInlineInput('태그 밴 리스트', 'uc', 'shared', 'flex-1'),
