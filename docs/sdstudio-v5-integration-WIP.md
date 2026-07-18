@@ -40,6 +40,10 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - 상태: `IN_PROGRESS`.
 - 해소 기록:
   - `09dc976`, `28111f4`, `a3696d6` 상세 이미지 스와이프·전환 로딩·이전/다음 씬 그리드 — `PORT` 완료. 수평 우세 50px 제스처만 이미지 전환으로 처리하고 fetch 취소 가드로 빠른 연속 전환의 stale 응답을 차단했다. 씬 이동은 현재 검색/필터 순서와 경계 버튼·Ctrl+방향키를 사용하며 씬별 remount로 상태 누수를 막았다. 검증: frontend tsc 0 error, `test/result-viewer-navigation.test.js` pass.
+  - `dada49a` 모바일 탭 잘림·safe-area — `ALREADY`. Remote는 `viewport-fit=cover`와 body 전체 safe-area inset을 이미 적용하고, 모바일 탭은 `min-w-0` 균등 축소·비활성 아이콘/활성 짧은 라벨로 가용 폭 안에 배치한다. upstream의 개별 toast/footer inset 및 탭 가로 스크롤을 중복 적용하지 않는다.
+  - `013bbee` 드로어 첫 프레임 애니메이션 — `ALREADY`. Remote 프로젝트/히스토리 드로어는 닫힌 상태에도 DOM을 유지하고 `visibility`·`transform`만 전환하므로 upstream의 mount 직후 단일 rAF paint race가 없다.
+  - `7dd6f28` 자동완성 모바일 키보드 회피 — `PORT` 완료. `visualViewport`의 offset/height를 기준으로 200px 목록을 캐럿 아래 또는 위에 배치하고 resize/scroll 동안 재계산한다.
+  - `40a4022` 씬 카드 프롬프트 퀵 수정 — `PORT` 완료. 일반 씬 카드 이미지 우상단에서 첫 조합 조각을 바로 편집하며, 기존 전체 씬 편집과 별도로 전체 조합 에디터로 확장할 수 있다. 데스크톱 팝오버는 카드에 앵커링하고 모바일은 중앙 모달을 사용한다. 검증: frontend tsc 0 error, `test/viewport-popup.test.js` pass.
 
 ### V5-B — 프롬프트·Quick·히스토리·해상도·테마
 

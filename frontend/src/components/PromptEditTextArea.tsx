@@ -32,6 +32,7 @@ import { highlightPrompt, makeChunkToken, stripDeadChunkTokens } from '../models
 import { WordTag, calcGapMatch } from '../models/Tags';
 import { appState } from '../models/AppService';
 import ModalOverlay from './ModalOverlay';
+import { positionAutocompletePopup } from '../models/viewportPopup';
 import { observer } from 'mobx-react-lite';
 
 const escapeHtml = (s: string): string =>
@@ -1016,7 +1017,21 @@ const PromptAutoComplete = ({
   };
   useEffect(() => {
     setPosX(clientX);
-    setPosY(clientY + 22);
+    const reposition = () => {
+      const vv = window.visualViewport;
+      setPosY(positionAutocompletePopup(clientY, 200, 22, {
+        top: vv?.offsetTop ?? 0,
+        height: vv?.height ?? window.innerHeight,
+      }));
+    };
+    reposition();
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', reposition);
+    vv?.addEventListener('scroll', reposition);
+    return () => {
+      vv?.removeEventListener('resize', reposition);
+      vv?.removeEventListener('scroll', reposition);
+    };
   }, [clientX, clientY]);
   useEffect(() => {
     setMatchMasks(tags.map((tag) => calcGapMatch(curWord, tag.word).path));

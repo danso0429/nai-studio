@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { FloatView } from './FloatView';
 import SceneEditor from './SceneEditor';
-import { FaBookmark, FaBroom, FaChevronDown, FaChevronLeft, FaChevronRight, FaChevronUp, FaEdit, FaExchangeAlt, FaFileImage, FaPlus, FaRegCalendarTimes, FaSearch, FaSort, FaStar, FaTimes, FaTrash, FaTrashRestore } from 'react-icons/fa';
+import { FaBookmark, FaBroom, FaChevronDown, FaChevronLeft, FaChevronRight, FaChevronUp, FaEdit, FaExchangeAlt, FaFileImage, FaPen, FaPlus, FaRegCalendarTimes, FaSearch, FaSort, FaStar, FaTimes, FaTrash, FaTrashRestore } from 'react-icons/fa';
 import ResultViewer from './ResultViewer';
 import InPaintEditor from './InPaintEditor';
 import { useDrag, useDrop } from 'react-dnd';
@@ -9,6 +9,7 @@ import { getEmptyImage } from 'react-dnd-html5-backend';
 import { useContextMenu } from 'react-contexify';
 import BatchItemSelector from './BatchItemSelector';
 import Tooltip from './Tooltip';
+import SceneQuickPromptModal from './SceneQuickPromptModal';
 import { v4 } from 'uuid';
 import {
   isMobile,
@@ -113,6 +114,7 @@ interface SceneCellProps {
   onToggleBookmark?: () => void;
   disableHover?: boolean;
   isFocused?: boolean;
+  onQuickPrompt?: (scene: Scene, anchor?: DOMRect) => void;
 }
 
 export const SceneCell = observer(
@@ -131,6 +133,7 @@ export const SceneCell = observer(
     onToggleBookmark,
     disableHover,
     isFocused,
+    onQuickPrompt,
   }: SceneCellProps) => {
     const { show, hideAll } = useContextMenu({
       id: ContextMenuType.Scene,
@@ -392,6 +395,20 @@ export const SceneCell = observer(
       !!appState.currentProcessingSceneKey &&
       appState.currentProcessingSceneKey === getSceneKey(curSession!, scene);
     const processingClass = isProcessing ? ' scene-processing' : '';
+    const quickPromptButton = onQuickPrompt && scene.type === 'scene' ? (
+      <Tooltip content="중간 프롬프트 퀵 수정">
+        <button
+          className="absolute right-1 top-1 z-20 w-7 h-7 rounded-full bg-black/55 hover:bg-black/80 text-white clickable flex items-center justify-center transition-opacity duration-200 opacity-100 md:opacity-0 md:group-hover:opacity-100"
+          onClick={(event) => {
+            event.stopPropagation();
+            onQuickPrompt(scene, cardElRef.current?.getBoundingClientRect());
+          }}
+          aria-label={`${scene.name} 중간 프롬프트 퀵 수정`}
+        >
+          <FaPen size={11} />
+        </button>
+      </Tooltip>
+    ) : null;
 
     if (isClassic) {
       // ===== 클래식 디자인 =====
@@ -399,7 +416,7 @@ export const SceneCell = observer(
         <div
           id={`scene-cell-${scene.type}-${scene.name}`}
           className={
-            'relative z-0 m-2 p-1 bg-[var(--c-surface-2)] border line-color ' +
+            'group relative z-0 m-2 p-1 bg-[var(--c-surface-2)] border line-color ' +
             (isDragging ? 'opacity-0 no-touch ' : '') +
             (isOver ? ' outline outline-sky-500' : '') +
             focusRing +
@@ -426,6 +443,7 @@ export const SceneCell = observer(
               </div>
             </div>
             <div className={'relative image-cell overflow-hidden ' + cellSizes[cellSize]}>
+              {quickPromptButton}
               {image && (
                 <div className="relative w-full h-full">
                   <img src={image} draggable={false}
@@ -479,6 +497,7 @@ export const SceneCell = observer(
         )}
         <div className="clickable bg-[var(--c-surface-2)]" onClick={onClickCard}>
           <div className={'relative image-cell overflow-hidden rounded-md ' + cellSizes[cellSize]}>
+            {quickPromptButton}
             {image && (
               <div className="relative w-full h-full">
                 <img src={image} draggable={false}
@@ -679,6 +698,9 @@ const QueueControl = observer(
     const [displayScene, setDisplayScene] = useState<GenericScene | undefined>(
       undefined,
     );
+    const [quickPromptScene, setQuickPromptScene] = useState<
+      { scene: Scene; anchor?: DOMRect } | undefined
+    >();
     const [displayFocus, setDisplayFocus] = useState<string | undefined>();
     useEffect(() => {
       if (!displayScene) setDisplayFocus(undefined);
@@ -1610,6 +1632,13 @@ const QueueControl = observer(
           </FloatView>
         )}
         {resultViewer}
+        {quickPromptScene && (
+          <SceneQuickPromptModal
+            scene={quickPromptScene.scene}
+            anchor={quickPromptScene.anchor}
+            onClose={() => setQuickPromptScene(undefined)}
+          />
+        )}
         {showSceneTrash && (
           <FloatView priority={1} onEscape={() => setShowSceneTrash(false)}>
             <SceneTrashView
@@ -1879,6 +1908,7 @@ const QueueControl = observer(
                       getImage={getImage}
                       setDisplayScene={setDisplayScene}
                       setEditingScene={setEditingScene}
+                      onQuickPrompt={(scene, anchor) => setQuickPromptScene({ scene, anchor })}
                       moveScene={reorderMode ? moveScene : undefined}
                       onMoveUp={reorderMode && realIdx > 0 ? () => moveScene(scene, realIdx - 1) : undefined}
                       onMoveDown={reorderMode && realIdx < allScenes.length - 1 ? () => moveScene(scene, realIdx + 1) : undefined}
