@@ -1270,6 +1270,27 @@ export const CharacterPresetEditor = observer(({
         {/* 순차 생성 설정 패널 */}
         {cyclingMode && (
           <div className="mt-4 p-3 border border-gray-200 dark:border-gray-600 rounded-lg">
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  프리셋 선택 ({selectedPresets.size}/{presets.length})
+                </span>
+                <button
+                  onClick={() => {
+                    const allSelected =
+                      presets.length > 0 && presets.every((preset) => selectedPresets.has(preset.name));
+                    setSelectedPresets(
+                      new Set(allSelected ? [] : presets.map((preset) => preset.name)),
+                    );
+                  }}
+                  className="text-xs text-sky-500 hover:text-sky-600"
+                >
+                  {presets.length > 0 && presets.every((preset) => selectedPresets.has(preset.name))
+                    ? '전체 해제'
+                    : '전체 선택'}
+                </button>
+              </div>
+            </div>
             {/* 씬 선택 */}
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1">

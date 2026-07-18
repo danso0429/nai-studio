@@ -2113,7 +2113,7 @@ const PromptEditTextArea = observer(
     let bgColor = whiteBg
       ? 'bg-gray-100 dark:bg-slate-700'
       : 'bg-gray-200 dark:bg-slate-700';
-    if (fullScreen) bgColor = 'bg-white dark:bg-slate-600 shadow-lg';
+    if (fullScreen) bgColor = 'bg-[var(--c-input-bg)] shadow-lg';
 
     const splitMode = fullScreen && tags.length > 0;
     // +chunk / 확대(fullScreen일 땐 닫기 X) 버튼. headerLabel이면 라벨 줄(헤더)에서, 아니면

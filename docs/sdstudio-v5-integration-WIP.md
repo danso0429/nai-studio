@@ -44,6 +44,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
   - `013bbee` 드로어 첫 프레임 애니메이션 — `ALREADY`. Remote 프로젝트/히스토리 드로어는 닫힌 상태에도 DOM을 유지하고 `visibility`·`transform`만 전환하므로 upstream의 mount 직후 단일 rAF paint race가 없다.
   - `7dd6f28` 자동완성 모바일 키보드 회피 — `PORT` 완료. `visualViewport`의 offset/height를 기준으로 200px 목록을 캐럿 아래 또는 위에 배치하고 resize/scroll 동안 재계산한다.
   - `40a4022` 씬 카드 프롬프트 퀵 수정 — `PORT` 완료. 일반 씬 카드 이미지 우상단에서 첫 조합 조각을 바로 편집하며, 기존 전체 씬 편집과 별도로 전체 조합 에디터로 확장할 수 있다. 데스크톱 팝오버는 카드에 앵커링하고 모바일은 중앙 모달을 사용한다. 검증: frontend tsc 0 error, `test/viewport-popup.test.js` pass.
+  - `f2ad780` UI 수정 6건 — 분할 해소 중. 확장 입력창 테마 토큰과 로컬 순차 생성 프리셋 전체 선택은 `PORT`; 확장 입력창 모바일 높이는 `visualViewport` 전체 가용 높이 추적으로, 서브폴더 순서·헤더 카운트는 `getOrderedFolders()` 기반 트리와 재귀 합산으로 `ALREADY`. 툴바 드래그 중 히스토리 엣지 스와이프 가드는 toolbar v2가 생기는 V5-D에서 함께 해소한다. upstream의 글로벌 프리셋 선택 분기는 V5-C의 글로벌 프리셋 통합에서 최종 해소한다. 검증: frontend tsc 0 error, `test/v5-ui-fixes.test.js` pass.
 
 ### V5-B — 프롬프트·Quick·히스토리·해상도·테마
 
