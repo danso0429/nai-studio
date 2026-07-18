@@ -75,7 +75,8 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 
 - 범위: config v2, 레이아웃 template, edit shell, portable button/companion slot, Quick menu, sidebar/float generation control.
 - 처리: 현재 모바일 하단 탭·프로젝트 드로어·히스토리 핸들을 고정 호환 계약으로 둔다.
-- 상태: `PENDING`.
+- 상태: `IN_PROGRESS`.
+- `3433721`, `932651c`의 config schema v2·portable cross-area 배치 해석/이동을 순수 계층으로 `PORT`. 기존 레이아웃을 기본값으로 유지하고, 전역 중복 방지·stale/nonportable 거부·v1 dual-write·원본 불변을 자동 검증한다. 실제 툴바 소비처·편집 shell·DnD wiring은 후속이다.
 
 ### V5-E — WebP
 

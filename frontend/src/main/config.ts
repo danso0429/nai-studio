@@ -61,6 +61,22 @@ export interface Config {
   exportConcurrency?: number;
   uiTheme?: UiThemeConfig;
   uiThemePresets?: UiThemePreset[];
+  uiToolbar?: UiToolbarConfig;
+}
+
+export type ToolbarButtonPlacement = 'default' | 'pinned' | 'menu' | 'hidden';
+
+export interface UiToolbarAreaLayout {
+  inline?: string[];
+  menu?: string[];
+  hidden?: string[];
+}
+
+export interface UiToolbarConfig {
+  classic?: boolean;
+  buttons?: Record<string, ToolbarButtonPlacement>;
+  areas?: Record<string, UiToolbarAreaLayout>;
+  schema?: 2;
 }
 
 export interface UiThemePreset {
