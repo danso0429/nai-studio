@@ -556,6 +556,11 @@ const SceneTrashView = ({ projectName, onClose }: SceneTrashViewProps) => {
     { name: string; type: 'scene' | 'inpaint'; deletedAt: number }[]
   >([]);
   const [loading, setLoading] = useState(false);
+  const [blockingProgress, setBlockingProgress] = useState<{
+    text: string;
+    done: number;
+    total: number;
+  }>();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -605,19 +610,92 @@ const SceneTrashView = ({ projectName, onClose }: SceneTrashViewProps) => {
       type: 'confirm',
       text: `씬 "${item.name}"${josaEulReul(item.name)} 영구 삭제하시겠습니까?`,
       callback: async () => {
-        await trashService.permanentlyDeleteScene(
-          projectName,
-          item.name,
-          item.type,
-        );
-        await refresh();
+        setBlockingProgress({ text: '씬 영구 삭제 중...', done: 0, total: 1 });
+        try {
+          await trashService.permanentlyDeleteScene(
+            projectName,
+            item.name,
+            item.type,
+          );
+          setBlockingProgress({ text: '씬 영구 삭제 중...', done: 1, total: 1 });
+          await refresh();
+        } catch (error: any) {
+          appState.pushMessage(error?.message || '씬 영구 삭제에 실패했습니다.');
+        } finally {
+          setBlockingProgress(undefined);
+        }
       },
     });
   };
 
+  const handleEmptyAll = () => {
+    const targets = [...deletedScenes];
+    if (targets.length === 0) return;
+    appState.pushDialog({
+      type: 'confirm',
+      text: `휴지통의 모든 씬(${targets.length}개)을 영구 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`,
+      confirmText: '모두 영구 삭제',
+      callback: async () => {
+        const text = '씬 휴지통 비우는 중...';
+        let done = 0;
+        let failed = 0;
+        setBlockingProgress({ text, done, total: targets.length });
+        try {
+          for (const target of targets) {
+            try {
+              await trashService.permanentlyDeleteScene(
+                projectName,
+                target.name,
+                target.type,
+              );
+            } catch {
+              failed++;
+            }
+            setBlockingProgress({ text, done: ++done, total: targets.length });
+          }
+          await refresh();
+          appState.pushMessage(
+            failed === 0
+              ? `씬 ${targets.length}개를 영구 삭제했습니다.`
+              : `씬 ${targets.length - failed}개를 영구 삭제했고 ${failed}개는 실패했습니다.`,
+          );
+        } finally {
+          setBlockingProgress(undefined);
+        }
+      },
+    });
+  };
+
+  const progressOverlay = blockingProgress && (
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      style={{ zIndex: 5000 }}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="w-80 max-w-[90vw] rounded-xl border line-color bg-[var(--c-zone)] p-4 shadow-2xl">
+        <div className="text-center text-default font-medium">{blockingProgress.text}</div>
+        <div className="relative mt-3 h-7 overflow-hidden rounded bg-gray-500 dark:bg-slate-700 text-center text-white">
+          <div className="relative z-10 tabular-nums">
+            {blockingProgress.done}/{blockingProgress.total}
+          </div>
+          <div
+            className="absolute inset-y-0 left-0 bg-sky-500 dark:bg-indigo-400"
+            style={{
+              width: `${blockingProgress.total > 0
+                ? (blockingProgress.done / blockingProgress.total) * 100
+                : 0}%`,
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+
   if (deletedScenes.length === 0 && !loading) {
     return (
       <div className="flex flex-col h-full">
+        {progressOverlay}
         <div className="flex-none p-3 border-b line-color flex items-center justify-between">
           <span className="font-bold text-lg text-default">🗑️ 씬 휴지통</span>
           <button className="round-button back-gray" onClick={onClose}>
@@ -632,12 +710,19 @@ const SceneTrashView = ({ projectName, onClose }: SceneTrashViewProps) => {
   }
 
   return (
-    <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full">
+      {progressOverlay}
       <div className="flex-none p-3 border-b line-color flex items-center justify-between">
         <span className="font-bold text-lg text-default">🗑️ 씬 휴지통</span>
-        <button className="round-button back-gray" onClick={onClose}>
-          닫기
-        </button>
+        <div className="flex items-center gap-2">
+          <button className="round-button back-red" onClick={handleEmptyAll}>
+            <FaTrash className="mr-1" />
+            모두 비우기
+          </button>
+          <button className="round-button back-gray" onClick={onClose}>
+            닫기
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-auto p-3">
         <div className="flex flex-col gap-2">
