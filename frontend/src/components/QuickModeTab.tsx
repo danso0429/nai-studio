@@ -13,6 +13,7 @@ import { appState } from '../models/AppService';
 import { ContextMenuType, Scene, Session } from '../models/types';
 import { queueScene } from './SceneQueueControl';
 import { useLongPress } from './useLongPress';
+import { ResolutionPicker } from './ResolutionPicker';
 
 const DEFAULT_SCENE = 'default';
 type QuickMode = 'idle' | 'single' | 'auto' | 'switching';
@@ -252,6 +253,24 @@ const QuickModeTab = observer(() => {
   });
 
   const progress = sceneStats.total > 0 ? `${sceneStats.done}/${sceneStats.total}` : '';
+  const quickScene = session.scenes.get(DEFAULT_SCENE);
+
+  const applyResolution = (value: {
+    resolution: string;
+    width?: number;
+    height?: number;
+  }) => {
+    const scene = ensureDefaultScene(session);
+    scene.resolution = value.resolution;
+    if (value.resolution === 'custom') {
+      scene.resolutionWidth = value.width;
+      scene.resolutionHeight = value.height;
+    } else {
+      scene.resolutionWidth = undefined;
+      scene.resolutionHeight = undefined;
+    }
+    sessionService.markDirty(session.name);
+  };
   return (
     <div className="h-full w-full flex flex-col">
       <div
@@ -285,45 +304,61 @@ const QuickModeTab = observer(() => {
           </div>
         )}
       </div>
-      <div className="flex-none grid grid-cols-2 gap-2 px-3 pb-3 pt-1">
-        <button
-          className={'round-button font-semibold text-sm !py-2.5 w-full select-none ' +
-            (mode === 'single' ? 'back-red' : mode === 'switching' ? 'back-gray' : 'back-sky')}
-          disabled={mode === 'switching'}
-          onClick={() => {
-            const current = modeRef.current;
-            if (current === 'idle') void start('single');
-            else if (current === 'single') void cancelOrSwitch();
-            else if (current === 'auto') void cancelOrSwitch('single');
-          }}
-        >
-          {mode === 'single'
-            ? `1장 생성 취소${progress ? ` ${progress}` : ''}`
-            : mode === 'switching'
-              ? '전환 중…'
-              : mode === 'auto'
-                ? '1장으로 전환'
-                : '1장 생성'}
-        </button>
-        <button
-          className={'round-button font-semibold text-sm !py-2.5 w-full select-none ' +
-            (mode === 'auto' ? 'back-red' : mode === 'switching' ? 'back-gray' : 'back-green')}
-          disabled={mode === 'switching'}
-          onClick={() => {
-            const current = modeRef.current;
-            if (current === 'idle') void start('auto');
-            else if (current === 'auto') void cancelOrSwitch();
-            else if (current === 'single') void cancelOrSwitch('auto');
-          }}
-        >
-          {mode === 'auto'
-            ? `자동 생성 취소${progress ? ` ${progress}` : ''}`
-            : mode === 'switching'
-              ? '전환 중…'
-              : mode === 'single'
-                ? '자동으로 전환'
-                : '자동 생성'}
-        </button>
+      <div className="flex-none px-3 pb-3 pt-1">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            className={'round-button font-semibold text-sm !py-2.5 w-full select-none ' +
+              (mode === 'single' ? 'back-red' : mode === 'switching' ? 'back-gray' : 'back-sky')}
+            disabled={mode === 'switching'}
+            onClick={() => {
+              const current = modeRef.current;
+              if (current === 'idle') void start('single');
+              else if (current === 'single') void cancelOrSwitch();
+              else if (current === 'auto') void cancelOrSwitch('single');
+            }}
+          >
+            {mode === 'single'
+              ? `1장 생성 취소${progress ? ` ${progress}` : ''}`
+              : mode === 'switching'
+                ? '전환 중…'
+                : mode === 'auto'
+                  ? '1장으로 전환'
+                  : '1장 생성'}
+          </button>
+          <button
+            className={'round-button font-semibold text-sm !py-2.5 w-full select-none ' +
+              (mode === 'auto' ? 'back-red' : mode === 'switching' ? 'back-gray' : 'back-green')}
+            disabled={mode === 'switching'}
+            onClick={() => {
+              const current = modeRef.current;
+              if (current === 'idle') void start('auto');
+              else if (current === 'auto') void cancelOrSwitch();
+              else if (current === 'single') void cancelOrSwitch('auto');
+            }}
+          >
+            {mode === 'auto'
+              ? `자동 생성 취소${progress ? ` ${progress}` : ''}`
+              : mode === 'switching'
+                ? '전환 중…'
+                : mode === 'single'
+                  ? '자동으로 전환'
+                  : '자동 생성'}
+          </button>
+        </div>
+        <ResolutionPicker
+          className="mt-2 w-full"
+          triggerClassName="w-full justify-between py-2"
+          value={
+            quickScene
+              ? {
+                  resolution: quickScene.resolution,
+                  width: quickScene.resolutionWidth,
+                  height: quickScene.resolutionHeight,
+                }
+              : undefined
+          }
+          onApply={applyResolution}
+        />
       </div>
     </div>
   );

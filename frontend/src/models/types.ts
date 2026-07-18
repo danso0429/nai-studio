@@ -412,6 +412,8 @@ export interface ISession {
   // 상위와 중간(씬 전용) 사이에 삽입되는 프로젝트 귀속 추가 프롬프트.
   // 프리셋·글로벌 프리셋에는 포함하지 않는다.
   extraPrompt?: string;
+  // 이후 새로 만드는 씬의 기본 해상도. 기존 씬에는 자동 적용하지 않는다.
+  newSceneResolution?: { resolution: string; width?: number; height?: number };
 }
 
 export class Session implements Serealizable {
@@ -430,6 +432,9 @@ export class Session implements Serealizable {
   @observable accessor sceneCardStyle: { scene?: string; inpaint?: string } = {};
   @observable accessor samplingPresetId: string | null | undefined = undefined;
   @observable accessor extraPrompt: string = '';
+  @observable accessor newSceneResolution:
+    | { resolution: string; width?: number; height?: number }
+    | undefined = undefined;
 
   constructor() {
     makeObservable(this);
@@ -633,6 +638,7 @@ export class Session implements Serealizable {
     session.sceneCardStyle = json.sceneCardStyle || {};
     session.samplingPresetId = json.samplingPresetId;
     session.extraPrompt = json.extraPrompt || '';
+    session.newSceneResolution = json.newSceneResolution;
     return session;
   }
 
@@ -688,6 +694,7 @@ export class Session implements Serealizable {
       samplingPresetId: this.samplingPresetId,
       // 미사용 프로젝트 JSON에는 필드를 남기지 않는다.
       extraPrompt: this.extraPrompt || undefined,
+      newSceneResolution: this.newSceneResolution,
     };
   }
 }

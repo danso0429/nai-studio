@@ -74,6 +74,7 @@ import ModalOverlay from './ModalOverlay';
 import PromptChunkManager from './PromptChunkManager';
 import { FaCloudUploadAlt } from 'react-icons/fa';
 import { ModelVersion } from '../backends/imageGen';
+import { ResolutionPicker, resolutionValueToSize } from './ResolutionPicker';
 
 // Phase 7C: gray-label 핵심 패턴 헬퍼 (오타 재발 방지)
 const GrayLabel: React.FC<{ children: React.ReactNode; className?: string }> = ({
@@ -2039,6 +2040,7 @@ interface IWFGroupContext {
 }
 
 const WFGroupContext = React.createContext<IWFGroupContext | null>(null);
+const PresetFooterContext = React.createContext<React.ReactNode>(undefined);
 
 const PROMPT_FOLD_LS_KEY = 'sdstudio-prompt-fold';
 function loadPromptFold(): Record<string, boolean> {
@@ -2307,12 +2309,69 @@ const WFRGroup = observer(({ element }: WFElementProps) => {
 
 const WFRStack = observer(({ element }: WFElementProps) => {
   const stk = element as WFIStack;
+  const footer = useContext(PresetFooterContext);
   return (
     <VerticalStack>
       {stk.inputs.map((x) => (
         <WFRenderElement element={x} />
       ))}
+      {footer}
     </VerticalStack>
+  );
+});
+
+const NewSceneResolutionRow = observer(() => {
+  const session = appState.curSession;
+  if (!session) return <></>;
+  const value = session.newSceneResolution;
+  const size = resolutionValueToSize(value);
+  const applyAll = () => {
+    const scenes = Array.from(session.scenes.values());
+    if (scenes.length === 0) {
+      appState.pushMessage('적용할 씬이 없습니다');
+      return;
+    }
+    appState.pushDialog({
+      type: 'confirm',
+      text: `씬 탭의 모든 씬 ${scenes.length}개에 ${size.width}x${size.height} 해상도를 적용하시겠습니까?`,
+      callback: () => {
+        const next = value ?? { resolution: 'portrait' };
+        for (const scene of scenes) {
+          scene.resolution = next.resolution;
+          if (next.resolution === 'custom') {
+            scene.resolutionWidth = next.width;
+            scene.resolutionHeight = next.height;
+          } else {
+            scene.resolutionWidth = undefined;
+            scene.resolutionHeight = undefined;
+          }
+        }
+        sessionService.markDirty(session.name);
+        appState.pushMessage(`${scenes.length}개 씬에 해상도를 적용했습니다`);
+      },
+    });
+  };
+  return (
+    <div className="flex-none mt-2 flex items-center gap-2">
+      <span className="flex-none gray-label">새 씬 해상도:</span>
+      <ResolutionPicker
+        className="flex-1 min-w-0"
+        triggerClassName="w-full justify-between py-1.5"
+        value={value}
+        onApply={(next) => {
+          session.newSceneResolution = next;
+          sessionService.markDirty(session.name);
+        }}
+      />
+      <Tooltip content="씬 탭의 모든 씬에 이 해상도를 일괄 적용합니다 (인페인트 제외)">
+        <button
+          className="round-button back-gray text-sm flex-none !px-2.5 !py-1 !min-w-0"
+          onClick={applyAll}
+        >
+          일괄 적용
+        </button>
+      </Tooltip>
+    </div>
   );
 });
 
@@ -2895,6 +2954,7 @@ interface ImplProps {
   onMiddlePromptChange?: (txt: string) => void;
   getCharacterMiddlePrompt?: (index: number) => string;
   onCharacterMiddlePromptChange?: (index: number, txt: string) => void;
+  showNewSceneResolution?: boolean;
 }
 
 export const PreSetEditorImpl = observer(
@@ -2909,6 +2969,7 @@ export const PreSetEditorImpl = observer(
     onMiddlePromptChange,
     getCharacterMiddlePrompt,
     onCharacterMiddlePromptChange,
+    showNewSceneResolution,
   }: ImplProps) => {
     const [editVibe, setEditVibe] = useState<WFIInlineInput | undefined>(
       undefined,
@@ -3010,7 +3071,11 @@ export const PreSetEditorImpl = observer(
               />
             )}
             {!editVibe && !editCharacters && !editCharacterReference && (
-              <WFRenderElement element={element} />
+              <PresetFooterContext.Provider
+                value={showNewSceneResolution ? <NewSceneResolutionRow /> : undefined}
+              >
+                <WFRenderElement element={element} />
+              </PresetFooterContext.Provider>
             )}
           </WFGroupContext.Provider>
           {/* 샘플링/모델 설정 오버레이 */}
@@ -3186,6 +3251,7 @@ const PreSetEditor = observer(
             onMiddlePromptChange={onMiddlePromptChange}
             getCharacterMiddlePrompt={getCharacterMiddlePrompt}
             onCharacterMiddlePromptChange={onCharacterMiddlePromptChange}
+            showNewSceneResolution
           />
         </VerticalStack>
       )

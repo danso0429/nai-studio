@@ -46,6 +46,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - 상태: `IN_PROGRESS`.
 - 해소 기록:
   - `c020ad4` 추가 프롬프트·접기 — `PORT` 완료. Remote의 기존 PromptEditTextArea 헤더·chunk 버튼을 보존한 접기 API로 재작성했고, Session JSON과 상위→추가→중간 조합 순서를 연결했다. 검증: frontend tsc 0 error, `test/extra-prompt.test.js` pass.
+  - `cbb640a`, `cbd3aae` Quick/새 씬 기본 해상도 — `PORT` 완료. Remote의 분리된 1장·자동 생성 버튼과 서버 큐는 유지하고 공용 해상도 선택기를 추가했다. 새 씬 기본값은 Session JSON에 저장되며 일반 씬·인페인트 생성에 적용되고, 기존 일반 씬 일괄 적용은 확인 대화상자를 거친다. 직접 입력은 64px 단위로 올림 보정한다. 검증: frontend tsc 0 error, `test/resolution-settings.test.js` pass.
 
 ### V5-C — 템플릿·프리셋·조합·일괄 생성
 

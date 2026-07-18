@@ -1068,13 +1068,26 @@ const QueueControl = observer(
             return;
           }
 
+          const defaultResolution = curSession.newSceneResolution;
+          const defaultResolutionFields = {
+            resolution: defaultResolution?.resolution ?? 'portrait',
+            resolutionWidth:
+              defaultResolution?.resolution === 'custom'
+                ? defaultResolution.width
+                : undefined,
+            resolutionHeight:
+              defaultResolution?.resolution === 'custom'
+                ? defaultResolution.height
+                : undefined,
+          };
+
           if (type === 'scene') {
             for (const name of names) {
               curSession.addScene(
                 Scene.fromJSON({
                   type: 'scene',
                   name: name,
-                  resolution: 'portrait',
+                  ...defaultResolutionFields,
                   slots: [
                     [
                       {
@@ -1108,7 +1121,7 @@ const QueueControl = observer(
                 InpaintScene.fromJSON({
                   type: 'inpaint',
                   name: name,
-                  resolution: 'portrait',
+                  ...defaultResolutionFields,
                   workflowType: menu,
                   preset: workFlowService.buildPreset(menu).toJSON(),
                   mains: [],
