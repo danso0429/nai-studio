@@ -1,0 +1,104 @@
+# SDStudio v5.0.0 Remote 통합 WIP
+
+> 상태: 통합 구현 진행 중. upstream 기준은 `v5.0.0` (`aa03e417827132a17516f7cd5cc831435bcd70a8`), Remote 기준은 `v1.12.0` (`ba2b4a2`)이다.
+> 순서: 5.0.0 전체 통합 → 전체 자동 게이트와 실제 사용자 L3 안내 → L3 답변과 독립적으로 2026-07-19 순환 백로그 S0~S4 실행 → 최종 자동 게이트 → 사용자 L3 OK 후 stable release.
+
+## 1. 완료 정의
+
+- `merge-base(v4.14.1, v5.0.0)..v5.0.0`의 134개 커밋을 기능 효과 단위로 `PORT`·`ADAPT`·`ALREADY`·`N/A` 중 하나로 해소한다.
+- Electron/Android 전용 코드를 웹에 복제하지 않지만, 프로젝트 lock·단일 생성 host·파일 변환처럼 Remote에도 해당하는 효과는 서버 권위 구조로 `ADAPT`한다.
+- 기존 서버 큐, PWA 복원, Drive 동기화, 프로젝트 폴더, 보존 삭제, full backup/restore, custom endpoint와 설정 override를 유지한다.
+- 저장소 v2는 브라우저 keep-alive 작업이 아니라 서버 ledger 작업으로 구현한다. 실제 사용자 데이터 이동과 구 저장소 삭제는 각각 사용자의 명시 승인을 받기 전 실행하지 않는다.
+- 통합 뒤 `docs/runtime-audit-instructions.md` v2에 따른 L2.5와 실제 iPhone L3 시나리오를 수행한다. 에이전트의 추정·자동검증은 사용자 L3를 대체하지 않는다.
+- 통합 결과를 기준으로 순환 백로그 S0~S4를 수행하고, runtime-static SCC 0을 reachable 목표로 삼는다. 불가피한 잔여가 있으면 실제 edge·top-level 안전 근거·제거 비용을 제시하고 사용자 승인 없이는 완료 처리하지 않는다.
+
+## 2. upstream 전수 범위
+
+검증 명령:
+
+```bash
+git --no-pager merge-base v4.14.1 v5.0.0
+git --no-pager rev-list --count $(git --no-pager merge-base v4.14.1 v5.0.0)..v5.0.0
+git --no-pager diff --shortstat v4.14.1 v5.0.0
+```
+
+현재 관찰값:
+
+- 공통 조상: `972c3dd362ba2353cb4bd4cdb1a909d6f7ba023b` (`v4.14.0`)
+- v5 쪽 커밋: 134
+- 직접 tag diff: 150 files, 26,546 insertions, 2,134 deletions, binary 1
+- 단순 경로 매핑으로 현재 파일에 대응: 54. 그중 exact v4 2, exact v5 0, 양쪽과 다른 Remote 파일 52
+
+134개 커밋은 아래 트랙의 `upstream 범위`를 합집합으로 관리한다. 최종 closeout에서 `rev-list` 원본과 트랙별 해소표의 SHA 집합을 대조해 누락·중복 0을 증명한다.
+
+## 3. 통합 트랙
+
+### V5-A — 모바일·공통 UX와 안전 수정
+
+- 범위: 결과 스와이프, safe-area, 자동완성 위치, 드로어 애니메이션, z-index/token, 공용 버튼, 진행 취소, 도움말, 모바일 툴바 복구.
+- 처리: 웹에 해당하는 효과는 `PORT`; Android back stack과 Electron file reveal은 `N/A` 또는 서버/브라우저 동등 기능이 있을 때만 `ADAPT`.
+- 상태: `PENDING`.
+
+### V5-B — 프롬프트·Quick·히스토리·해상도·테마
+
+- 범위: 추가 프롬프트와 접기, Quick 전용 프로젝트, 최근 30장 영속, Quick/새 씬 해상도, 사용자 테마 프리셋.
+- 처리: 서버 completed history와 서버 큐를 정본으로 유지하고 v5의 사용자 효과를 합친다. 클라이언트 `history.json`과 현재 프로젝트 queue 직접 실행은 복제하지 않는다.
+- 상태: `IN_PROGRESS`.
+- 해소 기록:
+  - `c020ad4` 추가 프롬프트·접기 — `PORT` 완료. Remote의 기존 PromptEditTextArea 헤더·chunk 버튼을 보존한 접기 API로 재작성했고, Session JSON과 상위→추가→중간 조합 순서를 연결했다. 검증: frontend tsc 0 error, `test/extra-prompt.test.js` pass.
+
+### V5-C — 템플릿·프리셋·조합·일괄 생성
+
+- 범위: 프로젝트/폴더/씬 템플릿, 상속, 전역 캐릭터 프리셋 폴더·이동·파일 입출력, 조합 편집, 일괄 생성 계획과 예약.
+- 처리: 계획 계산은 클라이언트 pure layer, 실제 예약·취소·복원은 기존 서버 큐 계약을 사용한다.
+- 상태: `PENDING`.
+
+### V5-D — 레이아웃 편집·Quick menu·portable toolbar
+
+- 범위: config v2, 레이아웃 template, edit shell, portable button/companion slot, Quick menu, sidebar/float generation control.
+- 처리: 현재 모바일 하단 탭·프로젝트 드로어·히스토리 핸들을 고정 호환 계약으로 둔다.
+- 상태: `PENDING`.
+
+### V5-E — WebP
+
+- 범위: 동시성 helper, 자동/수동 변환, 취소, NAI 스텔스 메타데이터 보존.
+- 처리: `@jsquash/webp` 브라우저 WASM 대신 서버 ARM `sharp` 후보와 upstream stealth codec를 비교한다. PNG 원본은 metadata round-trip·참조 원자 갱신이 검증되기 전 삭제하지 않는다.
+- 상태: `PENDING`.
+
+### V5-F — 멀티클라이언트 동기화
+
+- 범위: upstream multi-window registry, project lock, global store broadcast, single generation host, readonly mirror.
+- 처리: Electron IPC는 `N/A`; 효과는 서버 revision/CAS 또는 lease와 WebSocket event로 `ADAPT`. 단일 generation host는 기존 서버 큐로 `ALREADY`인지 호출 경로를 다시 검증한다.
+- 상태: `PENDING`.
+
+### V5-G — 저장소 v2
+
+- 범위: `projectPaths`, `storageLayout`, migration gate/ledger, workspace scan, legacy cleanup, backup/rollback.
+- 처리: 서버 권위 migration API와 restart-resumable ledger로 `ADAPT`. queue output, completed history, Drive, queue.html, project delete, import/export, full backup/restore, disk cleanup을 dual-layout로 함께 전환한다.
+- 상태: `PENDING`.
+
+### V5-H — 플랫폼·패키징 전용
+
+- 범위: Electron main/preload/window, Android Java, webpack/release app packaging.
+- 처리: Remote 실행 경로와 대응 효과가 없는 항목은 근거와 함께 `N/A`.
+- 상태: `PENDING`.
+
+## 4. 순환 백로그 — 통합 뒤 실행
+
+- S0: raw madge와 transpile 후 runtime-static graph 측정기·fixture·baseline.
+- S1: `SceneEditor ↔ PreSetEditor`, `SceneQueueControl ↔ ResultViewer` 제거.
+- S2: `models/index.ts` 역참조 제거와 create/start 분리.
+- S3: 순수 model/type와 workflow materialization 분리.
+- S4: AppService와 queue/workflow의 UI·command 역참조 제거.
+- baseline 출발점은 v1.12.0 raw 67, runtime `[29,2,2]`, internal edges 95, direct pairs 19지만, 목표 판정은 통합 완료 뒤 새로 측정한 graph를 사용한다.
+
+## 5. 게이트
+
+- 변경별 작은 commit. 기존 dirty 경로와 섞지 않고 경로를 명시해 stage한다.
+- frontend build는 루트 `update.sh`만 사용한다.
+- L1: TS 새 오류 0, lint 새 위반 0, 관련 unit/integration test, production build.
+- L2: build-info와 projects API, 실제 project JSON parse. 프로젝트 개수는 gate로 쓰지 않는다.
+- L2.5: discovery → external anchor → triage. 실행 전 결과를 예측하지 않는다.
+- L3: 통합 전체가 자동 gate를 지난 뒤 실제 iPhone 화면·버튼·손가락 시나리오를 사용자에게 안내한다. 사용자 답변만 결과로 기록한다.
+- 순환 작업은 L3 답변을 기다리거나 그 결과로 회피하지 않고 통합 완료 뒤 진행한다.
+- stable tag와 release는 사용자 L3 OK 뒤 L4에서만 수행한다.
