@@ -1,6 +1,6 @@
 {
-  "version": "1.11.4",
-  "sdstudioBase": "4.13.5",
-  "released": "2026-07-11",
-  "notes": "v1.11.3 → v1.11.4 — patch (전체 코드 진단 안정성 수정). 폴더만 삭제 시 프로젝트 보존을 클라이언트·서버 양쪽에서 보장하고, 전역 JSON 7종의 네트워크 읽기 실패가 빈 상태 저장으로 이어지지 않게 차단. raw upload 경로·임시 파일, scene import reaction 누수, 일괄 이동 오정보, shared load retry 순서 의존, stale mask decode를 수정. ws/ExifReader DoS 취약점 해소, 미사용 react-router 제거, 태그 검색 고속화."
+  "version": "1.12.0",
+  "sdstudioBase": "4.14.1",
+  "released": "2026-07-18",
+  "notes": "v1.11.4 → v1.12.0 — minor (SDStudio 4.14.1 선택 통합). 최근 4시간 이미지 히스토리, 1장/자동 퀵 생성, 6개 테마 템플릿과 사용자 색상 설정을 추가. 저장 직렬화·안정 snapshot·리소스 수명주기 보호로 삭제·이름 변경·가져오기·복원 중 데이터 부활과 덮어쓰기를 차단하고, 모바일 드로어·활성 탭·이동 가능한 히스토리 핸들을 개선."
 }
