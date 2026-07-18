@@ -804,7 +804,7 @@ const ProjectDrawer = observer(() => {
     <div
       className="fixed inset-0 titlebar-no-drag"
       style={{
-        zIndex: 2100,
+        zIndex: 'var(--z-drawer)',
         visibility: open ? 'visible' : 'hidden',
         transition: open ? 'visibility 0s' : 'visibility 0s linear 180ms',
       }}

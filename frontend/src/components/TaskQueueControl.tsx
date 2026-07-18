@@ -995,7 +995,7 @@ const TaskQueueList = observer(({ onClose, anchor }: { onClose?: () => void; anc
     position: 'fixed',
     bottom: window.innerHeight - anchorRect.top + 8,
     right: window.innerWidth - anchorRect.right,
-    zIndex: 100,
+    zIndex: 'var(--z-widget)',
   };
 
   return createPortal(

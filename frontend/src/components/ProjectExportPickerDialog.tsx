@@ -211,7 +211,7 @@ const ProjectExportPickerDialog = observer(({ onClose }: Props) => {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      className="fixed inset-0 z-[var(--z-feature-modal)] flex items-center justify-center bg-black/50"
       onClick={onClose}
     >
       <ModalOverlayCountMarker />

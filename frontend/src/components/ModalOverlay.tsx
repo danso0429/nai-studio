@@ -81,7 +81,7 @@ const ModalOverlay = ({
     <div
       className="fixed inset-0 flex items-center justify-center"
       style={{
-        zIndex: 2000,
+        zIndex: 'var(--z-modal)',
         backgroundColor: 'rgba(0, 0, 0, 0.3)',
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',

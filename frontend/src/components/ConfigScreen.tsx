@@ -1191,7 +1191,7 @@ const TaskLogSection = () => {
         작업 로그 보기
       </button>
       {showDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50"
+        <div className="fixed inset-0 z-[var(--z-feature-modal)] flex items-center justify-center bg-black bg-opacity-50"
           onClick={(e) => { if (e.target === e.currentTarget) setShowDialog(false); }}>
           <ModalOverlayCountMarker />
           <div className="bg-white dark:bg-slate-700 rounded-lg shadow-xl w-[90vw] max-w-lg max-h-[80vh] flex flex-col">
@@ -1677,7 +1677,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     <div
       className="fixed inset-0 flex items-center justify-center"
       style={{
-        zIndex: 2000,
+        zIndex: 'var(--z-modal)',
         backgroundColor: 'rgba(0, 0, 0, 0.3)',
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',

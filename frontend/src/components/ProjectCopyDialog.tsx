@@ -55,7 +55,7 @@ const ProjectCopyDialog = observer(() => {
   // z-[3000]: 드로어(z-2100) 위 + ConfirmWindow/Alert(z-5000) 아래의 feature 모달 레이어.
   // (z-50이면 드로어 뒤로 가림 — 불러오기/복사 다이얼로그 공통.)
   return (
-    <div className="fixed inset-0 z-[3000] flex justify-center items-start pt-12 bg-black/40">
+    <div className="fixed inset-0 z-[var(--z-feature-modal)] flex justify-center items-start pt-12 bg-black/40">
       <ModalOverlayCountMarker />
       <div className="m-4 p-4 rounded-md shadow-xl bg-white dark:bg-slate-800 text-default w-full max-w-md max-h-[90vh] flex flex-col">
         <div className="text-default font-medium mb-1 break-words">

@@ -10,7 +10,7 @@ const AlertWindow = observer(() => {
       // 하단 바는 가변 높이라 App.tsx가 측정한 --bottombar-h 위에 띄워 footer를 안 가림.
       // (SDStudio 4.13 389d6fb 토스트 하단 이동을 우리 가변 footer에 맞춰 적응)
       className="fixed left-0 right-0 flex flex-col items-center gap-2 px-2 pointer-events-none"
-      style={{ zIndex: 5000, bottom: 'calc(var(--bottombar-h, 57px) + 8px)' }}
+      style={{ zIndex: 'var(--z-toast)', bottom: 'calc(var(--bottombar-h, 57px) + 8px)' }}
     >
       {messages.map((m) => (
         <div

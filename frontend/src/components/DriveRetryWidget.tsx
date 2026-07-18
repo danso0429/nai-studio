@@ -44,7 +44,7 @@ const DriveRetryWidget = observer(() => {
             ? 'bg-red-600 hover:bg-red-700'
             : 'bg-amber-500 hover:bg-amber-600')
         }
-        style={{ zIndex: 4500 }}
+        style={{ zIndex: 'var(--z-drive-widget)' }}
       >
         {allFailed ? <FaTimes /> : <FaCloudUploadAlt />}
         <span>
@@ -91,7 +91,7 @@ const DriveRetryModal = observer(() => {
   return (
     <div
       className="fixed inset-0 flex items-center justify-center"
-      style={{ zIndex: 5500, backgroundColor: 'rgba(0,0,0,0.8)' }}
+      style={{ zIndex: 'var(--z-blocking-modal)', backgroundColor: 'rgba(0,0,0,0.8)' }}
       onClick={() => (appState.driveRetryModalOpen = false)}
     >
       <ModalOverlayCountMarker />

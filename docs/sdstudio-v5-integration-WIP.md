@@ -48,6 +48,8 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
   - `0f20d01`, `b112fd6` 씬 휴지통 모두 비우기·일괄 작업 잠금 — `PORT` 완료. 사용자 확인 뒤 캡처한 휴지통 목록만 순차 영구 삭제하고, 실행 중에는 전체화면 진행 오버레이로 중복 조작을 막는다. 일부 실패를 숨기지 않고 성공/실패 개수를 구분해 보고하며 `finally`에서 잠금을 해제한다. 검증: frontend tsc 0 error, `test/scene-trash-batch.test.js` pass.
   - `dceaef6` 환경설정 미저장 변경 배지 — `PORT` 완료. 저장 흐름이 실제로 쓰는 설정 필드만 정규화된 draft fingerprint로 비교하고, 즉시 저장되는 경로 선택·로그인 입력 등은 제외한다. 로드와 저장 성공 시 기준 스냅샷을 갱신하며 닫기 동작은 막지 않는다. 검증: frontend tsc 0 error, `test/config-unsaved-badge.test.js` pass.
   - `8a9b442` 빈 프로젝트명 영구삭제 데이터 루트 사고 방지 — `ALREADY`. Remote에는 upstream 클라이언트 프로젝트 휴지통 스캐너가 없고, 서버의 모든 재귀 디렉터리 삭제 최종 관문이 빈 경로·비정상 세그먼트·보호 데이터 루트를 거부한다. 프로젝트 영구삭제 엔드포인트도 별도로 빈/예약/경로 포함 이름을 거부한다. 검증: `test/data-path-guard.test.js` pass, 실제 관문 `server.js`의 `assertDeletableDataDirPath`·`assertDeletableProjectName` 호출 확인.
+  - `b058aa9`, `fadf3ad` 내보내기 완료 피드백의 확인 모달→비차단 위젯 재조정 — `ALREADY/ADAPT`. Remote는 큐 등록, 서버 tar 생성, Drive 업로드를 별도 사건으로 추적한다. 큐 등록은 상단 비차단 progress toast, 서버 처리는 업로드 위젯, Drive 미사용자는 tar 완성 뒤 다운로드 시작 완료, Drive 사용자는 sync 완료/최종 실패를 각각 알린다. upstream처럼 로컬 파일 생성만으로 전체 전달 완료를 단정하는 단일 위젯은 추가하지 않는다.
+  - `b4d46ef` 전역 z-index 사다리 — `PORT/ADAPT` 완료. upstream 계층에 Remote 전용 feature modal(3000), Drive widget(4500), blocking modal(5500)을 추가하고, 전역 fixed 오버레이·드로어·토스트·컨텍스트 메뉴·툴팁·프롬프트 팝업을 단일 CSS 토큰으로 연결했다. 카드 내부 배지 등 로컬 stacking context는 유지했다. 검증: frontend tsc 0 error, `test/z-layer-contract.test.js` pass.
 
 ### V5-B — 프롬프트·Quick·히스토리·해상도·테마
 

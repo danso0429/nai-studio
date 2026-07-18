@@ -359,7 +359,7 @@ const GlobalPresetEditModal = observer(
 
     return (
       <div
-        className="fixed inset-0 bg-black/50 flex items-center justify-center z-[5000]"
+        className="fixed inset-0 bg-black/50 flex items-center justify-center z-[var(--z-modal)]"
         onClick={onClose}
       >
         <ModalOverlayCountMarker />
@@ -884,7 +884,7 @@ export const GlobalPresetPickerOverlay = observer(() => {
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-[5000]"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-[var(--z-modal)]"
       onClick={() => appState.closeGlobalPresetPicker()}
     >
       <ModalOverlayCountMarker />

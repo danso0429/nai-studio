@@ -1,5 +1,5 @@
 :root {
-  --contexify-zIndex: 666;
+  --contexify-zIndex: var(--z-context-menu);
   --contexify-menu-minWidth: 220px;
   --contexify-menu-padding: 6px;
   --contexify-menu-radius: 6px;

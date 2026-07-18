@@ -954,7 +954,7 @@ export const App = observer(() => {
           color: 'var(--c-text-label)',
         } as React.CSSProperties}
       >
-        <div className="z-[3000]">
+        <div className="z-[var(--z-feature-modal)]">
           <DnDPreview />
         </div>
         <ErrorBoundary
@@ -1093,7 +1093,7 @@ export const App = observer(() => {
         <SceneImporterDialog />
         {dragOverlay && (
           <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none"
+            className="fixed inset-0 z-[var(--z-drag-overlay)] flex items-center justify-center pointer-events-none"
             style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
           >
             <div className="bg-[var(--c-surface-2)] rounded-2xl px-8 py-6 shadow-2xl border-2 border-dashed border-sky-400 dark:border-sky-500 flex flex-col items-center gap-3">

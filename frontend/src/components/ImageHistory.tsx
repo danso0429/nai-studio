@@ -251,7 +251,7 @@ export const ImageHistoryHandle = observer(() => {
       className={'fixed right-0 -translate-y-1/2 md:hidden flex items-center justify-center w-6 h-14 rounded-l-md border border-r-0 line-color bg-[var(--c-surface-2)] active:opacity-100 ' +
         (dragging ? 'opacity-100' : 'opacity-70')}
       style={{
-        zIndex: 2050,
+        zIndex: 'var(--z-drawer-handle)',
         top: `${handleRatio * 100}%`,
         touchAction: 'none',
       }}
@@ -293,7 +293,7 @@ export const ImageHistoryDrawer = observer(() => {
     <div
       className="fixed inset-0 titlebar-no-drag"
       style={{
-        zIndex: 2100,
+        zIndex: 'var(--z-drawer)',
         visibility: open ? 'visible' : 'hidden',
         transition: open ? 'visibility 0s' : 'visibility 0s linear 180ms',
       }}

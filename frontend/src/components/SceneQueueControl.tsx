@@ -669,7 +669,7 @@ const SceneTrashView = ({ projectName, onClose }: SceneTrashViewProps) => {
   const progressOverlay = blockingProgress && (
     <div
       className="fixed inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-      style={{ zIndex: 5000 }}
+      style={{ zIndex: 'var(--z-blocking-modal)' }}
       role="status"
       aria-live="polite"
     >

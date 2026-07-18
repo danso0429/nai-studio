@@ -95,7 +95,7 @@ const SceneQuickPromptModal = observer(
       return (
         <div
           className="fixed inset-0"
-          style={{ zIndex: 2000 }}
+          style={{ zIndex: 'var(--z-modal)' }}
           onMouseDown={(event) => {
             mouseDownOnBackdrop.current = event.target === event.currentTarget;
           }}

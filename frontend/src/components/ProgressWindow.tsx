@@ -36,7 +36,7 @@ const ProgressWindow = ({ dialogs, messagesCount = 0, pinned = false, topOffset 
   return (
     <div
       className={containerCls}
-      style={{ zIndex: 5000, marginTop: topPx + 'px' }}
+      style={{ zIndex: 'var(--z-toast)', marginTop: topPx + 'px' }}
     >
       {dialogs.map((d) => {
         const finished = d.status === 'success' || d.status === 'error';

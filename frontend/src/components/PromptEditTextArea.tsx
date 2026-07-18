@@ -1192,7 +1192,7 @@ const PromptAutoComplete = ({
       onMouseDown={(e) => {
         e.stopPropagation();
       }}
-      className="fixed bg-white border border-gray-300 rounded-lg shadow-lg z-30 text-gray-900"
+      className="fixed bg-[var(--c-zone)] border line-color rounded-lg shadow-lg z-[var(--z-prompt-popup)] text-default"
       style={{
         display:
           tags.length > 0 && (clientX !== 0 || clientY !== 0)
@@ -1511,7 +1511,7 @@ const EmulatedEditTextArea = observer(
                 position: 'fixed',
                 left: hoverChunk.x,
                 top: hoverChunk.y + 4,
-                zIndex: 9999,
+                zIndex: 'var(--z-tooltip)',
                 maxWidth: 360,
                 maxHeight: '50vh',
                 overflowY: 'auto',
@@ -2243,7 +2243,7 @@ const PromptEditTextArea = observer(
             )}
           </div>
           <div
-            className="fixed bg-black opacity-15 w-screen h-screen top-0 left-0 z-20"
+            className="fixed bg-black opacity-15 w-screen h-screen top-0 left-0 z-[var(--z-prompt-back)]"
             onClick={() => {
               setFullScreen(false);
             }}

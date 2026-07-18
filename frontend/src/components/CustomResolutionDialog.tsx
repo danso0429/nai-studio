@@ -41,7 +41,7 @@ const CustomResolutionDialog = observer(() => {
   return (
     <div
       className="fixed inset-0 flex items-center justify-center"
-      style={{ zIndex: 5500, backgroundColor: 'rgba(0,0,0,0.7)' }}
+      style={{ zIndex: 'var(--z-blocking-modal)', backgroundColor: 'rgba(0,0,0,0.7)' }}
       onClick={onCancel}
     >
       <ModalOverlayCountMarker />

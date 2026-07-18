@@ -6,6 +6,23 @@
 @tailwind utilities;
 
 :root {
+  --z-float-view: 100;
+  --z-widget: 1000;
+  --z-prompt-back: 1400;
+  --z-prompt-popup: 1500;
+  --z-modal: 2000;
+  --z-drawer-handle: 2050;
+  --z-drawer: 2100;
+  --z-feature-modal: 3000;
+  --z-drive-widget: 4500;
+  --z-toast: 5000;
+  --z-confirm: 5100;
+  --z-context-menu: 5200;
+  --z-blocking-modal: 5500;
+  --z-kbd-action: 6000;
+  --z-tooltip: 9000;
+  --z-drag-overlay: 9500;
+  --z-drag-ghost: 9999;
   --c-surface: #ffffff;
   --c-surface-2: #ffffff;
   --c-text: #000000;
@@ -346,7 +363,7 @@ body {
 
 .alert-window {
   position: fixed;
-  z-index: 5000;
+  z-index: var(--z-toast);
 }
 
 .prompt-full {
@@ -365,7 +382,7 @@ body {
 /* fullScreen + 자동완성 split 컨테이너. orientation에 따라 row/col. */
 .prompt-full-container {
   position: fixed;
-  z-index: 30;
+  z-index: var(--z-prompt-popup);
   display: flex;
   flex-direction: column;
   left: 17vw;
@@ -414,7 +431,7 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 5000;
+  z-index: var(--z-confirm);
 }
 
 .brush-tool {
