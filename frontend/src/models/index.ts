@@ -19,6 +19,7 @@ import { PromptChunkService } from './PromptChunkService';
 import { ToggleGroupService } from './ToggleGroupService';
 import { SamplingPresetService } from './SamplingPresetService';
 import { ProjectSizeService } from './ProjectSizeService';
+import { ImageHistoryService } from './ImageHistoryService';
 
 export const backend = new ServerBackend();
 
@@ -99,6 +100,21 @@ export const samplingPresetService = new SamplingPresetService();
 export const projectSizeService = new ProjectSizeService();
 samplingPresetService.load();
 
+// 백업 복원처럼 서버가 여러 상태 파일을 직접 교체하기 전의 단일 flush 진입점.
+export async function flushPersistentStores(): Promise<void> {
+  await sessionService.saveAll();
+  await Promise.all([
+    globalPieceService.flushSave(),
+    globalPresetService.flushSave(),
+    globalCharacterPresetService.flushSave(),
+    artistLibraryService.flushSave(),
+    promptChunkService.flushSave(),
+    toggleGroupService.flushSave(),
+    samplingPresetService.flushSave(),
+  ]);
+  await backend.flushAllFileWrites();
+}
+
 export const promptService = new PromptService();
 
 export const taskQueueService = new TaskQueueService(taskHandlers);
@@ -106,6 +122,9 @@ export const taskQueueService = new TaskQueueService(taskHandlers);
 export const loginService = new LoginService();
 
 export const gameService = new GameService();
+
+// 서버의 4시간 완료 이력 + WS 완료 이벤트를 합쳐, 새로고침/다른 탭 완료도 복원한다.
+export const imageHistoryService = new ImageHistoryService(backend, imageService, sessionService);
 
 export const workFlowService = new WorkFlowService();
 registerWorkFlows(workFlowService);

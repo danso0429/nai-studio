@@ -959,10 +959,16 @@ export class TaskQueueService extends EventTarget {
         matchedTaskIds.push(taskId);
       }
     }
+    const serverCancel = matchedTaskIds.length > 0
+      ? backend.cancelQueueByTaskIds(matchedTaskIds).then(
+          () => true,
+          (e) => {
+            console.warn('[TaskQueue] cancelQueueByTaskIds failed:', e);
+            return false;
+          },
+        )
+      : Promise.resolve(true);
     if (matchedTaskIds.length > 0) {
-      backend.cancelQueueByTaskIds(matchedTaskIds).catch((e) =>
-        console.warn('[TaskQueue] cancelQueueByTaskIds failed:', e),
-      );
       for (const taskId of matchedTaskIds) {
         const mtask = this.mirroredTasks.get(taskId)!;
         this.groupStats[mtask.cls].total -= mtask.total;
@@ -989,6 +995,9 @@ export class TaskQueueService extends EventTarget {
       }
     }
     this.dispatchProgress();
+    // 기존 호출부는 반환값을 무시해 즉시 취소 동작을 유지한다. 모드 전환처럼 이전
+    // 서버 작업이 확실히 닫힌 뒤 다음 작업을 넣어야 하는 호출부만 결과를 await한다.
+    return serverCancel;
   }
 
   waitForPendingFills(): Promise<void> {

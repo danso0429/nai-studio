@@ -28,10 +28,12 @@ export abstract class DebouncedJsonStore extends EventTarget {
         clearTimeout(this.saveTimeout);
         this.saveTimeout = null;
         try {
-          backend.writeFileKeepalive(
+          void backend.writeFileKeepalive(
             this.getFileName(),
             JSON.stringify(this.buildStore()),
-          );
+          ).catch((e) => {
+            console.warn('[global-store] keepalive write failed:', this.getFileName(), e);
+          });
         } catch {
           // buildStore/직렬화 실패 — 무시(다음 정상 save로 회복)
         }
@@ -118,6 +120,7 @@ export abstract class DebouncedJsonStore extends EventTarget {
         await backend.writeFile(file, data);
       } catch (e2) {
         console.error('Failed to save ' + this.saveErrorLabel() + ':', e2);
+        throw e2;
       }
     }
   }

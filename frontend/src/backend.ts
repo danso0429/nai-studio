@@ -105,6 +105,20 @@ export interface QueueFullState {
   }>;
 }
 
+export interface QueueCompletedEntry {
+  jobId: string | null;
+  outputFilePath?: string;
+  meta: QueueJobMeta;
+  completedAt: number;
+  durationMs: number;
+}
+
+export interface QueueCompletedResult {
+  entries: QueueCompletedEntry[];
+  count: number;
+  retentionMs: number;
+}
+
 export interface DeleteProjectResult {
   deleted: { local: string[]; drive: string[] };
   errors: string[];
@@ -213,6 +227,7 @@ export abstract class Backend {
   abstract cancelQueue(): Promise<{ cancelled: number }>;
   abstract cancelQueueByTaskIds(taskIds: string[]): Promise<{ cancelled: number }>;
   abstract queuePrioritize(taskIds: string[], priority: boolean): Promise<{ changed: number }>;
+  abstract queueGetCompleted(limit?: number): Promise<QueueCompletedResult>;
   abstract getDriveRetryStatus(): Promise<DriveRetryStatus>;
   abstract driveRetryNow(): Promise<DriveRetryResult>;
   abstract driveRetryOne(localPath: string): Promise<DriveRetryOneResult>;
@@ -242,8 +257,12 @@ export abstract class Backend {
   abstract writeFile(filename: string, data: string): Promise<void>;
   // visibilitychange→hidden 같은 tab close 임박 시점에서 호출하는 변종. fetch keepalive:true
   // 사용해서 page unload 이후에도 request 완료 보장. body 64KB 한도가 있어 큰 파일은
-  // 잘려나갈 수 있음 — 호출처가 작은 데이터(개별 dirty resource)만 보내야 함. fire-and-forget.
-  abstract writeFileKeepalive(filename: string, data: string): void;
+  // 잘려나갈 수 있음 — 호출처가 작은 데이터(개별 dirty resource)만 보내야 함.
+  abstract writeFileKeepalive(filename: string, data: string): Promise<void>;
+  // 이름변경·삭제 전에 같은 경로(또는 하위 경로)에 큐잉된 텍스트 저장을 소진한다.
+  abstract flushFileWrites(filename: string): Promise<void>;
+  abstract flushFileWritesUnder(prefix: string): Promise<void>;
+  abstract flushAllFileWrites(): Promise<void>;
   abstract copyFile(src: string, dest: string): Promise<void>;
   abstract copyDir(src: string, dest: string): Promise<void>;
   abstract readDataFile(arg: string): Promise<string>;

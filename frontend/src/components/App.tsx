@@ -30,7 +30,7 @@ import FolderBackupImportDialog from './FolderBackupImportDialog';
 import QueueControl from './SceneQueueControl';
 import { FloatView, FloatViewProvider } from './FloatView';
 import { observer } from 'mobx-react-lite';
-import { FaImages, FaPenFancy, FaStar, FaPalette, FaSearch } from 'react-icons/fa';
+import { FaBolt, FaImages, FaPenFancy, FaStar, FaPalette, FaSearch } from 'react-icons/fa';
 import { GlobalPresetTab, GlobalPresetPickerOverlay } from './GlobalPresetTab';
 import ArtistLibraryTab from './ArtistLibraryTab';
 import TagSearchTab from './TagSearchTab';
@@ -70,6 +70,9 @@ import { ExternalImageView } from './ExternalImageView';
 import FindReplaceDialog from './FindReplaceDialog';
 import SceneImporterDialog from './SceneImporterDialog';
 import { BuildInfoBadge } from './BuildInfo';
+import { ImageHistoryDrawer, ImageHistoryHandle, ImageHistoryPanel } from './ImageHistory';
+import QuickModeTab from './QuickModeTab';
+import { buildThemeVars } from '../models/uiTheme';
 configure({
   enforceActions: 'never',
 });
@@ -210,6 +213,10 @@ export const App = observer(() => {
             appState.openFindReplace();
           }
           break;
+        case 'toggle-history-panel':
+          if (isMobile) appState.toggleHistoryDrawer();
+          else appState.toggleHistoryPanel();
+          break;
       }
     };
     window.addEventListener('shortcut-action', handler);
@@ -218,6 +225,7 @@ export const App = observer(() => {
 
   const [darkMode, setDarkMode] = useState(false);
   const [trueDark, setTrueDark] = useState(false);
+  const [themeVars, setThemeVars] = useState<Record<string, string>>({});
   // portal로 document.body에 렌더되는 자식(TaskQueueList, Tooltip 등)은 App inner div의
   // dark 클래스 ancestor 범위 밖이라 Tailwind `dark:` variant가 안 먹는다. documentElement에
   // 같이 토글해서 portal까지 ancestor 매칭이 닿게 한다.
@@ -225,11 +233,29 @@ export const App = observer(() => {
     document.documentElement.classList.toggle('dark', darkMode);
     document.documentElement.classList.toggle('true-dark', darkMode && trueDark);
   }, [darkMode, trueDark]);
+  useEffect(() => {
+    document.documentElement.classList.toggle(
+      'custom-theme',
+      Object.keys(themeVars).length > 0,
+    );
+    for (const [name, value] of Object.entries(themeVars)) {
+      document.documentElement.style.setProperty(name, value);
+    }
+    return () => {
+      document.documentElement.classList.remove('custom-theme');
+      for (const name of Object.keys(themeVars)) {
+        document.documentElement.style.removeProperty(name);
+      }
+    };
+  }, [themeVars]);
   // 폴더 삭제(백그라운드 fire-and-forget) 진행도 — App.tsx 최상위 글로벌 구독이라
   // SessionTreePicker가 닫혀도 진행/완료가 끊기지 않음. jobId로 진행도 토스트 매칭.
   useEffect(() => {
     const pid = (jobId: string) => 'delete-folder-' + jobId;
     const unsubStart = backend.onDeleteFolderStart((d) => {
+      void sessionService.observeFolderDeletionStart(d.folder).catch((e) => {
+        console.error('[folder-delete] failed to acquire resource lease:', e);
+      });
       appState.pushPinnedProgress(
         pid(d.jobId),
         `"${d.folder}" 폴더 삭제 중… (0/${d.total})`,
@@ -244,7 +270,6 @@ export const App = observer(() => {
       });
     });
     const unsubDone = backend.onDeleteFolderDone((d) => {
-      sessionService.deletingFolders.delete(d.folder);
       appState.finishPinnedProgress(
         pid(d.jobId),
         `✓ "${d.folder}" 폴더 삭제 완료 — 프로젝트 ${d.deletedProjects}개` +
@@ -252,17 +277,20 @@ export const App = observer(() => {
         d.errors.length === 0,
         5000,
       );
-      sessionService.update();
+      void sessionService.finishFolderDeletion(d.folder, true).catch((e) => {
+        console.error('[folder-delete] completion reconcile failed:', e);
+      });
     });
     const unsubError = backend.onDeleteFolderError((d) => {
-      sessionService.deletingFolders.delete(d.folder);
       appState.finishPinnedProgress(
         pid(d.jobId),
         `✗ "${d.folder}" 폴더 삭제 실패: ${d.error}`,
         false,
         7000,
       );
-      sessionService.update();
+      void sessionService.finishFolderDeletion(d.folder, false).catch((e) => {
+        console.error('[folder-delete] error reconcile failed:', e);
+      });
     });
     return () => {
       unsubStart();
@@ -320,8 +348,13 @@ export const App = observer(() => {
       const conf = await backend.getConfig();
       setDarkMode(!conf.whiteMode);
       setTrueDark(conf.trueDark ?? false);
+      setThemeVars(buildThemeVars(conf.uiTheme, conf.whiteMode ?? false));
       appState.classicSceneCard = conf.classicSceneCard ?? false;
       appState.initialThumbSize = conf.initialThumbSize;
+      appState.historyThumbnailPercent = Math.max(
+        60,
+        Math.min(100, conf.historyThumbnailPercent ?? 100),
+      );
       appState.globalSamplingPresetId = conf.samplingPresetId;
       appState.useProjectDrawer = conf.useProjectDrawer ?? true;
       appState.useBatchEnqueue = conf.useBatchEnqueue ?? false;
@@ -861,31 +894,42 @@ export const App = observer(() => {
   const tabs = [
     {
       label: '이미지생성',
+      shortLabel: '생성',
       content: <QueueControl type="scene" showPannel />,
       emoji: <FaImages />,
     },
     {
       label: '이미지변형',
+      shortLabel: '변형',
       content: <QueueControl type="inpaint" showPannel />,
       emoji: <FaPenFancy />,
     },
     {
       label: '글로벌 프리셋',
+      shortLabel: '프리셋',
       content: <GlobalPresetTab />,
       emoji: <FaStar />,
       banToggle: true,
     },
     {
       label: '작가 라이브러리',
+      shortLabel: '작가',
       content: <ArtistLibraryTab />,
       emoji: <FaPalette />,
       banToggle: true,
     },
     {
       label: '태그 검색',
+      shortLabel: '태그 검색',
       content: <TagSearchTab />,
       emoji: <FaSearch />,
       banToggle: true,
+    },
+    {
+      label: '퀵 생성',
+      shortLabel: '퀵 생성',
+      content: <QuickModeTab />,
+      emoji: <FaBolt />,
     },
   ];
   return (
@@ -899,10 +943,16 @@ export const App = observer(() => {
     >
       <div
         className={
-          'flex flex-col relative h-full w-full bg-white dark:bg-slate-900 ' +
+          'flex flex-col relative h-full w-full ' +
           (darkMode ? 'dark' : '') +
-          (darkMode && trueDark ? ' true-dark' : '')
+          (darkMode && trueDark ? ' true-dark' : '') +
+          (Object.keys(themeVars).length > 0 ? ' custom-theme' : '')
         }
+        style={{
+          ...themeVars,
+          backgroundColor: 'var(--c-surface)',
+          color: 'var(--c-text-label)',
+        } as React.CSSProperties}
       >
         <div className="z-[3000]">
           <DnDPreview />
@@ -918,9 +968,12 @@ export const App = observer(() => {
                 <TobBar />
               </StackFixed>
             )}
-            <StackGrow className="relative">
+            <StackGrow className="relative flex">
+              <div className="relative flex-1 min-w-0 h-full">
               <FloatViewProvider>
                 <AppContextMenu />
+                {isMobile && <ImageHistoryDrawer />}
+                {isMobile && <ImageHistoryHandle />}
                 <div className="h-full w-full flex flex-col overflow-hidden">
                   {isMobile && <div className="flex-none"><TobBar /></div>}
                   <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -1000,6 +1053,8 @@ export const App = observer(() => {
                   </FloatView>
                 )}
               </FloatViewProvider>
+              </div>
+              <ImageHistoryPanel />
             </StackGrow>
           </VerticalStack>
         </ErrorBoundary>
@@ -1041,7 +1096,7 @@ export const App = observer(() => {
             className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none"
             style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
           >
-            <div className="bg-white dark:bg-slate-800 rounded-2xl px-8 py-6 shadow-2xl border-2 border-dashed border-sky-400 dark:border-sky-500 flex flex-col items-center gap-3">
+            <div className="bg-[var(--c-surface-2)] rounded-2xl px-8 py-6 shadow-2xl border-2 border-dashed border-sky-400 dark:border-sky-500 flex flex-col items-center gap-3">
               <svg className="w-12 h-12 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" />
               </svg>

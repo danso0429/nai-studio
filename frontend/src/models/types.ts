@@ -8,6 +8,7 @@ import { action, observable, makeObservable } from 'mobx';
 import { Serealizable } from './ResourceSyncService';
 import { workFlowService } from '.';
 import { WFWorkFlow, WorkFlowDef } from './workflows/WorkFlow';
+import type { GenerationHistoryEntry } from './imageHistoryTypes';
 
 export type PARR = string[];
 
@@ -706,6 +707,7 @@ export enum ContextMenuType {
   Image = 'image',
   Scene = 'scene',
   Style = 'style',
+  HistoryImage = 'history_image',
 }
 
 export interface ImageContextAlt {
@@ -734,7 +736,16 @@ export interface StyleContextAlt {
   session: Session;
 }
 
-export type ContextAlt = ImageContextAlt | SceneContextAlt | StyleContextAlt;
+export interface HistoryImageContextAlt {
+  type: 'history_image';
+  entry: GenerationHistoryEntry;
+}
+
+export type ContextAlt =
+  | ImageContextAlt
+  | SceneContextAlt
+  | StyleContextAlt
+  | HistoryImageContextAlt;
 
 export const isValidSession = (session: any) => {
   return (

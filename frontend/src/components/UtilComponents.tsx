@@ -159,6 +159,7 @@ export const FileUploadBase64: React.FC<{
 
 interface TabProps {
   label: string;
+  shortLabel?: string;
   content: React.ReactNode;
   banToggle?: boolean;
   emoji: React.ReactNode;
@@ -265,17 +266,25 @@ export const TabComponent: React.FC<TabComponentProps> = ({
               <FaPuzzlePiece size={16} />
             </button>
           )}
-          <div className="flex gap-1 ml-auto">
+          <div className="flex gap-1 ml-auto min-w-0 flex-1">
             {tabs.map((tab, index) => (
               <button
                 key={index}
                 className={
-                  'active:brightness-90 hover:brightness-95 select-none px-3 text-base h-10 rounded-md ' +
-                  (index === activeTab ? `back-sky` : 'back-llgray')
+                  'active:brightness-90 hover:brightness-95 select-none px-1 text-base h-10 rounded-md min-w-0 overflow-hidden flex items-center justify-center gap-1 ' +
+                  (index === activeTab ? `back-sky flex-[2_1_0%]` : 'back-llgray flex-[1_1_0%]')
                 }
                 onClick={() => handleTabClick(index)}
+                aria-label={tab.label}
+                aria-current={index === activeTab ? 'page' : undefined}
+                title={tab.label}
               >
                 {tab.emoji}
+                {index === activeTab && (
+                  <span className="text-[11px] font-medium whitespace-nowrap truncate">
+                    {tab.shortLabel ?? tab.label}
+                  </span>
+                )}
               </button>
             ))}
           </div>

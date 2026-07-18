@@ -1,7 +1,8 @@
 import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderDone, DeleteFolderError, DeleteFolderProgress, DeleteFolderStart, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, ImageDeleteDone, ImageDeleteError, ImageDeleteProgress, ImageDeleteStart, LoginValidity, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
+import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderDone, DeleteFolderError, DeleteFolderProgress, DeleteFolderStart, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, ImageDeleteDone, ImageDeleteError, ImageDeleteProgress, ImageDeleteStart, LoginValidity, QueueCompletedResult, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
 import { BackendApiError } from './apiError';
+import { TextWriteCoordinator } from './TextWriteCoordinator';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -116,6 +117,7 @@ async function apiJSON(path: string, options?: RequestInit & { timeout?: number;
 export class ServerBackend extends Backend {
   private ws: WebSocket | null = null;
   private eventHandlers: Map<string, Set<Function>> = new Map();
+  private readonly textWrites: TextWriteCoordinator;
   private isFirstConnect: boolean = true;
   // audit H17 — onclose 고정 3초 재시도라 서버 다운 시 폭주. exponential backoff
   // + jitter + max 30s 캡 + online 이벤트 reset.
@@ -124,6 +126,10 @@ export class ServerBackend extends Backend {
 
   constructor() {
     super();
+    this.textWrites = new TextWriteCoordinator(
+      (path, data) => this.writeFileDirect(path, data),
+      (path, data) => this.writeFileKeepaliveDirect(path, data),
+    );
     this.connectWebSocket();
     // online 이벤트 시 backoff reset + 즉시 재연결 시도 — 모바일 백그라운드 복귀 또는
     // wifi 재연결 시 ~30초까지 늘어났던 delay를 0으로 끌어내림.
@@ -296,6 +302,10 @@ export class ServerBackend extends Backend {
 
   async queueGetFullState(): Promise<QueueFullState> {
     return apiJSON('/queue/full-state');
+  }
+
+  async queueGetCompleted(limit = 30): Promise<QueueCompletedResult> {
+    return await apiJSON(`/queue/completed?limit=${encodeURIComponent(limit)}`);
   }
 
   async pauseQueue(): Promise<void> {
@@ -497,41 +507,51 @@ export class ServerBackend extends Backend {
   async readFile(filename: string): Promise<string> { return (await apiJSON(`/fs/read?path=${encodeURIComponent(filename)}`)).content; }
 
   async writeFile(filename: string, data: string): Promise<void> {
+    await this.textWrites.write(filename, data);
+  }
+
+  private async writeFileDirect(filename: string, data: string): Promise<void> {
     await api('/fs/write', { method: 'POST', body: JSON.stringify({ path: filename, data }) });
   }
 
-  writeFileKeepalive(filename: string, data: string): void {
-    // visibilitychange/pagehide에서 호출. await 안 함 — fire-and-forget.
-    // keepalive:true는 page unload 이후에도 브라우저가 request 완료 보장 (iOS Safari 14.5+).
+  async writeFileKeepalive(filename: string, data: string): Promise<void> {
+    await this.textWrites.write(filename, data, 'keepalive');
+  }
+
+  async flushFileWrites(filename: string): Promise<void> {
+    await this.textWrites.flushPath(filename);
+  }
+
+  async flushFileWritesUnder(prefix: string): Promise<void> {
+    await this.textWrites.flushPrefix(prefix);
+  }
+
+  async flushAllFileWrites(): Promise<void> {
+    await this.textWrites.flushAll();
+  }
+
+  private async writeFileKeepaliveDirect(filename: string, data: string): Promise<void> {
+    // visibilitychange/pagehide에서 호출. Promise를 반환해 같은 경로 rename/delete가
+    // 이 요청을 기다릴 수 있게 한다. keepalive:true로 unload 뒤 전송을 계속한다.
     // body 64KB total 한도 — 한 page lifecycle 안에서 keepalive 합산 기준.
-    // Workflows M: 64KB 누적 cap 도달 시 navigator.sendBeacon fallback. sendBeacon은
-    // body size limit이 더 관대 (브라우저별 다르지만 보통 64KB ~ 64MB+) + true return으로
-    // 즉시 queue 보장. payload Blob으로 보내야 함.
     const body = JSON.stringify({ path: filename, data });
     try {
-      const sent = fetch(`${API_BASE}/api/fs/write`, {
+      const response = await fetch(`${API_BASE}/api/fs/write`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
         keepalive: true,
       });
-      sent.catch(() => {
-        // fetch 실패 시 sendBeacon 폴백 시도. unload 중에도 동작.
-        try {
-          if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-            const blob = new Blob([body], { type: 'application/json' });
-            navigator.sendBeacon(`${API_BASE}/api/fs/write`, blob);
-          }
-        } catch {}
-      });
-    } catch {
-      // body 크기 초과 등 fetch 생성 자체 실패 — sendBeacon으로 폴백.
+      if (!response.ok) throw new Error(`Keepalive write failed: ${response.status}`);
+    } catch (error) {
+      // fetch 생성/전송 실패 시 마지막 수단으로 beacon 큐잉을 시도한다.
       try {
         if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
           const blob = new Blob([body], { type: 'application/json' });
-          navigator.sendBeacon(`${API_BASE}/api/fs/write`, blob);
+          if (navigator.sendBeacon(`${API_BASE}/api/fs/write`, blob)) return;
         }
       } catch {}
+      throw error;
     }
   }
 
@@ -573,26 +593,41 @@ export class ServerBackend extends Backend {
   }
 
   async renameFile(oldfile: string, newfile: string): Promise<void> {
+    await Promise.all([
+      this.textWrites.flushPath(oldfile),
+      this.textWrites.flushPath(newfile),
+    ]);
     await api('/fs/rename', { method: 'POST', body: JSON.stringify({ oldPath: oldfile, newPath: newfile }) });
   }
 
   async renameDir(oldfile: string, newfile: string): Promise<void> {
+    await Promise.all([
+      this.textWrites.flushPrefix(oldfile),
+      this.textWrites.flushPrefix(newfile),
+    ]);
     await api('/fs/rename-dir', { method: 'POST', body: JSON.stringify({ oldPath: oldfile, newPath: newfile }) });
   }
 
   async deleteFile(filename: string): Promise<void> {
+    await this.textWrites.flushPath(filename);
     await api('/fs/delete', { method: 'POST', body: JSON.stringify({ path: filename }) });
   }
 
   async deleteBatch(paths: string[]): Promise<void> {
+    await Promise.all(paths.map((path) => this.textWrites.flushPath(path)));
     await api('/fs/delete-batch', { method: 'POST', body: JSON.stringify({ paths }) });
   }
 
   async moveBatch(moves: { src: string; dest: string }[]): Promise<void> {
+    await Promise.all(moves.flatMap(({ src, dest }) => [
+      this.textWrites.flushPath(src),
+      this.textWrites.flushPath(dest),
+    ]));
     await api('/fs/move-batch', { method: 'POST', body: JSON.stringify({ moves }) });
   }
 
   async deleteDir(filename: string): Promise<void> {
+    await this.textWrites.flushPrefix(filename);
     await api('/fs/delete-dir', { method: 'POST', body: JSON.stringify({ path: filename }) });
   }
 

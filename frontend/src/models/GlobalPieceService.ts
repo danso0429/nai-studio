@@ -26,7 +26,9 @@ export class GlobalPieceService extends EventTarget {
         for (const [key, value] of this.library.entries()) {
           json[key] = value.toJSON();
         }
-        backend.writeFileKeepalive(GLOBAL_PIECES_FILE, JSON.stringify(json));
+        void backend.writeFileKeepalive(GLOBAL_PIECES_FILE, JSON.stringify(json)).catch((e) => {
+          console.warn('[global-pieces] keepalive write failed:', e);
+        });
       };
       document.addEventListener('visibilitychange', flushOnHide);
       window.addEventListener('pagehide', flushOnHide);
@@ -96,6 +98,15 @@ export class GlobalPieceService extends EventTarget {
       this.saveTimeout = null;
       this.save().catch((e) => console.error('Failed to save global pieces:', e));
     }, 2000);
+  }
+
+  async flushSave(): Promise<void> {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+    }
+    if (!this.loaded || this.loadError) return;
+    await this.save();
   }
 
   @action

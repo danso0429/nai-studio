@@ -60,7 +60,7 @@ const createMissingPiecesForSession = (
       lib.pieces.push(piece);
     }
   }
-  sessionService.dirty[session.name] = true;
+  sessionService.markDirty(session.name);
   sessionService.reloadPieceLibraryDB(session);
 };
 
@@ -399,7 +399,7 @@ export const SceneCell = observer(
         <div
           id={`scene-cell-${scene.type}-${scene.name}`}
           className={
-            'relative z-0 m-2 p-1 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-500 ' +
+            'relative z-0 m-2 p-1 bg-[var(--c-surface-2)] border line-color ' +
             (isDragging ? 'opacity-0 no-touch ' : '') +
             (isOver ? ' outline outline-sky-500' : '') +
             focusRing +
@@ -414,7 +414,7 @@ export const SceneCell = observer(
               {getSceneQueueCount(scene)}
             </span>
           )}
-          <div className="-z-10 clickable bg-white dark:bg-slate-800" onClick={onClickCard}>
+          <div className="-z-10 clickable bg-[var(--c-surface-2)]" onClick={onClickCard}>
             <div className={'p-2 flex text-lg text-default'}>
               <div className="truncate flex-1">
                 {isBookmarked && <span className="text-orange-500">📌</span>}
@@ -457,7 +457,7 @@ export const SceneCell = observer(
       <div
         id={`scene-cell-${scene.type}-${scene.name}`}
         className={
-          (disableHover ? '' : 'group ') + 'relative z-0 m-1.5 p-1 rounded-lg bg-white dark:bg-slate-800 border-2 ' +
+          (disableHover ? '' : 'group ') + 'relative z-0 m-1.5 p-1 rounded-lg bg-[var(--c-surface-2)] border-2 ' +
           (scene.mains.length > 0 ? 'border-yellow-400 ' : 'border-gray-200 dark:border-slate-600 ') +
           (isDragging ? 'opacity-0 no-touch ' : '') +
           (isOver ? ' ring-2 ring-sky-500' : '') +
@@ -477,7 +477,7 @@ export const SceneCell = observer(
         {!isMobile && (
           <div className="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/40 transition-colors duration-200 z-10 pointer-events-none" />
         )}
-        <div className="clickable bg-white dark:bg-slate-800" onClick={onClickCard}>
+        <div className="clickable bg-[var(--c-surface-2)]" onClick={onClickCard}>
           <div className={'relative image-cell overflow-hidden rounded-md ' + cellSizes[cellSize]}>
             {image && (
               <div className="relative w-full h-full">
@@ -625,7 +625,7 @@ const SceneTrashView = ({ projectName, onClose }: SceneTrashViewProps) => {
           {deletedScenes.map((item) => (
             <div
               key={item.name}
-              className="flex items-center gap-3 p-3 border border-gray-300 dark:border-slate-500 rounded bg-white dark:bg-slate-800"
+              className="flex items-center gap-3 p-3 border line-color rounded bg-[var(--c-surface-2)]"
             >
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-default truncate">
@@ -679,6 +679,10 @@ const QueueControl = observer(
     const [displayScene, setDisplayScene] = useState<GenericScene | undefined>(
       undefined,
     );
+    const [displayFocus, setDisplayFocus] = useState<string | undefined>();
+    useEffect(() => {
+      if (!displayScene) setDisplayFocus(undefined);
+    }, [displayScene]);
     const [cellSize, setCellSize] = useState(1);
     const [focusedSceneIndex, setFocusedSceneIndex] = useState<number | null>(null);
     const gridContainerRef = useRef<HTMLDivElement>(null);
@@ -990,6 +994,32 @@ const QueueControl = observer(
       setDisplayScene,
       setEditingScene,
     ]);
+
+    useEffect(() => {
+      const handleOpenViewer = (event: Event) => {
+        const { sceneType, sceneName, filename } =
+          (event as CustomEvent).detail ?? {};
+        if (sceneType !== type) return;
+        if (!gridContainerRef.current || gridContainerRef.current.offsetParent === null) return;
+        const scene = type === 'scene'
+          ? curSession.scenes.get(sceneName)
+          : curSession.inpaints.get(sceneName);
+        if (!scene) return;
+        setDisplayFocus(filename);
+        setDisplayScene(scene);
+      };
+      sessionService.addEventListener('open-result-viewer', handleOpenViewer);
+      return () => sessionService.removeEventListener('open-result-viewer', handleOpenViewer);
+    }, [type, curSession]);
+
+    useEffect(() => {
+      const handleCloseViewer = () => {
+        setDisplayScene(undefined);
+        setDisplayFocus(undefined);
+      };
+      sessionService.addEventListener('close-result-viewer', handleCloseViewer);
+      return () => sessionService.removeEventListener('close-result-viewer', handleCloseViewer);
+    }, []);
 
     // 포커스된 씬 자동 스크롤
     useEffect(() => {
@@ -1426,12 +1456,14 @@ const QueueControl = observer(
             <ResultViewer
               ref={resultViewerRef}
               scene={displayScene}
+              focusFilename={displayFocus}
               isMainImage={isMainImage}
               onFilenameChange={onFilenameChange}
               onEdit={onEdit}
               onClose={() => {
                 gameService.refreshList(curSession!, displayScene);
                 setDisplayScene(undefined);
+                setDisplayFocus(undefined);
               }}
               buttons={buttons}
               onSampleExtract={type === 'scene' ? (seeds: number[]) => {
@@ -1484,7 +1516,7 @@ const QueueControl = observer(
           </FloatView>
         );
       return <></>;
-    }, [displayScene]);
+    }, [displayScene, displayFocus]);
 
     const [batchPicker, setBatchPicker] = useState<BatchPickerItem | undefined>(
       undefined,
@@ -1694,7 +1726,7 @@ const QueueControl = observer(
                       ...curSession.sceneCardStyle,
                       [type]: e.target.value,
                     };
-                    sessionService.dirty[curSession.name] = true;
+                    sessionService.markDirty(curSession.name);
                   }}
                 >
                   <option value="portrait">세로 3:4</option>

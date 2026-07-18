@@ -120,6 +120,7 @@ export class ArtistLibraryService extends EventTarget {
         await backend.writeFile(ARTIST_LIBRARY_FILE, data);
       } catch (e2) {
         console.error('Failed to save artist library:', e2);
+        throw e2;
       }
     }
   }

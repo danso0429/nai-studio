@@ -78,7 +78,7 @@ const ConfirmWindow = observer(() => {
     <>
       {appState.dialogs.length > 0 && (
         <div className="fixed flex justify-center w-full confirm-window">
-          <div className="flex flex-col justify-between m-4 p-4 rounded-md shadow-xl bg-white dark:bg-slate-800 text-default w-96">
+          <div className="flex flex-col justify-between m-4 p-4 rounded-md shadow-xl bg-[var(--c-zone)] text-default w-96">
             <div className="break-keep text-center text-default whitespace-pre-wrap">
               {curDialog.text}
             </div>

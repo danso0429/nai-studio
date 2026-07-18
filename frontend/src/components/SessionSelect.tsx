@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import SessionTreePicker from './SessionTreePicker';
-import { FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaRegBookmark, FaThLarge, FaFolder } from 'react-icons/fa';
+import { FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaThLarge, FaFolder } from 'react-icons/fa';
 import ProjectBrowser from './ProjectBrowser';
 import Tooltip from './Tooltip';
 import { sessionService, workFlowService, isMobile } from '../models';
@@ -144,7 +144,7 @@ const SessionSelect = observer(() => {
       <div className="md:max-w-80 flex-1 min-w-40">
         {appState.useProjectDrawer ? (
           <button
-            onClick={() => (appState.projectDrawerOpen = true)}
+            onClick={() => appState.openProjectDrawer()}
             className="w-full px-3 py-2 rounded-md text-left bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-default flex items-center gap-1.5"
           >
             {appState.curSession && sessionService.isFavorite(appState.curSession.name) && (
@@ -229,17 +229,6 @@ const SessionSelect = observer(() => {
         onClick={() => appState.mediaImport()}
       >
         <FaShare size={14} />
-      </button>
-      </Tooltip>
-      <Tooltip content={appState.curSession && sessionService.isFavorite(appState.curSession.name) ? '즐겨찾기 해제' : '즐겨찾기 지정'}>
-      <button
-        className={`icon-button nback-yellow mx-1 flex items-center gap-1`}
-        onClick={() => appState.projectToggleFavorite()}
-      >
-        {appState.curSession && sessionService.isFavorite(appState.curSession.name)
-          ? <FaBookmark size={14} style={{ color: '#facc15' }} />
-          : <FaRegBookmark size={14} style={{ color: '#9ca3af' }} />}
-        <span className="hidden md:inline text-sm">즐겨찾기</span>
       </button>
       </Tooltip>
       <Tooltip content="프로젝트 영구 삭제 (로컬 + Drive)">

@@ -54,7 +54,30 @@ export interface Config {
   // 크기로 출발 + 데스크탑 큰 화면 PC는 그대로 유지. 자동 override는 ConfigScreen.
   // 후보 값: 80 / 200 / 400 / 500.
   initialThumbSize?: number;
+  // 최근 생성 히스토리 썸네일/패널 크기 비율. 100이 기존 크기, 허용 범위 60~100.
+  historyThumbnailPercent?: number;
   samplingPresetId?: string;
   trueDark?: boolean;
   exportConcurrency?: number;
+  uiTheme?: UiThemeConfig;
+}
+
+export interface UiThemeConfig {
+  surface?: string;
+  surface2?: string;
+  inputBg?: string;
+  zoneBg?: string;
+  lineColor?: string;
+  textPattern?: 'light' | 'dark';
+  unifyButtons?: boolean;
+  accent?: string;
+  neutral?: string;
+  danger?: string;
+  buttons?: {
+    green?: string;
+    sky?: string;
+    orange?: string;
+    gray?: string;
+    red?: string;
+  };
 }

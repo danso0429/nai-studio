@@ -215,10 +215,6 @@ const ProjectDrawer = observer(() => {
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
   const open = appState.projectDrawerOpen;
-  // 슬라이드 애니메이션용 상태: render(마운트 여부) / shown(트랜지션 표시 여부)
-  const [render, setRender] = useState(open);
-  const [shown, setShown] = useState(open);
-
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
 
   useEffect(() => {
@@ -226,19 +222,6 @@ const ProjectDrawer = observer(() => {
     sessionService.addEventListener('listupdated', onUpdate);
     return () => sessionService.removeEventListener('listupdated', onUpdate);
   }, [refresh]);
-
-  // 열림/닫힘 트랜지션 제어
-  useEffect(() => {
-    if (open) {
-      setRender(true);
-      const id = requestAnimationFrame(() => setShown(true));
-      return () => cancelAnimationFrame(id);
-    } else {
-      setShown(false);
-      const t = setTimeout(() => setRender(false), 260);
-      return () => clearTimeout(t);
-    }
-  }, [open]);
 
   // 열릴 때마다 현재 프로젝트의 폴더 자동 펼침 + 검색/색상선택 초기화
   useEffect(() => {
@@ -276,17 +259,15 @@ const ProjectDrawer = observer(() => {
           setSelected(new Set());
           return;
         }
-        appState.projectDrawerOpen = false;
+        appState.closeProjectDrawer();
       }
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [open, colorPickerFor, selectMode]);
 
-  if (!render) return null;
-
   const close = () => {
-    appState.projectDrawerOpen = false;
+    appState.closeProjectDrawer();
   };
 
   const sessionNames = sessionService.list();
@@ -820,22 +801,31 @@ const ProjectDrawer = observer(() => {
   };
 
   return (
-    <div className="fixed inset-0 titlebar-no-drag" style={{ zIndex: 2100 }} onClick={close}>
-      <ModalOverlayCountMarker />
+    <div
+      className="fixed inset-0 titlebar-no-drag"
+      style={{
+        zIndex: 2100,
+        visibility: open ? 'visible' : 'hidden',
+        transition: open ? 'visibility 0s' : 'visibility 0s linear 180ms',
+      }}
+      onClick={close}
+    >
+      {open && <ModalOverlayCountMarker />}
       <div
         className="absolute inset-0"
         style={{
           backgroundColor: 'rgba(0,0,0,0.35)',
-          opacity: shown ? 1 : 0,
-          transition: 'opacity 0.26s ease',
+          opacity: open ? 1 : 0,
+          transition: 'opacity 0.18s ease',
         }}
       />
       <div
-        className="absolute left-0 top-0 h-full w-[90vw] max-w-[400px] bg-white dark:bg-slate-800 shadow-2xl border-r border-gray-200 dark:border-slate-600 flex flex-col"
+        className="absolute left-0 top-0 h-full w-[90vw] max-w-[400px] bg-[var(--c-zone)] shadow-2xl border-r line-color flex flex-col"
         style={{
-          transform: shown ? 'translateX(0)' : 'translateX(-100%)',
-          transition: 'transform 0.26s cubic-bezier(0.4, 0, 0.2, 1)',
+          transform: open ? 'translateX(0)' : 'translateX(-100%)',
+          transition: 'transform 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
           willChange: 'transform',
+          contain: 'layout paint',
         }}
         onClick={(e) => e.stopPropagation()}
       >

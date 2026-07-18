@@ -7,9 +7,10 @@ import {
   loginService,
   sessionService,
   taskQueueService,
+  flushPersistentStores,
 } from '../models';
 import { extractApiError, apiUrl } from '../models/util';
-import { Config, ImageEditor, RemoveBgQuality } from '../main/config';
+import { Config, ImageEditor, RemoveBgQuality, UiThemeConfig } from '../main/config';
 import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
 import { TaskLog } from '../models/TaskQueueService';
@@ -25,6 +26,8 @@ import {
   FaHdd,
 } from 'react-icons/fa';
 import { keyboardShortcutService, KeyboardShortcutService } from '../models/KeyboardShortcutService';
+import { buildThemeVars, isHex6 } from '../models/uiTheme';
+import { themeTemplates } from '../models/themeTemplates';
 
 interface ConfigScreenProps {
   onSave: () => void;
@@ -182,6 +185,7 @@ const StorageTab = ({
   const [restoreBusy, setRestoreBusy] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement>(null);
   const handleRestoreFile = async (file: File) => {
+    let restoreRequestStarted = false;
     const policy = await appState.pushDialogAsync({
       type: 'select',
       text:
@@ -213,20 +217,27 @@ const StorageTab = ({
       { sticky: true },
     );
     try {
-      const res = await fetch(apiUrl('/api/backup/restore?policy=' + policy), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: file,
-      });
+      // restore가 프로젝트·전역 설정 파일을 서버에서 직접 교체하므로, 클라이언트의
+      // debounce/경로 저장 큐를 먼저 모두 굳혀 복원 직후 옛 pending write가 덮지 않게 한다.
+      await flushPersistentStores();
+      const r = await sessionService.mutateExternally(
+        sessionService.loadedNames(),
+        async () => {
+          restoreRequestStarted = true;
+          const res = await fetch(apiUrl('/api/backup/restore?policy=' + policy), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: file,
+          });
+          if (!res.ok) {
+            let msg = '' + res.status;
+            try { msg = (await res.json()).error || msg; } catch {}
+            throw new Error(msg);
+          }
+          return await res.json();
+        },
+      );
       appState.dismissMessage(toastId);
-      if (!res.ok) {
-        let msg = '' + res.status;
-        try { msg = (await res.json()).error || msg; } catch {}
-        appState.pushMessage('복원 실패: ' + msg);
-        setRestoreBusy(false);
-        return;
-      }
-      const r = await res.json();
       const p = r.projects || {};
       await appState.pushDialogAsync({
         type: 'yes-only',
@@ -241,7 +252,18 @@ const StorageTab = ({
       location.reload();
     } catch (e: any) {
       appState.dismissMessage(toastId);
-      appState.pushMessage('복원 실패: ' + (extractApiError(e) || e.message || e));
+      const errorText = extractApiError(e) || e.message || String(e);
+      if (restoreRequestStarted) {
+        await appState.pushDialogAsync({
+          type: 'yes-only',
+          text:
+            `복원 응답을 확인하지 못했습니다: ${errorText}\n\n` +
+            '서버 적용 여부가 불확실하므로 디스크 상태를 다시 읽기 위해 앱을 새로고침합니다.',
+        });
+        location.reload();
+        return;
+      }
+      appState.pushMessage('복원 실패: ' + errorText);
       setRestoreBusy(false);
     }
   };
@@ -616,16 +638,205 @@ const OrphanCleanupSection = () => {
   );
 };
 
+const ThemeColorField = ({
+  label,
+  value,
+  fallback,
+  onChange,
+}: {
+  label: string;
+  value?: string;
+  fallback: string;
+  onChange: (value: string | undefined) => void;
+}) => {
+  const shown = isHex6(value) ? value : fallback;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="flex-1 text-sm gray-label">{label}</span>
+      {isHex6(value) && <span className="text-xs text-faint font-mono">{value}</span>}
+      <label
+        className="relative w-7 h-7 rounded-full border line-color overflow-hidden cursor-pointer"
+        style={{ backgroundColor: shown }}
+      >
+        <input
+          type="color"
+          value={shown}
+          onChange={(event) => onChange(event.target.value)}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        />
+      </label>
+      {isHex6(value) && (
+        <button className="round-button back-gray btn-sm" onClick={() => onChange(undefined)}>
+          초기화
+        </button>
+      )}
+    </div>
+  );
+};
+
+const ThemeCustomization = ({
+  uiTheme,
+  setUiTheme,
+  whiteMode,
+  setWhiteMode,
+  trueDark,
+  setTrueDark,
+}: {
+  uiTheme: UiThemeConfig;
+  setUiTheme: React.Dispatch<React.SetStateAction<UiThemeConfig>>;
+  whiteMode: boolean;
+  setWhiteMode: (value: boolean) => void;
+  trueDark: boolean;
+  setTrueDark: (value: boolean) => void;
+}) => {
+  const patch = (value: Partial<UiThemeConfig>) =>
+    setUiTheme((previous) => ({ ...previous, ...value }));
+  const patchButton = (value: Partial<NonNullable<UiThemeConfig['buttons']>>) =>
+    setUiTheme((previous) => ({
+      ...previous,
+      buttons: { ...previous.buttons, ...value },
+    }));
+  const preview = buildThemeVars(uiTheme, whiteMode);
+  const applyTemplate = (variant: UiThemeConfig, light: boolean) => {
+    setUiTheme((previous) => ({
+      ...variant,
+      unifyButtons: previous.unifyButtons,
+    }));
+    setWhiteMode(light);
+    setTrueDark(false);
+  };
+  const buttonFields = uiTheme.unifyButtons
+    ? [
+        ['강조 버튼', 'accent', '#0ea5e9'],
+        ['일반 버튼', 'neutral', '#6b7280'],
+        ['위험 버튼', 'danger', '#ef4444'],
+      ] as const
+    : [
+        ['초록 버튼', 'green', '#22c55e'],
+        ['하늘 버튼', 'sky', '#0ea5e9'],
+        ['주황 버튼', 'orange', '#f97316'],
+        ['회색 버튼', 'gray', '#6b7280'],
+        ['빨강 버튼', 'red', '#ef4444'],
+      ] as const;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-semibold gray-label mb-2">기본 테마</label>
+        <div className="flex flex-col gap-2">
+          <label className="flex items-center gap-2 cursor-pointer text-sm gray-label">
+            <input type="radio" checked={!whiteMode && !trueDark}
+              onChange={() => { setWhiteMode(false); setTrueDark(false); }} /> 다크 모드
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-sm gray-label">
+            <input type="radio" checked={!whiteMode && trueDark}
+              onChange={() => { setWhiteMode(false); setTrueDark(true); }} /> 트루 다크 모드 (OLED)
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-sm gray-label">
+            <input type="radio" checked={whiteMode}
+              onChange={() => { setWhiteMode(true); setTrueDark(false); }} /> 화이트 모드
+          </label>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-semibold gray-label mb-2">테마 템플릿</label>
+        <div className="space-y-2">
+          {themeTemplates.map((template) => (
+            <div key={template.name} className="flex items-center gap-2">
+              <span className="w-28 text-xs gray-label truncate">{template.emoji} {template.name}</span>
+              {([['라이트', template.light, true], ['다크', template.dark, false]] as const).map(
+                ([label, variant, light]) => (
+                  <button
+                    key={label}
+                    className="flex-1 rounded-full border line-color px-2 py-1.5 text-xs clickable"
+                    style={{
+                      backgroundColor: variant.surface,
+                      color: variant.textPattern === 'light' ? '#000' : '#fff',
+                    }}
+                    onClick={() => applyTemplate(variant, light)}
+                  >
+                    {label}
+                  </button>
+                ),
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div
+        className={(whiteMode ? '' : 'dark ') + 'rounded-lg border line-color p-3 space-y-2'}
+        style={{
+          ...preview,
+          backgroundColor: 'var(--c-surface)',
+          color: 'var(--c-text-label)',
+        } as React.CSSProperties}
+      >
+        <div className="text-sm font-semibold text-default">실시간 미리보기</div>
+        <input className="gray-input w-full text-sm" value="입력창과 텍스트" readOnly />
+        <div className="flex gap-2">
+          <span className="back-sky rounded px-2 py-1 text-xs">강조</span>
+          <span className="back-gray rounded px-2 py-1 text-xs">일반</span>
+          <span className="back-red rounded px-2 py-1 text-xs">위험</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <ThemeColorField label="전체 배경" value={uiTheme.surface}
+          fallback={whiteMode ? '#ffffff' : '#0f172a'} onChange={(surface) => patch({ surface })} />
+        <ThemeColorField label="패널·카드 배경" value={uiTheme.surface2}
+          fallback={whiteMode ? '#ffffff' : '#1e293b'} onChange={(surface2) => patch({ surface2 })} />
+        <ThemeColorField label="입력창 배경" value={uiTheme.inputBg}
+          fallback={whiteMode ? '#e5e7eb' : '#334155'} onChange={(inputBg) => patch({ inputBg })} />
+        <ThemeColorField label="구분 구역" value={uiTheme.zoneBg}
+          fallback={whiteMode ? '#eceff4' : '#1e293b'} onChange={(zoneBg) => patch({ zoneBg })} />
+        <ThemeColorField label="테두리" value={uiTheme.lineColor}
+          fallback={whiteMode ? '#cbd5e1' : '#334155'} onChange={(lineColor) => patch({ lineColor })} />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className="flex-1 text-sm gray-label">텍스트 패턴</span>
+        <button className={'round-button btn-sm ' + (uiTheme.textPattern === 'light' ? 'back-sky' : 'back-gray')}
+          onClick={() => patch({ textPattern: 'light' })}>검정 계열</button>
+        <button className={'round-button btn-sm ' + (uiTheme.textPattern === 'dark' ? 'back-sky' : 'back-gray')}
+          onClick={() => patch({ textPattern: 'dark' })}>흰색 계열</button>
+        <button className="round-button btn-sm back-gray" onClick={() => patch({ textPattern: undefined })}>자동</button>
+      </div>
+
+      <label className="flex items-center gap-2 cursor-pointer text-sm gray-label">
+        <input type="checkbox" checked={!!uiTheme.unifyButtons}
+          onChange={(event) => patch({ unifyButtons: event.target.checked })} />
+        버튼 색을 강조·일반·위험 역할로 통합
+      </label>
+      <div className="space-y-2">
+        {buttonFields.map(([label, key, fallback]) => uiTheme.unifyButtons ? (
+          <ThemeColorField key={key} label={label} value={uiTheme[key]} fallback={fallback}
+            onChange={(value) => patch({ [key]: value })} />
+        ) : (
+          <ThemeColorField key={key} label={label} value={uiTheme.buttons?.[key]} fallback={fallback}
+            onChange={(value) => patchButton({ [key]: value })} />
+        ))}
+      </div>
+      <button className="w-full back-gray rounded py-2 text-sm" onClick={() => setUiTheme({})}>
+        커스텀 색 전체 초기화
+      </button>
+    </div>
+  );
+};
+
 /* ── 탭 4: 기타 설정 ── */
 const OtherTab = ({
   whiteMode, setWhiteMode,
   trueDark, setTrueDark,
+  uiTheme, setUiTheme,
   delayTime, setDelayTime,
   classicSceneCard, setClassicSceneCard,
   useProjectDrawer, setUseProjectDrawer,
   useBatchEnqueue, setUseBatchEnqueue,
   fullWordAc, setFullWordAc,
   initialThumbSize, setInitialThumbSize,
+  historyThumbnailPercent, setHistoryThumbnailPercent,
   exportConcurrency, setExportConcurrency,
 }: any) => {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -672,26 +883,9 @@ const OtherTab = ({
 
   return (
     <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-semibold gray-label mb-2">테마</label>
-        <div className="flex flex-col gap-2">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="radio" name="theme" checked={!whiteMode && !trueDark}
-              onChange={() => { setWhiteMode(false); setTrueDark(false); }} />
-            <span className="text-sm gray-label">다크 모드</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="radio" name="theme" checked={!whiteMode && trueDark}
-              onChange={() => { setWhiteMode(false); setTrueDark(true); }} />
-            <span className="text-sm gray-label">트루 다크 모드 (OLED)</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="radio" name="theme" checked={whiteMode}
-              onChange={() => { setWhiteMode(true); setTrueDark(false); }} />
-            <span className="text-sm gray-label">화이트 모드</span>
-          </label>
-        </div>
-      </div>
+      <ThemeCustomization {...{
+        uiTheme, setUiTheme, whiteMode, setWhiteMode, trueDark, setTrueDark,
+      }} />
       <hr className="border-gray-200 dark:border-slate-600" />
       <div className="flex items-center gap-2">
         <input type="checkbox" id="cfgClassicScene" checked={classicSceneCard}
@@ -743,6 +937,29 @@ const OtherTab = ({
           ResultViewer 안 이미지 그리드는 별도 S/M/L 버튼(200/400/500)으로 변경.
           새 이미지마다 이 사이즈가 자동 prewarm돼요 (자동이면 200/400/500 3사이즈).
           설정 변경 시 옛 이미지는 옛 사이즈 fastcache hit 그대로, 새 이미지부터 새 사이즈로 prewarm.
+        </p>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div>
+        <label className="block text-sm gray-label mb-1">
+          히스토리 이미지 크기
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="range"
+            min={60}
+            max={100}
+            step={5}
+            value={historyThumbnailPercent}
+            onChange={(e) => setHistoryThumbnailPercent(parseInt(e.target.value))}
+            className="flex-1"
+          />
+          <span className="text-sm gray-label w-12 text-right">
+            {historyThumbnailPercent}%
+          </span>
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          히스토리는 2열로 유지되며 이미지 크기에 맞춰 패널 폭도 함께 줄어들어요. 100%가 기존 크기예요.
         </p>
       </div>
       <hr className="border-gray-200 dark:border-slate-600" />
@@ -1046,6 +1263,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const [useGPU, setUseGPU] = useState(false);
   const [whiteMode, setWhiteMode] = useState(false);
   const [trueDark, setTrueDark] = useState(false);
+  const [uiTheme, setUiTheme] = useState<UiThemeConfig>({});
   const [exportConcurrency, setExportConcurrency] = useState(1);
   const [delayTime, setDelayTime] = useState(0);
   const [classicSceneCard, setClassicSceneCard] = useState(false);
@@ -1053,6 +1271,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const [useBatchEnqueue, setUseBatchEnqueue] = useState(false);
   // 0 = 자동 (화면 폭 기반), 그 외 = 명시 크기.
   const [initialThumbSize, setInitialThumbSize] = useState<number>(0);
+  const [historyThumbnailPercent, setHistoryThumbnailPercent] = useState(100);
   const [fullWordAc, setFullWordAc] = useState(appState.fullWordAutoComplete);
   const [useLocalBgRemoval, setUseLocalBgRemoval] = useState(false);
   const [refreshImage, setRefreshImage] = useState(false);
@@ -1071,6 +1290,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       const config = await backend.getConfig();
       setWhiteMode(config.whiteMode ?? false);
       setTrueDark(config.trueDark ?? false);
+      setUiTheme(config.uiTheme ?? {});
       setExportConcurrency(config.exportConcurrency ?? 1);
       setImageEditor(config.imageEditor ?? 'photoshop');
       setUseGPU(config.useCUDA ?? false);
@@ -1082,6 +1302,10 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       setUseProjectDrawer(config.useProjectDrawer ?? true);
       setUseBatchEnqueue(config.useBatchEnqueue ?? false);
       setInitialThumbSize(config.initialThumbSize ?? 0);
+      setHistoryThumbnailPercent(Math.max(
+        60,
+        Math.min(100, config.historyThumbnailPercent ?? 100),
+      ));
       setSaveLocation(config.saveLocation ?? '');
     })();
     const checkReady = () => setReady(localAIService.ready);
@@ -1204,6 +1428,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       refreshImage: refreshImage,
       whiteMode: whiteMode,
       trueDark: trueDark,
+      uiTheme,
       exportConcurrency: exportConcurrency,
       useLocalBgRemoval: useLocalBgRemoval,
       delayTime: delayTime,
@@ -1211,6 +1436,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       useProjectDrawer: useProjectDrawer,
       useBatchEnqueue: useBatchEnqueue,
       initialThumbSize: initialThumbSize === 0 ? undefined : initialThumbSize,
+      historyThumbnailPercent,
     };
     await backend.setConfig(config);
     if (old.useCUDA !== useGPU) localAIService.modelChanged();
@@ -1218,6 +1444,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     appState.useProjectDrawer = useProjectDrawer;
     appState.useBatchEnqueue = useBatchEnqueue;
     appState.initialThumbSize = initialThumbSize === 0 ? undefined : initialThumbSize;
+    appState.historyThumbnailPercent = historyThumbnailPercent;
     appState.fullWordAutoComplete = fullWordAc;
     localStorage.setItem('sdstudio-full-word-autocomplete', fullWordAc ? 'true' : 'false');
     sessionService.configChanged();
@@ -1231,13 +1458,13 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     { label: '로그인', icon: <FaUser size={14} /> },
     ...(!mobileMode ? [{ label: '이미지 편집', icon: <FaImage size={14} /> }] : []),
     { label: '백업·저장', icon: <FaFolder size={14} /> },
-    { label: '기타', icon: <FaCog size={14} /> },
+    { label: '테마·기타', icon: <FaCog size={14} /> },
     ...(!mobileMode ? [{ label: '키 바인딩', icon: <FaKeyboard size={14} /> }] : []),
   ];
 
   const getTabContent = (tabIdx: number) => {
-    // 모바일: 탭 0=로그인, 1=백업·저장, 2=기타 (이미지편집·키바인딩 숨김)
-    // PC: 탭 0=로그인, 1=이미지편집, 2=백업·저장, 3=기타, 4=키바인딩
+    // 모바일: 탭 0=로그인, 1=백업·저장, 2=테마·기타 (이미지편집·키바인딩 숨김)
+    // PC: 탭 0=로그인, 1=이미지편집, 2=백업·저장, 3=테마·기타, 4=키바인딩
     const idx = mobileMode && tabIdx >= 1 ? tabIdx + 1 : tabIdx;
     switch (idx) {
       case 0:
@@ -1247,7 +1474,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       case 2:
         return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage, onClose }} />;
       case 3:
-        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, exportConcurrency, setExportConcurrency }} />;
+        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, uiTheme, setUiTheme, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, historyThumbnailPercent, setHistoryThumbnailPercent, exportConcurrency, setExportConcurrency }} />;
       case 4:
         return <KeyBindingsTab />;
       default:
@@ -1268,7 +1495,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     >
       <ModalOverlayCountMarker />
       <div
-        className={'w-[90vw] max-w-lg bg-white dark:bg-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-slate-600 ' + (mobileMode ? 'max-h-[90vh]' : 'max-h-[85vh]')}
+        className={'w-[90vw] max-w-lg bg-[var(--c-surface-2)] rounded-xl shadow-2xl flex flex-col overflow-hidden border line-color ' + (mobileMode ? 'max-h-[90vh]' : 'max-h-[85vh]')}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}

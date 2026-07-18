@@ -28,9 +28,36 @@ export class SessionService extends ResourceSyncService<Session> {
   deletingProjects: Set<string> = new Set();
   // 진행 중인 폴더 삭제 추적. 백그라운드 삭제 중 재클릭 방지용 (App.tsx done/error에서 해제).
   deletingFolders: Set<string> = new Set();
+  // 폴더 삭제는 HTTP 응답 뒤에도 서버에서 계속된다. 영향 프로젝트를 WS done/error까지
+  // busy로 유지해 주기 저장·keepalive가 삭제 중인 파일을 되살리지 못하게 한다.
+  private folderDeleteLeases = new Map<
+    string,
+    { names: string[]; release: () => void }
+  >();
+  private folderDeleteLeaseStarts = new Map<string, Promise<void>>();
+  private folderDeleteFinishes = new Map<string, Promise<void>>();
+  private folderDeleteRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor() {
     super('projects', SESSION_SERVICE_INTERVAL);
+  }
+
+  private async persistMetadataAfterCommit(
+    context: string,
+    saves: Array<() => Promise<void>>,
+  ): Promise<void> {
+    const results = await Promise.allSettled(saves.map((save) => save()));
+    results.forEach((result, index) => {
+      if (result.status !== 'rejected') return;
+      console.warn(`[SessionService] ${context} metadata save deferred:`, result.reason);
+      // 메모리 메타는 이미 커밋 뒤 상태다. 짧은 네트워크 단절이면 현재 전체 스냅숏을
+      // 한 번 더 저장하고, 그래도 실패하면 다음 사용자 변경 시 기존 저장 경로가 재시도한다.
+      setTimeout(() => {
+        void saves[index]().catch((error) => {
+          console.warn(`[SessionService] ${context} metadata retry failed:`, error);
+        });
+      }, 2000);
+    });
   }
 
   async loadFavorites() {
@@ -245,32 +272,52 @@ export class SessionService extends ResourceSyncService<Session> {
   }
 
   async delete(name: string) {
-    this.favorites.delete(name);
-    await this.saveFavorites();
-    // 북마크 정리 — 삭제 전 존재 여부 캡처 (delete 후 검사는 항상 falsy)
-    const hadSceneBookmark = name in this.bookmarkData.scenes;
-    delete this.bookmarkData.scenes[name];
-    const keysToDelete = Object.keys(this.bookmarkData.images).filter(k => k.startsWith(name + ':'));
-    keysToDelete.forEach(k => delete this.bookmarkData.images[k]);
-    if (keysToDelete.length > 0 || hadSceneBookmark) {
-      await this.saveBookmarks();
-    }
-    // 메모리 캐시 정리
-    if (name in this.resources) {
-      delete this.resources[name];
-      this.disposes[name]();
-      delete this.disposes[name];
-    }
-    // 로컬 파일 + Drive까지 즉시 영구 삭제 (휴지통 거치지 않음)
-    await backend.deleteProjectNow(name);
-    await this.update();
+    await this.withResourceMutation([name], async () => {
+      // 로컬 파일 + Drive 삭제가 성공한 뒤에만 메모리와 메타를 정리한다.
+      // 실패하면 프로젝트·즐겨찾기·북마크가 모두 이전 상태로 남는다.
+      let result;
+      try {
+        result = await backend.deleteProjectNow(name);
+      } catch (error) {
+        // 응답 유실 시 서버가 삭제를 커밋했는지 알 수 없다. 옛 인스턴스를 살려 두면
+        // 실제 삭제된 경우 다음 편집이 프로젝트 JSON을 되살리므로 캐시를 폐기한다.
+        // 요청이 서버에 안 닿았다면 목록/다음 get이 디스크의 원본을 그대로 다시 읽는다.
+        this.detachResource(name);
+        await this.refreshAfterCommittedMutation('uncertain project delete');
+        throw error;
+      }
+      const jsonSuffix = '/' + name + '.json';
+      const projectJsonDeleted = result.deleted.local.some((deletedPath) =>
+        deletedPath === 'projects/' + name + '.json' ||
+        (deletedPath.startsWith('projects/') && deletedPath.endsWith(jsonSuffix)));
+      if (!projectJsonDeleted) {
+        throw new Error('프로젝트 파일 삭제에 실패했습니다. 서버 로그를 확인해주세요.');
+      }
+      if (result.errors.length > 0) {
+        console.warn('[SessionService] project delete completed with partial cleanup errors:', result.errors.length);
+      }
+      this.detachResource(name);
+
+      const favoriteChanged = this.favorites.delete(name);
+      const hadSceneBookmark = name in this.bookmarkData.scenes;
+      delete this.bookmarkData.scenes[name];
+      const keysToDelete = Object.keys(this.bookmarkData.images).filter(k => k.startsWith(name + ':'));
+      keysToDelete.forEach(k => delete this.bookmarkData.images[k]);
+      const saves: Array<() => Promise<void>> = [];
+      if (favoriteChanged) saves.push(() => this.saveFavorites());
+      if (keysToDelete.length > 0 || hadSceneBookmark) saves.push(() => this.saveBookmarks());
+      await this.persistMetadataAfterCommit('delete', saves);
+      await this.refreshAfterCommittedMutation('project delete');
+    });
   }
 
   async rename(oldName: string, newName: string) {
-    if (this.favorites.has(oldName)) {
+    // 파일 rename과 ResourceSync 메모리 이전을 먼저 끝낸다. 실패하면 메타도 건드리지 않는다.
+    await super.rename(oldName, newName);
+    const favoriteChanged = this.favorites.has(oldName);
+    if (favoriteChanged) {
       this.favorites.delete(oldName);
       this.favorites.add(newName);
-      await this.saveFavorites();
     }
     // 북마크 마이그레이션
     let bmChanged = false;
@@ -286,8 +333,13 @@ export class SessionService extends ResourceSyncService<Session> {
       delete this.bookmarkData.images[k];
       bmChanged = true;
     });
-    if (bmChanged) await this.saveBookmarks();
-    await super.rename(oldName, newName);
+    const saves: Array<() => Promise<void>> = [];
+    if (favoriteChanged) saves.push(() => this.saveFavorites());
+    if (bmChanged) saves.push(() => this.saveBookmarks());
+    await this.persistMetadataAfterCommit('rename', saves);
+    this.dispatchEvent(new CustomEvent('renamed', {
+      detail: { oldName, newName },
+    }));
   }
 
   // ===== Folder API =====
@@ -296,6 +348,23 @@ export class SessionService extends ResourceSyncService<Session> {
 
   private folderPath(folderName: string): string {
     return 'projects/' + folderName;
+  }
+
+  private projectNamesInFolderTree(folderPath: string): string[] {
+    const names = new Set([...this.resourceList, ...this.loadedNames()]);
+    return Array.from(names).filter((name) => {
+      const folder = this.folderMap[name];
+      return folder === folderPath || !!folder?.startsWith(folderPath + '/');
+    });
+  }
+
+  private remapProjectFolders(oldPath: string, newPath: string, names: string[]) {
+    for (const name of names) {
+      const folder = this.folderMap[name];
+      if (folder === oldPath || folder?.startsWith(oldPath + '/')) {
+        this.folderMap[name] = newPath + folder.slice(oldPath.length);
+      }
+    }
   }
   private projectFilePath(name: string, folder: string | null): string {
     return folder ? 'projects/' + folder + '/' + name + '.json' : 'projects/' + name + '.json';
@@ -340,12 +409,15 @@ export class SessionService extends ResourceSyncService<Session> {
     if (this.folderList.includes(newPath)) {
       throw new Error('이미 존재하는 폴더입니다.');
     }
-    await backend.renameDir(this.folderPath(oldPath), this.folderPath(newPath));
-    // 색상·순서 메타는 폴더 자신 + 하위까지 path 키 마이그레이션(누락 시 색상·순서 유실).
-    this.migrateFolderMeta(oldPath, newPath);
-    await this.saveFolderMeta();
-    // folderMap에 추적되던 프로젝트들의 folder 갱신은 update() 한 번이면 충분.
-    await this.update();
+    const affected = this.projectNamesInFolderTree(oldPath);
+    await this.withResourceMutation(affected, async () => {
+      await backend.renameDir(this.folderPath(oldPath), this.folderPath(newPath));
+      this.remapProjectFolders(oldPath, newPath, affected);
+      // 색상·순서 메타는 폴더 자신 + 하위까지 path 키 마이그레이션(누락 시 색상·순서 유실).
+      this.migrateFolderMeta(oldPath, newPath);
+      await this.persistMetadataAfterCommit('folder rename', [() => this.saveFolderMeta()]);
+      await this.refreshAfterCommittedMutation('folder rename');
+    });
   }
 
   // 폴더(하위 폴더·프로젝트 통째)를 다른 폴더 *안*으로 이동. newParent=null이면 최상위로.
@@ -373,10 +445,14 @@ export class SessionService extends ResourceSyncService<Session> {
     if (newDeepest > MAX_FOLDER_DEPTH) {
       throw new Error(`폴더는 최대 ${MAX_FOLDER_DEPTH}단계까지 중첩할 수 있어요.`);
     }
-    await backend.renameDir(this.folderPath(folderPath), this.folderPath(newPath));
-    this.migrateFolderMeta(folderPath, newPath);
-    await this.saveFolderMeta();
-    await this.update();
+    const affected = this.projectNamesInFolderTree(folderPath);
+    await this.withResourceMutation(affected, async () => {
+      await backend.renameDir(this.folderPath(folderPath), this.folderPath(newPath));
+      this.remapProjectFolders(folderPath, newPath, affected);
+      this.migrateFolderMeta(folderPath, newPath);
+      await this.persistMetadataAfterCommit('folder move', [() => this.saveFolderMeta()]);
+      await this.refreshAfterCommittedMutation('folder move');
+    });
   }
 
   // 폴더 경로 변경(rename/move) 시 색상·순서 메타 키를 폴더 자신 + 모든 하위 폴더까지 prefix
@@ -403,52 +479,116 @@ export class SessionService extends ResourceSyncService<Session> {
     }
     // 폴더 자신 + 모든 하위 폴더 프로젝트(중첩). 서버는 projects/<folder> 트리를 통째 삭제하므로
     // 하위 프로젝트의 클라 메모리 캐시/북마크/즐겨찾기도 같이 정리해야 잔재(stale)가 안 남는다.
-    const projectsInFolder = this.resourceList.filter(
-      (n) => this.folderMap[n] === folderName || (this.folderMap[n] || '').startsWith(folderName + '/'),
-    );
+    const projectsInFolder = this.projectNamesInFolderTree(folderName);
     if (preserveProjects && projectsInFolder.length > 0) {
       throw new Error(`폴더 안에 프로젝트 ${projectsInFolder.length}개가 남아 있어 삭제를 중단했습니다.`);
     }
-    // 메모리 캐시 + 북마크 + 즐겨찾기 정리는 클라가 책임 — 서버가 모르는 정보.
-    let bmChanged = false;
-    let favChanged = false;
-    for (const projName of projectsInFolder) {
-      if (this.favorites.has(projName)) {
-        this.favorites.delete(projName);
-        favChanged = true;
-      }
-      if (projName in this.bookmarkData.scenes) {
-        delete this.bookmarkData.scenes[projName];
-        bmChanged = true;
-      }
-      const imageKeys = Object.keys(this.bookmarkData.images).filter(k => k.startsWith(projName + ':'));
-      for (const k of imageKeys) {
-        delete this.bookmarkData.images[k];
-        bmChanged = true;
-      }
-      if (projName in this.resources) {
-        delete this.resources[projName];
-        this.disposes[projName]();
-        delete this.disposes[projName];
-      }
-    }
-    if (favChanged) await this.saveFavorites();
-    if (bmChanged) await this.saveBookmarks();
-    // 서버 백그라운드 삭제 시작 (즉시 jobId 반환). 진행도/완료는 App.tsx 글로벌 구독이
-    // pinnedProgress + update()로 처리. deletingFolders는 그 done/error에서 해제.
     this.deletingFolders.add(folderName);
-    let start;
     try {
-      start = await backend.deleteFolderNow(folderName, preserveProjects);
+      // 로컬에서 시작한 요청은 서버 호출 전에 lease를 잡는다. 다른 탭이 시작한 요청은
+      // App.tsx의 delete-folder-start WS에서 observeFolderDeletionStart가 같은 작업을 한다.
+      await this.ensureFolderDeleteLease(folderName, projectsInFolder);
+      await backend.deleteFolderNow(folderName, preserveProjects);
     } catch (e) {
-      this.deletingFolders.delete(folderName);
+      await this.finishFolderDeletion(folderName, false);
       throw e;
     }
-    if (start.alreadyRunning) {
-      // 다른 경로(다른 탭/기기)로 이미 진행 중 — 기존 job의 진행/완료를 글로벌 구독이
-      // cover. 이 클라가 추가로 잡은 guard는 그 done 때 함께 해제됨. 낙관적 UI 갱신만.
+  }
+
+  async observeFolderDeletionStart(folderName: string): Promise<void> {
+    this.deletingFolders.add(folderName);
+    await this.ensureFolderDeleteLease(folderName);
+  }
+
+  private async ensureFolderDeleteLease(
+    folderName: string,
+    knownNames?: string[],
+  ): Promise<void> {
+    if (this.folderDeleteLeases.has(folderName)) return;
+    const existing = this.folderDeleteLeaseStarts.get(folderName);
+    if (existing) return await existing;
+    const start = (async () => {
+      const names = knownNames ?? this.projectNamesInFolderTree(folderName);
+      // 서버가 이미 삭제를 시작했다는 WS를 보고 들어오는 경로도 있으므로 여기서는
+      // 현재 스냅숏을 다시 쓰지 않는다. 저장은 삭제 트리와 race해 파일을 되살릴 수 있다.
+      const release = await this.beginResourceMutation(names, false);
+      this.folderDeleteLeases.set(folderName, { names, release });
+    })().finally(() => {
+      this.folderDeleteLeaseStarts.delete(folderName);
+    });
+    this.folderDeleteLeaseStarts.set(folderName, start);
+    await start;
+  }
+
+  async finishFolderDeletion(folderName: string, completed: boolean): Promise<void> {
+    const existing = this.folderDeleteFinishes.get(folderName);
+    if (existing) return await existing;
+    const finish = this.finishFolderDeletionImpl(folderName, completed).finally(() => {
+      this.folderDeleteFinishes.delete(folderName);
+    });
+    this.folderDeleteFinishes.set(folderName, finish);
+    await finish;
+  }
+
+  private async finishFolderDeletionImpl(folderName: string, completed: boolean): Promise<void> {
+    const starting = this.folderDeleteLeaseStarts.get(folderName);
+    if (starting) await starting.catch(() => {});
+    const lease = this.folderDeleteLeases.get(folderName);
+    const candidates = lease?.names ?? this.projectNamesInFolderTree(folderName);
+
+    // 서버 결과를 정본으로 다시 스캔한다. 네트워크가 끊긴 채 잠금을 풀면 로드된
+    // dirty 프로젝트가 삭제된 경로를 되살릴 수 있으므로, 성공할 때까지 lease를 유지한다.
+    try {
       await this.update();
+    } catch (e) {
+      console.warn('[SessionService] folder deletion reconcile deferred:', folderName, e);
+      if (!this.folderDeleteRetryTimers.has(folderName)) {
+        const timer = setTimeout(() => {
+          this.folderDeleteRetryTimers.delete(folderName);
+          void this.finishFolderDeletion(folderName, completed);
+        }, 2000);
+        this.folderDeleteRetryTimers.set(folderName, timer);
+      }
+      return;
     }
+
+    try {
+      // error 이벤트여도 서버가 일부 파일을 지운 뒤 실패했을 수 있다. 재스캔에서 실제로
+      // 사라진 프로젝트는 반드시 분리해야 잠금 해제 뒤 dirty 캐시가 파일을 되살리지 않는다.
+      const surviving = new Set(this.resourceList);
+      const deleted = candidates.filter((name) => !surviving.has(name));
+      let favoritesChanged = false;
+      let bookmarksChanged = false;
+      for (const name of deleted) {
+        this.detachResource(name);
+        if (this.favorites.delete(name)) favoritesChanged = true;
+        if (name in this.bookmarkData.scenes) {
+          delete this.bookmarkData.scenes[name];
+          bookmarksChanged = true;
+        }
+        for (const key of Object.keys(this.bookmarkData.images)) {
+          if (!key.startsWith(name + ':')) continue;
+          delete this.bookmarkData.images[key];
+          bookmarksChanged = true;
+        }
+      }
+      const saves: Array<() => Promise<void>> = [];
+      if (favoritesChanged) saves.push(() => this.saveFavorites());
+      if (bookmarksChanged) saves.push(() => this.saveBookmarks());
+      await this.persistMetadataAfterCommit('folder delete', saves);
+    } finally {
+      const retryTimer = this.folderDeleteRetryTimers.get(folderName);
+      if (retryTimer) clearTimeout(retryTimer);
+      this.folderDeleteRetryTimers.delete(folderName);
+      lease?.release();
+      this.folderDeleteLeases.delete(folderName);
+      this.deletingFolders.delete(folderName);
+    }
+
+    // release 뒤 살아남은 dirty 프로젝트가 있으면 새 경로/현 경로에 저장한다.
+    await this.update().catch((e) => {
+      console.warn('[SessionService] folder deletion post-refresh failed:', folderName, e);
+    });
   }
 
   async moveToFolder(name: string, targetFolder: string | null): Promise<void> {
@@ -460,9 +600,11 @@ export class SessionService extends ResourceSyncService<Session> {
     }
     const srcPath = this.projectFilePath(name, currentFolder);
     const destPath = this.projectFilePath(name, targetFolder);
-    await backend.renameFile(srcPath, destPath);
-    this.folderMap[name] = targetFolder;
-    await this.update();
+    await this.withResourceMutation([name], async () => {
+      await backend.renameFile(srcPath, destPath);
+      this.folderMap[name] = targetFolder;
+      await this.refreshAfterCommittedMutation('project move');
+    });
   }
 
   async getHook(rc: Session, name: string) {
@@ -870,7 +1012,7 @@ export class SessionService extends ResourceSyncService<Session> {
   // folder 인자: import 직후 그 폴더로 이동. null = 루트 (기존 default).
   // 옛 import는 항상 루트 — curSession이 폴더에 있어도 새 프로젝트는 폴더없음으로 가던 페인 (P18).
   async importSessionShallow(session: ISession, name: string, folder?: string | null) {
-    if (name in this.resources) {
+    if (this.hasResource(name)) {
       throw new Error('Resource already exists');
     }
     session.name = name;
@@ -925,7 +1067,7 @@ export class SessionService extends ResourceSyncService<Session> {
     name: string,
     onProgress?: (text: string, done: number, total: number) => void,
   ) {
-    if (name in this.resources) {
+    if (this.hasResource(name)) {
       throw new Error('Resource already exists');
     }
     const path = 'tmp/' + v4();

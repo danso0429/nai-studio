@@ -13,6 +13,7 @@ import {
   zipService,
 } from '.';
 import { startVisibleInterval } from '../visibleInterval';
+import { setAppState } from './appStateRef';
 import type { GlobalPresetType, IGlobalPresetEntry } from './GlobalPresetService';
 import { SUPPORTED_GLOBAL_PRESET_TYPES } from './GlobalPresetService';
 import { Dialog } from '../components/ConfirmWindow';
@@ -269,8 +270,43 @@ export class AppState {
     { session: Session; scenes: GenericScene[]; paths: string[] }
   >();
 
-  // 프로젝트 드로어(좌측 슬라이드 폴더 UI) 열림 상태. ProjectDrawer가 구독, SessionSelect 버튼이 토글.
-  @observable accessor projectDrawerOpen: boolean = false;
+  // 화면을 덮는 드로어는 동시에 하나만 열 수 있다. 두 boolean을 따로 두면 모바일에서
+  // 프로젝트 드로어 위의 히스토리 핸들이 입력을 받는 불가능 상태가 생긴다.
+  @observable accessor overlayDrawer: 'project' | 'history' | null = null;
+
+  get projectDrawerOpen(): boolean {
+    return this.overlayDrawer === 'project';
+  }
+
+  get historyDrawerOpen(): boolean {
+    return this.overlayDrawer === 'history';
+  }
+
+  @action
+  openProjectDrawer() {
+    this.overlayDrawer = 'project';
+  }
+
+  @action
+  closeProjectDrawer() {
+    if (this.overlayDrawer === 'project') this.overlayDrawer = null;
+  }
+
+  @action
+  openHistoryDrawer() {
+    if (this.overlayDrawer !== 'project') this.overlayDrawer = 'history';
+  }
+
+  @action
+  closeHistoryDrawer() {
+    if (this.overlayDrawer === 'history') this.overlayDrawer = null;
+  }
+
+  @action
+  toggleHistoryDrawer() {
+    if (this.overlayDrawer === 'project') return;
+    this.overlayDrawer = this.overlayDrawer === 'history' ? null : 'history';
+  }
   // 새 폴더 드로어 UI 사용 여부 (off면 옛 SessionTreePicker 모달). config 동기화.
   // 회귀 안전장치 — 드로어에 문제가 생기면 설정에서 끄면 옛 UI로 즉시 복귀(재배포 불필요).
   @observable accessor useProjectDrawer: boolean = true;
@@ -290,6 +326,10 @@ export class AppState {
   // 씬 그리드 초기 썸네일 크기. undefined면 화면 폭으로 자동 결정. ConfigScreen
   // 에서 사용자가 명시 override 가능. App.tsx의 config-changed에서 sync.
   @observable accessor initialThumbSize: number | undefined = undefined;
+
+  // 최근 생성 히스토리 이미지 크기. 100이 기존 크기이며 60 미만은 2열 헤더와
+  // 터치 영역이 지나치게 좁아지므로 config 로드 시에도 clamp한다.
+  @observable accessor historyThumbnailPercent: number = 100;
 
   // 자동완성 모드: false=커서 왼쪽만(기본), true=콤마 사이 전체 단어
   @observable accessor fullWordAutoComplete: boolean = (() => {
@@ -550,6 +590,10 @@ export class AppState {
               this.curSession = undefined;
             }
           } catch (e: any) {
+            if (this.curSession?.name === name && !sessionService.getLoaded(name)) {
+              const fresh = await sessionService.get(name);
+              this.curSession = fresh;
+            }
             this.finishProgressDialog(
               pid,
               `✗ 프로젝트 "${name}" 삭제 실패: ${extractApiError(e)}`,
@@ -603,6 +647,10 @@ export class AppState {
               if (this.curSession?.name === name) this.curSession = undefined;
               done++;
             } catch (e) {
+              if (this.curSession?.name === name && !sessionService.getLoaded(name)) {
+                const fresh = await sessionService.get(name);
+                this.curSession = fresh;
+              }
               failed++;
             } finally {
               sessionService.deletingProjects.delete(name);
@@ -672,6 +720,20 @@ export class AppState {
   toggleLeftPanel() {
     this.leftPanelCollapsed = !this.leftPanelCollapsed;
     localStorage.setItem('sdstudio-left-panel-collapsed', String(this.leftPanelCollapsed));
+  }
+
+  // 최근 생성 히스토리. PC 패널은 기존 레이아웃을 보존하기 위해 기본 접힘,
+  // 모바일 드로어는 일시 상태만 유지한다.
+  @observable accessor historyPanelCollapsed: boolean = (() => {
+    return localStorage.getItem('sdstudio-history-panel-collapsed') !== 'false';
+  })();
+  @action
+  toggleHistoryPanel() {
+    this.historyPanelCollapsed = !this.historyPanelCollapsed;
+    localStorage.setItem(
+      'sdstudio-history-panel-collapsed',
+      String(this.historyPanelCollapsed),
+    );
   }
 
   @action
@@ -2194,16 +2256,6 @@ export class AppState {
     });
   }
 
-  @action
-  async projectToggleFavorite() {
-    if (!appState.curSession) {
-      appState.pushMessage('프로젝트를 먼저 선택해주세요');
-      return;
-    }
-    await sessionService.toggleFavorite(appState.curSession.name);
-    const isFav = sessionService.isFavorite(appState.curSession.name);
-    appState.pushMessage(isFav ? '즐겨찾기에 추가되었습니다' : '즐겨찾기가 해제되었습니다');
-  }
   async exportPackage(
     type: 'scene' | 'inpaint',
     selected?: GenericScene[],
@@ -4347,6 +4399,7 @@ export class AppState {
 }
 
 export const appState = new AppState();
+setAppState(appState);
 
 // PWA 콜드 리로드 복구 — iOS가 홈화면 PWA를 백그라운드에서 kill하면 복귀 시 완전 리로드되어
 // 프로젝트 선택 화면으로 튕겨나감. 마지막 프로젝트 이름을 저장해 부팅 시 복원(App.tsx).

@@ -5,6 +5,97 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --c-surface: #ffffff;
+  --c-surface-2: #ffffff;
+  --c-text: #000000;
+  --c-text-sub: #000000;
+  --c-text-label: #374151;
+  --c-text-muted: #6b7280;
+  --c-text-faint: #9ca3af;
+  --c-line: #cbd5e1;
+  --c-input-bg: #e5e7eb;
+  --c-input-text: #111827;
+  --c-icon-text: #4b5563;
+  --c-zone: #eceff4;
+  --c-green-bg: #22c55e;  --c-green-fg: #ffffff;
+  --c-sky-bg: #0ea5e9;    --c-sky-fg: #ffffff;
+  --c-red-bg: #ef4444;    --c-red-fg: #ffffff;
+  --c-gray-bg: #6b7280;   --c-gray-fg: #ffffff;
+  --c-orange-bg: #f97316; --c-orange-fg: #ffffff;
+  --c-yellow-bg: #eab308; --c-yellow-fg: #ffffff;
+}
+
+.dark {
+  --c-surface: #0f172a;
+  --c-surface-2: #1e293b;
+  --c-text: #ffffff;
+  --c-text-sub: #e2e8f0;
+  --c-text-label: #e2e8f0;
+  --c-text-muted: #9ca3af;
+  --c-text-faint: #6b7280;
+  --c-line: #334155;
+  --c-input-bg: #334155;
+  --c-input-text: #ffffff;
+  --c-icon-text: #ffffff;
+  --c-zone: #1e293b;
+  --c-green-bg: rgba(45, 212, 191, 0.25);  --c-green-fg: #2dd4bf;
+  --c-sky-bg: rgba(56, 189, 248, 0.25);    --c-sky-fg: #38bdf8;
+  --c-red-bg: rgba(248, 113, 113, 0.25);   --c-red-fg: #f87171;
+  --c-gray-bg: rgba(156, 163, 175, 0.25);  --c-gray-fg: #e5e7eb;
+  --c-orange-bg: rgba(251, 146, 60, 0.25); --c-orange-fg: #fed7aa;
+  --c-yellow-bg: rgba(129, 140, 248, 0.25); --c-yellow-fg: #818cf8;
+}
+
+.true-dark {
+  --c-surface: #000000;
+  --c-surface-2: #0a0a0a;
+  --c-line: #1a1a1a;
+  --c-input-bg: #111111;
+  --c-zone: #111111;
+}
+
+/* 아직 시맨틱 토큰으로 직접 전환되지 않은 Remote 전용·레거시 컴포넌트를 위한
+   호환 브리지. custom-theme일 때만 대표 Tailwind 중립색을 역할 토큰으로 연결한다. */
+.custom-theme.bg-white,
+.custom-theme .bg-white,
+.custom-theme .dark\:bg-slate-800 {
+  background-color: var(--c-surface-2) !important;
+}
+.custom-theme.dark\:bg-slate-900,
+.custom-theme .dark\:bg-slate-900,
+.custom-theme .dark\:bg-gray-900,
+.custom-theme .dark\:bg-gray-900\/40 {
+  background-color: var(--c-surface) !important;
+}
+.custom-theme .bg-gray-100,
+.custom-theme .bg-gray-200,
+.custom-theme .dark\:bg-slate-700,
+.custom-theme .dark\:bg-gray-700 {
+  background-color: var(--c-input-bg) !important;
+}
+.custom-theme .border-gray-200,
+.custom-theme .border-gray-300,
+.custom-theme .border-gray-400,
+.custom-theme .dark\:border-slate-500,
+.custom-theme .dark\:border-slate-600,
+.custom-theme .dark\:border-slate-700 {
+  border-color: var(--c-line) !important;
+}
+.custom-theme .text-gray-700,
+.custom-theme .dark\:text-slate-200,
+.custom-theme .dark\:text-gray-200 {
+  color: var(--c-text-label) !important;
+}
+.custom-theme .text-gray-500,
+.custom-theme .dark\:text-gray-400 {
+  color: var(--c-text-muted) !important;
+}
+.custom-theme .text-gray-400,
+.custom-theme .dark\:text-gray-500 {
+  color: var(--c-text-faint) !important;
+}
+
 html {
   /* viewport-fit=cover로 viewport가 안전 영역 포함하게 커지면 html/body도 같이
      고정 높이로 박아야 자식이 percent 계산 가능. */
@@ -95,15 +186,27 @@ body {
 }
 
 .line-color {
-  @apply border-slate-300 dark:border-slate-700;
+  border-color: var(--c-line);
 }
 
 .text-default {
-  @apply text-black dark:text-white;
+  color: var(--c-text);
 }
 
 .text-sub {
-  @apply text-black dark:text-slate-200;
+  color: var(--c-text-sub);
+}
+
+.text-body {
+  color: var(--c-text-label);
+}
+
+.text-muted {
+  color: var(--c-text-muted);
+}
+
+.text-faint {
+  color: var(--c-text-faint);
 }
 
 .round-tag {
@@ -111,27 +214,33 @@ body {
 }
 
 .gray-label {
-  @apply font-medium text-gray-700 dark:text-slate-200;
+  @apply font-medium;
+  color: var(--c-text-label);
 }
 
 .back-yellow {
-  @apply bg-yellow-500 text-white dark:bg-indigo-400/25 dark:text-indigo-400;
+  background-color: var(--c-yellow-bg);
+  color: var(--c-yellow-fg);
 }
 
 .back-green {
-  @apply bg-green-500 text-white dark:bg-teal-400/25 dark:text-teal-400;
+  background-color: var(--c-green-bg);
+  color: var(--c-green-fg);
 }
 
 .back-sky {
-  @apply bg-sky-500 text-white dark:bg-sky-400/25 dark:text-sky-400;
+  background-color: var(--c-sky-bg);
+  color: var(--c-sky-fg);
 }
 
 .back-red {
-  @apply bg-red-500 text-white dark:bg-red-400/25 dark:text-red-400;
+  background-color: var(--c-red-bg);
+  color: var(--c-red-fg);
 }
 
 .back-gray {
-  @apply bg-gray-500 text-white dark:bg-gray-400/25 dark:text-gray-200;
+  background-color: var(--c-gray-bg);
+  color: var(--c-gray-fg);
 }
 
 .back-llgray {
@@ -147,7 +256,8 @@ body {
 }
 
 .back-orange {
-  @apply bg-orange-500 text-white dark:bg-orange-400/25 dark:text-orange-200;
+  background-color: var(--c-orange-bg);
+  color: var(--c-orange-fg);
 }
 
 .clickable {
@@ -191,11 +301,14 @@ body {
 }
 
 .icon-button {
-  @apply active:brightness-90 hover:brightness-95 select-none whitespace-nowrap rounded-full text-gray-600 dark:text-white p-1;
+  @apply active:brightness-90 hover:brightness-95 select-none whitespace-nowrap rounded-full p-1;
+  color: var(--c-icon-text);
 }
 
 .gray-input {
-  @apply focus:border-0 focus:outline-0 rounded-md focus:outline-black bg-gray-200 dark:bg-slate-700 dark:text-white py-1 md:py-1.5 md:pl-2 md:pr-2 text-gray-900 placeholder:text-gray-400;
+  @apply focus:border-0 focus:outline-0 rounded-md focus:outline-black py-1 md:py-1.5 md:pl-2 md:pr-2 placeholder:text-gray-400;
+  background-color: var(--c-input-bg);
+  color: var(--c-input-text);
 }
 
 @layer components {
@@ -873,20 +986,20 @@ input[type='number']::-webkit-outer-spin-button {
 
 .true-dark,
 .true-dark .dark\:bg-slate-900 {
-  background-color: var(--td-bg) !important;
+  background-color: var(--c-surface) !important;
 }
 .true-dark .dark\:bg-slate-800 {
-  background-color: var(--td-surface) !important;
+  background-color: var(--c-surface-2) !important;
 }
 .true-dark .dark\:bg-slate-700 {
-  background-color: var(--td-surface2) !important;
+  background-color: var(--c-input-bg) !important;
 }
 .true-dark .dark\:border-slate-600,
 .true-dark .dark\:border-slate-700 {
   border-color: var(--td-border) !important;
 }
 .true-dark .line-color {
-  border-color: var(--td-border) !important;
+  border-color: var(--c-line) !important;
 }
 /* gray 계열 (SessionTreePicker, 기타) */
 .true-dark .dark\:bg-gray-700 {
@@ -909,8 +1022,8 @@ input[type='number']::-webkit-outer-spin-button {
 }
 /* 커스텀 입력/컨트롤 */
 .true-dark .gray-input {
-  background-color: var(--td-surface2) !important;
-  border-color: var(--td-border) !important;
+  background-color: var(--c-input-bg) !important;
+  border-color: var(--c-line) !important;
 }
 .true-dark .back-lllgray {
   background-color: rgba(255,255,255,0.06) !important;

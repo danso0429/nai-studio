@@ -21,16 +21,27 @@ function isTransientReadError(e: any): boolean {
   return !/^API error 4\d\d/.test(msg);
 }
 
+type ResourceState = 'loading' | 'ready' | 'busy';
+
+interface ResourceEntry<T> {
+  state: ResourceState;
+  instance?: T;
+  load?: Promise<T>;
+  dirty: boolean;
+  seq: number;
+  dispose?: () => void;
+}
+
 export abstract class ResourceSyncService<
   T extends Serealizable,
 > extends EventTarget {
-  resources: { [name: string]: T };
-  dirty: { [name: string]: boolean };
+  // 이름별 수명주기의 단일 출처. instance/load/dirty/dispose와 경로 변경 상태를
+  // 여러 Map에 나눠 두면 조합 불변식을 매 호출마다 추론해야 하므로 한 레코드로 묶는다.
+  protected entries: Map<string, ResourceEntry<T>> = new Map();
   resourceList: string[];
   folderList: string[];
   // basename → 소속 폴더(루트면 null). getList()가 갱신.
   folderMap: { [name: string]: string | null };
-  disposes: { [name: string]: () => void };
   resourceDir: string;
   updateInterval: number;
   running: boolean;
@@ -43,16 +54,9 @@ export abstract class ResourceSyncService<
   // 빈 인스턴스만 필요. 무거운 default presets 임포트 불필요. 별도 createDummy()
   // sync 메소드로 분리, race fix(dummyReady)도 자연 해소.
   dummy: T;
-  // 이름별 로딩 중 프로미스(동시 get() 디듀프). 같은 리소스를 동시에 열어도 한 번만
-  // 읽고 인스턴스도 하나만 만든다 — 중복 인스턴스로 UI가 잡은 쪽과 저장되는 쪽이 갈려
-    // 편집이 유실되고 reaction이 누수되던 경로 차단(SDStudio 4.13.5 8a3072c). transient
-    // retry는 공유 load 자체 정책, throwOnError만 각 호출자 opts로 적용.)
-  #loading: Map<string, Promise<T>> = new Map();
+  #lockChains: Map<string, Promise<void>> = new Map();
   constructor(resourceDir: string, interval: number) {
     super();
-    this.resources = {};
-    this.dirty = {};
-    this.disposes = {};
     this.resourceDir = resourceDir;
     this.resourceList = [];
     this.folderList = [];
@@ -73,15 +77,15 @@ export abstract class ResourceSyncService<
       // 또 writeFileKeepalive는 64KB 누적 cap이라 의미 있는 항목만 흘려야 cap 안 새어 나감.
       const flushOnHide = () => {
         if (document.visibilityState !== 'hidden') return;
-        for (const name of Object.keys(this.dirty)) {
-          if (!(name in this.resources)) continue;
-          const rc = this.resources[name];
-          if (!rc) continue;
+        for (const [name, entry] of this.entries) {
+          if (!entry.dirty || entry.state !== 'ready' || !entry.instance) continue;
           try {
-            backend.writeFileKeepalive(
+            void backend.writeFileKeepalive(
               this.getPath(name),
-              JSON.stringify(rc.toJSON()),
-            );
+              JSON.stringify(entry.instance.toJSON()),
+            ).catch((e) => {
+              console.warn('[ResourceSync] keepalive write failed:', name, e);
+            });
           } catch {
             // 개별 자원 toJSON 실패 — 무시 (다른 자원은 계속 flush)
           }
@@ -100,15 +104,19 @@ export abstract class ResourceSyncService<
   abstract migrate(rc: any): any | Promise<any>;
 
   async add(name: string) {
-    if (name in this.resources) {
+    if (this.hasResource(name)) {
       throw new Error('Resource already exists');
     }
-    // (동시 same-name add의 TOCTOU 재확인은 넣었다 되돌림 — 신규 생성이 그 throw로 실패했고,
-    //  UI가 이미 add 전 list().includes(name)로 중복을 막아 동시 same-name 생성이 사실상 불가.
-    //  동시 로드 중복 방지는 get()의 #loading dedup으로 커버.)
-    this.resources[name] = await this.createDefault(name);
-    await this.onAdded(name);
-    this.#markUpdated(name);
+    // 생성 시작과 동시에 busy placeholder를 잡아, 무거운 기본 프리셋 로드 중 get/add가
+    // 같은 이름으로 별도 인스턴스를 만들지 못하게 한다.
+    await this.withResourceMutation([name], async () => {
+      if (this.resourceList.includes(name) || this.isLoaded(name)) {
+        throw new Error('Resource already exists');
+      }
+      const created = await this.createDefault(name);
+      await this.attach(name, created);
+      this.markDirty(name);
+    });
     await this.update();
   }
 
@@ -120,12 +128,11 @@ export abstract class ResourceSyncService<
   // 핸들만 옮기면 reaction은 여전히 oldName으로 #markUpdated → dirty[oldName](영속 skip)
   // → rename한 세션 동안 그 프로젝트 편집이 디스크에 안 닿고 새로고침 시 손실. 등록을
   // 헬퍼로 분리해 rename에서 새 name으로 재등록한다. (reaction은 생성 시 즉시 fire 안 함)
-  #registerReaction(name: string) {
-    const resource = this.resources[name];
-    this.disposes[name] = reaction(
+  #watch(name: string, resource: T): () => void {
+    return reaction(
       () => resource.toJSON(),
       () => {
-        this.#markUpdated(name);
+        this.markDirty(name);
       },
       {
         delay: this.updateInterval,
@@ -133,32 +140,227 @@ export abstract class ResourceSyncService<
     );
   }
 
-  async onAdded(name: string) {
-    this.#registerReaction(name);
-    await this.getHook(this.resources[name], name);
+  private async attach(name: string, instance: T) {
+    let entry = this.entries.get(name);
+    if (!entry) {
+      entry = { state: 'ready', dirty: false, seq: 0 };
+      this.entries.set(name, entry);
+    }
+    entry.instance = instance;
+    if (entry.state !== 'busy') entry.state = 'ready';
+    entry.dispose?.();
+    entry.dispose = this.#watch(name, instance);
+    await this.getHook(instance, name);
+  }
+
+  markDirty(name: string) {
+    const entry = this.entries.get(name);
+    if (!entry?.instance) return;
+    entry.dirty = true;
+    entry.seq++;
+    this.dispatchEvent(
+      new CustomEvent<{ name: string }>('updated', { detail: { name } }),
+    );
+  }
+
+  getLoaded(name: string): T | undefined {
+    return this.entries.get(name)?.instance;
+  }
+
+  isLoaded(name: string): boolean {
+    return !!this.getLoaded(name);
+  }
+
+  hasResource(name: string): boolean {
+    return this.entries.has(name) || this.resourceList.includes(name);
+  }
+
+  loadedNames(): string[] {
+    return [...this.entries.entries()]
+      .filter(([, entry]) => !!entry.instance)
+      .map(([name]) => name);
+  }
+
+  // 장시간 서버 작업도 같은 잠금을 유지할 수 있도록 명시적 release lease를 반환한다.
+  // 로딩 완료를 기다린 뒤 busy로 전환하고, 경로별 텍스트 저장 큐까지 소진한다.
+  protected async beginResourceMutation(
+    names: string[],
+    persistCurrent = true,
+  ): Promise<() => void> {
+    const uniqueNames = Array.from(new Set(names)).sort();
+    const previous = uniqueNames
+      .map((name) => this.#lockChains.get(name))
+      .filter(Boolean) as Promise<void>[];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    for (const name of uniqueNames) this.#lockChains.set(name, gate);
+
+    try {
+      await Promise.all(previous);
+      for (const name of uniqueNames) {
+        const loading = this.entries.get(name)?.load;
+        if (loading) await loading.catch(() => {});
+      }
+
+      // 서버가 JSON을 직접 읽거나 경로를 바꾸기 전에, reaction debounce가 아직 dirty를
+      // 세우지 못한 최신 in-memory 스냅숏까지 현재 경로에 먼저 굳힌다. import-scenes가
+      // 오래된 디스크 JSON을 기반으로 적용해 직전 편집을 잃는 창을 이 지점에서 닫는다.
+      if (persistCurrent) {
+        await this.persistStableResourceSnapshots(uniqueNames);
+      }
+    } catch (error) {
+      release();
+      for (const name of uniqueNames) {
+        if (this.#lockChains.get(name) === gate) this.#lockChains.delete(name);
+      }
+      throw error;
+    }
+
+    const placeholders = new Set<string>();
+    try {
+      for (const name of uniqueNames) {
+        let entry = this.entries.get(name);
+        if (!entry) {
+          entry = { state: 'busy', dirty: false, seq: 0 };
+          this.entries.set(name, entry);
+          placeholders.add(name);
+        } else {
+          entry.state = 'busy';
+        }
+      }
+      await Promise.all(uniqueNames.map((name) => backend.flushFileWrites(this.getPath(name))));
+    } catch (error) {
+      for (const name of uniqueNames) {
+        const entry = this.entries.get(name);
+        if (!entry) continue;
+        if (!entry.instance && placeholders.has(name)) this.entries.delete(name);
+        else entry.state = 'ready';
+      }
+      release();
+      for (const name of uniqueNames) {
+        if (this.#lockChains.get(name) === gate) this.#lockChains.delete(name);
+      }
+      throw error;
+    }
+
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const name of uniqueNames) {
+        const entry = this.entries.get(name);
+        if (!entry) continue;
+        if (!entry.instance && placeholders.has(name)) this.entries.delete(name);
+        else entry.state = 'ready';
+      }
+      release();
+      for (const name of uniqueNames) {
+        if (this.#lockChains.get(name) === gate) this.#lockChains.delete(name);
+      }
+    };
+  }
+
+  protected async withResourceMutation<R>(names: string[], fn: () => Promise<R>): Promise<R> {
+    const release = await this.beginResourceMutation(names);
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  protected detachResource(name: string) {
+    this.entries.get(name)?.dispose?.();
+    this.entries.delete(name);
+  }
+
+  // I/O await 중 사용자가 다시 편집할 수 있다. 쓰기 전후 직렬화가 같아질 때까지 반복해
+  // 서버 직접 mutation이 반드시 마지막 안정 스냅숏을 입력으로 보게 한다. 마지막 비교와
+  // busy 전환 사이에는 await가 없어 UI 이벤트가 끼어들 수 없다.
+  private async persistStableResourceSnapshots(names: string[]): Promise<void> {
+    while (true) {
+      const snapshots = new Map<string, {
+        entry: ResourceEntry<T>;
+        instance: T;
+        payload: string;
+      }>();
+      for (const name of names) {
+        const entry = this.entries.get(name);
+        const instance = entry?.instance;
+        if (!entry || !instance || entry.state !== 'ready') continue;
+        try {
+          snapshots.set(name, {
+            entry,
+            instance,
+            payload: JSON.stringify(instance.toJSON()),
+          });
+        } catch (error) {
+          console.error('[ResourceSync] serialize failed:', name, error);
+          throw error;
+        }
+      }
+      await Promise.all([...snapshots.entries()].map(([name, snapshot]) =>
+        backend.writeFile(this.getPath(name), snapshot.payload)));
+
+      let changed = false;
+      for (const [name, snapshot] of snapshots) {
+        const current = this.entries.get(name);
+        if (current !== snapshot.entry || current.instance !== snapshot.instance || current.state !== 'ready') {
+          throw new Error(`Resource changed while persisting: ${name}`);
+        }
+        let after: string;
+        try {
+          after = JSON.stringify(snapshot.instance.toJSON());
+        } catch (error) {
+          console.error('[ResourceSync] serialize failed:', name, error);
+          throw error;
+        }
+        if (snapshot.payload !== after) changed = true;
+      }
+      if (changed) continue;
+      for (const snapshot of snapshots.values()) snapshot.entry.dirty = false;
+      return;
+    }
+  }
+
+  protected async refreshAfterCommittedMutation(context: string): Promise<void> {
+    await this.update().catch((error) => {
+      // 디스크 mutation은 이미 성공했다. refresh 실패를 호출자에게 다시 던지면 같은
+      // rename/delete/import를 재시도하게 되므로 캐시 상태는 다음 주기 update에 맡긴다.
+      console.warn(`[ResourceSync] ${context} refresh deferred:`, error);
+    });
   }
 
   // 외부 도구가 디스크의 resource를 직접 바꾼 뒤 다음 get()에서 새로 읽게 하는 공식 경로.
   // resources만 delete하면 reaction이 옛 객체를 영구 참조하고, 새 load가 disposer slot을
   // 덮어 old disposer handle까지 잃는다. 진행 중 load도 끝까지 기다린 뒤 함께 정리한다.
   async invalidate(name: string): Promise<void> {
-    const loading = this.#loading.get(name);
-    if (loading) {
+    await this.withResourceMutation([name], async () => {
+      this.detachResource(name);
+    });
+  }
+
+  // 서버가 프로젝트 JSON을 직접 바꾸는 import/restore 경로용 공식 진입점.
+  async mutateExternally<R>(names: string[], fn: () => Promise<R>): Promise<R> {
+    return await this.withResourceMutation(names, async () => {
+      let result: R;
       try {
-        await loading;
-      } catch {
-        // 실패한 load도 finally에서 #loading이 정리된다. 아래 cache cleanup은 동일하게 수행.
+        result = await fn();
+      } catch (error) {
+        // 응답 유실은 서버 미실행과 서버 커밋 후 연결 단절을 구분할 수 없다. 옛 인스턴스를
+        // 살려 두면 후자의 경우 다음 autosave가 서버 변경을 되돌리므로 항상 캐시를 폐기한다.
+        for (const name of names) this.detachResource(name);
+        await this.refreshAfterCommittedMutation('uncertain external mutation');
+        throw error;
       }
-      // get()의 finally microtask보다 먼저 resume되면 resolved old promise가 잠깐 Map에 남아
-      // 즉시 뒤따르는 get()이 그것을 재사용할 수 있다. 같은 promise일 때만 명시 제거.
-      if (this.#loading.get(name) === loading) this.#loading.delete(name);
-    }
-    if (this.disposes[name]) {
-      this.disposes[name]();
-      delete this.disposes[name];
-    }
-    delete this.resources[name];
-    delete this.dirty[name];
+      for (const name of names) this.detachResource(name);
+      // 서버 변경은 이미 커밋됐다. 후속 목록 갱신 실패를 작업 자체 실패로 보고하면 사용자가
+      // 재시도해 import/restore를 중복 적용할 수 있으므로, 캐시는 비운 채 주기 update에 맡긴다.
+      await this.update().catch((e) => {
+        console.warn('[ResourceSync] external mutation refresh deferred:', e);
+      });
+      return result;
+    });
   }
 
   getPath(name: string) {
@@ -178,48 +380,51 @@ export abstract class ResourceSyncService<
   }
 
   async delete(name: string) {
-    if (name in this.resources) {
-      delete this.resources[name];
-      this.disposes[name]();
-      await backend.renameFile(this.getPath(name), this.getDeletedPath(name));
-      await this.update();
-    }
+    if (!this.isLoaded(name)) return;
+    const srcPath = this.getPath(name);
+    const deletedPath = srcPath.replace(/\.json$/, '.deleted');
+    await this.withResourceMutation([name], async () => {
+      // 파일 이동이 실패하면 메모리·reaction·dirty를 그대로 보존한다.
+      await backend.renameFile(srcPath, deletedPath);
+      this.detachResource(name);
+      await this.refreshAfterCommittedMutation('delete');
+    });
   }
 
   async rename(oldName: string, newName: string) {
-    if (!(oldName in this.resources)) throw new Error('Resource not found');
-    if (newName in this.resources) throw new Error('Resource already exists');
+    const entry = this.entries.get(oldName);
+    if (!entry?.instance) throw new Error('Resource not found');
+    if (this.hasResource(newName)) throw new Error('Resource already exists');
     // srcPath는 folderMap 갱신 *전*에 캡처 — getPath가 oldName의 폴더값을 봐서
     // 폴더 안 path를 만들어야 backend.renameFile src가 올바름.
     const srcPath = this.getPath(oldName);
-    this.resources[newName] = this.resources[oldName];
-    delete this.resources[oldName];
-    // audit M3 — 헌 reaction(closure=oldName) dispose 후 newName으로 재등록. 같은
-    // 객체(resources[newName])를 추적하되 편집 시 #markUpdated(newName)을 fire해서
-    // dirty[newName]→getPath(newName)로 정상 영속. dispose 핸들만 옮기던 옛 코드는
-    // stale name이라 영속 3경로(update/flushOnHide/saveAll dirty) 다 skip됐음.
-    if (this.disposes[oldName]) {
-      this.disposes[oldName]();
-      delete this.disposes[oldName];
-    }
-    this.#registerReaction(newName);
-    if (oldName in this.dirty) {
-      this.dirty[newName] = this.dirty[oldName];
-      delete this.dirty[oldName];
-    }
-    // 폴더 정보 이전 — 누락 시 폴더 안 프로젝트가 rename 후 루트로 튀어나감.
-    if (oldName in this.folderMap) {
-      this.folderMap[newName] = this.folderMap[oldName];
+    const oldFolder = this.folderMap[oldName] ?? null;
+    const destPath = oldFolder
+      ? this.resourceDir + '/' + oldFolder + '/' + newName + '.json'
+      : this.resourceDir + '/' + newName + '.json';
+    await this.withResourceMutation([oldName, newName], async () => {
+      if (this.entries.get(oldName) !== entry || !entry.instance) {
+        throw new Error('Resource changed while waiting for rename');
+      }
+      if (this.resourceList.includes(newName)) {
+        throw new Error('Resource already exists');
+      }
+      // 파일 이동이 성공한 뒤에만 메모리 이름과 메타를 바꾼다.
+      await backend.renameFile(srcPath, destPath);
+      this.entries.delete(oldName);
+      this.entries.set(newName, entry);
+      entry.dispose?.();
+      entry.dispose = this.#watch(newName, entry.instance!);
+      this.folderMap[newName] = oldFolder;
       delete this.folderMap[oldName];
-    }
-    await backend.renameFile(srcPath, this.getPath(newName));
-    await this.update();
+      await this.refreshAfterCommittedMutation('rename');
+    });
   }
 
   getFast(name: string) {
-    const rc = this.resources[name];
+    const rc = this.getLoaded(name);
     if (!rc) {
-      this.get(name);
+      void this.get(name);
     }
     return rc;
   }
@@ -228,16 +433,23 @@ export abstract class ResourceSyncService<
     name: string,
     opts?: { throwOnError?: boolean },
   ): Promise<T | undefined> {
-    if (name in this.resources) return this.resources[name];
+    const existing = this.entries.get(name);
+    if (existing?.instance) return existing.instance;
+    // 경로 변경/삭제 중인 미로드 이름은 작업이 끝날 때까지 새 load를 만들지 않는다.
+    if (existing?.state === 'busy') return undefined;
     // 동시 로드 디듀프: 같은 name 로드가 진행 중이면 그 프로미스를 공유해 인스턴스 하나만
     // 만든다. throwOnError는 공유 프로미스가 아니라 각 호출자가 자기 opts로 적용.
-    let p = this.#loading.get(name);
+    let p = existing?.load;
     if (!p) {
       // read는 idempotent이고 transient 오류만 재시도한다. 첫 호출자의 옵션에 retry를
       // 맡기면 뒤에 합류한 사용자 선택 get이 호출 순서에 따라 재시도를 잃으므로 항상 적용.
       p = this.#doLoad(name);
-      this.#loading.set(name, p);
-      p.catch(() => {}).finally(() => this.#loading.delete(name));
+      this.entries.set(name, {
+        state: 'loading',
+        load: p,
+        dirty: false,
+        seq: 0,
+      });
     }
     try {
       return await p;
@@ -245,6 +457,12 @@ export abstract class ResourceSyncService<
       console.error('get library error:', e);
       if (opts?.throwOnError) throw e;
       return undefined;
+    } finally {
+      const current = this.entries.get(name);
+      if (current?.load === p) {
+        current.load = undefined;
+        if (!current.instance && current.state === 'loading') this.entries.delete(name);
+      }
     }
   }
 
@@ -257,13 +475,15 @@ export abstract class ResourceSyncService<
     obj = await this.fillEmptyPresetVars(obj);
     // TOCTOU: await 사이에 다른 경로(add/rename 등)가 이미 등록했으면 그것을 사용해
     // 중복 인스턴스를 막는다.
-    if (name in this.resources) return this.resources[name];
-    this.resources[name] = this.dummy.fromJSON(obj);
-    await this.onAdded(name);
+    const current = this.entries.get(name);
+    if (current?.instance) return current.instance;
+    if (current?.state === 'busy') throw new Error('Resource is busy');
+    const instance = this.dummy.fromJSON(obj);
+    await this.attach(name, instance);
     this.dispatchEvent(
       new CustomEvent<{ name: string }>('fetched', { detail: { name } }),
     );
-    return this.resources[name];
+    return instance;
   }
 
   private async readFileWithRetry(name: string): Promise<string> {
@@ -282,51 +502,33 @@ export abstract class ResourceSyncService<
   }
 
   async update() {
-    // Models M: dirty entry는 write 성공한 것만 clear. 옛 코드는 마지막에 `this.dirty = {}`로
-    // 전체 wipe — write 실패한 entry도 같이 잃어버려 다음 update까지 누락. edge-case data loss.
-    const names = Object.keys(this.dirty);
-    const writes = names.map((name) => {
-      if (!(name in this.resources)) {
-        delete this.dirty[name];
-        return null;
-      }
-      const l = this.getFast(name);
-      if (!l) {
-        delete this.dirty[name];
-        return null;
-      }
-      return backend
-        .writeFile(this.getPath(name), JSON.stringify(l.toJSON()))
-        .then(() => {
-          delete this.dirty[name];
-        })
-        .catch((e) => {
-          // dirty 유지 — 다음 update에서 재시도. log만.
-          console.warn('[ResourceSync] write failed, retain dirty:', name, e);
-        });
-    }).filter(Boolean);
-    await Promise.allSettled(writes);
+    await this.flushDirty();
     this.resourceList = await this.getList();
     this.saveCache();
     this.dispatchEvent(new CustomEvent('listupdated', {}));
   }
 
   async saveAll() {
-    const writes = Object.keys(this.resources).map((name) => {
-      const l = this.resources[name];
-      return backend.writeFile(this.getPath(name), JSON.stringify(l.toJSON()));
-    });
-    await Promise.allSettled(writes);
+    const names = [...this.entries.entries()]
+      .filter(([, entry]) => entry.state === 'ready' && !!entry.instance)
+      .map(([name]) => name);
+    // 명시적 전체 flush(백업 복원 전)는 하나라도 실패하면 호출자가 복원을 중단해야 한다.
+    // 주기 저장의 best-effort/allSettled 정책은 flushDirty()에만 둔다.
+    await Promise.all(names.map((name) => this.writeResource(name)));
   }
 
   async createFrom(name: string, value: any) {
-    if (name in this.resources) {
+    if (this.hasResource(name)) {
       throw new Error('Resource already exists');
     }
-    value = await this.migrate(value);
-    this.resources[name] = this.dummy.fromJSON(value);
-    await this.onAdded(name);
-    this.#markUpdated(name);
+    await this.withResourceMutation([name], async () => {
+      if (this.resourceList.includes(name) || this.isLoaded(name)) {
+        throw new Error('Resource already exists');
+      }
+      value = await this.migrate(value);
+      await this.attach(name, this.dummy.fromJSON(value));
+      this.markDirty(name);
+    });
     await this.update();
   }
 
@@ -344,11 +546,43 @@ export abstract class ResourceSyncService<
     }
   }
 
-  #markUpdated(name: string) {
-    this.dirty[name] = true;
-    this.dispatchEvent(
-      new CustomEvent<{ name: string }>('updated', { detail: { name } }),
+  private async writeResource(name: string): Promise<'done' | 'retry'> {
+    const entry = this.entries.get(name);
+    const instance = entry?.instance;
+    if (!entry || !instance) return 'done';
+    if (entry.state !== 'ready') return 'retry';
+    let payload: string;
+    try {
+      payload = JSON.stringify(instance.toJSON());
+    } catch (e) {
+      console.error('[ResourceSync] serialize failed:', name, e);
+      throw e;
+    }
+    // 직렬화 뒤 경로 작업이 시작됐을 수 있으므로 큐 등록 직전에 다시 확인한다.
+    const current = this.entries.get(name);
+    if (current !== entry || current.instance !== instance) return 'done';
+    if (current.state !== 'ready') return 'retry';
+    await backend.writeFile(this.getPath(name), payload);
+    return 'done';
+  }
+
+  private async flushDirty(): Promise<void> {
+    const targets = [...this.entries.entries()]
+      .filter(([, entry]) => entry.dirty && entry.state === 'ready' && !!entry.instance)
+      .map(([name, entry]) => ({ name, seq: entry.seq }));
+    const results = await Promise.allSettled(
+      targets.map(({ name }) => this.writeResource(name)),
     );
+    targets.forEach((target, index) => {
+      const result = results[index];
+      if (result.status === 'rejected') {
+        console.warn('[ResourceSync] write failed, retain dirty:', target.name, result.reason);
+        return;
+      }
+      if (result.value === 'retry') return;
+      const entry = this.entries.get(target.name);
+      if (entry && entry.seq === target.seq) entry.dirty = false;
+    });
   }
 
   private async getList() {

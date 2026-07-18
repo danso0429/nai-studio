@@ -761,6 +761,17 @@ export class ImageService extends EventTarget {
     session.scenes.get(scene)?.imageMap.push(path.split('/').pop()!);
     this.prefetchCompletedImage(path);
     this.dispatchEvent(
+      new CustomEvent('image-added', {
+        detail: {
+          session,
+          sceneType: 'scene',
+          sceneName: scene,
+          filename: path.split('/').pop()!,
+          path,
+        },
+      }),
+    );
+    this.dispatchEvent(
       new CustomEvent('updated', {
         detail: { batch: false, session, scene: session.scenes.get(scene) },
       }),
@@ -793,6 +804,17 @@ export class ImageService extends EventTarget {
     ].concat([path.split('/').pop()!]);
     session.inpaints.get(scene)?.imageMap.push(path.split('/').pop()!);
     this.prefetchCompletedImage(path);
+    this.dispatchEvent(
+      new CustomEvent('image-added', {
+        detail: {
+          session,
+          sceneType: 'inpaint',
+          sceneName: scene,
+          filename: path.split('/').pop()!,
+          path,
+        },
+      }),
+    );
     this.dispatchEvent(
       new CustomEvent('updated', {
         detail: { batch: false, session, scene: session.inpaints.get(scene) },

@@ -1,6 +1,6 @@
 import { observer } from 'mobx-react-lite';
-import { Item, Menu } from 'react-contexify';
-import { sessionService, backend, imageService, isMobile, imageDownloadService } from '../models';
+import { Item, Menu, Separator } from 'react-contexify';
+import { sessionService, backend, imageService, isMobile, imageDownloadService, imageHistoryService } from '../models';
 import { appState } from '../models/AppService';
 import { dataUriToBase64, deleteImageFiles } from '../models/ImageService';
 import { getUniqueFilename } from '../models/ImageDownloadService';
@@ -10,6 +10,9 @@ import {
   ContextMenuType,
   genericSceneFromJSON,
   GallaryImageContextAlt,
+  HistoryImageContextAlt,
+  GenericScene,
+  Session,
 } from '../models/types';
 import { oneTimeFlowMap, oneTimeFlows } from '../models/workflows/OneTimeFlows';
 import { extractPromptDataFromBase64 } from '../models/util';
@@ -315,6 +318,49 @@ export const AppContextMenu = observer(() => {
   const editStyle = async (ctx: StyleContextAlt) => {
     sessionService.styleEdit(ctx.preset, ctx.container);
   };
+  const historyDownloadImage = async (ctx: HistoryImageContextAlt) => {
+    const resolved = await imageHistoryService.resolve(ctx.entry);
+    if (!resolved) return;
+    const session = resolved.session as Session;
+    const scene = resolved.scene as GenericScene;
+    const characterPreset = session === appState.curSession
+      ? appState.getAppliedCharacterPreset()
+      : undefined;
+    await imageDownloadService.downloadSingleImage(
+      session,
+      scene,
+      ctx.entry.path,
+      characterPreset,
+    );
+  };
+  const historyDeleteImage = async (ctx: HistoryImageContextAlt) => {
+    const resolved = await imageHistoryService.resolve(ctx.entry);
+    if (!resolved) return;
+    const session = resolved.session as Session;
+    const scene = resolved.scene as GenericScene;
+    appState.pushDialog({
+      type: 'confirm',
+      text: '정말로 삭제하시겠습니까?',
+      callback: async () => {
+        await deleteImageFiles(session, [ctx.entry.path], scene);
+        imageHistoryService.remove(ctx.entry.id);
+      },
+    });
+  };
+  const handleHistoryItemClick = ({ id, props }: any) => {
+    const ctx = props.ctx as HistoryImageContextAlt;
+    if (id === 'goto-scene') {
+      void imageHistoryService.navigateTo(ctx.entry, { openGrid: false });
+    } else if (id === 'open-grid') {
+      void imageHistoryService.navigateTo(ctx.entry, { openGrid: true });
+    } else if (id === 'fav') {
+      void imageHistoryService.toggleFavorite(ctx.entry);
+    } else if (id === 'download') {
+      void historyDownloadImage(ctx);
+    } else if (id === 'delete') {
+      void historyDeleteImage(ctx);
+    }
+  };
   const handleStyleItemClick = ({ id, props }: any) => {
     if (id === 'export') {
       exportStyle(props.ctx as StyleContextAlt);
@@ -389,6 +435,24 @@ export const AppContextMenu = observer(() => {
             클립보드로 이미지 복사
           </Item>
         )}
+      </Menu>
+      <Menu id={ContextMenuType.HistoryImage}>
+        <Item id="goto-scene" onClick={handleHistoryItemClick}>
+          해당 씬으로 이동
+        </Item>
+        <Item id="open-grid" onClick={handleHistoryItemClick}>
+          이미지 그리드에서 보기
+        </Item>
+        <Item id="fav" onClick={handleHistoryItemClick}>
+          즐겨찾기 토글
+        </Item>
+        <Item id="download" onClick={handleHistoryItemClick}>
+          이미지 다운로드
+        </Item>
+        <Separator />
+        <Item id="delete" onClick={handleHistoryItemClick}>
+          해당 이미지 삭제
+        </Item>
       </Menu>
       <Menu id={ContextMenuType.Style}>
         <Item id="export" onClick={handleStyleItemClick}>

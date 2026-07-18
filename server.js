@@ -182,6 +182,10 @@ try {
 // 서버측 캐릭터 레퍼런스 재인코딩 (클라 canvas reencode의 sharp 등가물).
 // batch-enqueue(foreground-free 등록)에서 ref를 path로 처리할 때 사용.
 const { reencodeReferenceForApi } = require('./lib/ref-reencode');
+const {
+  assertDeletableDataDirPath,
+  assertDeletableProjectName,
+} = require('./lib/data-path-guard');
 
 // ─── PNG chunk-level helpers (NAI metadata 보존용) ──────────────────
 // sharp의 .flop()이나 다른 변형 후 png().toBuffer()를 그대로 쓰면 PNG의 tEXt/iTXt/zTXt
@@ -539,7 +543,11 @@ const COMPLETED_RETENTION_MS = 4 * 60 * 60 * 1000; // 4시간
 
 function pruneCompletedJobs() {
   const now = Date.now();
-  completedJobs = completedJobs.filter((e) => now - e.completedAt < COMPLETED_RETENTION_MS);
+  if (!Array.isArray(completedJobs)) completedJobs = [];
+  completedJobs = completedJobs.filter((e) =>
+    e && Number.isFinite(e.completedAt) &&
+    now - e.completedAt >= 0 &&
+    now - e.completedAt < COMPLETED_RETENTION_MS);
 }
 const COMPLETED_JOBS_FILE = path.join(DATA_DIR, '.queue_completed.json');
 function _writeCompletedJobsSync() {
@@ -553,7 +561,13 @@ function flushCompletedJobs() { _completedSaver.flush(); }
 function loadCompletedJobs() {
   try {
     const raw = fss.readFileSync(COMPLETED_JOBS_FILE, 'utf8');
-    completedJobs = JSON.parse(raw) || [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error('completed jobs state is not an array');
+    completedJobs = parsed;
+    pruneCompletedJobs();
+    if (completedJobs.length > COMPLETED_JOBS_MAX) {
+      completedJobs = completedJobs.slice(-COMPLETED_JOBS_MAX);
+    }
     if (completedJobs.length > 0) {
       console.log('[NAI Studio] Loaded ' + completedJobs.length + ' completed jobs');
     }
@@ -2454,7 +2468,8 @@ app.get('/api/queue/status', async (req, res) => {
 
 // 페이지 로드/새로고침 시 클라가 큐 상태 복원용. params는 무거우니 메타데이터만.
 // queue.html 폴더 트리용으로 project→folder 매핑(folders)도 함께 반환. projects/
-// 디렉토리 ~12 entries라 walkDir(depth=1) 부담 작음. 캐시 안 하고 매번 새로 빌드.
+// projects 디렉토리는 사용자 데이터라 항목 수가 가변적이다. depth=1 walk 결과를
+// 캐시하지 않고 매번 새로 빌드해 현재 folder mapping을 반환한다.
 app.get('/api/queue/full-state', async (req, res) => {
   let folders = {};
   try {
@@ -2537,7 +2552,11 @@ app.post('/api/queue/prioritize', async (req, res) => {
 // 둘 다 합쳐서 반환. 4시간 이내, 최근부터. dedupe = outputFilePath 기준 (메모리 우선).
 app.get('/api/queue/completed', async (req, res) => {
   pruneCompletedJobs();
-  const limit = Math.min(parseInt(req.query.limit) || COMPLETED_JOBS_MAX, COMPLETED_JOBS_MAX);
+  const requestedLimit = parseInt(req.query.limit, 10);
+  const limit = Math.max(
+    1,
+    Math.min(Number.isFinite(requestedLimit) ? requestedLimit : COMPLETED_JOBS_MAX, COMPLETED_JOBS_MAX),
+  );
   const sinceMs = Date.now() - COMPLETED_RETENTION_MS;
 
   const memEntries = completedJobs.slice().reverse();
@@ -3161,9 +3180,13 @@ app.post('/api/fs/delete', async (req, res) => {
 
 app.post('/api/fs/delete-dir', async (req, res) => {
   try {
-    await fs.rm(resolvePath(req.body.path), { recursive: true, force: true });
+    const requestedPath = req.body.path;
+    assertDeletableDataDirPath(requestedPath);
+    await fs.rm(resolvePath(requestedPath), { recursive: true, force: true });
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    res.status(e.code === 'DATA_PATH_GUARD' ? 400 : 500).json({ error: e.message });
+  }
 });
 
 // ─── API: Batch operations ───────────────────────────────────────
@@ -3271,7 +3294,7 @@ const RCLONE_TRASH_BYPASS = '--drive-use-trash=false';
 const PROJECT_SUB_DIRS = ['outs', 'inpaints', 'vibes', 'inpaint_masks', 'inpaint_orgs', 'references'];
 
 function sanitizeProjectName(name) {
-  if (typeof name !== 'string' || !name) return null;
+  if (typeof name !== 'string' || !name.trim()) return null;
   if (name.includes('/') || name.includes('\\')) return null;
   if (name === '.' || name === '..') return null;
   if (name.startsWith('.')) return null;
@@ -3406,6 +3429,9 @@ function deriveProjectPrefixFromExport(filename) {
 }
 
 async function permanentlyDeleteProjectFiles(name) {
+  // 폴더 일괄 삭제처럼 내부 호출되는 경로도 HTTP 진입점의 sanitize에 기대지 않는다.
+  // 빈 이름이면 PROJECT_SUB_DIRS/<name>이 데이터 루트 자체가 된다.
+  assertDeletableProjectName(name);
   const deleted = { local: [], drive: [] };
   const errors = [];
 

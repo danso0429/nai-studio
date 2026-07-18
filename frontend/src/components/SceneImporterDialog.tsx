@@ -161,36 +161,47 @@ const SceneImporterDialog = observer(() => {
       { sticky: true },
     );
     try {
-      const r = await fetch(apiUrl('/api/projects/import-scenes'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+      const d = await sessionService.mutateExternally([targetProject], async () => {
+        const r = await fetch(apiUrl('/api/projects/import-scenes'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const response = await r.json();
+        if (!r.ok || !response.ok) {
+          throw new Error(response.error || `씬 임포트 실패 (HTTP ${r.status})`);
+        }
+        return response;
       });
-      const d = await r.json();
       appState.dismissMessage(toastId);
-      if (!d.ok) {
-        appState.pushMessage(
-          '✗ 씬 임포트 실패: ' + (d.error || '알 수 없는 오류'),
-        );
-        return;
-      }
       const appliedCount = d.plan?.applied?.length ?? 0;
       const skippedCount = d.plan?.skipped?.length ?? 0;
       appState.pushMessage(
         `✓ 씬 임포트 완료 — 적용 ${appliedCount}개 / 건너뜀 ${skippedCount}개 (백업: ${d.backup})`,
       );
-      // 현재 세션과 같은 프로젝트면 메모리 캐시 invalidate 후 재로딩
+      // mutateExternally가 서버 직접 변경 전 저장 큐를 비우고 캐시를 무효화했다.
+      // 현재 세션이면 새 인스턴스를 다시 연결한다.
       if (appState.curSession?.name === targetProject) {
-        await sessionService.invalidate(targetProject);
         const fresh = await sessionService.get(targetProject);
         if (fresh) appState.curSession = fresh;
-      } else {
-        // 다른 프로젝트 캐시만 invalidate (다음 열 때 fresh)
-        await sessionService.invalidate(targetProject);
+        else {
+          appState.curSession = undefined;
+          appState.pushMessage('프로젝트를 다시 읽지 못해 선택 화면으로 돌아갑니다');
+        }
       }
     } catch (e: any) {
       appState.dismissMessage(toastId);
       appState.pushMessage('✗ 씬 임포트 실패: ' + extractApiError(e));
+      // 요청 응답이 유실됐다면 서버 적용 여부를 알 수 없다. mutateExternally가 옛 캐시를
+      // 폐기했으므로 현재 화면도 디스크 정본을 다시 연결해 후속 편집이 유실되지 않게 한다.
+      if (appState.curSession?.name === targetProject) {
+        const fresh = await sessionService.get(targetProject);
+        if (fresh) appState.curSession = fresh;
+        else {
+          appState.curSession = undefined;
+          appState.pushMessage('프로젝트를 다시 읽지 못해 선택 화면으로 돌아갑니다');
+        }
+      }
     }
   };
 
