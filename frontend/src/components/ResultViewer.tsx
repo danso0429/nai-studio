@@ -42,7 +42,14 @@ import { FloatView } from './FloatView';
 import BatchItemSelector, { BatchAction } from './BatchItemSelector';
 import { useLongPress } from './useLongPress';
 import memoizeOne from 'memoize-one';
-import { FaPlus, FaRegSquareCheck, FaCopy, FaPaste } from 'react-icons/fa6';
+import {
+  FaPlus,
+  FaRegSquareCheck,
+  FaCopy,
+  FaPaste,
+  FaChevronLeft,
+  FaChevronRight,
+} from 'react-icons/fa6';
 import { useContextMenu } from 'react-contexify';
 import { useDrag, useDrop } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
@@ -76,6 +83,7 @@ import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { DownloadDialog } from './DownloadDialog';
 import { Session, GenericScene as GenericSceneType } from '../models/types';
+import { horizontalSwipeDirection } from '../models/swipeNavigation';
 
 // ===== TrashImageView 컴포넌트 =====
 
@@ -829,6 +837,7 @@ const ResultDetailView = observer(
     const filenameRef = useRef<string>(filename);
     const [image, setImage] = useState<string | undefined>(undefined);
     const watchedImages = useRef(new Set<string>());
+    const touchStart = useRef<{ x: number; y: number } | null>(null);
     const [middlePrompt, setMiddlePrompt] = useState<string>('');
     const [characterPrompts, setCharacterPrompts] = useState<CharacterPrompt[]>(
       [],
@@ -840,15 +849,19 @@ const ResultDetailView = observer(
     const [uc, setUc] = useState<string>('');
     const [_, forceUpdate] = useState<{}>({});
     useEffect(() => {
+      let canceled = false;
       const fetchImage = async () => {
+        const targetPath = paths[selectedIndex];
+        if (!targetPath) return;
+        setImage(undefined);
         try {
-          let base64Image = await imageService.fetchImage(
-            paths[selectedIndex],
-          )!;
+          let base64Image = await imageService.fetchImage(targetPath)!;
+          if (canceled) return;
           setImage(base64Image!);
           base64Image = dataUriToBase64(base64Image!);
           try {
             const job = await extractPromptDataFromBase64(base64Image);
+            if (canceled) return;
             if (job) {
               const { prompt, seed, promptGuidance, sampling, steps, uc } = job;
               setMiddlePrompt(prompt);
@@ -868,6 +881,7 @@ const ResultDetailView = observer(
               setUc('');
             }
           } catch (e: any) {
+            if (canceled) return;
             setMiddlePrompt('');
             setCharacterPrompts([]);
             setSeed('');
@@ -876,8 +890,9 @@ const ResultDetailView = observer(
             setSteps('');
             setUc('');
           }
-          setFilename(paths[selectedIndex].split('/').pop()!);
+          if (!canceled) setFilename(targetPath.split('/').pop()!);
         } catch (e: any) {
+          if (canceled) return;
           console.log(e);
           setImage(undefined);
           setMiddlePrompt('');
@@ -978,6 +993,7 @@ const ResultDetailView = observer(
       imageService.addEventListener('image-cache-invalidated', fetchImage);
       gameService.addEventListener('updated', refreshPaths);
       return () => {
+        canceled = true;
         window.removeEventListener('keydown', handleKeyDown);
         window.removeEventListener('shortcut-action', handleShortcut);
         sessionService.removeEventListener('main-image-updated', rerender);
@@ -1186,8 +1202,36 @@ const ResultDetailView = observer(
             </div>
           </div>
         </div>
-        <div className="flex-1 overflow-auto">
-          {image && (
+        <div
+          className="flex-1 overflow-auto"
+          onTouchStart={(event) => {
+            if (event.touches.length !== 1) {
+              touchStart.current = null;
+              return;
+            }
+            touchStart.current = {
+              x: event.touches[0].clientX,
+              y: event.touches[0].clientY,
+            };
+          }}
+          onTouchEnd={(event) => {
+            const start = touchStart.current;
+            touchStart.current = null;
+            if (!start || paths.length < 2 || event.changedTouches.length === 0) return;
+            const end = event.changedTouches[0];
+            const direction = horizontalSwipeDirection(
+              end.clientX - start.x,
+              end.clientY - start.y,
+            );
+            if (direction !== 0) {
+              setSelectedIndex((selectedIndex + direction + paths.length) % paths.length);
+            }
+          }}
+          onTouchCancel={() => {
+            touchStart.current = null;
+          }}
+        >
+          {image ? (
             <img
               src={image}
               draggable={false}
@@ -1208,6 +1252,10 @@ const ResultDetailView = observer(
               }}
               className="w-full h-full object-contain bg-checkboard"
             />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <div className="w-8 h-8 rounded-full border-2 line-color border-t-sky-500 animate-spin" />
+            </div>
           )}
           <div className="absolute bottom-0 md:bottom-auto right-0 md:top-10 flex gap-3 p-4 w-full md:w-auto">
             <button
@@ -1296,6 +1344,11 @@ interface ResultViewerProps {
   onSampleExtract?: (seeds: number[]) => void;
   onClose?: () => void;
   focusFilename?: string;
+  sceneNav?: {
+    hasPrev: boolean;
+    hasNext: boolean;
+    go: (delta: -1 | 1) => void;
+  };
 }
 
 const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
@@ -1310,6 +1363,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
       onSampleExtract,
       onClose,
       focusFilename,
+      sceneNav,
     }: ResultViewerProps,
     ref,
   ) => {
@@ -1617,6 +1671,11 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
           return;
         }
 
+        if (action === 'image-prev-scene' || action === 'image-next-scene') {
+          sceneNav?.go(action === 'image-prev-scene' ? -1 : 1);
+          return;
+        }
+
         // 이하 그리드 조작은 이미지/즐겨찾기 탭에서만 의미 있음
         if (selectedTab !== 0 && selectedTab !== 1) return;
 
@@ -1680,7 +1739,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
       };
       window.addEventListener('shortcut-action', onShortcut);
       return () => window.removeEventListener('shortcut-action', onShortcut);
-    }, [focusedImageIndex, activePaths, paths, scene, selectedTab, curSession]);
+    }, [focusedImageIndex, activePaths, paths, scene, selectedTab, curSession, sceneNav]);
 
     let emoji = '';
     let title = '';
@@ -1790,61 +1849,87 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
           </FloatView>
         )}
         <div className="flex-none p-2 md:p-4 border-b line-color">
-          <SceneTitleBar
-            scene={scene}
-            selectMode={selectMode}
-            emoji={emoji}
-            title={title}
-            onRename={() => {
-              appState.pushDialog({
-                type: 'input-confirm',
-                text: `씬 이름을 변경합니다 (현재: ${scene.name})`,
-                callback: async (newName) => {
-                  if (!newName) return;
-                  const trimmed = newName.trimEnd();
-                  if (!trimmed || trimmed === scene.name) return;
-                  // 중복 이름 — scenes/inpaints 는 Map 이므로 hasScene(type, name) 으로
-                  // 검사하고, 중복 시 병합/취소를 선택하게 한다.
-                  if (curSession!.hasScene(scene.type, trimmed)) {
-                    appState.pushDialog({
-                      type: 'confirm',
-                      green: false,
-                      text:
-                        `"${trimmed}" 씬이 이미 존재합니다.\n두 씬을 병합할까요?\n\n` +
-                        `• 이미지: 두 씬의 이미지가 "${trimmed}" 씬으로 합쳐집니다\n` +
-                        `• 프롬프트/설정: 기존 "${trimmed}" 씬의 것을 유지하고,\n  지금 씬의 프롬프트는 사라집니다\n\n` +
-                        `이 작업은 되돌릴 수 없습니다.`,
-                      callback: async () => {
-                        try {
-                          await mergeScene(
-                            curSession!,
-                            scene.name,
-                            trimmed,
-                            scene.type,
-                          );
-                          appState.pushMessage(`"${trimmed}" 씬으로 병합했습니다`);
-                          // 병합된(사라진) source 씬을 보던 결과 화면을 닫는다.
-                          if (onClose) onClose();
-                        } catch (e: any) {
-                          appState.pushMessage(
-                            '씬 병합 중 오류가 발생했습니다: ' + (e?.message ?? e),
-                          );
-                        }
-                      },
-                    });
-                    return;
-                  }
-                  try {
-                    await renameScene(curSession!, scene.name, trimmed, scene.type);
-                  } catch (e: any) {
-                    appState.pushMessage(
-                      '씬 이름 변경 실패: ' + (e?.message ?? e),
-                    );
-                  }
-                },
-              });
-            }}
-          />
+          <div className="flex items-start gap-2">
+            <div className="flex-1 min-w-0">
+              <SceneTitleBar
+                scene={scene}
+                selectMode={selectMode}
+                emoji={emoji}
+                title={title}
+                onRename={() => {
+                  appState.pushDialog({
+                    type: 'input-confirm',
+                    text: `씬 이름을 변경합니다 (현재: ${scene.name})`,
+                    callback: async (newName) => {
+                      if (!newName) return;
+                      const trimmed = newName.trimEnd();
+                      if (!trimmed || trimmed === scene.name) return;
+                      // 중복 이름 — scenes/inpaints 는 Map 이므로 hasScene(type, name) 으로
+                      // 검사하고, 중복 시 병합/취소를 선택하게 한다.
+                      if (curSession!.hasScene(scene.type, trimmed)) {
+                        appState.pushDialog({
+                          type: 'confirm',
+                          green: false,
+                          text:
+                            `"${trimmed}" 씬이 이미 존재합니다.\n두 씬을 병합할까요?\n\n` +
+                            `• 이미지: 두 씬의 이미지가 "${trimmed}" 씬으로 합쳐집니다\n` +
+                            `• 프롬프트/설정: 기존 "${trimmed}" 씬의 것을 유지하고,\n  지금 씬의 프롬프트는 사라집니다\n\n` +
+                            `이 작업은 되돌릴 수 없습니다.`,
+                          callback: async () => {
+                            try {
+                              await mergeScene(
+                                curSession!,
+                                scene.name,
+                                trimmed,
+                                scene.type,
+                              );
+                              appState.pushMessage(`"${trimmed}" 씬으로 병합했습니다`);
+                              // 병합된(사라진) source 씬을 보던 결과 화면을 닫는다.
+                              if (onClose) onClose();
+                            } catch (e: any) {
+                              appState.pushMessage(
+                                '씬 병합 중 오류가 발생했습니다: ' + (e?.message ?? e),
+                              );
+                            }
+                          },
+                        });
+                        return;
+                      }
+                      try {
+                        await renameScene(curSession!, scene.name, trimmed, scene.type);
+                      } catch (e: any) {
+                        appState.pushMessage(
+                          '씬 이름 변경 실패: ' + (e?.message ?? e),
+                        );
+                      }
+                    },
+                  });
+                }}
+              />
+            </div>
+            {sceneNav && (
+              <div className="flex-none flex items-center gap-1">
+                <Tooltip content="이전 씬 그리드 (Ctrl+←)">
+                  <button
+                    className="round-button back-gray disabled:opacity-40"
+                    disabled={!sceneNav.hasPrev}
+                    onClick={() => sceneNav.go(-1)}
+                  >
+                    <FaChevronLeft />
+                  </button>
+                </Tooltip>
+                <Tooltip content="다음 씬 그리드 (Ctrl+→)">
+                  <button
+                    className="round-button back-gray disabled:opacity-40"
+                    disabled={!sceneNav.hasNext}
+                    onClick={() => sceneNav.go(1)}
+                  >
+                    <FaChevronRight />
+                  </button>
+                </Tooltip>
+              </div>
+            )}
+          </div>
           <div className="md:flex justify-between items-center mt-2 md:mt-4">
             <div className="flex gap-2 md:gap-3 flex-wrap">
               <button

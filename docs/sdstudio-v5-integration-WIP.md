@@ -37,7 +37,9 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 
 - 범위: 결과 스와이프, safe-area, 자동완성 위치, 드로어 애니메이션, z-index/token, 공용 버튼, 진행 취소, 도움말, 모바일 툴바 복구.
 - 처리: 웹에 해당하는 효과는 `PORT`; Android back stack과 Electron file reveal은 `N/A` 또는 서버/브라우저 동등 기능이 있을 때만 `ADAPT`.
-- 상태: `PENDING`.
+- 상태: `IN_PROGRESS`.
+- 해소 기록:
+  - `09dc976`, `28111f4`, `a3696d6` 상세 이미지 스와이프·전환 로딩·이전/다음 씬 그리드 — `PORT` 완료. 수평 우세 50px 제스처만 이미지 전환으로 처리하고 fetch 취소 가드로 빠른 연속 전환의 stale 응답을 차단했다. 씬 이동은 현재 검색/필터 순서와 경계 버튼·Ctrl+방향키를 사용하며 씬별 remount로 상태 누수를 막았다. 검증: frontend tsc 0 error, `test/result-viewer-navigation.test.js` pass.
 
 ### V5-B — 프롬프트·Quick·히스토리·해상도·테마
 

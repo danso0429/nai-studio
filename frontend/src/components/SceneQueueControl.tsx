@@ -1456,9 +1456,23 @@ const QueueControl = observer(
 
     const resultViewerRef = useRef<any>(null);
     const resultViewer = useMemo(() => {
-      if (displayScene)
+      if (displayScene) {
+        const navigationScenes = getFilteredScenes();
+        const navigationIndex = navigationScenes.findIndex(
+          (scene) => scene.name === displayScene.name,
+        );
+        const goScene = (delta: -1 | 1) => {
+          const next = navigationIndex >= 0
+            ? navigationScenes[navigationIndex + delta]
+            : undefined;
+          if (!next) return;
+          gameService.refreshList(curSession!, displayScene);
+          setDisplayFocus(undefined);
+          setDisplayScene(next);
+        };
         return (
           <FloatView
+            key={`${type}:${displayScene.name}`}
             priority={2}
             showToolbar
             onEscape={() => {
@@ -1470,6 +1484,11 @@ const QueueControl = observer(
               ref={resultViewerRef}
               scene={displayScene}
               focusFilename={displayFocus}
+              sceneNav={{
+                hasPrev: navigationIndex > 0,
+                hasNext: navigationIndex >= 0 && navigationIndex < navigationScenes.length - 1,
+                go: goScene,
+              }}
               isMainImage={isMainImage}
               onFilenameChange={onFilenameChange}
               onEdit={onEdit}
@@ -1528,8 +1547,9 @@ const QueueControl = observer(
             />
           </FloatView>
         );
+      }
       return <></>;
-    }, [displayScene, displayFocus]);
+    }, [displayScene, displayFocus, getFilteredScenes]);
 
     const [batchPicker, setBatchPicker] = useState<BatchPickerItem | undefined>(
       undefined,
