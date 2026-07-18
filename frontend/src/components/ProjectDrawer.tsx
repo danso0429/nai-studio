@@ -213,6 +213,8 @@ const ProjectDrawer = observer(() => {
     name: string;
   } | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [nestTarget, setNestTarget] = useState<string | null>(null);
+  const dragStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const open = appState.projectDrawerOpen;
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
@@ -564,23 +566,73 @@ const ProjectDrawer = observer(() => {
     }
   };
 
-  // 폴더 헤더에 드롭: 폴더면 순서변경, 프로젝트면 폴더로 이동
-  const handleFolderDrop = (targetFolder: string) => {
+  // 폴더 헤더에 드롭: 같은 부모면 순서변경, 다른 부모면 target의 형제로 이동.
+  const handleFolderDrop = async (targetFolder: string) => {
     const d = drag;
     setDrag(null);
     setDropTarget(null);
+    setNestTarget(null);
     if (!d) return;
-    if (d.type === 'folder') reorderFolders(d.name, targetFolder);
-    else moveProjectTo(d.name, targetFolder);
+    if (d.type === 'project') {
+      await moveProjectTo(d.name, targetFolder);
+      return;
+    }
+    if (d.name === targetFolder || targetFolder.startsWith(d.name + '/')) return;
+    const sourceParent = parentOfFolder(d.name);
+    const targetParent = parentOfFolder(targetFolder);
+    if (sourceParent === targetParent) {
+      reorderFolders(d.name, targetFolder);
+      return;
+    }
+    const newPath = targetParent ? `${targetParent}/${leafOfFolder(d.name)}` : leafOfFolder(d.name);
+    try {
+      await sessionService.moveFolder(d.name, targetParent);
+      reorderFolders(newPath, targetFolder);
+    } catch (e: any) {
+      appState.pushMessage(e?.message || '폴더 이동에 실패했습니다.');
+    }
   };
 
-  // 미분류 헤더에 드롭: 프로젝트만 (폴더에서 빼내기)
-  const handleUnfiledDrop = () => {
+  const handleNestDrop = async (targetFolder: string) => {
     const d = drag;
     setDrag(null);
     setDropTarget(null);
-    if (!d || d.type !== 'project') return;
-    moveProjectTo(d.name, null);
+    setNestTarget(null);
+    if (!d) return;
+    if (d.type === 'project') {
+      await moveProjectTo(d.name, targetFolder);
+      return;
+    }
+    if (
+      d.name === targetFolder ||
+      targetFolder.startsWith(d.name + '/') ||
+      parentOfFolder(d.name) === targetFolder
+    ) return;
+    try {
+      await sessionService.moveFolder(d.name, targetFolder);
+      setExpanded((previous) => new Set(previous).add(targetFolder));
+    } catch (e: any) {
+      appState.pushMessage(e?.message || '폴더 이동에 실패했습니다.');
+    }
+  };
+
+  // 미분류 헤더에 드롭: 프로젝트는 미분류로, 하위 폴더는 최상위로 이동.
+  const handleUnfiledDrop = async () => {
+    const d = drag;
+    setDrag(null);
+    setDropTarget(null);
+    setNestTarget(null);
+    if (!d) return;
+    if (d.type === 'project') {
+      await moveProjectTo(d.name, null);
+      return;
+    }
+    if (parentOfFolder(d.name) === null) return;
+    try {
+      await sessionService.moveFolder(d.name, null);
+    } catch (e: any) {
+      appState.pushMessage(e?.message || '폴더 이동에 실패했습니다.');
+    }
   };
 
   const dndEnabled = !isMobile;
@@ -588,7 +640,14 @@ const ProjectDrawer = observer(() => {
   // 드롭 가능 여부 판정 (시각 피드백용)
   const canDropOnFolder = (f: string) =>
     drag != null &&
-    (drag.type === 'project' ? sessionService.getFolderOf(drag.name) !== f : drag.name !== f);
+    (drag.type === 'project'
+      ? sessionService.getFolderOf(drag.name) !== f
+      : drag.name !== f && !f.startsWith(drag.name + '/'));
+  const canNestInto = (f: string) =>
+    drag?.type === 'folder' &&
+    drag.name !== f &&
+    !f.startsWith(drag.name + '/') &&
+    parentOfFolder(drag.name) !== f;
 
   // ===== 선택 모드 (다중 선택 → 폴더 일괄 이동) =====
   const toggleSelect = (n: string) => {
@@ -716,13 +775,21 @@ const ProjectDrawer = observer(() => {
     selected: selected.has(n),
     onSelect: () => (selectMode ? toggleSelect(n) : selectProject(n)),
     onDragStart: (e: React.DragEvent) => {
-      setDrag({ type: 'project', name: n });
       e.dataTransfer.effectAllowed = 'move';
       e.stopPropagation();
+      dragStartTimerRef.current = setTimeout(() => {
+        setDrag({ type: 'project', name: n });
+        dragStartTimerRef.current = null;
+      });
     },
     onDragEnd: () => {
+      if (dragStartTimerRef.current) {
+        clearTimeout(dragStartTimerRef.current);
+        dragStartTimerRef.current = null;
+      }
       setDrag(null);
       setDropTarget(null);
+      setNestTarget(null);
     },
     onMenu: () => appState.projectActionMenu(n),
   });
@@ -1113,14 +1180,22 @@ const ProjectDrawer = observer(() => {
                         onClick={() => toggleFolder(f)}
                         draggable={dndEnabled && !selectMode}
                         onDragStart={(e) => {
-                          setDrag({ type: 'folder', name: f });
                           e.dataTransfer.effectAllowed = 'move';
                           e.stopPropagation();
+                          dragStartTimerRef.current = setTimeout(() => {
+                            setDrag({ type: 'folder', name: f });
+                            dragStartTimerRef.current = null;
+                          });
                         }}
                         onDragEnd={() => {
+                          if (dragStartTimerRef.current) {
+                            clearTimeout(dragStartTimerRef.current);
+                            dragStartTimerRef.current = null;
+                          }
                           setDrag(null);
-                          setDropTarget(null);
-                        }}
+                      setDropTarget(null);
+                      setNestTarget(null);
+                    }}
                         className="flex-1 flex items-center gap-2 px-1 py-2.5 text-[15px] font-semibold text-gray-700 dark:text-gray-200 min-w-0"
                       >
                         {isOpen ? (
@@ -1276,6 +1351,37 @@ const ProjectDrawer = observer(() => {
                         )}
                       </div>
                     )}
+                    {isOpen && canNestInto(f) && (
+                      <div
+                        data-nest-folder={f}
+                        onDragOver={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          setNestTarget(f);
+                          setDropTarget(null);
+                        }}
+                        onDragLeave={(e) => {
+                          e.stopPropagation();
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                            setNestTarget((target) => (target === f ? null : target));
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          void handleNestDrop(f);
+                        }}
+                        className="mx-1 mb-1.5 px-2 py-2 rounded-md border-2 border-dashed text-xs text-center transition-colors"
+                        style={{
+                          borderColor: color,
+                          color,
+                          backgroundColor: nestTarget === f ? withAlpha(color, '2e') : withAlpha(color, '14'),
+                        }}
+                      >
+                        📁 여기에 놓아 "{leafOfFolder(f)}" 안에 넣기
+                      </div>
+                    )}
                     {isOpen && (projects.length > 0 || childCount === 0) && (
                       <div className="pl-3 pb-1">
                         {projects.length === 0 ? (
@@ -1293,9 +1399,9 @@ const ProjectDrawer = observer(() => {
 
               {/* 미분류 */}
               {(() => {
-                const canDropUnfiled =
-                  drag?.type === 'project' &&
-                  sessionService.getFolderOf(drag.name) !== null;
+                const canDropUnfiled = drag?.type === 'project'
+                  ? sessionService.getFolderOf(drag.name) !== null
+                  : drag?.type === 'folder' && parentOfFolder(drag.name) !== null;
                 const unfiledDropping =
                   dropTarget === '__unfiled__' && canDropUnfiled;
                 return (
