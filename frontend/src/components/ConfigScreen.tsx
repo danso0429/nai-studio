@@ -40,6 +40,28 @@ interface ConfigScreenProps {
   onClose: () => void;
 }
 
+interface SavedConfigDraft {
+  imageEditor: string;
+  useGPU: boolean;
+  quality: string;
+  refreshImage: boolean;
+  whiteMode: boolean;
+  trueDark: boolean;
+  uiTheme: UiThemeConfig;
+  uiThemePresets: UiThemePreset[];
+  exportConcurrency: number;
+  useLocalBgRemoval: boolean;
+  delayTime: number;
+  classicSceneCard: boolean;
+  useProjectDrawer: boolean;
+  useBatchEnqueue: boolean;
+  initialThumbSize: number;
+  historyThumbnailPercent: number;
+  fullWordAc: boolean;
+}
+
+const configDraftFingerprint = (draft: SavedConfigDraft) => JSON.stringify(draft);
+
 /* ── 탭 1: 로그인 ── */
 const LoginTab = ({
   accessToken, setAccessToken,
@@ -1387,6 +1409,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const [password, setPassword] = useState('');
   const [accessToken, setAccessToken] = useState('');
   const [saveLocation, setSaveLocation] = useState('');
+  const [savedDraft, setSavedDraft] = useState<string>();
   const mobileMode = isMobile;
 
   useEffect(() => {
@@ -1412,6 +1435,28 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
         Math.min(100, config.historyThumbnailPercent ?? 100),
       ));
       setSaveLocation(config.saveLocation ?? '');
+      setSavedDraft(configDraftFingerprint({
+        imageEditor: config.imageEditor ?? 'photoshop',
+        useGPU: config.useCUDA ?? false,
+        quality: config.removeBgQuality ?? 'normal',
+        refreshImage: config.refreshImage ?? false,
+        whiteMode: config.whiteMode ?? false,
+        trueDark: config.trueDark ?? false,
+        uiTheme: config.uiTheme ?? {},
+        uiThemePresets: normalizeUiThemePresets(config.uiThemePresets),
+        exportConcurrency: config.exportConcurrency ?? 1,
+        useLocalBgRemoval: config.useLocalBgRemoval ?? false,
+        delayTime: config.delayTime ?? 0,
+        classicSceneCard: config.classicSceneCard ?? false,
+        useProjectDrawer: config.useProjectDrawer ?? true,
+        useBatchEnqueue: config.useBatchEnqueue ?? false,
+        initialThumbSize: config.initialThumbSize ?? 0,
+        historyThumbnailPercent: Math.max(
+          60,
+          Math.min(100, config.historyThumbnailPercent ?? 100),
+        ),
+        fullWordAc: appState.fullWordAutoComplete,
+      }));
     })();
     const checkReady = () => setReady(localAIService.ready);
     const onProgress = (e: any) => setProgress(e.detail.percent);
@@ -1553,9 +1598,49 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     appState.historyThumbnailPercent = historyThumbnailPercent;
     appState.fullWordAutoComplete = fullWordAc;
     localStorage.setItem('sdstudio-full-word-autocomplete', fullWordAc ? 'true' : 'false');
+    setSavedDraft(configDraftFingerprint({
+      imageEditor,
+      useGPU,
+      quality,
+      refreshImage,
+      whiteMode,
+      trueDark,
+      uiTheme,
+      uiThemePresets,
+      exportConcurrency,
+      useLocalBgRemoval,
+      delayTime,
+      classicSceneCard,
+      useProjectDrawer,
+      useBatchEnqueue,
+      initialThumbSize,
+      historyThumbnailPercent,
+      fullWordAc,
+    }));
     sessionService.configChanged();
     onSave();
   };
+
+  const currentDraft = configDraftFingerprint({
+    imageEditor,
+    useGPU,
+    quality,
+    refreshImage,
+    whiteMode,
+    trueDark,
+    uiTheme,
+    uiThemePresets,
+    exportConcurrency,
+    useLocalBgRemoval,
+    delayTime,
+    classicSceneCard,
+    useProjectDrawer,
+    useBatchEnqueue,
+    initialThumbSize,
+    historyThumbnailPercent,
+    fullWordAc,
+  });
+  const dirty = savedDraft !== undefined && currentDraft !== savedDraft;
 
   // 모바일: 로그인 + 백업·저장 + 기타. 이미지 편집/키 바인딩은 PC 전용.
   // P12 세션 #7 본인 페인: 모바일에서 "백업이랑 복구가 어딨지?" — 저장경로 탭이 통째 숨겨져
@@ -1601,9 +1686,15 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     >
       <ModalOverlayCountMarker />
       <div
-        className={'w-[90vw] max-w-lg bg-[var(--c-surface-2)] rounded-xl shadow-2xl flex flex-col overflow-hidden border line-color ' + (mobileMode ? 'max-h-[90vh]' : 'max-h-[85vh]')}
+        className={'relative w-[90vw] max-w-lg bg-[var(--c-surface-2)] rounded-xl shadow-2xl flex flex-col overflow-hidden border line-color ' + (mobileMode ? 'max-h-[90vh]' : 'max-h-[85vh]')}
         onClick={(e) => e.stopPropagation()}
       >
+        {dirty && (
+          <div className="absolute top-2.5 left-1/2 -translate-x-1/2 z-10 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap shadow-sm bg-amber-100 text-amber-700 border border-amber-300 dark:bg-amber-900/80 dark:text-amber-200 dark:border-amber-600">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-300" />
+            저장 안 된 변경
+          </div>
+        )}
         {/* 헤더 */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-slate-600 flex-none">
           <h1 className="text-base font-semibold text-gray-800 dark:text-gray-100">환경설정</h1>

@@ -46,6 +46,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
   - `40a4022` 씬 카드 프롬프트 퀵 수정 — `PORT` 완료. 일반 씬 카드 이미지 우상단에서 첫 조합 조각을 바로 편집하며, 기존 전체 씬 편집과 별도로 전체 조합 에디터로 확장할 수 있다. 데스크톱 팝오버는 카드에 앵커링하고 모바일은 중앙 모달을 사용한다. 검증: frontend tsc 0 error, `test/viewport-popup.test.js` pass.
   - `f2ad780` UI 수정 6건 — 분할 해소 중. 확장 입력창 테마 토큰과 로컬 순차 생성 프리셋 전체 선택은 `PORT`; 확장 입력창 모바일 높이는 `visualViewport` 전체 가용 높이 추적으로, 서브폴더 순서·헤더 카운트는 `getOrderedFolders()` 기반 트리와 재귀 합산으로 `ALREADY`. 툴바 드래그 중 히스토리 엣지 스와이프 가드는 toolbar v2가 생기는 V5-D에서 함께 해소한다. upstream의 글로벌 프리셋 선택 분기는 V5-C의 글로벌 프리셋 통합에서 최종 해소한다. 검증: frontend tsc 0 error, `test/v5-ui-fixes.test.js` pass.
   - `0f20d01`, `b112fd6` 씬 휴지통 모두 비우기·일괄 작업 잠금 — `PORT` 완료. 사용자 확인 뒤 캡처한 휴지통 목록만 순차 영구 삭제하고, 실행 중에는 전체화면 진행 오버레이로 중복 조작을 막는다. 일부 실패를 숨기지 않고 성공/실패 개수를 구분해 보고하며 `finally`에서 잠금을 해제한다. 검증: frontend tsc 0 error, `test/scene-trash-batch.test.js` pass.
+  - `dceaef6` 환경설정 미저장 변경 배지 — `PORT` 완료. 저장 흐름이 실제로 쓰는 설정 필드만 정규화된 draft fingerprint로 비교하고, 즉시 저장되는 경로 선택·로그인 입력 등은 제외한다. 로드와 저장 성공 시 기준 스냅샷을 갱신하며 닫기 동작은 막지 않는다. 검증: frontend tsc 0 error, `test/config-unsaved-badge.test.js` pass.
 
 ### V5-B — 프롬프트·Quick·히스토리·해상도·테마
 
