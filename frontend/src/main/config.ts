@@ -60,6 +60,14 @@ export interface Config {
   trueDark?: boolean;
   exportConcurrency?: number;
   uiTheme?: UiThemeConfig;
+  uiThemePresets?: UiThemePreset[];
+}
+
+export interface UiThemePreset {
+  name: string;
+  whiteMode: boolean;
+  trueDark?: boolean;
+  theme: UiThemeConfig;
 }
 
 export interface UiThemeConfig {

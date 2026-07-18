@@ -10,7 +10,7 @@ import {
   flushPersistentStores,
 } from '../models';
 import { extractApiError, apiUrl } from '../models/util';
-import { Config, ImageEditor, RemoveBgQuality, UiThemeConfig } from '../main/config';
+import { Config, ImageEditor, RemoveBgQuality, UiThemeConfig, UiThemePreset } from '../main/config';
 import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
 import { TaskLog } from '../models/TaskQueueService';
@@ -28,6 +28,12 @@ import {
 import { keyboardShortcutService, KeyboardShortcutService } from '../models/KeyboardShortcutService';
 import { buildThemeVars, isHex6 } from '../models/uiTheme';
 import { themeTemplates } from '../models/themeTemplates';
+import {
+  cloneUiTheme,
+  createUiThemePreset,
+  normalizeUiThemePresets,
+  upsertUiThemePreset,
+} from '../models/uiThemePresets';
 
 interface ConfigScreenProps {
   onSave: () => void;
@@ -681,6 +687,8 @@ const ThemeCustomization = ({
   setWhiteMode,
   trueDark,
   setTrueDark,
+  uiThemePresets,
+  setUiThemePresets,
 }: {
   uiTheme: UiThemeConfig;
   setUiTheme: React.Dispatch<React.SetStateAction<UiThemeConfig>>;
@@ -688,6 +696,8 @@ const ThemeCustomization = ({
   setWhiteMode: (value: boolean) => void;
   trueDark: boolean;
   setTrueDark: (value: boolean) => void;
+  uiThemePresets: UiThemePreset[];
+  setUiThemePresets: React.Dispatch<React.SetStateAction<UiThemePreset[]>>;
 }) => {
   const patch = (value: Partial<UiThemeConfig>) =>
     setUiTheme((previous) => ({ ...previous, ...value }));
@@ -704,6 +714,31 @@ const ThemeCustomization = ({
     }));
     setWhiteMode(light);
     setTrueDark(false);
+  };
+  const saveCurrentAsPreset = async () => {
+    const input = await appState.pushDialogAsync({
+      type: 'input-confirm',
+      text: '테마 프리셋 이름을 입력해주세요',
+    });
+    if (!input) return;
+    const snapshot = createUiThemePreset(input, whiteMode, trueDark, uiTheme);
+    if (!snapshot) return;
+    const apply = () => setUiThemePresets((presets) =>
+      upsertUiThemePreset(presets, snapshot));
+    if (uiThemePresets.some((preset) => preset.name === snapshot.name)) {
+      appState.pushDialog({
+        type: 'confirm',
+        text: `"${snapshot.name}" 프리셋이 이미 있습니다. 덮어쓸까요?`,
+        callback: apply,
+      });
+      return;
+    }
+    apply();
+  };
+  const applyPreset = (preset: UiThemePreset) => {
+    setUiTheme(cloneUiTheme(preset.theme));
+    setWhiteMode(preset.whiteMode);
+    setTrueDark(preset.trueDark ?? false);
   };
   const buttonFields = uiTheme.unifyButtons
     ? [
@@ -763,6 +798,72 @@ const ThemeCustomization = ({
             </div>
           ))}
         </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <label className="text-sm font-semibold gray-label">내 테마 프리셋</label>
+          <button className="round-button back-sky btn-sm" onClick={() => void saveCurrentAsPreset()}>
+            현재 구성 저장
+          </button>
+        </div>
+        {uiThemePresets.length === 0 ? (
+          <p className="text-xs text-faint">저장된 프리셋이 없습니다.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {uiThemePresets.map((preset) => {
+              const foreground = preset.theme.textPattern === 'light' ||
+                (!preset.theme.textPattern && preset.whiteMode) ? '#000000' : '#ffffff';
+              return (
+                <div
+                  key={preset.name}
+                  className="flex items-center gap-1 rounded-full border line-color pl-2.5 pr-1 py-1"
+                  style={{
+                    backgroundColor: preset.theme.surface ??
+                      (preset.whiteMode ? '#ffffff' : '#0f172a'),
+                  }}
+                >
+                  <button
+                    className="text-xs font-medium truncate max-w-36"
+                    style={{ color: foreground }}
+                    onClick={() => applyPreset(preset)}
+                  >
+                    {preset.name}
+                  </button>
+                  <span className="flex gap-1">
+                    {[preset.theme.surface2, preset.theme.accent, preset.theme.danger]
+                      .filter((color): color is string => Boolean(color))
+                      .map(
+                      (color, index) => (
+                        <span
+                          key={index}
+                          className="w-3 h-3 rounded-full border border-black/20"
+                          style={{ backgroundColor: color }}
+                        />
+                      ),
+                    )}
+                  </span>
+                  <button
+                    className="px-1 text-xs"
+                    style={{ color: foreground }}
+                    title="프리셋 삭제"
+                    onClick={() => appState.pushDialog({
+                      type: 'confirm',
+                      text: `"${preset.name}" 프리셋을 삭제할까요?`,
+                      callback: () => setUiThemePresets((presets) =>
+                        presets.filter((item) => item.name !== preset.name)),
+                    })}
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className="text-xs text-muted mt-2">
+          프리셋을 누르면 색과 기본 모드가 복원됩니다. 아래 저장 버튼을 눌러야 앱에 적용됩니다.
+        </p>
       </div>
 
       <div
@@ -830,6 +931,7 @@ const OtherTab = ({
   whiteMode, setWhiteMode,
   trueDark, setTrueDark,
   uiTheme, setUiTheme,
+  uiThemePresets, setUiThemePresets,
   delayTime, setDelayTime,
   classicSceneCard, setClassicSceneCard,
   useProjectDrawer, setUseProjectDrawer,
@@ -885,6 +987,7 @@ const OtherTab = ({
     <div className="space-y-4">
       <ThemeCustomization {...{
         uiTheme, setUiTheme, whiteMode, setWhiteMode, trueDark, setTrueDark,
+        uiThemePresets, setUiThemePresets,
       }} />
       <hr className="border-gray-200 dark:border-slate-600" />
       <div className="flex items-center gap-2">
@@ -1264,6 +1367,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const [whiteMode, setWhiteMode] = useState(false);
   const [trueDark, setTrueDark] = useState(false);
   const [uiTheme, setUiTheme] = useState<UiThemeConfig>({});
+  const [uiThemePresets, setUiThemePresets] = useState<UiThemePreset[]>([]);
   const [exportConcurrency, setExportConcurrency] = useState(1);
   const [delayTime, setDelayTime] = useState(0);
   const [classicSceneCard, setClassicSceneCard] = useState(false);
@@ -1291,6 +1395,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       setWhiteMode(config.whiteMode ?? false);
       setTrueDark(config.trueDark ?? false);
       setUiTheme(config.uiTheme ?? {});
+      setUiThemePresets(normalizeUiThemePresets(config.uiThemePresets));
       setExportConcurrency(config.exportConcurrency ?? 1);
       setImageEditor(config.imageEditor ?? 'photoshop');
       setUseGPU(config.useCUDA ?? false);
@@ -1429,6 +1534,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       whiteMode: whiteMode,
       trueDark: trueDark,
       uiTheme,
+      uiThemePresets: uiThemePresets.length > 0 ? uiThemePresets : undefined,
       exportConcurrency: exportConcurrency,
       useLocalBgRemoval: useLocalBgRemoval,
       delayTime: delayTime,
@@ -1474,7 +1580,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       case 2:
         return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage, onClose }} />;
       case 3:
-        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, uiTheme, setUiTheme, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, historyThumbnailPercent, setHistoryThumbnailPercent, exportConcurrency, setExportConcurrency }} />;
+        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, uiTheme, setUiTheme, uiThemePresets, setUiThemePresets, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, historyThumbnailPercent, setHistoryThumbnailPercent, exportConcurrency, setExportConcurrency }} />;
       case 4:
         return <KeyBindingsTab />;
       default:

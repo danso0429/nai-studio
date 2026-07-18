@@ -49,6 +49,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
   - `cbb640a`, `cbd3aae` Quick/새 씬 기본 해상도 — `PORT` 완료. Remote의 분리된 1장·자동 생성 버튼과 서버 큐는 유지하고 공용 해상도 선택기를 추가했다. 새 씬 기본값은 Session JSON에 저장되며 일반 씬·인페인트 생성에 적용되고, 기존 일반 씬 일괄 적용은 확인 대화상자를 거친다. 직접 입력은 64px 단위로 올림 보정한다. 검증: frontend tsc 0 error, `test/resolution-settings.test.js` pass.
   - `8d81d34`, `1506160` 최근 30장 히스토리 영속·경로 복구 — `ADAPT` 완료. Remote의 기존 서버 completed 병합을 queue.html용 4시간 ring과 이미지 히스토리용 무기한 최근 30장 ledger로 분리했다. 첫 배포는 기존 ring에서 seed하며, 프로젝트·씬 경로 rename과 프로젝트 영구삭제를 ledger에 반영하고 사라진 파일은 조회 시 정리한다. 브라우저 `history.json`은 만들지 않아 탭별 split state를 피했다. 검증: frontend tsc 0 error, server syntax check, `test/image-history-ledger.test.js` pass.
   - `4b60465` Quick 전용 프로젝트 — `ADAPT` 구현 완료. 프로젝트 역할 사이드카로 Quick 프로젝트를 숨기고, 프롬프트·프리셋 해석 Session과 출력·통계·취소 Session을 분리했다. 바이브·인코딩 바이브·캐릭터 레퍼런스는 전용 프로젝트에 없을 때만 복사하며, 사용자 프로젝트 선택·탐색·내보내기·폴더 작업에서는 숨김 역할을 제외한다. 같은 시점에 여러 클라이언트가 최초 프로젝트를 만드는 CAS는 V5-F 서버 권위 단계의 필수 closure로 남긴다. 검증: frontend tsc 0 error, `test/project-roles.test.js` pass.
+  - `736aeaa` 사용자 테마 프리셋 — `PORT` 완료. Remote의 기존 역할 토큰·템플릿·실시간 미리보기를 유지하면서 현재 색 구성과 다크/화이트/트루다크 모드를 이름 붙여 저장·복원·덮어쓰기·삭제하도록 config에 연결했다. 프리셋은 깊은 복사하고 손상/중복 config를 정규화한다. 검증: frontend tsc 0 error, `test/ui-theme-presets.test.js`, `test/ui-theme.test.js` pass.
 
 ### V5-C — 템플릿·프리셋·조합·일괄 생성
 
