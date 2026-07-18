@@ -47,6 +47,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - 해소 기록:
   - `c020ad4` 추가 프롬프트·접기 — `PORT` 완료. Remote의 기존 PromptEditTextArea 헤더·chunk 버튼을 보존한 접기 API로 재작성했고, Session JSON과 상위→추가→중간 조합 순서를 연결했다. 검증: frontend tsc 0 error, `test/extra-prompt.test.js` pass.
   - `cbb640a`, `cbd3aae` Quick/새 씬 기본 해상도 — `PORT` 완료. Remote의 분리된 1장·자동 생성 버튼과 서버 큐는 유지하고 공용 해상도 선택기를 추가했다. 새 씬 기본값은 Session JSON에 저장되며 일반 씬·인페인트 생성에 적용되고, 기존 일반 씬 일괄 적용은 확인 대화상자를 거친다. 직접 입력은 64px 단위로 올림 보정한다. 검증: frontend tsc 0 error, `test/resolution-settings.test.js` pass.
+  - `8d81d34`, `1506160` 최근 30장 히스토리 영속·경로 복구 — `ADAPT` 완료. Remote의 기존 서버 completed 병합을 queue.html용 4시간 ring과 이미지 히스토리용 무기한 최근 30장 ledger로 분리했다. 첫 배포는 기존 ring에서 seed하며, 프로젝트·씬 경로 rename과 프로젝트 영구삭제를 ledger에 반영하고 사라진 파일은 조회 시 정리한다. 브라우저 `history.json`은 만들지 않아 탭별 split state를 피했다. 검증: frontend tsc 0 error, server syntax check, `test/image-history-ledger.test.js` pass.
 
 ### V5-C — 템플릿·프리셋·조합·일괄 생성
 

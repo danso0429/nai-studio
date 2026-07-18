@@ -577,6 +577,75 @@ function loadCompletedJobs() {
   }
 }
 
+// 이미지 히스토리용 최근 30장 ledger. queue.html의 4시간 완료 목록과 수명 계약을
+// 분리해, 생성 간격이 길거나 서버를 재시작해도 UI의 최근 30장이 복원되게 한다.
+const {
+  appendHistoryEntry,
+  normalizeHistoryEntries,
+  removeProjectEntries,
+  rewriteHistoryEntries,
+} = require('./lib/image-history-ledger');
+const IMAGE_HISTORY_MAX = 30;
+const IMAGE_HISTORY_FILE = path.join(DATA_DIR, '.image_history.json');
+let imageHistoryJobs = [];
+let imageHistoryWritable = true;
+
+function _writeImageHistorySync() {
+  try {
+    fss.writeFileSync(IMAGE_HISTORY_FILE, JSON.stringify(imageHistoryJobs));
+  } catch (e) {
+    console.error('[history] image ledger save failed:', e.message);
+  }
+}
+const _imageHistorySaver = makeDebouncedSaver(_writeImageHistorySync, 5000);
+function saveImageHistory() {
+  if (imageHistoryWritable) _imageHistorySaver.save();
+}
+function flushImageHistory() {
+  if (imageHistoryWritable) _imageHistorySaver.flush();
+}
+function loadImageHistory() {
+  try {
+    const parsed = JSON.parse(fss.readFileSync(IMAGE_HISTORY_FILE, 'utf8'));
+    imageHistoryJobs = normalizeHistoryEntries(parsed, IMAGE_HISTORY_MAX);
+    if (imageHistoryJobs.length > 0) {
+      console.log('[NAI Studio] Loaded image history: ' + imageHistoryJobs.length);
+    }
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      // 첫 배포에서는 기존 queue 완료 ring의 유효 항목으로 한 번 seed한다.
+      imageHistoryJobs = normalizeHistoryEntries(completedJobs, IMAGE_HISTORY_MAX);
+      if (imageHistoryJobs.length > 0) saveImageHistory();
+    } else if (e instanceof SyntaxError) {
+      console.warn('[history] corrupt image ledger ignored; starting empty');
+      imageHistoryJobs = [];
+    } else {
+      // 권한·디스크 IO 실패 상태에서 빈 ledger로 기존 파일을 덮어쓰지 않는다.
+      imageHistoryWritable = false;
+      console.error('[history] image ledger load failed; writes disabled:', e.message);
+    }
+  }
+}
+
+function rewriteImageHistoryPath(oldPath, newPath) {
+  const result = rewriteHistoryEntries(
+    imageHistoryJobs,
+    oldPath,
+    newPath,
+    IMAGE_HISTORY_MAX,
+  );
+  if (result.changed) {
+    imageHistoryJobs = result.entries;
+    saveImageHistory();
+  }
+}
+
+function removeImageHistoryProject(projectName) {
+  const before = imageHistoryJobs.length;
+  imageHistoryJobs = removeProjectEntries(imageHistoryJobs, projectName);
+  if (imageHistoryJobs.length !== before) saveImageHistory();
+}
+
 // 본인 가끔 5천 초과 등록 (2026-05-23 P21 #3 페인 보고). 7000 한도 — saveQueueState
 // stringify ~85ms / disk ~32MB 부담 안에. 1초 debounce(line 519-524)라 burst 시도
 // 1회 stringify, event loop block ~85ms 무시 가능.
@@ -1710,16 +1779,23 @@ async function processQueue() {
       recordTiming(Date.now(), durationMs);
       saveTimingHistory();
       // 완료 jobs (queue.html 완료 탭용). 4시간 retention.
-      completedJobs.push({
+      const completedEntry = {
         jobId: job.jobId,
         outputFilePath: job.params.outputFilePath,
         meta: job.meta || {},
         completedAt: Date.now(),
         durationMs,
-      });
+      };
+      completedJobs.push(completedEntry);
       pruneCompletedJobs();
       if (completedJobs.length > COMPLETED_JOBS_MAX) completedJobs.shift();
       saveCompletedJobs();
+      imageHistoryJobs = appendHistoryEntry(
+        imageHistoryJobs,
+        completedEntry,
+        IMAGE_HISTORY_MAX,
+      );
+      saveImageHistory();
     } catch (e) {
       const msg = e.message || '';
       const is429 = msg.includes('429');
@@ -2615,6 +2691,27 @@ app.get('/api/queue/completed', async (req, res) => {
   });
 });
 
+// 메인 앱 이미지 히스토리. 4시간 retention인 queue 완료 탭과 달리 최근 30장을
+// 시간 제한 없이 보존한다. 경로가 사라진 항목은 응답 전에 ledger에서도 걷어낸다.
+app.get('/api/history/completed', (req, res) => {
+  const requestedLimit = parseInt(req.query.limit, 10);
+  const limit = Math.max(
+    1,
+    Math.min(Number.isFinite(requestedLimit) ? requestedLimit : IMAGE_HISTORY_MAX, IMAGE_HISTORY_MAX),
+  );
+  const before = imageHistoryJobs.length;
+  imageHistoryJobs = imageHistoryJobs.filter((entry) => {
+    try {
+      return fss.existsSync(resolvePath(entry.outputFilePath));
+    } catch {
+      return false;
+    }
+  });
+  if (imageHistoryJobs.length !== before) saveImageHistory();
+  const entries = imageHistoryJobs.slice(-limit).reverse();
+  res.json({ entries, count: entries.length, maxSize: IMAGE_HISTORY_MAX });
+});
+
 // ─── Raw timing history + aggregate stats ────────────────────────
 // raw entries: 최근 2일 (sparkline용). stats: 2시간 단위 12 bucket + allTime, 영구 누적.
 
@@ -3157,6 +3254,7 @@ app.post('/api/fs/rename', async (req, res) => {
     const newPath = resolvePath(req.body.newPath);
     await fs.mkdir(path.dirname(newPath), { recursive: true });
     await fs.rename(oldPath, newPath);
+    rewriteImageHistoryPath(req.body.oldPath, req.body.newPath);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3167,6 +3265,7 @@ app.post('/api/fs/rename-dir', async (req, res) => {
     const newPath = resolvePath(req.body.newPath);
     await fs.mkdir(path.dirname(newPath), { recursive: true });
     await fs.rename(oldPath, newPath);
+    rewriteImageHistoryPath(req.body.oldPath, req.body.newPath);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3485,6 +3584,14 @@ async function permanentlyDeleteProjectFiles(name) {
   } catch {
     // 디렉토리 자체가 없으면 무시
   }
+
+  // 프로젝트 JSON 삭제가 커밋된 경우에만 표시용 이미지 히스토리도 정리한다.
+  // 프로젝트 삭제가 실패한 상태에서 ledger만 먼저 잃지 않도록 commit 신호를 재사용한다.
+  const projectJsonSuffix = '/' + name + '.json';
+  const projectJsonDeleted = deleted.local.some((deletedPath) =>
+    deletedPath === 'projects/' + name + '.json' ||
+    (deletedPath.startsWith('projects/') && deletedPath.endsWith(projectJsonSuffix)));
+  if (projectJsonDeleted) removeImageHistoryProject(name);
 
   // 4. Drive — rclone 없으면 skip
   if (!checkRcloneAvailable()) {
@@ -5272,6 +5379,7 @@ async function start() {
   loadQueueState();
   loadTimingHistory();
   loadCompletedJobs();
+  loadImageHistory();
     loadDriveRetryQueue().then(() => {
       // Migrate legacy entries (pre-F1): no status/nextRetryAt fields.
       // 부팅 직후 모두 즉시 시도하지 않게 nextRetryAt을 띄움.
@@ -5301,6 +5409,7 @@ function shutdownCleanup() {
   flushQueueState();
   flushTimingHistory();
   flushCompletedJobs();
+  flushImageHistory();
   flushDriveRetryQueue();
 }
 process.on('SIGINT', () => {

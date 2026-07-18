@@ -308,6 +308,10 @@ export class ServerBackend extends Backend {
     return await apiJSON(`/queue/completed?limit=${encodeURIComponent(limit)}`);
   }
 
+  async getImageHistory(limit = 30): Promise<QueueCompletedResult> {
+    return await apiJSON(`/history/completed?limit=${encodeURIComponent(limit)}`);
+  }
+
   async pauseQueue(): Promise<void> {
     // server in-flight job 완료 후 응답 (대량 삭제 race 방지)
     await api('/queue/pause', { method: 'POST' });

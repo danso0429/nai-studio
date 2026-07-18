@@ -32,7 +32,7 @@ interface HistoryQueueCompletedEntry {
 interface HistoryBackend {
   onQueueJobComplete(callback: (entry: Omit<HistoryQueueCompletedEntry, 'completedAt' | 'durationMs'>) => void): void | (() => void);
   onWsReconnect(callback: () => void): void;
-  queueGetCompleted(limit: number): Promise<{ entries: HistoryQueueCompletedEntry[] }>;
+  getImageHistory(limit: number): Promise<{ entries: HistoryQueueCompletedEntry[] }>;
 }
 
 interface HistoryImageStore<TSession extends HistorySession<TScene>, TScene extends HistoryScene> {
@@ -51,9 +51,9 @@ interface HistorySessionStore<TSession extends HistorySession<TScene>, TScene ex
 
 export const HISTORY_LIMIT = 30;
 
-// Remote에서는 브라우저 메모리 이벤트만 정본으로 삼지 않는다. 서버가 4시간 동안
-// 영속하는 completed ring을 최초 로드·WS 재연결 때 병합해 PWA 콜드 리로드와 다른 탭에서
-// 끝난 생성도 히스토리에 나타나게 한다.
+// Remote에서는 브라우저 메모리 이벤트만 정본으로 삼지 않는다. 서버가 시간 제한 없이
+// 최근 30장을 영속하는 전용 ledger를 최초 로드·WS 재연결 때 병합해 PWA 콜드 리로드와
+// 다른 탭에서 끝난 생성도 히스토리에 나타나게 한다.
 export class ImageHistoryService<
   TScene extends HistoryScene,
   TSession extends HistorySession<TScene>,
@@ -103,7 +103,7 @@ export class ImageHistoryService<
   @action
   async refresh(): Promise<void> {
     try {
-      const result = await this.backend.queueGetCompleted(HISTORY_LIMIT);
+      const result = await this.backend.getImageHistory(HISTORY_LIMIT);
       const remote = result.entries
         .map((entry) => this.fromQueueEntry(entry))
         .filter((entry): entry is GenerationHistoryEntry => !!entry);

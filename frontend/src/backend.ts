@@ -228,6 +228,7 @@ export abstract class Backend {
   abstract cancelQueueByTaskIds(taskIds: string[]): Promise<{ cancelled: number }>;
   abstract queuePrioritize(taskIds: string[], priority: boolean): Promise<{ changed: number }>;
   abstract queueGetCompleted(limit?: number): Promise<QueueCompletedResult>;
+  abstract getImageHistory(limit?: number): Promise<QueueCompletedResult>;
   abstract getDriveRetryStatus(): Promise<DriveRetryStatus>;
   abstract driveRetryNow(): Promise<DriveRetryResult>;
   abstract driveRetryOne(localPath: string): Promise<DriveRetryOneResult>;
