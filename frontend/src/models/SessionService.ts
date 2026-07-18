@@ -16,10 +16,19 @@ import * as PngChunk from 'png-chunk-text';
 import { Sampling } from '../backends/imageGen';
 import encodeChunks from 'png-chunks-encode';
 import * as legacy from './legacy';
+import {
+  HiddenProjectRole,
+  nextQuickProjectName,
+  normalizeProjectRoles,
+  visibleProjectNames,
+} from './projectRoles';
 
 const SESSION_SERVICE_INTERVAL = 5000;
+const PROJECT_ROLES_PATH = 'project_roles.json';
 
 export class SessionService extends ResourceSyncService<Session> {
+  private projectRoles: Record<string, HiddenProjectRole> = {};
+  private projectRolesLoadFailed = false;
   favorites: Set<string> = new Set();
   // 폴더 색상/순서 — folder_meta.json(서버 파일)에 영속화 (favorites 패턴 → 다기기 동기화).
   folderColors: Record<string, string> = {};
@@ -40,6 +49,72 @@ export class SessionService extends ResourceSyncService<Session> {
 
   constructor() {
     super('projects', SESSION_SERVICE_INTERVAL);
+  }
+
+  private async loadProjectRoles(): Promise<void> {
+    try {
+      if (!(await backend.existFile(PROJECT_ROLES_PATH))) {
+        this.projectRoles = {};
+        return;
+      }
+      this.projectRoles = normalizeProjectRoles(
+        JSON.parse(await backend.readFile(PROJECT_ROLES_PATH)),
+      ).roles;
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        console.warn('[SessionService] project roles file is corrupt; hidden roles start empty');
+        this.projectRoles = {};
+        return;
+      }
+      this.projectRolesLoadFailed = true;
+      console.error('[SessionService] project roles load failed; role writes disabled:', error);
+    }
+  }
+
+  private async writeProjectRoles(roles: Record<string, HiddenProjectRole>): Promise<void> {
+    await backend.writeFile(PROJECT_ROLES_PATH, JSON.stringify({ version: 1, roles }));
+  }
+
+  listVisible(): string[] {
+    return visibleProjectNames(this.list(), this.projectRoles);
+  }
+
+  isHiddenProject(name: string): boolean {
+    return Boolean(this.projectRoles[name]);
+  }
+
+  async ensureQuickGenerationProject(): Promise<Session | null> {
+    if (this.projectRolesLoadFailed) return null;
+    const currentName = Object.keys(this.projectRoles).find(
+      (name) => this.projectRoles[name] === 'quick-generation',
+    );
+    if (currentName && this.list().includes(currentName)) {
+      return (await this.get(currentName)) ?? null;
+    }
+
+    const name = nextQuickProjectName(this.list());
+    try {
+      await this.add(name);
+    } catch (error: any) {
+      console.error('[SessionService] quick generation project creation failed:', error);
+      return null;
+    }
+    const nextRoles = { ...this.projectRoles };
+    if (currentName) delete nextRoles[currentName];
+    nextRoles[name] = 'quick-generation';
+    this.projectRoles = nextRoles;
+    this.dispatchEvent(new CustomEvent('listupdated'));
+    try {
+      await this.writeProjectRoles(nextRoles);
+    } catch (error) {
+      console.warn('[SessionService] quick project role save deferred:', error);
+      setTimeout(() => {
+        void this.writeProjectRoles(this.projectRoles).catch((retryError) => {
+          console.warn('[SessionService] quick project role retry failed:', retryError);
+        });
+      }, 2000);
+    }
+    return (await this.get(name)) ?? null;
   }
 
   private async persistMetadataAfterCommit(
@@ -253,6 +328,7 @@ export class SessionService extends ResourceSyncService<Session> {
     // (주기 자동 저장 루프)에는 반드시 도달해야 한다 — 여기서 죽으면 앱은 멀쩡해 보여도
     // 이후 편집이 디스크에 저장되지 않아 통째로 유실된다(SDStudio 4.13.5 8ea25a4 결).
     try {
+      await this.loadProjectRoles();
       await this.loadFavorites();
       await this.loadBookmarks();
       await this.loadFolderMeta();
@@ -306,6 +382,12 @@ export class SessionService extends ResourceSyncService<Session> {
       const saves: Array<() => Promise<void>> = [];
       if (favoriteChanged) saves.push(() => this.saveFavorites());
       if (keysToDelete.length > 0 || hadSceneBookmark) saves.push(() => this.saveBookmarks());
+      if (this.projectRoles[name]) {
+        const nextRoles = { ...this.projectRoles };
+        delete nextRoles[name];
+        this.projectRoles = nextRoles;
+        saves.push(() => this.writeProjectRoles(nextRoles));
+      }
       await this.persistMetadataAfterCommit('delete', saves);
       await this.refreshAfterCommittedMutation('project delete');
     });
@@ -336,7 +418,16 @@ export class SessionService extends ResourceSyncService<Session> {
     const saves: Array<() => Promise<void>> = [];
     if (favoriteChanged) saves.push(() => this.saveFavorites());
     if (bmChanged) saves.push(() => this.saveBookmarks());
+    const hiddenRoleRenamed = Boolean(this.projectRoles[oldName]);
+    if (hiddenRoleRenamed) {
+      const nextRoles = { ...this.projectRoles };
+      nextRoles[newName] = nextRoles[oldName];
+      delete nextRoles[oldName];
+      this.projectRoles = nextRoles;
+      saves.push(() => this.writeProjectRoles(nextRoles));
+    }
     await this.persistMetadataAfterCommit('rename', saves);
+    if (hiddenRoleRenamed) this.dispatchEvent(new CustomEvent('listupdated'));
     this.dispatchEvent(new CustomEvent('renamed', {
       detail: { oldName, newName },
     }));

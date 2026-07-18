@@ -571,7 +571,7 @@ export const App = observer(() => {
     const tryRestore = () => {
       if (done || appState.curSession) return;
       // list()가 아직 안 채워졌거나 프로젝트가 삭제됐으면 대기/무시(조용히 선택 화면 유지).
-      if (!sessionService.list().includes(saved!)) return;
+      if (!sessionService.listVisible().includes(saved!)) return;
       done = true;
       sessionService.removeEventListener('listupdated', tryRestore);
       appState.selectSession(saved!);

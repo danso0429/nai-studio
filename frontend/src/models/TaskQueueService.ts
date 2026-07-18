@@ -2043,6 +2043,76 @@ export const queueWorkflow = async (
   }
 };
 
+const copyQuickAssetIfMissing = async (src: string, dest: string) => {
+  try {
+    if (await backend.existFile(dest)) return;
+    if (!(await backend.existFile(src))) return;
+    await backend.copyFile(src, dest);
+  } catch (error) {
+    console.warn('[Quick] preset asset copy failed:', src, error);
+  }
+};
+
+async function copyQuickPresetAssets(from: Session, to: Session, shared: any) {
+  for (const vibe of shared?.vibes ?? []) {
+    if (!vibe?.path) continue;
+    await copyQuickAssetIfMissing(
+      imageService.getVibeImagePath(from, vibe.path),
+      imageService.getVibeImagePath(to, vibe.path),
+    );
+    await copyQuickAssetIfMissing(
+      imageService.getEncodedVibeImagePath(from, vibe.path, vibe.info),
+      imageService.getEncodedVibeImagePath(to, vibe.path, vibe.info),
+    );
+  }
+  for (const reference of shared?.characterReferences ?? []) {
+    if (reference?.enabled === false || !reference?.path) continue;
+    await copyQuickAssetIfMissing(
+      imageService.getReferenceImagePath(from, reference.path),
+      imageService.getReferenceImagePath(to, reference.path),
+    );
+  }
+}
+
+// Quick은 현재 프로젝트의 프롬프트/프리셋을 해석하되, 생성 task와 결과는 전용
+// 숨김 프로젝트에 귀속한다. 두 Session 인자를 하나로 합치면 출력 경로나 설정 중
+// 한쪽이 바뀌므로 의도적으로 분리한다.
+export const queueQuickWorkflow = async (
+  promptSession: Session,
+  outputSession: Session,
+  scene: Scene,
+  samples: number,
+) => {
+  const workflow = promptSession.selectedWorkflow;
+  if (!workflow) throw new Error('워크플로우를 먼저 선택해주세요');
+  const [type, preset, shared, def] = promptSession.getCommonSetup(workflow);
+  const prompts = await def.createPrompt!(promptSession, scene, preset, shared);
+  const characterPrompts = await def.createCharacterPrompts!(
+    promptSession,
+    scene,
+    preset,
+    shared,
+  );
+  await copyQuickPresetAssets(promptSession, outputSession, shared);
+  const sceneJobTotal = prompts.length * samples;
+  for (let index = 0; index < prompts.length; index += 1) {
+    await def.handler(
+      outputSession,
+      scene,
+      prompts[index].prompt,
+      characterPrompts[index],
+      preset,
+      shared,
+      samples,
+      scene.meta.get(type),
+      undefined,
+      undefined,
+      prompts[index].uc,
+      { sceneJobTotal, sceneJobStartIndex: index * samples + 1 },
+    );
+  }
+};
+
 export const queueI2IWorkflow = async (
   session: Session,
   type: string,

@@ -108,7 +108,7 @@ const ProjectBrowser = observer(({ onClose }: { onClose: () => void }) => {
   const filterRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setSessionNames(sessionService.list());
+    setSessionNames(sessionService.listVisible());
     if (!isMobile) setTimeout(() => filterRef.current?.focus(), 100);
   }, []);
 
@@ -138,7 +138,7 @@ const ProjectBrowser = observer(({ onClose }: { onClose: () => void }) => {
 
   const toggleFav = useCallback((name: string) => {
     sessionService.toggleFavorite(name);
-    setSessionNames([...sessionService.list()]);
+    setSessionNames([...sessionService.listVisible()]);
   }, []);
 
   return (

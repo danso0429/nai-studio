@@ -44,7 +44,7 @@ const StorageManageModal = observer(
       if (!isOpen) return;
       projectSizeService.ensureLoaded();
       try {
-        setNames(sessionService.list());
+        setNames(sessionService.listVisible());
       } catch {
         setNames([]);
       }

@@ -123,7 +123,7 @@ export const loginService = new LoginService();
 
 export const gameService = new GameService();
 
-// 서버의 4시간 완료 이력 + WS 완료 이벤트를 합쳐, 새로고침/다른 탭 완료도 복원한다.
+// 서버의 최근 30장 전용 ledger + WS 완료 이벤트를 합쳐 새로고침/다른 탭 완료도 복원한다.
 export const imageHistoryService = new ImageHistoryService(backend, imageService, sessionService);
 
 export const workFlowService = new WorkFlowService();

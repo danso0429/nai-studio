@@ -42,7 +42,7 @@ const SessionTreePicker = observer(({ selectedName, onSelect }: Props) => {
     }
   }, [selectedName]);
 
-  const sessionNames = sessionService.list();
+  const sessionNames = sessionService.listVisible();
   const folderList = sessionService.listFolders();
 
   const rootProjects: string[] = [];

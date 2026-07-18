@@ -36,7 +36,7 @@ const ProjectExportPickerDialog = observer(({ onClose }: Props) => {
   const [filter, setFilter] = useState('');
 
   // 트리 — ProjectDrawer와 동일하게 매 렌더 계산(observer라 색상/순서/목록 변경 즉시 반영).
-  const sessionNames = sessionService.list();
+  const sessionNames = sessionService.listVisible();
   const folders = sessionService.getOrderedFolders();
   const isFav = (n: string) => sessionService.isFavorite(n);
   const sortFn = (a: string, b: string) => {

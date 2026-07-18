@@ -40,7 +40,7 @@ export const AppContextMenu = observer(() => {
   const copySceneToProject = async (ctx: SceneContextAlt) => {
     const curSession = appState.curSession;
     if (!curSession) return;
-    const allProjects = sessionService.list().filter((n) => n !== curSession.name);
+    const allProjects = sessionService.listVisible().filter((n) => n !== curSession.name);
     if (allProjects.length === 0) {
       appState.pushMessage('복사할 대상 프로젝트가 없습니다.');
       return;

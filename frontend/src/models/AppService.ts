@@ -944,7 +944,7 @@ export class AppState {
   async folderBackupMenu(folder: string) {
     // 하위 폴더 프로젝트까지 포함(중첩) — 폴더 작업(큐/내보내기/백업)은 폴더 전체 트리 대상.
     const allProjects = sessionService
-      .list()
+      .listVisible()
       .filter((n) => {
         const fp = sessionService.getFolderOf(n);
         return fp === folder || (fp || '').startsWith(folder + '/');
@@ -3855,7 +3855,7 @@ export class AppState {
             return;
           }
           if (value === 'copyToProject') {
-            const allProjects = sessionService.list().filter((n) => n !== this.curSession!.name);
+            const allProjects = sessionService.listVisible().filter((n) => n !== this.curSession!.name);
             if (allProjects.length === 0) {
               appState.pushMessage('복사할 대상 프로젝트가 없습니다.');
               return;

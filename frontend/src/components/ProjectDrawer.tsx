@@ -270,7 +270,7 @@ const ProjectDrawer = observer(() => {
     appState.closeProjectDrawer();
   };
 
-  const sessionNames = sessionService.list();
+  const sessionNames = sessionService.listVisible();
   const folders = sessionService.getOrderedFolders();
 
   const isFav = (n: string) => sessionService.isFavorite(n);
@@ -435,7 +435,7 @@ const ProjectDrawer = observer(() => {
       const fp = sessionService.getFolderOf(n);
       return fp === f || (fp || '').startsWith(f + '/');
     };
-    const count = sessionService.list().filter(inSubtree).length;
+    const count = sessionService.listVisible().filter(inSubtree).length;
     // 빈 폴더 → 단순 확인
     if (count === 0) {
       appState.pushDialog({
@@ -466,7 +466,7 @@ const ProjectDrawer = observer(() => {
           // 프로젝트를 미분류로 빼낸 뒤 빈 폴더 트리를 삭제한다 (프로젝트 보존). 이동 하나라도
           // 실패하면 deleteFolder를 절대 호출하지 않는다 — 남은 프로젝트까지 영구삭제되기 때문.
           try {
-            const projects = sessionService.list().filter(inSubtree);
+            const projects = sessionService.listVisible().filter(inSubtree);
             const failed: string[] = [];
             for (const p of projects) {
               try {
@@ -488,7 +488,7 @@ const ProjectDrawer = observer(() => {
             // 마지막 이동의 update 뒤 목록을 한 번 더 새로 읽어, 다른 탭 변경이나 stale 목록으로
             // 폴더 안 프로젝트가 남았으면 파괴적 deleteFolder 호출을 차단한다.
             await sessionService.update();
-            const remaining = sessionService.list().filter(inSubtree);
+            const remaining = sessionService.listVisible().filter(inSubtree);
             if (remaining.length > 0) {
               appState.pushMessage(
                 `폴더 삭제를 중단했습니다. 폴더 안에 프로젝트 ${remaining.length}개가 남아 있습니다.`,

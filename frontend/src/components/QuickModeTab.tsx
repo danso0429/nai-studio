@@ -11,7 +11,7 @@ import {
 } from '../models';
 import { appState } from '../models/AppService';
 import { ContextMenuType, Scene, Session } from '../models/types';
-import { queueScene } from './SceneQueueControl';
+import { queueQuickWorkflow } from '../models/TaskQueueService';
 import { useLongPress } from './useLongPress';
 import { ResolutionPicker } from './ResolutionPicker';
 
@@ -43,7 +43,8 @@ function ensureDefaultScene(session: Session): Scene {
 }
 
 const QuickModeTab = observer(() => {
-  const session = appState.curSession!;
+  const promptSession = appState.curSession!;
+  const [quickSession, setQuickSession] = useState<Session | null>(null);
   const [latestPath, setLatestPath] = useState<string>();
   const [image, setImage] = useState<string>();
   const [sceneStats, setSceneStats] = useState({ done: 0, total: 0 });
@@ -59,36 +60,56 @@ const QuickModeTab = observer(() => {
     setMode(next);
   };
 
+  useEffect(() => {
+    let canceled = false;
+    void sessionService.ensureQuickGenerationProject().then((session) => {
+      if (!canceled) setQuickSession(session);
+    });
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
   const refreshLatest = useCallback(() => {
-    const scene = session.scenes.get(DEFAULT_SCENE);
+    if (!quickSession) return setLatestPath(undefined);
+    const scene = quickSession.scenes.get(DEFAULT_SCENE);
     if (!scene) return setLatestPath(undefined);
-    const outputs = gameService.getOutputs(session, scene);
+    const outputs = gameService.getOutputs(quickSession, scene);
     setLatestPath(outputs.length
-      ? imageService.getOutputDir(session, scene) + '/' + outputs[0]
+      ? imageService.getOutputDir(quickSession, scene) + '/' + outputs[0]
       : undefined);
-  }, [session]);
+  }, [quickSession]);
 
   useEffect(() => {
+    if (!quickSession) return;
     void (async () => {
-      const scene = session.scenes.get(DEFAULT_SCENE);
-      if (scene) await imageService.refresh(session, scene);
+      const scene = quickSession.scenes.get(DEFAULT_SCENE);
+      if (scene) await imageService.refresh(quickSession, scene);
       refreshLatest();
     })();
     const onAdded = (event: Event) => {
       const detail = (event as CustomEvent).detail;
-      if (detail?.session?.name === session.name &&
+      if (detail?.session?.name === quickSession.name &&
           detail.sceneType === 'scene' && detail.sceneName === DEFAULT_SCENE) {
         setLatestPath(detail.path);
       }
     };
     const onUpdated = () => refreshLatest();
+    const onTaskComplete = async () => {
+      const scene = quickSession.scenes.get(DEFAULT_SCENE);
+      if (!scene) return;
+      await imageService.refresh(quickSession, scene);
+      refreshLatest();
+    };
     imageService.addEventListener('image-added', onAdded);
     imageService.addEventListener('updated', onUpdated);
+    taskQueueService.addEventListener('complete', onTaskComplete);
     return () => {
       imageService.removeEventListener('image-added', onAdded);
       imageService.removeEventListener('updated', onUpdated);
+      taskQueueService.removeEventListener('complete', onTaskComplete);
     };
-  }, [session, refreshLatest]);
+  }, [quickSession, refreshLatest]);
 
   useEffect(() => {
     let canceled = false;
@@ -104,9 +125,9 @@ const QuickModeTab = observer(() => {
 
   useEffect(() => {
     const update = () => {
-      const scene = session.scenes.get(DEFAULT_SCENE);
-      const stats = scene
-        ? taskQueueService.statsTasksFromScene(session, scene)
+      const scene = quickSession?.scenes.get(DEFAULT_SCENE);
+      const stats = quickSession && scene
+        ? taskQueueService.statsTasksFromScene(quickSession, scene)
         : { done: 0, total: 0 };
       setSceneStats(stats);
       // 탭/앱이 다시 마운트됐을 때 이미 복원된 퀵 작업은 1장 생성으로 표시한다.
@@ -119,14 +140,15 @@ const QuickModeTab = observer(() => {
     return () => {
       for (const event of events) taskQueueService.removeEventListener(event, update);
     };
-  }, [session]);
+  }, [quickSession]);
 
   const enqueueOnce = async () => {
-    const scene = ensureDefaultScene(session);
-    producedBaselineRef.current = taskQueueService.statsTasksFromScene(session, scene).done;
+    if (!quickSession) throw new Error('퀵 생성 프로젝트가 준비되지 않았습니다');
+    const scene = ensureDefaultScene(quickSession);
+    producedBaselineRef.current = taskQueueService.statsTasksFromScene(quickSession, scene).done;
     enqueueingRef.current = true;
     try {
-      await queueScene(session, scene, 1);
+      await queueQuickWorkflow(promptSession, quickSession, scene, 1);
       taskQueueService.run();
     } finally {
       enqueueingRef.current = false;
@@ -135,9 +157,9 @@ const QuickModeTab = observer(() => {
 
   useEffect(() => {
     const onComplete = () => {
-      const scene = session.scenes.get(DEFAULT_SCENE);
+      const scene = quickSession?.scenes.get(DEFAULT_SCENE);
       if (!scene) return;
-      const stats = taskQueueService.statsTasksFromScene(session, scene);
+      const stats = taskQueueService.statsTasksFromScene(quickSession!, scene);
       if (stats.done > producedBaselineRef.current) producedRef.current = true;
     };
     const onStop = () => {
@@ -168,7 +190,7 @@ const QuickModeTab = observer(() => {
       commandRef.current += 1;
       modeRef.current = 'idle';
     };
-  }, [session]);
+  }, [promptSession, quickSession]);
 
   const guardCycling = () => {
     if (cyclingSessionService.state !== 'running') return true;
@@ -178,6 +200,10 @@ const QuickModeTab = observer(() => {
 
   const start = async (nextMode: 'single' | 'auto') => {
     if (!guardCycling()) return;
+    if (!quickSession) {
+      appState.pushMessage('퀵 생성 프로젝트를 준비하지 못했습니다');
+      return;
+    }
     const command = ++commandRef.current;
     updateMode(nextMode);
     producedRef.current = false;
@@ -202,13 +228,13 @@ const QuickModeTab = observer(() => {
     const command = ++commandRef.current;
     updateMode('switching');
     producedRef.current = false;
-    const scene = session.scenes.get(DEFAULT_SCENE);
+    const scene = quickSession?.scenes.get(DEFAULT_SCENE);
     if (scene) {
-      // queueScene의 reserve/prep가 아직 끝나지 않았을 수 있어 현재 등록분을 먼저
+      // Quick 예약의 reserve/prep가 아직 끝나지 않았을 수 있어 현재 등록분을 먼저
       // 취소하고 pending add가 정착한 뒤 한 번 더 targeted cancel한다.
-      const firstCanceled = await taskQueueService.removeTasksFromScene(session, scene);
+      const firstCanceled = await taskQueueService.removeTasksFromScene(quickSession!, scene);
       await taskQueueService.waitForPendingFills();
-      const lateCanceled = await taskQueueService.removeTasksFromScene(session, scene);
+      const lateCanceled = await taskQueueService.removeTasksFromScene(quickSession!, scene);
       if (!firstCanceled || !lateCanceled) {
         if (command === commandRef.current) {
           updateMode('idle');
@@ -236,10 +262,10 @@ const QuickModeTab = observer(() => {
 
   const { show } = useContextMenu({ id: ContextMenuType.HistoryImage });
   const showImageMenu = (event: React.MouseEvent | React.TouchEvent, position?: { x: number; y: number }) => {
-    if (!latestPath) return;
+    if (!latestPath || !quickSession) return;
     const entry = {
       id: latestPath,
-      sessionName: session.name,
+      sessionName: quickSession.name,
       sceneType: 'scene' as const,
       sceneName: DEFAULT_SCENE,
       filename: latestPath.split('/').pop()!,
@@ -253,14 +279,15 @@ const QuickModeTab = observer(() => {
   });
 
   const progress = sceneStats.total > 0 ? `${sceneStats.done}/${sceneStats.total}` : '';
-  const quickScene = session.scenes.get(DEFAULT_SCENE);
+  const quickScene = quickSession?.scenes.get(DEFAULT_SCENE);
 
   const applyResolution = (value: {
     resolution: string;
     width?: number;
     height?: number;
   }) => {
-    const scene = ensureDefaultScene(session);
+    if (!quickSession) return;
+    const scene = ensureDefaultScene(quickSession);
     scene.resolution = value.resolution;
     if (value.resolution === 'custom') {
       scene.resolutionWidth = value.width;
@@ -269,7 +296,7 @@ const QuickModeTab = observer(() => {
       scene.resolutionWidth = undefined;
       scene.resolutionHeight = undefined;
     }
-    sessionService.markDirty(session.name);
+    sessionService.markDirty(quickSession.name);
   };
   return (
     <div className="h-full w-full flex flex-col">
@@ -348,6 +375,7 @@ const QuickModeTab = observer(() => {
         <ResolutionPicker
           className="mt-2 w-full"
           triggerClassName="w-full justify-between py-2"
+          disabled={!quickSession}
           value={
             quickScene
               ? {
