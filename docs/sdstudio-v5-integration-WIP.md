@@ -50,6 +50,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
   - `8a9b442` 빈 프로젝트명 영구삭제 데이터 루트 사고 방지 — `ALREADY`. Remote에는 upstream 클라이언트 프로젝트 휴지통 스캐너가 없고, 서버의 모든 재귀 디렉터리 삭제 최종 관문이 빈 경로·비정상 세그먼트·보호 데이터 루트를 거부한다. 프로젝트 영구삭제 엔드포인트도 별도로 빈/예약/경로 포함 이름을 거부한다. 검증: `test/data-path-guard.test.js` pass, 실제 관문 `server.js`의 `assertDeletableDataDirPath`·`assertDeletableProjectName` 호출 확인.
   - `b058aa9`, `fadf3ad` 내보내기 완료 피드백의 확인 모달→비차단 위젯 재조정 — `ALREADY/ADAPT`. Remote는 큐 등록, 서버 tar 생성, Drive 업로드를 별도 사건으로 추적한다. 큐 등록은 상단 비차단 progress toast, 서버 처리는 업로드 위젯, Drive 미사용자는 tar 완성 뒤 다운로드 시작 완료, Drive 사용자는 sync 완료/최종 실패를 각각 알린다. upstream처럼 로컬 파일 생성만으로 전체 전달 완료를 단정하는 단일 위젯은 추가하지 않는다.
   - `b4d46ef` 전역 z-index 사다리 — `PORT/ADAPT` 완료. upstream 계층에 Remote 전용 feature modal(3000), Drive widget(4500), blocking modal(5500)을 추가하고, 전역 fixed 오버레이·드로어·토스트·컨텍스트 메뉴·툴팁·프롬프트 팝업을 단일 CSS 토큰으로 연결했다. 카드 내부 배지 등 로컬 stacking context는 유지했다. 검증: frontend tsc 0 error, `test/z-layer-contract.test.js` pass.
+  - `7f79c53`, `6df6420`, `20a5820` 중립색 토큰화·입력 배경·버튼 언어 — `PORT/ADAPT` 완료. Remote의 `custom-theme` 루트 호환 브리지를 확장해 레거시 neutral Tailwind 클래스와 input/select/textarea를 semantic surface/input/text/line 토큰에 연결했다. 공용 버튼에는 focus-visible·disabled와 `btn`, solid, ghost, link 상태 계약을 추가했다. 기존 light/dark 기본 외형과 원색 상태 버튼은 유지한다. 검증: frontend tsc 0 error, `test/theme-button-contract.test.js` pass.
 
 ### V5-B — 프롬프트·Quick·히스토리·해상도·테마
 

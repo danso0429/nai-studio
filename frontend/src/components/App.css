@@ -87,9 +87,17 @@
 }
 .custom-theme .bg-gray-100,
 .custom-theme .bg-gray-200,
+.custom-theme .bg-gray-50,
 .custom-theme .dark\:bg-slate-700,
-.custom-theme .dark\:bg-gray-700 {
+.custom-theme .dark\:bg-gray-700,
+.custom-theme .dark\:bg-slate-700\/40 {
   background-color: var(--c-input-bg) !important;
+}
+.custom-theme input.bg-white,
+.custom-theme select.bg-white,
+.custom-theme textarea.bg-white {
+  background-color: var(--c-input-bg) !important;
+  color: var(--c-input-text) !important;
 }
 .custom-theme .border-gray-200,
 .custom-theme .border-gray-300,
@@ -100,8 +108,13 @@
   border-color: var(--c-line) !important;
 }
 .custom-theme .text-gray-700,
+.custom-theme .text-gray-800,
+.custom-theme .text-gray-900,
+.custom-theme .text-black,
 .custom-theme .dark\:text-slate-200,
-.custom-theme .dark\:text-gray-200 {
+.custom-theme .dark\:text-gray-200,
+.custom-theme .dark\:text-gray-100,
+.custom-theme .dark\:text-white {
   color: var(--c-text-label) !important;
 }
 .custom-theme .text-gray-500,
@@ -320,6 +333,46 @@ body {
 .icon-button {
   @apply active:brightness-90 hover:brightness-95 select-none whitespace-nowrap rounded-full p-1;
   color: var(--c-icon-text);
+}
+
+.round-button:focus-visible,
+.icon-button:focus-visible,
+.tab-button:focus-visible,
+.btn:focus-visible,
+.btn-ghost:focus-visible,
+.btn-link:focus-visible {
+  outline: 2px solid rgb(56, 189, 248);
+  outline-offset: 1px;
+}
+
+.round-button:disabled,
+.icon-button:disabled,
+.tab-button:disabled,
+.btn:disabled,
+.btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn {
+  @apply select-none hover:brightness-95 active:brightness-90;
+  transition: filter 0.15s ease;
+}
+
+.btn-solid-sky { @apply bg-sky-500 hover:bg-sky-600 text-white; }
+.btn-solid-green { @apply bg-green-500 hover:bg-green-600 text-white; }
+.btn-solid-red { @apply bg-red-500 hover:bg-red-600 text-white; }
+.btn-solid-orange { @apply bg-orange-500 hover:bg-orange-600 text-white; }
+.btn-solid-yellow { @apply bg-yellow-500 hover:bg-yellow-600 text-white; }
+.btn-solid-indigo { @apply bg-indigo-500 hover:bg-indigo-600 text-white; }
+.btn-solid-purple { @apply bg-purple-500 hover:bg-purple-600 text-white; }
+
+.btn-ghost {
+  @apply transition-colors hover:bg-gray-100 dark:hover:bg-slate-700;
+}
+
+.btn-link {
+  @apply text-sky-500 hover:text-sky-600;
 }
 
 .gray-input {
