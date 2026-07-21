@@ -55,6 +55,7 @@ const ACTIONS: ShortcutAction[] = [
   { id: 'open-sampling-settings', label: '샘플링/모델 설정 열기', category: 'global', defaultKey: 'Ctrl+M' },
   { id: 'open-piece-editor', label: '프롬프트조각 열기', category: 'global', defaultKey: 'Ctrl+P' },
   { id: 'open-config', label: '환경설정 열기', category: 'global', defaultKey: 'Ctrl+,' },
+  { id: 'quick-menu', label: '퀵 메뉴 열기', category: 'global', defaultKey: 'Ctrl+K' },
   { id: 'find-replace', label: '찾기 및 변환', category: 'global', defaultKey: 'Ctrl+H' },
   { id: 'scene-search', label: '검색 (씬 이름·상위/하위/네거티브)', category: 'scene', defaultKey: 'Ctrl+Shift+F' },
 ];

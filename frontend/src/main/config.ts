@@ -62,6 +62,8 @@ export interface Config {
   uiTheme?: UiThemeConfig;
   uiThemePresets?: UiThemePreset[];
   uiToolbar?: UiToolbarConfig;
+  quickMenu?: string[];
+  quickMenuButton?: boolean;
 }
 
 export type ToolbarButtonPlacement = 'default' | 'pinned' | 'menu' | 'hidden';

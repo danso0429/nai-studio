@@ -35,6 +35,8 @@ import {
   upsertUiThemePreset,
 } from '../models/uiThemePresets';
 import ToolbarLayoutEditor from './ToolbarLayoutEditor';
+import QuickMenuSettings from './QuickMenuSettings';
+import { normalizeQuickMenu } from '../models/quickMenu';
 
 interface ConfigScreenProps {
   onSave: () => void;
@@ -51,6 +53,8 @@ interface SavedConfigDraft {
   uiTheme: UiThemeConfig;
   uiThemePresets: UiThemePreset[];
   uiToolbar: UiToolbarConfig;
+  quickMenu: string[];
+  quickMenuButton: boolean;
   exportConcurrency: number;
   useLocalBgRemoval: boolean;
   delayTime: number;
@@ -957,6 +961,8 @@ const OtherTab = ({
   uiTheme, setUiTheme,
   uiThemePresets, setUiThemePresets,
   uiToolbar, setUiToolbar,
+  quickMenu, setQuickMenu,
+  quickMenuButton, setQuickMenuButton,
   delayTime, setDelayTime,
   classicSceneCard, setClassicSceneCard,
   useProjectDrawer, setUseProjectDrawer,
@@ -1016,6 +1022,13 @@ const OtherTab = ({
       }} />
       <hr className="border-gray-200 dark:border-slate-600" />
       <ToolbarLayoutEditor value={uiToolbar} onChange={setUiToolbar} />
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <QuickMenuSettings
+        value={quickMenu}
+        onChange={setQuickMenu}
+        showButton={quickMenuButton}
+        onShowButtonChange={setQuickMenuButton}
+      />
       <hr className="border-gray-200 dark:border-slate-600" />
       <div className="flex items-center gap-2">
         <input type="checkbox" id="cfgClassicScene" checked={classicSceneCard}
@@ -1396,6 +1409,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const [uiTheme, setUiTheme] = useState<UiThemeConfig>({});
   const [uiThemePresets, setUiThemePresets] = useState<UiThemePreset[]>([]);
   const [uiToolbar, setUiToolbar] = useState<UiToolbarConfig>({});
+  const [quickMenu, setQuickMenu] = useState<string[]>([]);
+  const [quickMenuButton, setQuickMenuButton] = useState(false);
   const [exportConcurrency, setExportConcurrency] = useState(1);
   const [delayTime, setDelayTime] = useState(0);
   const [classicSceneCard, setClassicSceneCard] = useState(false);
@@ -1426,6 +1441,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       setUiTheme(config.uiTheme ?? {});
       setUiThemePresets(normalizeUiThemePresets(config.uiThemePresets));
       setUiToolbar(config.uiToolbar ?? {});
+      setQuickMenu(normalizeQuickMenu(config.quickMenu));
+      setQuickMenuButton(config.quickMenuButton ?? false);
       setExportConcurrency(config.exportConcurrency ?? 1);
       setImageEditor(config.imageEditor ?? 'photoshop');
       setUseGPU(config.useCUDA ?? false);
@@ -1452,6 +1469,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
         uiTheme: config.uiTheme ?? {},
         uiThemePresets: normalizeUiThemePresets(config.uiThemePresets),
         uiToolbar: config.uiToolbar ?? {},
+        quickMenu: normalizeQuickMenu(config.quickMenu),
+        quickMenuButton: config.quickMenuButton ?? false,
         exportConcurrency: config.exportConcurrency ?? 1,
         useLocalBgRemoval: config.useLocalBgRemoval ?? false,
         delayTime: config.delayTime ?? 0,
@@ -1589,6 +1608,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       uiTheme,
       uiThemePresets: uiThemePresets.length > 0 ? uiThemePresets : undefined,
       uiToolbar,
+      quickMenu,
+      quickMenuButton,
       exportConcurrency: exportConcurrency,
       useLocalBgRemoval: useLocalBgRemoval,
       delayTime: delayTime,
@@ -1602,6 +1623,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     if (old.useCUDA !== useGPU) localAIService.modelChanged();
     appState.classicSceneCard = classicSceneCard;
     appState.uiToolbar = uiToolbar;
+    appState.quickMenu = quickMenu;
+    appState.quickMenuButton = quickMenuButton;
     appState.useProjectDrawer = useProjectDrawer;
     appState.useBatchEnqueue = useBatchEnqueue;
     appState.initialThumbSize = initialThumbSize === 0 ? undefined : initialThumbSize;
@@ -1618,6 +1641,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       uiTheme,
       uiThemePresets,
       uiToolbar,
+      quickMenu,
+      quickMenuButton,
       exportConcurrency,
       useLocalBgRemoval,
       delayTime,
@@ -1642,6 +1667,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     uiTheme,
     uiThemePresets,
     uiToolbar,
+    quickMenu,
+    quickMenuButton,
     exportConcurrency,
     useLocalBgRemoval,
     delayTime,
@@ -1677,7 +1704,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       case 2:
         return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage, onClose }} />;
       case 3:
-        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, uiTheme, setUiTheme, uiThemePresets, setUiThemePresets, uiToolbar, setUiToolbar, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, historyThumbnailPercent, setHistoryThumbnailPercent, exportConcurrency, setExportConcurrency }} />;
+        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, uiTheme, setUiTheme, uiThemePresets, setUiThemePresets, uiToolbar, setUiToolbar, quickMenu, setQuickMenu, quickMenuButton, setQuickMenuButton, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, historyThumbnailPercent, setHistoryThumbnailPercent, exportConcurrency, setExportConcurrency }} />;
       case 4:
         return <KeyBindingsTab />;
       default:

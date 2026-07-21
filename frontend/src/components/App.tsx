@@ -74,6 +74,8 @@ import { ImageHistoryDrawer, ImageHistoryHandle, ImageHistoryPanel } from './Ima
 import QuickModeTab from './QuickModeTab';
 import { buildThemeVars } from '../models/uiTheme';
 import EditModeShell from './EditModeShell';
+import QuickMenu from './QuickMenu';
+import { normalizeQuickMenu } from '../models/quickMenu';
 configure({
   enforceActions: 'never',
 });
@@ -214,6 +216,9 @@ export const App = observer(() => {
             appState.openFindReplace();
           }
           break;
+        case 'quick-menu':
+          appState.quickMenuOpen = !appState.quickMenuOpen;
+          break;
         case 'toggle-history-panel':
           if (isMobile) appState.toggleHistoryDrawer();
           else appState.toggleHistoryPanel();
@@ -352,6 +357,8 @@ export const App = observer(() => {
       setThemeVars(buildThemeVars(conf.uiTheme, conf.whiteMode ?? false));
       appState.classicSceneCard = conf.classicSceneCard ?? false;
       appState.uiToolbar = conf.uiToolbar ?? {};
+      appState.quickMenu = normalizeQuickMenu(conf.quickMenu);
+      appState.quickMenuButton = conf.quickMenuButton ?? false;
       appState.initialThumbSize = conf.initialThumbSize;
       appState.historyThumbnailPercent = Math.max(
         60,
@@ -1094,6 +1101,7 @@ export const App = observer(() => {
         </ModalOverlay>
         <FindReplaceDialog />
         <SceneImporterDialog />
+        <QuickMenu />
         {dragOverlay && (
           <div
             className="fixed inset-0 z-[var(--z-drag-overlay)] flex items-center justify-center pointer-events-none"
