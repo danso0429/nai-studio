@@ -182,6 +182,42 @@ const TemplateManagerModal = observer(
       appState.pushMessage(`"${selected.name}" 구성을 현재 프로젝트에 적용했습니다.`);
     };
 
+    const propagateToChildren = () => {
+      if (!selected) return;
+      const children = templateService.listInheritedChildren(selected.id);
+      if (!children.length) {
+        appState.pushMessage('이 템플릿을 상속 중인 프로젝트가 없습니다.');
+        return;
+      }
+      appState.pushDialog({
+        type: 'confirm',
+        text: `상속 중인 프로젝트 ${children.length}개에 "${selected.name}"의 최신 구성을 다시 적용할까요?\n각 프로젝트에서 템플릿이 만든 항목만 교체됩니다.`,
+        callback: async () => {
+          let success = 0;
+          const failed: string[] = [];
+          for (const name of children) {
+            const session = await sessionService.get(name);
+            if (!session) {
+              failed.push(name);
+              continue;
+            }
+            try {
+              await templateService.applyProjectTemplate(session, selected.id, {
+                inherited: true,
+                replaceExisting: true,
+              });
+              success += 1;
+            } catch {
+              failed.push(name);
+            }
+          }
+          appState.pushMessage(
+            `상속 재적용 완료 — 성공 ${success}개${failed.length ? ` · 실패 ${failed.length}개` : ''}`,
+          );
+        },
+      });
+    };
+
     const createSceneTemplate = async (empty: boolean) => {
       const name = await appState.pushDialogAsync({
         type: 'input-confirm',
@@ -274,6 +310,7 @@ const TemplateManagerModal = observer(
                     복제
                   </button>
                   <button className="round-button back-red" onClick={deleteProjectTemplate}>삭제</button>
+                  <button className="round-button back-gray" onClick={propagateToChildren}>상속 자식에 재적용</button>
                   <button className="round-button back-green ml-auto" onClick={applyToCurrent}>현재 프로젝트에 적용</button>
                 </div>
                 <section className="r-card p-3">

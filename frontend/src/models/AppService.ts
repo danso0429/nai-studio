@@ -9,6 +9,7 @@ import {
   samplingPresetService,
   sessionService,
   taskQueueService,
+  templateService,
   workFlowService,
   zipService,
 } from '.';
@@ -1025,6 +1026,9 @@ export class AppState {
     // 폴더별 인라인 항목(폴더 많거나 중첩 path면 메뉴 비대) 대신 단일 진입 → 폴더 피커.
     items.push({ text: '📂 폴더로 이동', value: '__move__' });
     items.push({ text: '📋 복제 / 다른 폴더로 복사', value: '__duplicate__' });
+    if (templateService.getInheritedApplication(name)) {
+      items.push({ text: '♟ 폴더 템플릿 상속 끊기', value: '__break_inheritance__' });
+    }
     items.push({ text: '🗑️ 프로젝트 영구 삭제', value: '__delete__' });
     const target = await this.pushDialogAsync({ type: 'select', text: `"${name}" 설정`, items });
     if (!target) return;
@@ -1085,6 +1089,15 @@ export class AppState {
           this.projectCopyRequest = null;
         },
       };
+    } else if (target === '__break_inheritance__') {
+      this.pushDialog({
+        type: 'confirm',
+        text: `"${name}"의 폴더 템플릿 상속을 끊을까요?\n현재 구성은 유지되고 이후 부모 템플릿 재적용 대상에서 제외됩니다.`,
+        callback: () => {
+          templateService.breakInheritance(name);
+          this.pushMessage(`"${name}"의 템플릿 상속을 끊었습니다.`);
+        },
+      });
     }
   }
 

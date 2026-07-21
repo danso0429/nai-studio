@@ -51,3 +51,16 @@ test('new project entry points consume explicit or inherited templates', () => {
   assert.match(drawer, /templateService\.createProject/);
   assert.match(drawer, /폴더 전용 템플릿 새로 만들기/);
 });
+
+test('inheritance is visible, breakable, and explicitly propagated', () => {
+  const drawer = read('frontend/src/components/ProjectDrawer.tsx');
+  const manager = read('frontend/src/components/TemplateManagerModal.tsx');
+  const app = read('frontend/src/models/AppService.ts');
+  assert.match(drawer, /♚/);
+  assert.match(drawer, /♟/);
+  assert.match(manager, /listInheritedChildren/);
+  assert.match(manager, /상속 자식에 재적용/);
+  assert.match(manager, /replaceExisting: true/);
+  assert.match(app, /__break_inheritance__/);
+  assert.match(app, /templateService\.breakInheritance\(name\)/);
+});

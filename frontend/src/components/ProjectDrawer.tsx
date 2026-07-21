@@ -108,6 +108,10 @@ const ProjectRow = observer(
       ? sessionService.getFolderColor(folder) || DEFAULT_FOLDER_COLOR
       : null;
     const highlighted = selectMode ? selected : active;
+    const inherited = templateService.getInheritedApplication(name);
+    const inheritedTemplate = inherited
+      ? projectTemplateService.get(inherited.templateId)
+      : undefined;
     return (
       <button
         onClick={onSelect}
@@ -153,6 +157,16 @@ const ProjectRow = observer(
               }`}
             />
           </span>
+          </Tooltip>
+        )}
+        {inherited && (
+          <Tooltip content={`폴더 템플릿 상속: ${inheritedTemplate?.name || '알 수 없음'}`}>
+            <span
+              className="font-bold flex-none"
+              style={{ color: active ? undefined : inheritedTemplate?.badgeColor || '#f59e0b' }}
+            >
+              ♟
+            </span>
           </Tooltip>
         )}
         <span className="truncate flex-1">{name}</span>
@@ -1156,6 +1170,10 @@ const ProjectDrawer = observer(() => {
                 const isDropping = dropTarget === f && canDropOnFolder(f);
                 const folderDragging =
                   drag?.type === 'folder' && drag.name === f;
+                const folderTemplate = templateService.getFolderTemplate(f);
+                const folderTemplateEntry = folderTemplate
+                  ? projectTemplateService.get(folderTemplate.templateId)
+                  : undefined;
                 return (
                   <div
                     key={f}
@@ -1264,6 +1282,16 @@ const ProjectDrawer = observer(() => {
                           <FaFolder size={14} style={{ color }} />
                         </span>
                         <span className="truncate flex-1 text-left">{leafOfFolder(f)}</span>
+                        {folderTemplate && (
+                          <Tooltip content={`기본 템플릿: ${folderTemplateEntry?.name || '알 수 없음'}`}>
+                            <span
+                              className="font-bold flex-none"
+                              style={{ color: folderTemplateEntry?.badgeColor || '#f59e0b' }}
+                            >
+                              ♚
+                            </span>
+                          </Tooltip>
+                        )}
                         <span className="text-xs text-gray-400 font-normal flex-none">
                           {subtreeProjectCount(f)}
                         </span>
