@@ -332,6 +332,7 @@ export class AppState {
   @observable accessor quickMenu: string[] = [...DEFAULT_QUICK_MENU];
   @observable accessor quickMenuButton: boolean = false;
   @observable accessor quickMenuOpen: boolean = false;
+  @observable accessor uiCompanionSlots: Record<string, string[]> = {};
 
   // 씬 그리드 초기 썸네일 크기. undefined면 화면 폭으로 자동 결정. ConfigScreen
   // 에서 사용자가 명시 override 가능. App.tsx의 config-changed에서 sync.

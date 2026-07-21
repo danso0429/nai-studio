@@ -13,6 +13,7 @@ import { formatProjectNameConflict } from '../models/util';
 import { runInAction } from 'mobx';
 import { TOOLBAR_VIEW_MAIN, resolveToolbarView } from '../models/uiLayout';
 import ToolbarOverflowMenu from './ToolbarOverflowMenu';
+import { companionAssignedIds } from '../models/companionSlots';
 import {
   DraggableToolbarButton,
   ToolbarHideZone,
@@ -146,6 +147,7 @@ const SessionSelect = observer(() => {
     TOOLBAR_VIEW_MAIN,
     appState.uiToolbar,
     isMobile,
+    companionAssignedIds(appState.uiCompanionSlots),
   ).find(({ area }) => area === 'project');
   const projectInline = (projectArea?.inline ?? []).filter((id) => projectToolbarNodes[id]);
   const projectMenu = (projectArea?.menu ?? []).filter((id) => projectToolbarNodes[id]);

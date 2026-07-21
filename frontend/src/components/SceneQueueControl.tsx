@@ -45,6 +45,7 @@ import { reaction } from 'mobx';
 import { oneTimeFlowMap, oneTimeFlows } from '../models/workflows/OneTimeFlows';
 import { TOOLBAR_VIEW_MAIN, resolveToolbarView } from '../models/uiLayout';
 import ToolbarOverflowMenu from './ToolbarOverflowMenu';
+import { companionAssignedIds } from '../models/companionSlots';
 import {
   DraggableToolbarButton,
   ToolbarHideZone,
@@ -1847,6 +1848,7 @@ const QueueControl = observer(
       TOOLBAR_VIEW_MAIN,
       appState.uiToolbar,
       isMobile,
+      companionAssignedIds(appState.uiCompanionSlots),
     ).find(({ area }) => area === 'scene');
     const sceneInline = (sceneArea?.inline ?? []).filter((id) => sceneToolbarNodes[id]);
     const sceneMenu = (sceneArea?.menu ?? []).filter((id) => sceneToolbarNodes[id]);

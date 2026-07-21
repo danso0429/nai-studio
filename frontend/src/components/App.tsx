@@ -359,6 +359,7 @@ export const App = observer(() => {
       appState.uiToolbar = conf.uiToolbar ?? {};
       appState.quickMenu = normalizeQuickMenu(conf.quickMenu);
       appState.quickMenuButton = conf.quickMenuButton ?? false;
+      appState.uiCompanionSlots = conf.uiCompanionSlots ?? {};
       appState.initialThumbSize = conf.initialThumbSize;
       appState.historyThumbnailPercent = Math.max(
         60,

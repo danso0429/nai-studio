@@ -80,6 +80,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - config 로드·저장과 환경설정 편집 shell을 연결하고, 씬·프로젝트 툴바가 같은 v2 resolver를 실제 소비하도록 `PORT/ADAPT`. Remote 고유 버튼(프로젝트 이름 변경·백업/이미지 불러오기·프로젝트 예약 취소·씬 재정렬)도 안정 id로 레지스트리에 포함하며 기존 확인 대화상자와 콜백은 보존한다. 숨김/더보기는 실제 버튼 노드를 이동할 뿐 기능을 재구현하지 않는다. 순서 DnD·portable cross-area UI는 후속이다. 검증: frontend tsc 0 error, `test/ui-layout-v2.test.js`, `test/config-unsaved-badge.test.js`, `test/toolbar-consumers.test.js` pass.
 - PC의 명시적 화면 편집 shell과 모바일 long-press DnD를 연결했다. 인라인·더보기 내부 순서, 더보기/숨김 이동, portable 버튼의 씬↔프로젝트 이동은 모두 `moveToolbarButton` 단일 관문으로 즉시 저장하고 실패 시 메모리 배치를 되돌린다. 모바일 더보기는 드래그 중 시각적으로 치워 실제 툴바 drop target을 노출한다. companion slot·Quick menu·패널 layout은 후속이다. 검증: frontend tsc 0 error, `test/toolbar-consumers.test.js` pass.
 - Quick menu를 `ADAPT`. Remote에서 전역으로 안전하게 호출 가능한 프로젝트 목록·프롬프트조각·찾기/변환·미디어 불러오기·씬 임포트·히스토리·이미지 휴지통 비우기·프로젝트 삭제를 config 순서로 구성한다. destructive 항목은 기존 확인 진입점을 재사용한다. PC `Ctrl+K`와 옵트인 플로팅 버튼이 같은 메뉴를 열며, 버튼은 400ms long-press 뒤 이동하고 위치는 기기 localStorage에만 저장한다. 검증: frontend tsc 0 error, `test/quick-menu.test.js`, `test/config-unsaved-badge.test.js` pass.
+- companion slot 기반을 `ADAPT`. 현재 Remote에서 실제 전역 콜백이 있는 portable 버튼만 허용하고, 캐릭터 프롬프트·바이브·캐릭터 레퍼런스의 항상 존재하는 행에 배정한다. first-host-wins·stale/비허용 무시·원본 불변 이동을 순수 계층으로 고정하고, 배정된 버튼은 양 툴바에서 파생 제외되며 해제 시 원래 배치로 복귀한다. 아직 전역화되지 않은 portable 액션과 sampling/preset-top 호스트, companion 직접 DnD는 후속이다. 검증: frontend tsc 0 error, `test/companion-slots.test.js`, `test/config-unsaved-badge.test.js` pass.
 
 ### V5-E — WebP
 

@@ -75,6 +75,7 @@ import PromptChunkManager from './PromptChunkManager';
 import { FaCloudUploadAlt } from 'react-icons/fa';
 import { ModelVersion } from '../backends/imageGen';
 import { ResolutionPicker, resolutionValueToSize } from './ResolutionPicker';
+import CompanionButtons from './CompanionButtons';
 
 // Phase 7C: gray-label 핵심 패턴 헬퍼 (오타 재발 방지)
 const GrayLabel: React.FC<{ children: React.ReactNode; className?: string }> = ({
@@ -498,15 +499,18 @@ export const VibeButton = observer(({ input }: { input: WFIInlineInput }) => {
   return (
     <>
       {editVibe == undefined && getField().length === 0 && (
-        <button
-          className={`round-button h-8 w-full flex mt-2 ${locked ? 'back-llgray opacity-50 cursor-not-allowed' : 'back-gray'}`}
-          onClick={onClick}
-          disabled={locked}
-        >
-          <div className="flex-1">
-            {locked ? '바이브 이미지 설정 (캐릭터 레퍼런스 사용 중)' : '바이브 이미지 설정 열기'}
-          </div>
-        </button>
+        <div className="w-full flex items-center mt-2">
+          <button
+            className={`round-button h-8 flex-1 flex ${locked ? 'back-llgray opacity-50 cursor-not-allowed' : 'back-gray'}`}
+            onClick={onClick}
+            disabled={locked}
+          >
+            <div className="flex-1">
+              {locked ? '바이브 이미지 설정 (캐릭터 레퍼런스 사용 중)' : '바이브 이미지 설정 열기'}
+            </div>
+          </button>
+          <CompanionButtons host="vibes" />
+        </div>
       )}
       {editVibe == undefined && getField().length > 0 && (
         <div className={'w-full flex items-center mt-2' + (locked ? ' opacity-50' : '')}>
@@ -543,6 +547,7 @@ export const VibeButton = observer(({ input }: { input: WFIInlineInput }) => {
               </Tooltip>
             )}
           </div>
+          <CompanionButtons host="vibes" />
         </div>
       )}
     </>
@@ -1025,15 +1030,18 @@ export const CharacterReferenceButton = observer(({ input }: { input: WFIInlineI
   return (
     <>
       {editCharacterReference == undefined && field.length === 0 && (
-        <button
-          className={`round-button h-8 w-full flex mt-2 ${locked ? 'back-llgray opacity-50 cursor-not-allowed' : 'back-gray'}`}
-          onClick={onClick}
-          disabled={locked}
-        >
-          <div className="flex-1">
-            {locked ? '캐릭터 레퍼런스 (v4 모델 미지원)' : '캐릭터 레퍼런스 설정 열기'}
-          </div>
-        </button>
+        <div className="w-full flex items-center mt-2">
+          <button
+            className={`round-button h-8 flex-1 flex ${locked ? 'back-llgray opacity-50 cursor-not-allowed' : 'back-gray'}`}
+            onClick={onClick}
+            disabled={locked}
+          >
+            <div className="flex-1">
+              {locked ? '캐릭터 레퍼런스 (v4 모델 미지원)' : '캐릭터 레퍼런스 설정 열기'}
+            </div>
+          </button>
+          <CompanionButtons host="characterReferences" />
+        </div>
       )}
       {editCharacterReference == undefined && field.length > 0 && (
         <div className={'w-full flex items-center mt-2' + (locked ? ' opacity-50' : '')}>
@@ -1076,6 +1084,7 @@ export const CharacterReferenceButton = observer(({ input }: { input: WFIInlineI
               </Tooltip>
             )}
           </div>
+          <CompanionButtons host="characterReferences" />
         </div>
       )}
     </>
@@ -2703,20 +2712,23 @@ export const CharacterButton = ({ input }: { input: WFIInlineInput }) => {
   return (
     <>
       {editCharacters === undefined && field.length === 0 && (
-        <button
-          className={`round-button back-gray h-8 w-full flex mt-2`}
-          onClick={onClick}
-        >
-          <div className="flex-1">
-            <FaUserAlt className="inline mr-2" />
-            캐릭터 프롬프트 열기
-          </div>
-        </button>
+        <div className="w-full flex items-center mt-2">
+          <button
+            className="round-button back-gray h-8 flex-1 flex"
+            onClick={onClick}
+          >
+            <div className="flex-1">
+              <FaUserAlt className="inline mr-2" />
+              캐릭터 프롬프트 열기
+            </div>
+          </button>
+          <CompanionButtons host="characterPrompts" />
+        </div>
       )}
       {editCharacters === undefined && field.length > 0 && (
-        <div className="w-full mt-2">
+        <div className="w-full mt-2 flex items-center">
           <button
-            className="round-button back-sky h-8 w-full flex justify-between items-center"
+            className="round-button back-sky h-8 flex-1 flex justify-between items-center"
             onClick={onClick}
           >
             <div className="flex items-center">
@@ -2729,6 +2741,7 @@ export const CharacterButton = ({ input }: { input: WFIInlineInput }) => {
               </span>
             </div>
           </button>
+          <CompanionButtons host="characterPrompts" />
         </div>
       )}
     </>
