@@ -45,6 +45,11 @@ import { reaction } from 'mobx';
 import { oneTimeFlowMap, oneTimeFlows } from '../models/workflows/OneTimeFlows';
 import { TOOLBAR_VIEW_MAIN, resolveToolbarView } from '../models/uiLayout';
 import ToolbarOverflowMenu from './ToolbarOverflowMenu';
+import {
+  DraggableToolbarButton,
+  ToolbarHideZone,
+  ToolbarSlotDropTarget,
+} from './ToolbarDnd';
 
 const createMissingPiecesForSession = (
   session: Session,
@@ -1884,21 +1889,36 @@ const QueueControl = observer(
         {!!showPannel && (
           <div className="flex flex-none pb-1.5 flex-wrap">
             <div className="flex gap-1 md:gap-1.5 flex-wrap items-center">
-              {sceneInline.map((id) => <span key={id}>{sceneToolbarNodes[id]}</span>)}
-              {sceneMenu.length > 0 && (
+              {sceneInline.map((id, index) => (
+                <DraggableToolbarButton
+                  key={id}
+                  group="scene"
+                  id={id}
+                  name={sceneButtonName(id)}
+                  index={index}
+                >
+                  {sceneToolbarNodes[id]}
+                </DraggableToolbarButton>
+              ))}
+              {(sceneMenu.length > 0 || appState.editMode) && (
                 <div className="relative">
-                  <Tooltip content="더보기">
-                    <button
-                      className={`round-button ${showToolbarMenu ? 'back-sky' : 'back-gray'}`}
-                      onClick={() => setShowToolbarMenu((open) => !open)}
-                    >
-                      <FaEllipsisH size={18} />
-                    </button>
-                  </Tooltip>
+                  <ToolbarSlotDropTarget group="scene" slot="menu">
+                    <Tooltip content="더보기">
+                      <button
+                        className={`round-button ${showToolbarMenu ? 'back-sky' : 'back-gray'}`}
+                        onClick={() => {
+                          if (sceneMenu.length > 0) setShowToolbarMenu((open) => !open);
+                        }}
+                      >
+                        <FaEllipsisH size={18} />
+                      </button>
+                    </Tooltip>
+                  </ToolbarSlotDropTarget>
                   <ToolbarOverflowMenu
                     isOpen={showToolbarMenu}
                     onClose={() => setShowToolbarMenu(false)}
                     title="씬 도구 더보기"
+                    group="scene"
                     items={sceneMenu.map((id) => ({
                       id,
                       name: sceneButtonName(id),
@@ -1907,6 +1927,7 @@ const QueueControl = observer(
                   />
                 </div>
               )}
+              <ToolbarHideZone group="scene" />
             </div>
             <div className="ml-auto mr-2 hidden md:flex items-center gap-2">
               {!appState.classicSceneCard && (

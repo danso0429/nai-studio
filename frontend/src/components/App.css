@@ -20,6 +20,7 @@
   --z-context-menu: 5200;
   --z-blocking-modal: 5500;
   --z-kbd-action: 6000;
+  --z-edit-overlay: 7000;
   --z-tooltip: 9000;
   --z-drag-overlay: 9500;
   --z-drag-ghost: 9999;

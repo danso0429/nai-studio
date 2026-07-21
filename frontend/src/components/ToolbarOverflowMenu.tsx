@@ -1,6 +1,12 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import ModalOverlay from './ModalOverlay';
 import { isMobile } from '../models';
+import { appState } from '../models/AppService';
+import { observer } from 'mobx-react-lite';
+import {
+  DraggableToolbarMenuItem,
+  type ToolbarGroup,
+} from './ToolbarDnd';
 
 export interface ToolbarOverflowItem {
   id: string;
@@ -13,14 +19,16 @@ interface ToolbarOverflowMenuProps {
   onClose: () => void;
   title: string;
   items: ToolbarOverflowItem[];
+  group: ToolbarGroup;
   dropUp?: boolean;
 }
 
-const ToolbarOverflowMenu = ({
+const ToolbarOverflowMenu = observer(({
   isOpen,
   onClose,
   title,
   items,
+  group,
   dropUp,
 }: ToolbarOverflowMenuProps) => {
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -42,26 +50,39 @@ const ToolbarOverflowMenu = ({
     };
   }, [isOpen, onClose]);
 
-  const rows = items.map((item) => (
-    <div
+  const rows = items.map((item, index) => (
+    <DraggableToolbarMenuItem
       key={item.id}
-      className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10"
-      onClick={(event) => {
-        const target = event.target as HTMLElement;
-        if (!target.closest('button')) {
-          event.currentTarget.querySelector('button')?.click();
-        }
-        onClose();
-      }}
+      group={group}
+      id={item.id}
+      name={item.name}
+      index={index}
     >
-      <div className="flex-none">{item.node}</div>
-      <span className="text-sm text-default select-none">{item.name}</span>
-    </div>
+      <div
+        className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10"
+        onClick={(event) => {
+          const target = event.target as HTMLElement;
+          if (!target.closest('button')) {
+            event.currentTarget.querySelector('button')?.click();
+          }
+          onClose();
+        }}
+      >
+        <div className="flex-none">{item.node}</div>
+        <span className="text-sm text-default select-none">{item.name}</span>
+      </div>
+    </DraggableToolbarMenuItem>
   ));
 
   if (isMobile) {
     return (
-      <ModalOverlay isOpen={isOpen} onClose={onClose} title={title} width="max-w-sm">
+      <ModalOverlay
+        isOpen={isOpen}
+        onClose={onClose}
+        title={title}
+        width="max-w-sm"
+        hidden={appState.toolbarDragging}
+      >
         <div className="flex flex-col gap-1">{rows}</div>
       </ModalOverlay>
     );
@@ -76,6 +97,6 @@ const ToolbarOverflowMenu = ({
       {rows}
     </div>
   );
-};
+});
 
 export default ToolbarOverflowMenu;

@@ -73,6 +73,7 @@ import { BuildInfoBadge } from './BuildInfo';
 import { ImageHistoryDrawer, ImageHistoryHandle, ImageHistoryPanel } from './ImageHistory';
 import QuickModeTab from './QuickModeTab';
 import { buildThemeVars } from '../models/uiTheme';
+import EditModeShell from './EditModeShell';
 configure({
   enforceActions: 'never',
 });
@@ -942,6 +943,7 @@ export const App = observer(() => {
         delayTouchStart: 400,
       }}
     >
+      {!isMobile && appState.editMode && <EditModeShell />}
       <div
         className={
           'flex flex-col relative h-full w-full ' +

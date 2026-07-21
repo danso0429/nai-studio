@@ -15,7 +15,25 @@ test('scene and project toolbars consume the shared v2 resolver', () => {
     assert.match(source, /resolveToolbarView\(/);
     assert.match(source, /appState\.uiToolbar/);
     assert.match(source, /<ToolbarOverflowMenu/);
+    assert.match(source, /<DraggableToolbarButton/);
+    assert.match(source, /<ToolbarHideZone/);
   }
+});
+
+test('toolbar drag has an explicit edit shell and suppresses history swipes', () => {
+  const dnd = read('frontend/src/components/ToolbarDnd.tsx');
+  const topBar = read('frontend/src/components/TobBar.tsx');
+  const app = read('frontend/src/components/App.tsx');
+  const history = read('frontend/src/components/ImageHistory.tsx');
+  const overflow = read('frontend/src/components/ToolbarOverflowMenu.tsx');
+  assert.match(dnd, /moveToolbarButton\(TOOLBAR_VIEW_MAIN/);
+  assert.match(dnd, /slot: 'inline'/);
+  assert.match(dnd, /slot: 'menu'/);
+  assert.match(dnd, /slot="hidden"/);
+  assert.match(topBar, /화면 편집/);
+  assert.match(app, /<EditModeShell/);
+  assert.ok((history.match(/appState\.toolbarDragging/g) ?? []).length >= 4);
+  assert.match(overflow, /hidden=\{appState\.toolbarDragging\}/);
 });
 
 test('all pre-v5 Remote toolbar actions remain bound to a stable id', () => {

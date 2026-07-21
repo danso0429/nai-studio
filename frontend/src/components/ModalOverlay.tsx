@@ -8,6 +8,7 @@ interface ModalOverlayProps {
   title: string;
   children: ReactNode;
   width?: string;
+  hidden?: boolean;
 }
 
 const FOCUSABLE_SELECTOR =
@@ -19,6 +20,7 @@ const ModalOverlay = ({
   title,
   children,
   width = 'max-w-xl',
+  hidden = false,
 }: ModalOverlayProps) => {
   const mouseDownOnBackdrop = useRef(false);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -79,7 +81,7 @@ const ModalOverlay = ({
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center"
+      className={`fixed inset-0 flex items-center justify-center${hidden ? ' opacity-0 pointer-events-none' : ''}`}
       style={{
         zIndex: 'var(--z-modal)',
         backgroundColor: 'rgba(0, 0, 0, 0.3)',

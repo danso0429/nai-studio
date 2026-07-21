@@ -13,6 +13,11 @@ import { formatProjectNameConflict } from '../models/util';
 import { runInAction } from 'mobx';
 import { TOOLBAR_VIEW_MAIN, resolveToolbarView } from '../models/uiLayout';
 import ToolbarOverflowMenu from './ToolbarOverflowMenu';
+import {
+  DraggableToolbarButton,
+  ToolbarHideZone,
+  ToolbarSlotDropTarget,
+} from './ToolbarDnd';
 
 const SessionSelect = observer(() => {
   const [showCharacterPresets, setShowCharacterPresets] = useState(false);
@@ -274,21 +279,36 @@ const SessionSelect = observer(() => {
           />
         )}
       </div>
-      {projectInline.map((id) => <span key={id}>{projectToolbarNodes[id]}</span>)}
-      {projectMenu.length > 0 && (
+      {projectInline.map((id, index) => (
+        <DraggableToolbarButton
+          key={id}
+          group="project"
+          id={id}
+          name={projectButtonName(id)}
+          index={index}
+        >
+          {projectToolbarNodes[id]}
+        </DraggableToolbarButton>
+      ))}
+      {(projectMenu.length > 0 || appState.editMode) && (
         <div className="relative">
-          <Tooltip content="프로젝트 도구 더보기">
-            <button
-              className={`icon-button mx-1 ${showProjectMenu ? 'back-sky' : ''}`}
-              onClick={() => setShowProjectMenu((open) => !open)}
-            >
-              <FaEllipsisH size={18} />
-            </button>
-          </Tooltip>
+          <ToolbarSlotDropTarget group="project" slot="menu">
+            <Tooltip content="프로젝트 도구 더보기">
+              <button
+                className={`icon-button mx-1 ${showProjectMenu ? 'back-sky' : ''}`}
+                onClick={() => {
+                  if (projectMenu.length > 0) setShowProjectMenu((open) => !open);
+                }}
+              >
+                <FaEllipsisH size={18} />
+              </button>
+            </Tooltip>
+          </ToolbarSlotDropTarget>
           <ToolbarOverflowMenu
             isOpen={showProjectMenu}
             onClose={() => setShowProjectMenu(false)}
             title="프로젝트 도구 더보기"
+            group="project"
             dropUp
             items={projectMenu.map((id) => ({
               id,
@@ -298,6 +318,7 @@ const SessionSelect = observer(() => {
           />
         </div>
       )}
+      <ToolbarHideZone group="project" />
       {showProjectBrowser && (
         <ProjectBrowser onClose={() => setShowProjectBrowser(false)} />
       )}

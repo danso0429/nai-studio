@@ -213,6 +213,7 @@ export const ImageHistoryHandle = observer(() => {
     let startY = 0;
     let tracking = false;
     const onStart = (event: TouchEvent) => {
+      if (appState.toolbarDragging) return;
       if (appState.historyDrawerOpen || event.touches.length !== 1) return;
       if (appState.projectDrawerOpen) return;
       const touch = event.touches[0];
@@ -222,6 +223,10 @@ export const ImageHistoryHandle = observer(() => {
       tracking = true;
     };
     const onMove = (event: TouchEvent) => {
+      if (appState.toolbarDragging) {
+        tracking = false;
+        return;
+      }
       if (!tracking || event.touches.length !== 1) return;
       const touch = event.touches[0];
       const dx = touch.clientX - startX;
@@ -318,6 +323,10 @@ export const ImageHistoryDrawer = observer(() => {
           contain: 'layout paint',
         }}
         onTouchStart={(event) => {
+          if (appState.toolbarDragging) {
+            swipe.current.active = false;
+            return;
+          }
           swipe.current = {
             x: event.touches[0]?.clientX ?? 0,
             y: event.touches[0]?.clientY ?? 0,
@@ -325,6 +334,10 @@ export const ImageHistoryDrawer = observer(() => {
           };
         }}
         onTouchMove={(event) => {
+          if (appState.toolbarDragging) {
+            swipe.current.active = false;
+            return;
+          }
           if (!swipe.current.active || event.touches.length !== 1) return;
           const dx = event.touches[0].clientX - swipe.current.x;
           const dy = event.touches[0].clientY - swipe.current.y;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FaFileImport } from 'react-icons/fa';
+import { FaFileImport, FaSlidersH } from 'react-icons/fa';
 import { BuildInfoBadge } from './BuildInfo';
 import ConfigScreen from './ConfigScreen';
 import SessionSelect from './SessionSelect';
@@ -85,6 +85,16 @@ const TobBar = () => {
       >
         <FaFileImport size={12} />
         <span className="hidden md:inline">씬 임포트</span>
+      </button>
+      <button
+        className="titlebar-no-drag round-button back-gray hidden md:flex items-center gap-1"
+        onClick={() => {
+          appState.editMode = true;
+        }}
+        title="화면에서 툴바 배치 편집"
+      >
+        <FaSlidersH size={12} />
+        화면 편집
       </button>
       <button
         className={`titlebar-no-drag round-button back-sky`}
