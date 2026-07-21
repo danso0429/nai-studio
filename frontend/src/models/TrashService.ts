@@ -47,6 +47,11 @@ export class TrashService extends EventTarget {
     this.loaded = true;
   }
 
+  async reloadExternal(): Promise<void> {
+    await this.loadTrash();
+    this.dispatchEvent(new CustomEvent('trash-updated'));
+  }
+
   async saveTrash(): Promise<void> {
     await backend.writeFile(TRASH_FILE, JSON.stringify(this.data));
     this.dispatchEvent(new CustomEvent('trash-updated'));
@@ -86,46 +91,9 @@ export class TrashService extends EventTarget {
   }
 
   async moveImagesToTrash(session: Session, scene: GenericScene, fullPaths: string[]): Promise<void> {
-    const trashDir = this.getImageTrashDir(session, scene);
-    const meta = await this.loadImageTrashMeta(session, scene);
-    const now = Date.now();
-
-    // Ensure .trash directory exists by writing meta first
-    if (Object.keys(meta).length === 0 && fullPaths.length > 0) {
-      await this.saveImageTrashMeta(session, scene, meta);
-    }
-
-    // Batch move via server endpoint for speed
-    const apiBase = import.meta.env.BASE_URL.replace(/\/$/, '');
-    try {
-      const moves = fullPaths.map(fullPath => ({
-        src: fullPath,
-        dest: trashDir + '/' + fullPath.split('/').pop()!,
-      }));
-      const res = await fetch(`${apiBase}/api/fs/move-batch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ moves }),
-      });
-      if (res.ok) {
-        for (const fullPath of fullPaths) {
-          meta[fullPath.split('/').pop()!] = now;
-        }
-      }
-    } catch (e) {
-      // Fallback to sequential
-      for (const fullPath of fullPaths) {
-        const filename = fullPath.split('/').pop()!;
-        try {
-          await backend.renameFile(fullPath, trashDir + '/' + filename);
-          meta[filename] = now;
-        } catch (e) {
-          console.error('이미지 휴지통 이동 실패:', fullPath, e);
-        }
-      }
-    }
-
-    await this.saveImageTrashMeta(session, scene, meta);
+    const outputDir = this.getSceneOutputDir(session, scene);
+    const filenames = fullPaths.map((fullPath) => fullPath.split('/').pop()!);
+    await backend.trashImages(outputDir, filenames);
     this.dispatchEvent(new CustomEvent('trash-updated'));
   }
 

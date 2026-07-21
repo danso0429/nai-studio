@@ -16,6 +16,7 @@ import {
 } from '.';
 import { startVisibleInterval } from '../visibleInterval';
 import { setAppState } from './appStateRef';
+import { isBackendNotFoundError } from '../backends/apiError';
 import type { GlobalPresetType, IGlobalPresetEntry } from './GlobalPresetService';
 import { SUPPORTED_GLOBAL_PRESET_TYPES } from './GlobalPresetService';
 import { Dialog } from '../components/ConfirmWindow';
@@ -186,6 +187,7 @@ function buildSpecialCharReplacer(chars: Set<string>): RegExp | null {
 
 export class AppState {
   @observable accessor curSession: Session | undefined = undefined;
+  @observable accessor projectAccessMode: 'owner' | 'mirror' | null = null;
   @observable accessor messages: { id: string; text: string }[] = [];
   @observable accessor dialogs: Dialog[] = [];
   @observable accessor samples: number = 1;
@@ -326,6 +328,7 @@ export class AppState {
   @observable accessor useBatchEnqueue: boolean = false;
   // 프로젝트 선택 fetch 연타 가드 (selectSession). 같은 이름 fetch 진행 중이면 무시.
   private pendingSelection: string | null = null;
+  private projectLeaseRefresh: Promise<void> | null = null;
 
   // 이미지 클립보드
   @observable accessor imageClipboard: string[] = [];
@@ -612,7 +615,7 @@ export class AppState {
               true,
             );
             if (this.curSession?.name === name) {
-              this.curSession = undefined;
+              await this.closeCurrentSession();
             }
           } catch (e: any) {
             if (this.curSession?.name === name && !sessionService.getLoaded(name)) {
@@ -669,7 +672,7 @@ export class AppState {
             try {
               await sessionService.delete(name);
               imageService.onSessionDeleted(name);
-              if (this.curSession?.name === name) this.curSession = undefined;
+              if (this.curSession?.name === name) await this.closeCurrentSession();
               done++;
             } catch (e) {
               if (this.curSession?.name === name && !sessionService.getLoaded(name)) {
@@ -1141,32 +1144,165 @@ export class AppState {
 
   // 프로젝트 선택 — sticky 토스트 + 연타 가드 + retry (느린 네트워크 대응, P12 #8).
   // SessionSelect 버튼과 ProjectDrawer가 공유 (selectSession 로직 단일화).
-  selectSession(name: string) {
-    if (this.curSession?.name === name) return;
+  async selectSession(name: string): Promise<Session | undefined> {
+    if (this.curSession?.name === name && this.projectAccessMode) return this.curSession;
     if (this.pendingSelection === name) return;
     this.pendingSelection = name;
     const toastId = this.pushMessage(`프로젝트 "${name}" 로딩 중…`, { sticky: true });
-    sessionService
-      .get(name, { throwOnError: true })
-      .then((session) => {
-        this.dismissMessage(toastId);
-        if (this.pendingSelection !== name) return;
-        this.pendingSelection = null;
-        if (session) {
-          imageService.refreshBatch(session);
-          this.curSession = session;
-        } else {
-          this.pushMessage(`프로젝트 "${name}" 로드 실패`);
-        }
-      })
-      .catch((e) => {
-        this.dismissMessage(toastId);
-        if (this.pendingSelection === name) this.pendingSelection = null;
-        this.pushMessage(`프로젝트 "${name}" 로드 실패: ${e?.message ?? e}`);
+    const oldName = this.curSession?.name;
+    const oldMode = this.projectAccessMode;
+    let registeredNewAccess = false;
+    try {
+      let lease = await backend.acquireProjectLease(name);
+      const renameChain = new Set([name]);
+      while (lease.renamedTo) {
+        if (renameChain.has(lease.renamedTo)) throw new Error('프로젝트 이름변경 순환을 감지했습니다.');
+        name = lease.renamedTo;
+        renameChain.add(name);
+        this.pendingSelection = name;
+        lease = await backend.acquireProjectLease(name);
+      }
+      let mode: 'owner' | 'mirror' = 'owner';
+      registeredNewAccess = lease.acquired;
+      if (!lease.acquired) {
+        const choice = await this.pushDialogAsync({
+          type: 'select',
+          text: `프로젝트 "${name}"은 다른 화면에서 편집 중입니다.`,
+          items: [
+            { text: '읽기 전용 미러로 열기', value: 'mirror', color: 'amber' },
+          ],
+        });
+        if (choice !== 'mirror') return;
+        await backend.useProjectMirror(name);
+        registeredNewAccess = true;
+        mode = 'mirror';
+        // 이전에 이 탭이 캐시한 객체가 있으면 소유자의 최신 디스크 상태로 교체한다.
+        await sessionService.invalidate(name);
+      }
+      const session = await sessionService.get(name, { throwOnError: true });
+      if (this.pendingSelection !== name) {
+        if (registeredNewAccess) await backend.releaseProjectLease(name);
+        return;
+      }
+      if (!session) {
+        if (registeredNewAccess) await backend.releaseProjectLease(name);
+        this.pushMessage(`프로젝트 "${name}" 로드 실패`);
+        return;
+      }
+      if (oldName && oldName !== name && oldMode === 'owner' && sessionService.getLoaded(oldName)) {
+        await sessionService.flushResource(oldName);
+      }
+      imageService.refreshBatch(session);
+      this.curSession = session;
+      this.projectAccessMode = mode;
+      registeredNewAccess = false;
+      if (oldName && oldName !== name) {
+        if (oldMode === 'mirror') await sessionService.invalidate(oldName);
+        void backend.releaseProjectLease(oldName).catch((error) => {
+          console.warn('[project-lease] previous lease release deferred:', error);
+        });
+      }
+      return session;
+    } catch (e: any) {
+      if (registeredNewAccess) await backend.releaseProjectLease(name).catch(() => {});
+      this.pushMessage(`프로젝트 "${name}" 로드 실패: ${e?.message ?? e}`);
+      return undefined;
+    } finally {
+      this.dismissMessage(toastId);
+      if (this.pendingSelection === name) this.pendingSelection = null;
+    }
+  }
+
+  async activateSession(session: Session): Promise<Session | undefined> {
+    if (this.curSession === session && this.projectAccessMode) return session;
+    return await this.selectSession(session.name);
+  }
+
+  async closeCurrentSession(): Promise<void> {
+    const oldName = this.curSession?.name;
+    const oldMode = this.projectAccessMode;
+    if (oldName && oldMode === 'owner' && sessionService.getLoaded(oldName)) {
+      await sessionService.flushResource(oldName);
+    }
+    this.curSession = undefined;
+    this.projectAccessMode = null;
+    if (oldName) {
+      if (oldMode === 'mirror') await sessionService.invalidate(oldName);
+      await backend.releaseProjectLease(oldName).catch((error) => {
+        console.warn('[project-lease] release deferred:', error);
       });
+    }
+  }
+
+  async revalidateCurrentProjectLease(): Promise<void> {
+    if (this.projectLeaseRefresh) return await this.projectLeaseRefresh;
+    const run = this.revalidateCurrentProjectLeaseImpl();
+    this.projectLeaseRefresh = run;
+    try {
+      await run;
+    } catch (error) {
+      const name = this.curSession?.name;
+      if (!name || !isBackendNotFoundError(error)) throw error;
+      await sessionService.invalidate(name);
+      await backend.releaseProjectLease(name).catch(() => {});
+      if (this.curSession?.name === name) {
+        imageService.onSessionDeleted(name);
+        this.curSession = undefined;
+        this.projectAccessMode = null;
+        this.pushMessage(`프로젝트 "${name}"을 서버에서 찾지 못해 선택 화면으로 돌아왔습니다.`);
+      }
+    } finally {
+      if (this.projectLeaseRefresh === run) this.projectLeaseRefresh = null;
+    }
+  }
+
+  private async revalidateCurrentProjectLeaseImpl(): Promise<void> {
+    const name = this.curSession?.name;
+    if (!name || !this.projectAccessMode) return;
+    if (this.projectAccessMode === 'mirror') {
+      const fresh = await sessionService.reloadExternal(name);
+      if (this.curSession?.name === name && fresh) this.curSession = fresh;
+      return;
+    }
+    const status = await backend.revalidateProjectLease(name);
+    if (status.renamedTo) {
+      await sessionService.invalidate(name);
+      const fresh = await sessionService.reloadExternal(status.renamedTo);
+      if (this.curSession?.name === name && fresh) {
+        this.curSession = fresh;
+        this.projectAccessMode = status.acquired ? 'owner' : 'mirror';
+        this.pushMessage(`프로젝트 이름 변경: "${status.renamedTo}"`);
+      }
+      return;
+    }
+    if (status.acquired) return;
+    this.projectAccessMode = 'mirror';
+    const fresh = await sessionService.reloadExternal(name);
+    if (this.curSession?.name === name && fresh) this.curSession = fresh;
+    this.pushMessage(`프로젝트 "${name}"의 편집 소유권이 다른 화면으로 이동해 읽기 전용으로 전환했습니다.`);
+  }
+
+  async retryProjectOwnership(): Promise<void> {
+    const name = this.curSession?.name;
+    if (!name || this.projectAccessMode !== 'mirror') return;
+    await backend.releaseProjectLease(name);
+    const lease = await backend.acquireProjectLease(name);
+    if (!lease.acquired) {
+      await backend.useProjectMirror(name);
+      this.pushMessage('다른 화면이 아직 이 프로젝트를 편집 중입니다.');
+      return;
+    }
+    const fresh = await sessionService.reloadExternal(name);
+    if (this.curSession?.name === name && fresh) this.curSession = fresh;
+    this.projectAccessMode = 'owner';
+    this.pushMessage('이 화면이 프로젝트 편집 소유권을 가져왔습니다.');
   }
 
   blockIfBusy(): boolean {
+    if (this.curSession && this.projectAccessMode === 'mirror') {
+      this.pushMessage('읽기 전용 미러에서는 프로젝트를 변경할 수 없습니다.');
+      return true;
+    }
     const active = this.progressDialogs.filter(
       (p) => !p.status || p.status === 'active',
     );
@@ -1556,7 +1692,7 @@ export class AppState {
             text: `임포트 중... ${done}/${sessions.length}`,
           });
         }
-        if (lastNewSession) this.curSession = lastNewSession;
+        if (lastNewSession) await this.activateSession(lastNewSession);
         appState.finishProgressDialog(
           pid,
           `✓ ${sessions.length}개 프로젝트 임포트 완료`,
@@ -2267,7 +2403,7 @@ export class AppState {
         }
         appState.finishProgressDialog(ipid, '✓ 프로젝트 백업을 불러왔습니다', true);
         const sess = await sessionService.get(inputValue);
-        this.curSession = sess;
+        if (sess) await this.activateSession(sess);
       },
     });
   }

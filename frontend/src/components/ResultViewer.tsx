@@ -945,11 +945,7 @@ const ResultDetailView = observer(
           });
         } else if (action === 'toggle-favorite') {
           const path = paths[selectedIndex].split('/').pop()!;
-          if (scene.mains.includes(path)) {
-            scene.mains.splice(scene.mains.indexOf(path), 1);
-          } else {
-            scene.mains.push(path);
-          }
+          imageService.toggleImageMain(curSession!, scene, path);
         } else if (action === 'toggle-bookmark') {
           const filename = paths[selectedIndex]?.split('/').pop();
           if (filename) {
@@ -1712,11 +1708,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
           if (originalIdx >= 0) setSelectedImageIndex(originalIdx);
         } else if (action === 'image-toggle-favorite') {
           const filename = activePaths[i].split('/').pop()!;
-          if (scene.mains.includes(filename)) {
-            scene.mains.splice(scene.mains.indexOf(filename), 1);
-          } else {
-            scene.mains.push(filename);
-          }
+          imageService.toggleImageMain(curSession!, scene, filename);
         } else if (action === 'image-toggle-bookmark') {
           const filename = activePaths[i].split('/').pop()!;
           sessionService.toggleImageBookmark(
@@ -1761,15 +1753,14 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
           const allFav = fns.every((fn) => scene.mains.includes(fn));
           if (allFav) {
             for (const fn of fns) {
-              const idx = scene.mains.indexOf(fn);
-              if (idx >= 0) scene.mains.splice(idx, 1);
+              imageService.setImageMain(curSession!, scene, fn, false);
             }
             appState.pushMessage(fns.length + '장의 즐겨찾기가 해제되었습니다.');
           } else {
             let added = 0;
             for (const fn of fns) {
               if (!scene.mains.includes(fn)) {
-                scene.mains.push(fn);
+                imageService.setImageMain(curSession!, scene, fn, true);
                 added++;
               }
             }
@@ -2062,8 +2053,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
                       if (allAlreadyFav) {
                         // 모두 OFF
                         for (const fn of filenames) {
-                          const idx = scene.mains.indexOf(fn);
-                          if (idx >= 0) scene.mains.splice(idx, 1);
+                          imageService.setImageMain(curSession!, scene, fn, false);
                         }
                         appState.pushMessage(filenames.length + '장의 즐겨찾기가 해제되었습니다.');
                       } else {
@@ -2071,7 +2061,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
                         let added = 0;
                         for (const fn of filenames) {
                           if (!scene.mains.includes(fn)) {
-                            scene.mains.push(fn);
+                            imageService.setImageMain(curSession!, scene, fn, true);
                             added++;
                           }
                         }

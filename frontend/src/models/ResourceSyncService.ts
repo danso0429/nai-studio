@@ -79,6 +79,7 @@ export abstract class ResourceSyncService<
         if (document.visibilityState !== 'hidden') return;
         for (const [name, entry] of this.entries) {
           if (!entry.dirty || entry.state !== 'ready' || !entry.instance) continue;
+          if (!this.canWriteResource(name)) continue;
           try {
             void backend.writeFileKeepalive(
               this.getPath(name),
@@ -101,6 +102,9 @@ export abstract class ResourceSyncService<
   // 사용자 명시 새 리소스 생성 (add()) 용 — 기본값/프리셋 포함. 무거운 I/O 허용.
   abstract createDefault(name: string): T | Promise<T>;
   abstract getHook(rc: T, name: string): Promise<void>;
+  protected canWriteResource(_name: string): boolean {
+    return true;
+  }
   abstract migrate(rc: any): any | Promise<any>;
 
   async add(name: string) {
@@ -413,6 +417,7 @@ export abstract class ResourceSyncService<
       await backend.renameFile(srcPath, destPath);
       this.entries.delete(oldName);
       this.entries.set(newName, entry);
+      await this.getHook(entry.instance, newName);
       entry.dispose?.();
       entry.dispose = this.#watch(newName, entry.instance!);
       this.folderMap[newName] = oldFolder;
@@ -563,6 +568,7 @@ export abstract class ResourceSyncService<
     const instance = entry?.instance;
     if (!entry || !instance) return 'done';
     if (entry.state !== 'ready') return 'retry';
+    if (!this.canWriteResource(name)) return 'retry';
     let payload: string;
     try {
       payload = JSON.stringify(instance.toJSON());

@@ -1349,9 +1349,7 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
 
   const setMainImage = (path: string) => {
     const filename = path.split('/').pop()!;
-    if (!scene.mains.includes(filename)) {
-      scene.mains.push(filename);
-    }
+    imageService.setImageMain(curSession!, scene, filename, true);
   };
 
   const [previews, setPreviews] = useState<{ prompt: PromptNode; uc: string }[]>([]);

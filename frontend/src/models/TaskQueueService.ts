@@ -2168,8 +2168,8 @@ export const queueMirrorWorkflow = async (
     }
     const srcBase64 = dataUriToBase64(srcData);
     const result = await prepareMirrorCanvas(srcBase64, session.mirrorMode || 'blank');
-    preset.image = await imageService.storeVibeImage(session, result.canvas);
-    preset.mask = await imageService.storeVibeImage(session, result.mask);
+    preset.image = await imageService.storeGenerationVibeImage(session, result.canvas);
+    preset.mask = await imageService.storeGenerationVibeImage(session, result.mask);
     scene.resolution = 'custom';
     scene.resolutionWidth = result.width;
     scene.resolutionHeight = result.height;

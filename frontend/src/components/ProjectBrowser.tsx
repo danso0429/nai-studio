@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { observer } from 'mobx-react-lite';
 import { FaStar, FaSearch } from 'react-icons/fa';
-import { sessionService, imageService, isMobile } from '../models';
+import { sessionService, isMobile } from '../models';
 import { appState } from '../models/AppService';
 import { getMainImage } from '../models/ImageService';
 import ModalOverlay from './ModalOverlay';
@@ -127,10 +127,8 @@ const ProjectBrowser = observer(({ onClose }: { onClose: () => void }) => {
     : allSorted;
 
   const selectProject = useCallback(async (name: string) => {
-    const session = await sessionService.get(name);
+    const session = await appState.selectSession(name);
     if (session) {
-      imageService.refreshBatch(session);
-      appState.curSession = session;
       pushRecentProject(name);
     }
     onClose();

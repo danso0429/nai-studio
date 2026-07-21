@@ -56,6 +56,34 @@ class LRUCache<K, V> {
 }
 
 export class ImageService extends EventTarget {
+  setImageMain(
+    session: Session,
+    scene: GenericScene,
+    filename: string,
+    value: boolean,
+    notify: boolean = true,
+  ): void {
+    const index = scene.mains.indexOf(filename);
+    if (value && index < 0) scene.mains.push(filename);
+    if (!value && index >= 0) scene.mains.splice(index, 1);
+    if (!notify) return;
+    void backend.notifySessionImageMain({
+      projectName: session.name,
+      sceneType: scene.type,
+      sceneName: scene.name,
+      filename,
+      value,
+    }).catch((error) => {
+      console.warn('[session-image-main] relay failed:', error);
+    });
+  }
+
+  toggleImageMain(session: Session, scene: GenericScene, filename: string): boolean {
+    const value = !scene.mains.includes(filename);
+    this.setImageMain(session, scene, filename, value);
+    return value;
+  }
+
   images: { [key: string]: { [key: string]: string[] } };
   inpaints: { [key: string]: { [key: string]: string[] } };
   cache: LRUCache<string, string>;
@@ -613,6 +641,12 @@ export class ImageService extends EventTarget {
     return path.split('/').pop()!;
   }
 
+  async storeGenerationVibeImage(session: Session, data: string) {
+    const path = imageService.getVibesDir(session) + '/' + v4() + '.png';
+    await backend.writeGenerationAsset(path, data);
+    return path.split('/').pop()!;
+  }
+
   async storeEncodedVibeImage(
     session: Session,
     name: string,
@@ -679,7 +713,7 @@ export class ImageService extends EventTarget {
       }
       files = []; // guardEmpty=false: 옛 마스킹 동작과 동일 (imageMap 비움)
     }
-    files = files.filter((x: string) => x.endsWith('.png'));
+    files = files.filter((x: string) => /\.(?:png|webp|avif)$/i.test(x));
     files.sort(naturalSort);
 
     const fileSet = new Set<string>(files);
@@ -911,6 +945,12 @@ export const deleteImageFiles = async (
     // 휴지통으로 이동
     const { trashService } = await import('.');
     await trashService.moveImagesToTrash(curSession, scene, paths);
+    for (const imagePath of paths) {
+      const filename = imagePath.split('/').pop()!;
+      if (scene.mains.includes(filename)) {
+        imageService.setImageMain(curSession, scene, filename, false);
+      }
+    }
     // 캐시 일괄 무효화 (순차 mutex 대신 batch)
     for (const path of paths) {
       imageService.cache.delete(path);

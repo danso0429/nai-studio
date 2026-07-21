@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
-import { sessionService } from '../models';
+import { backend, sessionService } from '../models';
 import { apiUrl, extractApiError } from '../models/util';
 import ModalOverlay from './ModalOverlay';
 import { FaCopy, FaPlay, FaCheck } from 'react-icons/fa';
@@ -112,12 +112,7 @@ const SceneImporterDialog = observer(() => {
         projectName: selectedProject,
         dryRun: true,
       };
-      const r = await fetch(apiUrl('/api/projects/import-scenes'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const d = await r.json();
+      const d = await backend.importScenes(body);
       if (!d.ok) {
         setError(d.error || '미리보기 실패');
         setPlan(null);
@@ -138,6 +133,12 @@ const SceneImporterDialog = observer(() => {
 
   const apply = async () => {
     if (!plan || !selectedProject) return;
+    try {
+      backend.assertProjectWritable(selectedProject);
+    } catch (error: any) {
+      setError(error?.message || '읽기 전용 프로젝트에는 씬을 가져올 수 없습니다.');
+      return;
+    }
     setError('');
     let parsed: any;
     try {
@@ -162,16 +163,7 @@ const SceneImporterDialog = observer(() => {
     );
     try {
       const d = await sessionService.mutateExternally([targetProject], async () => {
-        const r = await fetch(apiUrl('/api/projects/import-scenes'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        const response = await r.json();
-        if (!r.ok || !response.ok) {
-          throw new Error(response.error || `씬 임포트 실패 (HTTP ${r.status})`);
-        }
-        return response;
+        return await backend.importScenes(body);
       });
       appState.dismissMessage(toastId);
       const appliedCount = d.plan?.applied?.length ?? 0;
@@ -185,7 +177,7 @@ const SceneImporterDialog = observer(() => {
         const fresh = await sessionService.get(targetProject);
         if (fresh) appState.curSession = fresh;
         else {
-          appState.curSession = undefined;
+          await appState.closeCurrentSession();
           appState.pushMessage('프로젝트를 다시 읽지 못해 선택 화면으로 돌아갑니다');
         }
       }
@@ -198,7 +190,7 @@ const SceneImporterDialog = observer(() => {
         const fresh = await sessionService.get(targetProject);
         if (fresh) appState.curSession = fresh;
         else {
-          appState.curSession = undefined;
+          await appState.closeCurrentSession();
           appState.pushMessage('프로젝트를 다시 읽지 못해 선택 화면으로 돌아갑니다');
         }
       }

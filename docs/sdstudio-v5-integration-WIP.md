@@ -98,12 +98,19 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - `2503f60`, `1eafeeb`의 공유 pool·코어 적응은 `ADAPT/ALREADY`. 클라이언트 수동 변환은 검증된 `runPool`과 사용자 `exportConcurrency`의 서버 안전 상한 4를 사용하고, 기존 서버 export worker는 ARM `sharp.concurrency()=1` 실측 환경에서 job 10·이미지 chunk 4 계약을 유지한다. Electron UV threadpool과 브라우저 WASM은 서버 단일 codec 구조에 중복이라 `N/A`다.
 - `5d1356d`, `53dd622`의 인코딩 handler·품질·NAI metadata·stealth를 `ADAPT`. 서버 codec이 PNG tEXt/zTXt/iTXt Comment를 WebP/AVIF EXIF로 옮기고, alpha 열 우선 stealth 비트스트림을 WebP alphaQuality 100에 재삽입한 뒤 exact bit round-trip을 검증한다. 내보내기 프리셋/일회 옵션은 lossy·AVIF 품질과 WebP stealth 보존을 서버 worker에 전달하며, 프론트 메타 가져오기는 WebP `ImageDescription` 배열도 읽는다. 검증: `test/image-codec.test.js`의 손실 WebP stealth exact 왕복·Comment EXIF 왕복·용량 부족 감지 4건 pass.
 - `f8a4b09`, `dfe5391`, `a343ffd`의 자동/수동 변환·프로젝트 최적화·취소를 `ADAPT`. 새 이미지 자동 변환은 서버 config opt-in이며 검증된 WebP 생성 뒤 PNG 삭제에 실패하면 WebP를 되돌리고 PNG를 유지한다. 수동 씬/프로젝트 변환은 모바일 포함 서버 codec을 사용하고, 생성한 WebP의 `imageMap`·`mains`·`game` 참조를 단일 project JSON에 flush ACK 받은 뒤에만 확인창에서 고지한 PNG 영구 삭제를 실행한다. 저장 응답이 불명확하면 양쪽 파일을 유지하고 dirty retry하며, 취소는 진행분만 같은 commit 경로로 닫는다. 저장공간 관리에서 프로젝트 전체 최적화와 크기 재계산을 제공한다. 검증: frontend tsc 0 error, server syntax check, `test/webp-integration.test.js`, `test/config-unsaved-badge.test.js`, `test/toolbar-consumers.test.js`, `test/ui-layout-v2.test.js` pass.
+- 변환 직후 메모리에는 남지만 다음 파일 재스캔에서 PNG만 통과해 WebP/AVIF가 사라지던 Remote 필터를 발견해, 이미지 정본 재구성도 세 형식을 보존하도록 닫았다. 검증: `test/webp-integration.test.js`의 refresh 회귀 항목 pass.
 
 ### V5-F — 멀티클라이언트 동기화
 
 - 범위: upstream multi-window registry, project lock, global store broadcast, single generation host, readonly mirror.
 - 처리: Electron IPC는 `N/A`; 효과는 서버 revision/CAS 또는 lease와 WebSocket event로 `ADAPT`. 단일 generation host는 기존 서버 큐로 `ALREADY`인지 호출 경로를 다시 검증한다.
-- 상태: `PENDING`.
+- 상태: `COMPLETE`.
+- `131b92f` 멀티 윈도우 레지스트리·새 Electron 창은 웹 Remote에 창 생성/포커스 수명주기가 없어 UI 코드는 `N/A`. 효과는 페이지별 client id, 기기별 stable id, WebSocket hello/heartbeat/disconnect registry와 pagehide release로 `ADAPT`했다.
+- `9a8157b`, `2f285f6` 프로젝트 배타 락·읽기 전용 미러를 서버 권위 lease로 `ADAPT`. 활성 소유자는 90초 heartbeat lease를 가지며 같은 기기의 실제 disconnect reload만 즉시 인계되고, 다른 기기는 TTL 뒤 회복한다. 프로젝트 JSON과 원본 자산·씬 구조·rename/delete는 서버 최종 관문이 비소유 요청을 423으로 거부한다. 충돌 화면은 최신 디스크를 다시 읽는 영구 미러로 열리고, 명시적 “소유권 다시 확인” 전에는 구조 저장을 재개하지 않는다. 소유자는 전환·종료 전에 pending 저장을 flush하고, lease 재검증은 실제 프로젝트 존재와 최근 rename/delete 사건까지 재생해 접근 키·캐시·현재 화면을 함께 수렴시킨다.
+- 미러에서 upstream이 허용한 생성 예약·즐겨찾기·이미지 삭제 효과도 축소하지 않았다. 서버에 등록된 미러만 기존 단일 서버 큐와 생성용 파생 자산 경로를 사용할 수 있고, 이미지 휴지통 이동은 서버 직렬 연산이 파일·메타를 함께 갱신한다. 즐겨찾기는 절대값 op를 활성 소유자의 메모리/저장 큐로 위임하며, 소유자가 없을 때의 닫힌 프로젝트 검수만 서버가 프로젝트 단위로 직접 직렬화한다.
+- `37244d9` 전역 저장소 브로드캐스트를 `ADAPT`. 모든 공용 backend write/rename/delete/config commit이 sender 제외 revision 사건을 내고 config·글로벌 조각/프리셋/캐릭터·작가·프롬프트 조각·토글·샘플링·프로젝트 템플릿·휴지통·프로젝트 메타를 검증된 load 경로로 다시 읽는다. WS 재연결은 pending debounce만 먼저 보존 커밋한 뒤 전역 저장소를 재조회해 단절 중 놓친 사건을 복구한다.
+- `1baddb9` 단일 생성 host는 브라우저별 실행기를 새로 선출하지 않고 기존 Node 서버 큐를 `ALREADY/ADAPT`로 사용한다. 모든 페이지의 생성/예약/취소·완료 ledger가 이미 한 프로세스 권위에 있고, Quick 최초 프로젝트만 서버 CAS로 하나를 생성한다. completed history와 파일시스템 재스캔이 발신 탭 종료 뒤 결과도 복원한다. Electron `backgroundThrottling`·창 host 승격 IPC는 `N/A`다.
+- 검증: server syntax check, frontend tsc 0 error, `node --test test/*.test.js` 29 files pass. `test/multiclient-sync.test.js`에서 같은 기기 활성 탭 탈취 거부, disconnected reload 인계, TTL 회복/rename rekey, 등록 미러만 위임 가능, owner-only 구조 쓰기, revision/Quick/favorite/수명주기 wiring을 확인했다.
 
 ### V5-G — 저장소 v2
 

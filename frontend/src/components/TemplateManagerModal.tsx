@@ -230,7 +230,7 @@ const TemplateManagerModal = observer(
           ? await templateService.createSceneTemplateFrom(appState.curSession, name)
           : null;
       if (session && empty) {
-        appState.curSession = session;
+        await appState.activateSession(session);
         onClose();
       }
     };
@@ -380,7 +380,7 @@ const TemplateManagerModal = observer(
                   onClick={async () => {
                     const session = await sessionService.get(name);
                     if (session) {
-                      appState.curSession = session;
+                      await appState.activateSession(session);
                       onClose();
                     }
                   }}

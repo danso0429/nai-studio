@@ -51,15 +51,21 @@ export class SessionService extends ResourceSyncService<Session> {
     super('projects', SESSION_SERVICE_INTERVAL);
   }
 
+  protected canWriteResource(name: string): boolean {
+    return !backend.isProjectReadOnly(name);
+  }
+
   private async loadProjectRoles(): Promise<void> {
     try {
       if (!(await backend.existFile(PROJECT_ROLES_PATH))) {
         this.projectRoles = {};
+        this.projectRolesLoadFailed = false;
         return;
       }
       this.projectRoles = normalizeProjectRoles(
         JSON.parse(await backend.readFile(PROJECT_ROLES_PATH)),
       ).roles;
+      this.projectRolesLoadFailed = false;
     } catch (error) {
       if (error instanceof SyntaxError) {
         console.warn('[SessionService] project roles file is corrupt; hidden roles start empty');
@@ -126,29 +132,33 @@ export class SessionService extends ResourceSyncService<Session> {
       return (await this.get(currentName)) ?? null;
     }
 
-    const name = nextQuickProjectName(this.list());
     try {
-      await this.add(name);
+      const candidateName = nextQuickProjectName(this.list());
+      const candidate = await this.createDefault(candidateName);
+      const result = await backend.ensureQuickProject(JSON.stringify(candidate.toJSON()));
+      await this.loadProjectRoles();
+      await this.update();
+      return (await this.get(result.name)) ?? null;
     } catch (error: any) {
       console.error('[SessionService] quick generation project creation failed:', error);
       return null;
     }
-    const nextRoles = { ...this.projectRoles };
-    if (currentName) delete nextRoles[currentName];
-    nextRoles[name] = 'quick-generation';
-    this.projectRoles = nextRoles;
+  }
+
+  async reloadSharedMeta(): Promise<void> {
+    await Promise.all([
+      this.loadFavorites(),
+      this.loadFolderMeta(),
+      this.loadProjectRoles(),
+    ]);
+    await this.update();
     this.dispatchEvent(new CustomEvent('listupdated'));
-    try {
-      await this.writeProjectRoles(nextRoles);
-    } catch (error) {
-      console.warn('[SessionService] quick project role save deferred:', error);
-      setTimeout(() => {
-        void this.writeProjectRoles(this.projectRoles).catch((retryError) => {
-          console.warn('[SessionService] quick project role retry failed:', retryError);
-        });
-      }, 2000);
-    }
-    return (await this.get(name)) ?? null;
+  }
+
+  async reloadExternal(name: string): Promise<Session | undefined> {
+    await this.invalidate(name);
+    await this.update();
+    return await this.get(name, { throwOnError: true });
   }
 
   private async persistMetadataAfterCommit(
@@ -382,6 +392,7 @@ export class SessionService extends ResourceSyncService<Session> {
   }
 
   async delete(name: string) {
+    backend.assertProjectWritable(name);
     await this.withResourceMutation([name], async () => {
       // 로컬 파일 + Drive 삭제가 성공한 뒤에만 메모리와 메타를 정리한다.
       // 실패하면 프로젝트·즐겨찾기·북마크가 모두 이전 상태로 남는다.

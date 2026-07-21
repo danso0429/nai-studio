@@ -33,6 +33,13 @@ interface HistoryBackend {
   onQueueJobComplete(callback: (entry: Omit<HistoryQueueCompletedEntry, 'completedAt' | 'durationMs'>) => void): void | (() => void);
   onWsReconnect(callback: () => void): void;
   getImageHistory(limit: number): Promise<{ entries: HistoryQueueCompletedEntry[] }>;
+  notifySessionImageMain?(op: {
+    projectName: string;
+    sceneType: 'scene' | 'inpaint';
+    sceneName: string;
+    filename: string;
+    value: boolean;
+  }): Promise<void>;
 }
 
 interface HistoryImageStore<TSession extends HistorySession<TScene>, TScene extends HistoryScene> {
@@ -40,12 +47,14 @@ interface HistoryImageStore<TSession extends HistorySession<TScene>, TScene exte
   images: Record<string, Record<string, string[]>>;
   inpaints: Record<string, Record<string, string[]>>;
   refreshBatch(session: TSession): void;
+  setImageMain?(session: TSession, scene: TScene, filename: string, value: boolean): void;
 }
 
 interface HistorySessionStore<TSession extends HistorySession<TScene>, TScene extends HistoryScene> {
   addEventListener(type: string, listener: EventListener): void;
   get(name: string): Promise<TSession | undefined>;
   markDirty(name: string): void;
+  invalidate?(name: string): Promise<void>;
   dispatchEvent(event: Event): boolean;
 }
 
@@ -210,10 +219,31 @@ export class ImageHistoryService<
     const resolved = await this.resolve(entry);
     if (!resolved) return;
     const { scene, session } = resolved;
-    const index = scene.mains.indexOf(entry.filename);
-    if (index >= 0) scene.mains.splice(index, 1);
-    else scene.mains.push(entry.filename);
-    this.sessionService.markDirty(session.name);
+    const value = !scene.mains.includes(entry.filename);
+    const appState = getAppState();
+    if (
+      appState.curSession?.name !== session.name &&
+      this.backend.notifySessionImageMain &&
+      this.sessionService.invalidate
+    ) {
+      await this.backend.notifySessionImageMain({
+        projectName: session.name,
+        sceneType: scene.type,
+        sceneName: scene.name,
+        filename: entry.filename,
+        value,
+      });
+      await this.sessionService.invalidate(session.name);
+      return;
+    }
+    if (this.imageService.setImageMain) {
+      this.imageService.setImageMain(session, scene, entry.filename, value);
+    } else {
+      const index = scene.mains.indexOf(entry.filename);
+      if (value && index < 0) scene.mains.push(entry.filename);
+      if (!value && index >= 0) scene.mains.splice(index, 1);
+      this.sessionService.markDirty(session.name);
+    }
   }
 
   async navigateTo(
@@ -226,7 +256,8 @@ export class ImageHistoryService<
     const appState = getAppState();
     if (appState.curSession?.name !== session.name) {
       this.imageService.refreshBatch(session);
-      appState.curSession = session;
+      const opened = await appState.selectSession(session.name);
+      if (!opened) return;
     }
     const cell = await this.waitForSceneCell(entry.sceneType, entry.sceneName);
     if (!cell) return;

@@ -184,10 +184,9 @@ export const AppContextMenu = observer(() => {
           await backend.renameFile(path, targetDir + '/' + newName);
           // 즐겨찾기 이전: 원본 씬 mains에서 제거 + (즐겨찾기였으면) 대상 씬 mains에 추가.
           if (srcScene) {
-            const idx = srcScene.mains.indexOf(fn);
-            if (idx >= 0) srcScene.mains.splice(idx, 1);
+            imageService.setImageMain(session, srcScene, fn, false);
           }
-          if (wasFav) target.mains.push(newName);
+          if (wasFav) imageService.setImageMain(session, target, newName, true);
           moved++;
         }
         if (srcScene) imageService.refresh(session, srcScene);
@@ -210,11 +209,7 @@ export const AppContextMenu = observer(() => {
     if (!ctx.scene) return;
     for (const path_ of ctx.path) {
       const path = path_.split('/').pop()!;
-      if (ctx.scene.mains.includes(path)) {
-        ctx.scene.mains.splice(ctx.scene.mains.indexOf(path), 1);
-      } else {
-        ctx.scene.mains.push(path);
-      }
+      imageService.toggleImageMain(appState.curSession!, ctx.scene, path);
     }
   };
   const deleteImg = async (ctx: GallaryImageContextAlt) => {

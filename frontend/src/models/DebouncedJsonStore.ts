@@ -144,4 +144,13 @@ export abstract class DebouncedJsonStore extends EventTarget {
     if (!this.loaded || this.loadError) return;
     await this.save();
   }
+
+  async flushPendingSave(): Promise<boolean> {
+    if (!this.saveTimeout) return false;
+    clearTimeout(this.saveTimeout);
+    this.saveTimeout = null;
+    if (!this.loaded || this.loadError) return false;
+    await this.save();
+    return true;
+  }
 }

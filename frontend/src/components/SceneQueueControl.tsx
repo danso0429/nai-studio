@@ -1249,11 +1249,7 @@ const QueueControl = observer(
       className: 'back-orange',
       onClick: async (scene: Scene, path: string, close: () => void) => {
         const filename = path.split('/').pop()!;
-        if (isMainImage(path)) {
-          scene.mains = scene.mains.filter((x) => x !== filename);
-        } else {
-          scene.mains.push(filename);
-        }
+        imageService.setImageMain(curSession!, scene, filename, !isMainImage(path));
       },
     };
 

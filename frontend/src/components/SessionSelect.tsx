@@ -49,7 +49,7 @@ const SessionSelect = observer(({
               null,
               templateId,
             );
-            appState.curSession = newSession;
+            await appState.activateSession(newSession);
           }
         },
       });

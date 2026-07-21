@@ -73,3 +73,8 @@ test('WebP controls are wired through config, toolbar, storage, and export quali
   assert.match(exportUi, /preserveStealth/);
   assert.match(exportUi, /압축 품질/);
 });
+
+test('image refresh retains converted WebP and AVIF outputs beside PNG', () => {
+  const imageService = read('frontend/src/models/ImageService.ts');
+  assert.match(imageService, /\\\.\(\?:png\|webp\|avif\)\$/);
+});

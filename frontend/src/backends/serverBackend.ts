@@ -1,10 +1,44 @@
 import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderDone, DeleteFolderError, DeleteFolderProgress, DeleteFolderStart, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, ImageDeleteDone, ImageDeleteError, ImageDeleteProgress, ImageDeleteStart, LoginValidity, QueueCompletedResult, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput } from '../backend';
+import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderDone, DeleteFolderError, DeleteFolderProgress, DeleteFolderStart, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, ImageDeleteDone, ImageDeleteError, ImageDeleteProgress, ImageDeleteStart, LoginValidity, ProjectLeaseResult, QueueCompletedResult, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput, ResourceChangedEvent, SessionImageMainOp } from '../backend';
 import { BackendApiError } from './apiError';
 import { TextWriteCoordinator } from './TextWriteCoordinator';
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+const CLIENT_ID = typeof crypto !== 'undefined' && crypto.randomUUID
+  ? crypto.randomUUID()
+  : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const DEVICE_ID = (() => {
+  const key = 'nai:deviceId';
+  try {
+    const existing = localStorage.getItem(key);
+    if (existing) return existing;
+    const created = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(key, created);
+    return created;
+  } catch {
+    return CLIENT_ID;
+  }
+})();
+
+function projectNameFromPath(rawPath: string): string | null {
+  const normalized = String(rawPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts[0] === 'projects' && parts.length >= 2) {
+    const filename = parts[parts.length - 1];
+    if (/\.json(?:\.(?:bak|deleted))?$/i.test(filename)) {
+      return filename.replace(/\.json(?:\.(?:bak|deleted))?$/i, '');
+    }
+    return null;
+  }
+  if (new Set(['outs', 'inpaints', 'vibes', 'references', 'inpaint_orgs', 'inpaint_masks']).has(parts[0])) {
+    return parts[1] || null;
+  }
+  return null;
+}
 
 /**
  * Returns a direct URL for serving a thumbnail image.
@@ -82,6 +116,8 @@ async function api(
         signal,
         headers: {
           'Content-Type': 'application/json',
+          'X-NAI-Client-ID': CLIENT_ID,
+          'X-NAI-Device-ID': DEVICE_ID,
           ...headers,
         },
       });
@@ -123,6 +159,9 @@ export class ServerBackend extends Backend {
   // + jitter + max 30s 캡 + online 이벤트 reset.
   private reconnectAttempt: number = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private projectAccess = new Map<string, 'owner' | 'mirror'>();
+  private pendingProjectRenames: Array<{ oldName: string; newName: string }> = [];
+  private pendingProjectDeletes: Array<{ name: string }> = [];
 
   constructor() {
     super();
@@ -139,6 +178,22 @@ export class ServerBackend extends Backend {
         clearTimeout(this.reconnectTimer);
         this.reconnectTimer = null;
         this.connectWebSocket();
+      }
+    });
+    window.addEventListener('pagehide', () => {
+      for (const [name] of this.projectAccess) {
+        try {
+          const body = JSON.stringify({
+            name,
+            clientId: CLIENT_ID,
+            deviceId: DEVICE_ID,
+            deferred: true,
+          });
+          navigator.sendBeacon(
+            `${API_BASE}/api/projects/lease/release`,
+            new Blob([body], { type: 'application/json' }),
+          );
+        } catch {}
       }
     });
   }
@@ -165,6 +220,11 @@ export class ServerBackend extends Backend {
     ws.onopen = () => {
       if (this.ws !== ws) return; // stale
       this.reconnectAttempt = 0;
+      ws.send(JSON.stringify({
+        type: 'hello',
+        clientId: CLIENT_ID,
+        deviceId: DEVICE_ID,
+      }));
       pingTimer = setInterval(() => {
         if (this.ws !== ws) return;
         if (ws.readyState !== WebSocket.OPEN) return;
@@ -192,7 +252,24 @@ export class ServerBackend extends Backend {
           if (pongTimeout) { clearTimeout(pongTimeout); pongTimeout = null; }
           return;
         }
+        if (msg?.type === 'resource-changed' && msg.data?.originClientId === CLIENT_ID) {
+          return;
+        }
+        if (msg?.type === 'project-renamed') {
+          const mode = this.projectAccess.get(msg.data?.oldName);
+          this.projectAccess.delete(msg.data?.oldName);
+          if (mode && msg.data?.newName) this.projectAccess.set(msg.data.newName, mode);
+        }
+        if (msg?.type === 'project-deleted') {
+          this.projectAccess.delete(msg.data?.name);
+        }
         const handlers = this.eventHandlers.get(msg.type);
+        if (msg?.type === 'project-renamed' && !handlers?.size) {
+          this.pendingProjectRenames.push(msg.data);
+        }
+        if (msg?.type === 'project-deleted' && !handlers?.size) {
+          this.pendingProjectDeletes.push(msg.data);
+        }
         if (handlers) handlers.forEach((h) => h(msg.data));
       } catch (e) {
         // malformed frame 디버깅 visibility — silent swallow는 server 측 버그 발견 어렵게 함.
@@ -226,6 +303,98 @@ export class ServerBackend extends Backend {
 
   async getConfig(): Promise<Config> { return apiJSON('/config'); }
   async setConfig(newConfig: Config): Promise<void> { await api('/config', { method: 'POST', body: JSON.stringify(newConfig) }); }
+  async acquireProjectLease(name: string): Promise<ProjectLeaseResult> {
+    const result = await apiJSON('/projects/lease/acquire', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }) as ProjectLeaseResult;
+    if (result.acquired) this.projectAccess.set(name, 'owner');
+    return result;
+  }
+
+  async useProjectMirror(name: string): Promise<void> {
+    await api('/projects/lease/mirror', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+    this.projectAccess.set(name, 'mirror');
+  }
+
+  async releaseProjectLease(name: string): Promise<void> {
+    const mode = this.projectAccess.get(name);
+    this.projectAccess.delete(name);
+    if (!mode) return;
+    await api('/projects/lease/release', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+      timeout: 10_000,
+    });
+  }
+
+  async revalidateProjectLease(name: string): Promise<ProjectLeaseResult> {
+    if (this.projectAccess.get(name) === 'mirror') {
+      return { acquired: false, projectName: name };
+    }
+    let result = await this.acquireProjectLease(name);
+    if (result.renamedTo) {
+      const oldName = name;
+      const renamedTo = result.renamedTo;
+      result = await this.acquireProjectLease(renamedTo);
+      this.projectAccess.delete(oldName);
+      if (!result.acquired) await this.useProjectMirror(renamedTo);
+      return { ...result, renamedTo };
+    }
+    if (!result.acquired) await this.useProjectMirror(name);
+    return result;
+  }
+
+  isProjectReadOnly(name: string): boolean {
+    return this.projectAccess.get(name) === 'mirror';
+  }
+
+  assertProjectWritable(name: string): void {
+    if (this.isProjectReadOnly(name)) {
+      throw new Error(`프로젝트 "${name}"은 다른 화면이 소유한 읽기 전용 미러입니다.`);
+    }
+  }
+
+  private assertWritablePath(path: string): void {
+    const projectName = projectNameFromPath(path);
+    if (projectName) this.assertProjectWritable(projectName);
+  }
+
+  async ensureQuickProject(data: string): Promise<{ name: string; created: boolean }> {
+    return await apiJSON('/projects/quick/ensure', {
+      method: 'POST',
+      body: JSON.stringify({ data }),
+    });
+  }
+  async notifySessionImageMain(op: SessionImageMainOp): Promise<void> {
+    await api('/projects/session-image-main', {
+      method: 'POST',
+      body: JSON.stringify(op),
+      retries: 3,
+    });
+  }
+  async writeGenerationAsset(filename: string, data: string): Promise<void> {
+    await api('/projects/generation-asset', {
+      method: 'POST',
+      body: JSON.stringify({ path: filename, data }),
+      timeout: BINARY_API_TIMEOUT_MS,
+    });
+  }
+  async trashImages(outputDir: string, filenames: string[]): Promise<void> {
+    await api('/images/trash', {
+      method: 'POST',
+      body: JSON.stringify({ outputDir, filenames }),
+    });
+  }
+  async importScenes(payload: Record<string, unknown>): Promise<any> {
+    return await apiJSON('/projects/import-scenes', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
   async openWebPage(url: string): Promise<void> { window.open(url, '_blank'); }
 
   async generateImage(arg: ImageGenInput): Promise<void> {
@@ -517,6 +686,7 @@ export class ServerBackend extends Backend {
   }
 
   private async writeFileDirect(filename: string, data: string): Promise<void> {
+    this.assertWritablePath(filename);
     await api('/fs/write', { method: 'POST', body: JSON.stringify({ path: filename, data }) });
   }
 
@@ -537,10 +707,11 @@ export class ServerBackend extends Backend {
   }
 
   private async writeFileKeepaliveDirect(filename: string, data: string): Promise<void> {
+    this.assertWritablePath(filename);
     // visibilitychange/pagehide에서 호출. Promise를 반환해 같은 경로 rename/delete가
     // 이 요청을 기다릴 수 있게 한다. keepalive:true로 unload 뒤 전송을 계속한다.
     // body 64KB total 한도 — 한 page lifecycle 안에서 keepalive 합산 기준.
-    const body = JSON.stringify({ path: filename, data });
+    const body = JSON.stringify({ path: filename, data, clientId: CLIENT_ID, deviceId: DEVICE_ID });
     try {
       const response = await fetch(`${API_BASE}/api/fs/write`, {
         method: 'POST',
@@ -562,10 +733,12 @@ export class ServerBackend extends Backend {
   }
 
   async copyFile(src: string, dest: string): Promise<void> {
+    this.assertWritablePath(dest);
     await api('/fs/copy', { method: 'POST', body: JSON.stringify({ src, dest }) });
   }
 
   async copyDir(src: string, dest: string): Promise<void> {
+    this.assertWritablePath(dest);
     await api('/fs/copy-dir', { method: 'POST', body: JSON.stringify({ src, dest }) });
   }
 
@@ -575,6 +748,9 @@ export class ServerBackend extends Backend {
   }
 
   async writeDataFile(filename: string, data: string): Promise<void> {
+    if (!/^vibes\/[^/]+\/encoded\/[^/]+$/i.test(filename)) {
+      this.assertWritablePath(filename);
+    }
     // multi-MB base64 upload → 180s timeout (H18).
     await api('/fs/write-data', { method: 'POST', body: JSON.stringify({ path: filename, data }), timeout: BINARY_API_TIMEOUT_MS });
   }
@@ -599,14 +775,25 @@ export class ServerBackend extends Backend {
   }
 
   async renameFile(oldfile: string, newfile: string): Promise<void> {
+    this.assertWritablePath(oldfile);
+    this.assertWritablePath(newfile);
     await Promise.all([
       this.textWrites.flushPath(oldfile),
       this.textWrites.flushPath(newfile),
     ]);
     await api('/fs/rename', { method: 'POST', body: JSON.stringify({ oldPath: oldfile, newPath: newfile }) });
+    const oldProject = projectNameFromPath(oldfile);
+    const newProject = projectNameFromPath(newfile);
+    if (oldProject && newProject && oldProject !== newProject) {
+      const mode = this.projectAccess.get(oldProject);
+      this.projectAccess.delete(oldProject);
+      if (mode) this.projectAccess.set(newProject, mode);
+    }
   }
 
   async renameDir(oldfile: string, newfile: string): Promise<void> {
+    this.assertWritablePath(oldfile);
+    this.assertWritablePath(newfile);
     await Promise.all([
       this.textWrites.flushPrefix(oldfile),
       this.textWrites.flushPrefix(newfile),
@@ -615,16 +802,22 @@ export class ServerBackend extends Backend {
   }
 
   async deleteFile(filename: string): Promise<void> {
+    this.assertWritablePath(filename);
     await this.textWrites.flushPath(filename);
     await api('/fs/delete', { method: 'POST', body: JSON.stringify({ path: filename }) });
   }
 
   async deleteBatch(paths: string[]): Promise<void> {
+    for (const path of paths) this.assertWritablePath(path);
     await Promise.all(paths.map((path) => this.textWrites.flushPath(path)));
     await api('/fs/delete-batch', { method: 'POST', body: JSON.stringify({ paths }) });
   }
 
   async moveBatch(moves: { src: string; dest: string }[]): Promise<void> {
+    for (const { src, dest } of moves) {
+      this.assertWritablePath(src);
+      this.assertWritablePath(dest);
+    }
     await Promise.all(moves.flatMap(({ src, dest }) => [
       this.textWrites.flushPath(src),
       this.textWrites.flushPath(dest),
@@ -633,6 +826,7 @@ export class ServerBackend extends Backend {
   }
 
   async deleteDir(filename: string): Promise<void> {
+    this.assertWritablePath(filename);
     await this.textWrites.flushPrefix(filename);
     await api('/fs/delete-dir', { method: 'POST', body: JSON.stringify({ path: filename }) });
   }
@@ -657,10 +851,13 @@ export class ServerBackend extends Backend {
   }
 
   async resizeImage(input: ResizeImageInput): Promise<void> {
+    this.assertWritablePath(input.outputPath);
     await api('/image/resize', { method: 'POST', body: JSON.stringify(input) });
   }
 
   async convertToWebp(inputPath: string, outputPath: string, quality: number) {
+    this.assertWritablePath(inputPath);
+    this.assertWritablePath(outputPath);
     return apiJSON('/image/convert-webp', {
       method: 'POST',
       body: JSON.stringify({ inputPath, outputPath, quality }),
@@ -703,6 +900,7 @@ export class ServerBackend extends Backend {
   }
 
   async flipImageHorizontal(path: string): Promise<void> {
+    this.assertWritablePath(path);
     await api('/image/flip-horizontal', { method: 'POST', body: JSON.stringify({ path }) });
   }
 
@@ -714,6 +912,7 @@ export class ServerBackend extends Backend {
   }
 
   async removeBackground(inputImageBase64: string, outputPath: string): Promise<void> {
+    this.assertWritablePath(outputPath);
     await api('/image/remove-bg', { method: 'POST', body: JSON.stringify({ image: inputImageBase64, outputPath }) });
   }
 
@@ -743,6 +942,7 @@ export class ServerBackend extends Backend {
   }
 
   async deleteImagesBatchBg(items: { outputDir: string; filenames: string[] }[]): Promise<{ jobId: string; total: number }> {
+    for (const item of items) this.assertWritablePath(item.outputDir);
     // fire-and-forget: 즉시 jobId 반환, 실제 삭제는 서버 백그라운드 + WS 진행도.
     return await apiJSON('/images/delete-batch-bg', { method: 'POST', body: JSON.stringify({ items }) });
   }
@@ -801,6 +1001,24 @@ export class ServerBackend extends Backend {
   onQueueFull(callback: (data: QueueFullEvent) => void): () => void { return this.on('queue-full', callback); }
   onReservationOrphaned(callback: (data: { count: number }) => void): () => void { return this.on('reservation-orphaned', callback); }
   onWsReconnect(callback: () => void): () => void { return this.on('ws-reconnect', callback); }
+  onResourceChanged(callback: (event: ResourceChangedEvent) => void): () => void {
+    return this.on('resource-changed', callback);
+  }
+  onSessionImageMain(callback: (op: SessionImageMainOp) => void): () => void {
+    return this.on('session-image-main', callback);
+  }
+  onProjectRenamed(callback: (event: { oldName: string; newName: string }) => void): () => void {
+    const off = this.on('project-renamed', callback);
+    const pending = this.pendingProjectRenames.splice(0);
+    if (pending.length) queueMicrotask(() => pending.forEach(callback));
+    return off;
+  }
+  onProjectDeleted(callback: (event: { name: string }) => void): () => void {
+    const off = this.on('project-deleted', callback);
+    const pending = this.pendingProjectDeletes.splice(0);
+    if (pending.length) queueMicrotask(() => pending.forEach(callback));
+    return off;
+  }
   onDriveSyncComplete(callback: (data: { localPath: string; requestedPath: string | null; fileName: string }) => void): () => void {
     return this.on('drive-sync-complete', callback);
   }

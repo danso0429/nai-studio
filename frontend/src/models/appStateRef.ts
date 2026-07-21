@@ -4,6 +4,7 @@
 export interface AppStateRefValue {
   curSession?: { name: string };
   pushMessage(message: string): void;
+  selectSession(name: string): Promise<unknown>;
   pushDialogAsync(dialog: {
     type: string;
     text: string;

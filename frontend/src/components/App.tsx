@@ -61,6 +61,9 @@ import {
   promptChunkService,
   toggleGroupService,
   samplingPresetService,
+  projectTemplateService,
+  templateService,
+  trashService,
 } from '../models';
 import { appState, LAST_PROJECT_KEY, LAST_TAB_KEY } from '../models/AppService';
 import { keyboardShortcutService } from '../models/KeyboardShortcutService';
@@ -524,12 +527,165 @@ export const App = observer(() => {
   // cache 상태로 stuck. 재연결 시 refreshBatch로 모든 씬의 image list refetch +
   // cache 갱신. P19 #14 fix.
   useEffect(() => {
-    const off = backend.onWsReconnect(() => {
+    const revalidate = () => {
       if (appState.curSession) {
         imageService.refreshBatch(appState.curSession);
+        void appState.revalidateCurrentProjectLease().catch((error) => {
+          console.warn('[project-lease] reconnect revalidation failed:', error);
+        });
+      }
+    };
+    const off = backend.onWsReconnect(() => {
+      revalidate();
+    });
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') revalidate();
+    };
+    window.addEventListener('pageshow', revalidate);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      off();
+      window.removeEventListener('pageshow', revalidate);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+
+  // 서버 파일 revision broadcast: 보낸 탭은 제외되고, 다른 탭만 외부 정본을 다시 읽는다.
+  // 프로젝트는 배타 lease 소유자가 저장하며 미러만 객체를 교체한다. 전역 저장소는 각
+  // 서비스의 기존 검증된 load 경로를 재사용해 별도 merge 구현을 만들지 않는다.
+  useEffect(() => {
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+    const schedule = (key: string, fn: () => Promise<unknown> | unknown) => {
+      const old = timers.get(key);
+      if (old) clearTimeout(old);
+      timers.set(key, setTimeout(() => {
+        timers.delete(key);
+        void Promise.resolve(fn()).catch((error) => {
+          console.warn('[resource-changed] reload failed:', key, error);
+        });
+      }, 100));
+    };
+    const off = backend.onResourceChanged((event) => {
+      const path = event.path;
+      if (path === 'config') {
+        sessionService.configChanged();
+        return;
+      }
+      if (
+        event.projectName &&
+        appState.curSession?.name === event.projectName &&
+        /^(?:outs|inpaints)\//.test(path)
+      ) {
+        const parts = path.split('/');
+        const scene = parts[0] === 'outs'
+          ? appState.curSession.scenes.get(parts[2])
+          : appState.curSession.inpaints.get(parts[2]);
+        if (scene) schedule(`images:${parts.slice(0, 3).join('/')}`, () =>
+          imageService.refresh(appState.curSession!, scene));
+      }
+      if (
+        event.projectName &&
+        appState.projectAccessMode === 'mirror' &&
+        appState.curSession?.name === event.projectName &&
+        /^projects\/.+\.json$/i.test(path)
+      ) {
+        schedule(`project:${event.projectName}`, async () => {
+          const name = event.projectName!;
+          const fresh = await sessionService.reloadExternal(name);
+          if (appState.projectAccessMode === 'mirror' && appState.curSession?.name === name && fresh) {
+            appState.curSession = fresh;
+          }
+        });
+        return;
+      }
+      const loaders: Record<string, () => Promise<unknown>> = {
+        'global_pieces.json': () => globalPieceService.load(),
+        'global_presets.json': () => globalPresetService.load(),
+        'global_character_presets.json': () => globalCharacterPresetService.load(),
+        'artist_library.json': () => artistLibraryService.load(),
+        'prompt_chunks.json': () => promptChunkService.load(),
+        'toggle_groups.json': () => toggleGroupService.load(),
+        'sampling_presets.json': () => samplingPresetService.load(),
+        'project_templates.json': () => projectTemplateService.load(),
+        'templates.json': () => templateService.load(),
+        'trash.json': () => trashService.reloadExternal(),
+      };
+      if (loaders[path]) schedule(path, loaders[path]);
+      if (path === 'favorites.json' || path === 'folder_meta.json' || path === 'project_roles.json') {
+        schedule('session-meta', () => sessionService.reloadSharedMeta());
       }
     });
-    return off;
+    const offImageMain = backend.onSessionImageMain((op) => {
+      const session = sessionService.getLoaded(op.projectName);
+      if (!session) return;
+      const scene = op.sceneType === 'scene'
+        ? session.scenes.get(op.sceneName)
+        : session.inpaints.get(op.sceneName);
+      if (!scene) return;
+      imageService.setImageMain(session, scene, op.filename, op.value, false);
+    });
+    const offProjectRenamed = backend.onProjectRenamed(({ oldName, newName }) => {
+      if (appState.curSession?.name !== oldName) return;
+      schedule(`project-rename:${oldName}`, async () => {
+        await sessionService.invalidate(oldName);
+        const fresh = await sessionService.reloadExternal(newName);
+        if (appState.curSession?.name === oldName && fresh) {
+          appState.curSession = fresh;
+          appState.pushMessage(`다른 화면의 프로젝트 이름 변경: "${newName}"`);
+        }
+      });
+    });
+    const offProjectDeleted = backend.onProjectDeleted(({ name }) => {
+      if (appState.curSession?.name !== name) return;
+      schedule(`project-delete:${name}`, async () => {
+        await sessionService.invalidate(name);
+        if (appState.curSession?.name === name) {
+          imageService.onSessionDeleted(name);
+          appState.curSession = undefined;
+          appState.projectAccessMode = null;
+          appState.pushMessage(`다른 화면에서 프로젝트 "${name}"을 삭제했어요.`);
+        }
+      });
+    });
+    const offReconnect = backend.onWsReconnect(() => {
+      schedule('shared-stores:reconnect', async () => {
+        // WS 단절 중 생긴 로컬 debounce를 먼저 커밋해 사용자의 막 입력한 값을
+        // 재로드로 버리지 않는다. pending이 없는 store는 디스크에 쓰지 않는다.
+        await Promise.all([
+          globalPieceService.flushPendingSave(),
+          globalPresetService.flushPendingSave(),
+          globalCharacterPresetService.flushPendingSave(),
+          artistLibraryService.flushPendingSave(),
+          promptChunkService.flushPendingSave(),
+          toggleGroupService.flushPendingSave(),
+          samplingPresetService.flushPendingSave(),
+          projectTemplateService.flushPendingSave(),
+          templateService.flushPendingSave(),
+        ]);
+        sessionService.configChanged();
+        await Promise.all([
+          globalPieceService.load(),
+          globalPresetService.load(),
+          globalCharacterPresetService.load(),
+          artistLibraryService.load(),
+          promptChunkService.load(),
+          toggleGroupService.load(),
+          samplingPresetService.load(),
+          projectTemplateService.load(),
+          templateService.load(),
+          trashService.reloadExternal(),
+          sessionService.reloadSharedMeta(),
+        ]);
+      });
+    });
+    return () => {
+      off();
+      offImageMain();
+      offProjectRenamed();
+      offProjectDeleted();
+      offReconnect();
+      for (const timer of timers.values()) clearTimeout(timer);
+    };
   }, []);
 
   // 'scene-job-complete' broadcast 흡수. restored mirror task가 complete될 때 task.params
@@ -992,6 +1148,21 @@ export const App = observer(() => {
             {!isMobile && (
               <StackFixed>
                 <TobBar />
+              </StackFixed>
+            )}
+            {appState.curSession && appState.projectAccessMode === 'mirror' && (
+              <StackFixed>
+                <div className="flex items-center gap-2 px-3 py-2 text-sm bg-amber-100 text-amber-950 border-b border-amber-300">
+                  <span className="flex-1 min-w-0 truncate">
+                    읽기 전용 미러 — 구조 편집과 프로젝트 저장은 차단되고, 생성·즐겨찾기·이미지 삭제는 서버가 위임 처리해요.
+                  </span>
+                  <button
+                    className="round-button back-gray flex-none"
+                    onClick={() => void appState.retryProjectOwnership()}
+                  >
+                    소유권 다시 확인
+                  </button>
+                </div>
               </StackFixed>
             )}
             <StackGrow className="relative flex">

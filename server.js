@@ -17,6 +17,7 @@ const versionCheck = require('./lib/version-check');
 const sdstudioVersionCheck = require('./lib/sdstudio-version-check');
 const selfUpdate = require('./lib/self-update');
 const statsSteam = require('./lib/stats-steam');
+const { ProjectLeaseRegistry, projectNameFromDataPath } = require('./lib/project-leases');
 
 // .env.local 자동 로드 (Node 20.6+ 네이티브). 첫 install에서 `node server.js`만으로
 // PORT/URL_PREFIX가 동작하게. pm2 ecosystem이 이미 주입한 값은 덮어쓰지 않음 (Node 동작).
@@ -80,6 +81,110 @@ const nai = new NaiClient();
 
 // ─── WebSocket broadcast ────────────────────────────────────────────
 let wss;
+const CLIENT_ID_HEADER = 'x-nai-client-id';
+const DEVICE_ID_HEADER = 'x-nai-device-id';
+const PROJECT_LEASE_TTL_MS = 90_000;
+const projectLeaseRegistry = new ProjectLeaseRegistry({ ttlMs: PROJECT_LEASE_TTL_MS });
+const resourceRevisions = new Map();
+const projectOperationChains = new Map();
+const recentProjectLifecycleEvents = [];
+const PROJECT_LIFECYCLE_REPLAY_MS = 10 * 60_000;
+
+async function withProjectOperation(projectName, operation) {
+  const previous = projectOperationChains.get(projectName) || Promise.resolve();
+  const run = previous.catch(() => {}).then(operation);
+  projectOperationChains.set(projectName, run);
+  try {
+    return await run;
+  } finally {
+    if (projectOperationChains.get(projectName) === run) projectOperationChains.delete(projectName);
+  }
+}
+
+function requestIdentity(req) {
+  const clientId = String(req.headers[CLIENT_ID_HEADER] || req.body?.clientId || '').trim();
+  const deviceId = String(req.headers[DEVICE_ID_HEADER] || req.body?.deviceId || '').trim();
+  return projectLeaseRegistry.touch(clientId, deviceId);
+}
+
+function assertProjectLeaseForPath(req, rawPath) {
+  const identity = requestIdentity(req);
+  projectLeaseRegistry.assertPathOwner(rawPath, identity?.clientId);
+}
+
+function assertProjectDelegateForPath(req, rawPath) {
+  const identity = requestIdentity(req);
+  projectLeaseRegistry.assertPathDelegate(rawPath, identity?.clientId);
+}
+
+function isEncodedVibeCachePath(rawPath) {
+  const normalized = String(rawPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  return /^vibes\/[^/]+\/encoded\/[^/]+$/i.test(normalized);
+}
+
+function broadcastExcept(type, data, excludedClientId) {
+  if (!wss || wss.clients.size === 0) return;
+  const msg = JSON.stringify({ type, data });
+  wss.clients.forEach((client) => {
+    if (client.readyState !== WebSocket.OPEN || client.clientId === excludedClientId) return;
+    if (client.bufferedAmount > WS_MAX_BUFFER) {
+      try { client.terminate(); } catch {}
+      return;
+    }
+    client.send(msg, (err) => {
+      if (err) { try { client.terminate(); } catch {} }
+    });
+  });
+}
+
+function broadcastProjectLifecycle(type, data, excludedClientId) {
+  const now = Date.now();
+  recentProjectLifecycleEvents.push({ type, data, at: now });
+  while (
+    recentProjectLifecycleEvents.length > 100 ||
+    recentProjectLifecycleEvents[0]?.at < now - PROJECT_LIFECYCLE_REPLAY_MS
+  ) {
+    recentProjectLifecycleEvents.shift();
+  }
+  broadcastExcept(type, data, excludedClientId);
+}
+
+function replayProjectLifecycle(ws) {
+  const cutoff = Date.now() - PROJECT_LIFECYCLE_REPLAY_MS;
+  for (const event of recentProjectLifecycleEvents) {
+    if (event.at < cutoff || ws.readyState !== WebSocket.OPEN) continue;
+    ws.send(JSON.stringify({ type: event.type, data: event.data }));
+  }
+}
+
+function resolveRecentProjectRename(projectName) {
+  let current = projectName;
+  const cutoff = Date.now() - PROJECT_LIFECYCLE_REPLAY_MS;
+  for (const event of recentProjectLifecycleEvents) {
+    if (event.at < cutoff || event.type !== 'project-renamed') continue;
+    if (event.data.oldName === current) current = event.data.newName;
+  }
+  return current;
+}
+
+function notifyResourceChanged(req, rawPath, kind) {
+  const normalized = String(rawPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  const revision = (resourceRevisions.get(normalized) || 0) + 1;
+  resourceRevisions.set(normalized, revision);
+  const identity = requestIdentity(req);
+  broadcastExcept('resource-changed', {
+    path: normalized,
+    revision,
+    kind,
+    projectName: projectNameFromDataPath(normalized) || undefined,
+    originClientId: identity?.clientId,
+  }, identity?.clientId);
+}
+
+const projectLeaseSweepTimer = setInterval(() => {
+  projectLeaseRegistry.sweep();
+}, 30_000);
+projectLeaseSweepTimer.unref?.();
 // 단일 클라이언트의 ws 송신 버퍼 한계 — 슬립/poor-link 상태 모바일이 1MB 넘게 쌓이면 강제 종료.
 // 안 끊으면 process resident 메모리에 broadcast 페이로드가 무한 누적 (큐 풀가동 시 수백 MB).
 const WS_MAX_BUFFER = 1 * 1024 * 1024;
@@ -1986,8 +2091,222 @@ app.post('/api/config', async (req, res) => {
   try {
     // L15: atomicWriteFile로 partial write 회피 (config 손상 시 부팅 실패).
     await atomicWriteFile(CONFIG_PATH, JSON.stringify(req.body, null, 2));
+    notifyResourceChanged(req, 'config', 'config');
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
+});
+
+function validateLeaseProjectName(value) {
+  const name = typeof value === 'string' ? value.trim() : '';
+  if (!name || name.length > 255 || /[\\/\0]/.test(name)) {
+    const error = new Error('invalid project name');
+    error.statusCode = 400;
+    throw error;
+  }
+  return name;
+}
+
+app.post('/api/projects/lease/acquire', async (req, res) => {
+  try {
+    const identity = requestIdentity(req);
+    if (!identity?.clientId || !identity.deviceId) {
+      return res.status(400).json({ error: 'client identity required' });
+    }
+    const projectName = validateLeaseProjectName(req.body?.name);
+    const projectPath = await findProjectFile(projectName);
+    if (!projectPath) {
+      const renamedTo = resolveRecentProjectRename(projectName);
+      if (renamedTo !== projectName && await findProjectFile(renamedTo)) {
+        return res.json({ acquired: false, projectName, renamedTo });
+      }
+      return res.status(404).json({ error: 'project not found' });
+    }
+    const current = projectLeaseRegistry.get(projectName);
+    if (projectLeaseRegistry.acquire(projectName, identity)) {
+      return res.json({ acquired: true, projectName, ownerConnected: true });
+    }
+    res.json({
+      acquired: false,
+      projectName,
+      ownerConnected: projectLeaseRegistry.isConnected(current.clientId),
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/projects/lease/release', (req, res) => {
+  try {
+    const identity = requestIdentity(req);
+    const projectName = validateLeaseProjectName(req.body?.name);
+    if (req.body?.deferred === true) {
+      const timer = setTimeout(() => {
+        projectLeaseRegistry.release(projectName, identity?.clientId);
+      }, 1500);
+      timer.unref?.();
+    } else {
+      projectLeaseRegistry.release(projectName, identity?.clientId);
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/projects/lease/mirror', (req, res) => {
+  try {
+    const identity = requestIdentity(req);
+    if (!identity?.clientId || !identity.deviceId) {
+      return res.status(400).json({ error: 'client identity required' });
+    }
+    const projectName = validateLeaseProjectName(req.body?.name);
+    if (!projectLeaseRegistry.registerMirror(projectName, identity)) {
+      return res.status(409).json({ error: 'active project owner required' });
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/projects/generation-asset', async (req, res) => {
+  try {
+    const rawPath = typeof req.body?.path === 'string'
+      ? req.body.path.replace(/\\/g, '/').replace(/^\/+/, '')
+      : '';
+    if (!/^vibes\/[^/]+\/[^/]+\.png$/i.test(rawPath)) {
+      return res.status(400).json({ error: 'invalid generation asset path' });
+    }
+    assertProjectDelegateForPath(req, rawPath);
+    let data = typeof req.body?.data === 'string' ? req.body.data : '';
+    if (data.includes(',')) data = data.split(',')[1] || '';
+    if (!data) return res.status(400).json({ error: 'generation asset data required' });
+    const filePath = resolvePath(rawPath);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await atomicWriteFile(filePath, Buffer.from(data, 'base64'));
+    notifyResourceChanged(req, rawPath, 'generation-asset');
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/projects/session-image-main', async (req, res) => {
+  try {
+    const identity = requestIdentity(req);
+    if (!identity?.clientId) return res.status(400).json({ error: 'client identity required' });
+    const projectName = validateLeaseProjectName(req.body?.projectName);
+    const sceneType = req.body?.sceneType;
+    const sceneName = typeof req.body?.sceneName === 'string' ? req.body.sceneName : '';
+    const filename = typeof req.body?.filename === 'string' ? req.body.filename : '';
+    if ((sceneType !== 'scene' && sceneType !== 'inpaint') || !sceneName || !filename || typeof req.body?.value !== 'boolean') {
+      return res.status(400).json({ error: 'invalid session image main operation' });
+    }
+    const op = {
+      projectName,
+      sceneType,
+      sceneName,
+      filename,
+      value: req.body.value,
+    };
+    const lease = projectLeaseRegistry.get(projectName);
+    const delegated = Boolean(lease && projectLeaseRegistry.isConnected(lease.clientId));
+    if (!delegated) {
+      // 활성 소유자가 없을 때(예: 히스토리에서 닫힌 프로젝트 검수)는 서버가
+      // 절대 연산을 직접 직렬화한다. 활성 소유자가 있으면 전체 JSON 저장과
+      // 경쟁시키지 않고 메모리 op를 위임해 소유자의 기존 저장 큐가 기록한다.
+      await withProjectOperation(projectName, async () => {
+        const projectPath = await findProjectFile(projectName);
+        if (!projectPath) {
+          const error = new Error('project not found');
+          error.statusCode = 404;
+          throw error;
+        }
+        const project = JSON.parse(await fs.readFile(projectPath, 'utf8'));
+        const scenes = sceneType === 'scene' ? project.scenes : project.inpaints;
+        const scene = scenes && scenes[sceneName];
+        if (!scene) {
+          const error = new Error('scene not found');
+          error.statusCode = 404;
+          throw error;
+        }
+        const mains = Array.isArray(scene.mains) ? scene.mains : [];
+        const index = mains.indexOf(filename);
+        if (op.value && index < 0) mains.push(filename);
+        if (!op.value && index >= 0) mains.splice(index, 1);
+        scene.mains = mains;
+        await atomicWriteFile(projectPath, JSON.stringify(project), 'utf8');
+        notifyResourceChanged(req, path.relative(DATA_DIR, projectPath), 'write');
+      });
+    }
+    broadcastExcept('session-image-main', op, identity.clientId);
+    res.json({ ok: true, delegated });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+let quickEnsureChain = Promise.resolve();
+async function ensureQuickProjectAtomic(req) {
+  const rolesPath = resolvePath('project_roles.json');
+  let roles = {};
+  try {
+    const parsed = JSON.parse(await fs.readFile(rolesPath, 'utf8'));
+    if (parsed?.roles && typeof parsed.roles === 'object') roles = { ...parsed.roles };
+  } catch (error) {
+    if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+  }
+  const projectRoot = resolvePath('projects');
+  await fs.mkdir(projectRoot, { recursive: true });
+  const listing = await walkDir(projectRoot, 10);
+  const projectFiles = listing.files.filter((file) => /\.json$/i.test(file));
+  const existingNames = new Set(projectFiles.map((file) => path.basename(file, '.json')));
+  const current = Object.entries(roles).find(
+    ([name, role]) => role === 'quick-generation' && existingNames.has(name),
+  );
+  if (current) return { name: current[0], created: false };
+
+  let name = '퀵 생성';
+  let index = 2;
+  while (existingNames.has(name)) name = `퀵 생성 (${index++})`;
+  if (typeof req.body?.data !== 'string') {
+    const error = new Error('quick project data required');
+    error.statusCode = 400;
+    throw error;
+  }
+  let project;
+  try {
+    project = JSON.parse(req.body.data);
+  } catch {
+    const error = new Error('invalid quick project data');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!project || typeof project !== 'object' || Array.isArray(project)) {
+    const error = new Error('invalid quick project data');
+    error.statusCode = 400;
+    throw error;
+  }
+  project.name = name;
+  for (const [roleName, role] of Object.entries(roles)) {
+    if (role === 'quick-generation') delete roles[roleName];
+  }
+  roles[name] = 'quick-generation';
+  await atomicWriteFile(resolvePath(`projects/${name}.json`), JSON.stringify(project), 'utf8');
+  await atomicWriteFile(rolesPath, JSON.stringify({ version: 1, roles }), 'utf8');
+  notifyResourceChanged(req, `projects/${name}.json`, 'write');
+  notifyResourceChanged(req, 'project_roles.json', 'write');
+  return { name, created: true };
+}
+
+app.post('/api/projects/quick/ensure', async (req, res) => {
+  const run = quickEnsureChain.then(() => ensureQuickProjectAtomic(req));
+  quickEnsureChain = run.catch(() => {});
+  try {
+    res.json(await run);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
 });
 
 // ─── API: Version ───────────────────────────────────────────────────
@@ -2208,6 +2527,11 @@ app.post('/api/queue/add', async (req, res) => {
   const body = req.body || {};
   const params = body.params && body.meta !== undefined ? body.params : body;
   const meta = body.meta || {};
+  try {
+    assertProjectDelegateForPath(req, params.outputFilePath);
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ error: error.message });
+  }
   const jobId = uuidv4();
   genQueue.push({ jobId, params, meta });
   broadcastQueueStatus();
@@ -2220,6 +2544,14 @@ app.post('/api/queue/add', async (req, res) => {
 app.post('/api/queue/add-batch', async (req, res) => {
   // body.jobs 형식: ImageGenInput[] (legacy) | { params, meta }[] (새 형식)
   const jobs = req.body.jobs || [];
+  try {
+    for (const item of jobs) {
+      const params = item && item.params && item.meta !== undefined ? item.params : item;
+      assertProjectDelegateForPath(req, params?.outputFilePath);
+    }
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ error: error.message });
+  }
   const space = QUEUE_MAX_SIZE - genQueue.length;
   const toAdd = jobs.slice(0, space);
   const jobIds = [];
@@ -2314,6 +2646,11 @@ app.post('/api/queue/reserve', (req, res) => {
 // 예약 채우기 — prep 완료된 params를 reserved jobs에 채워 genQueue로 이동.
 app.post('/api/queue/fill', (req, res) => {
   const { reservationId, items } = req.body;
+  try {
+    for (const item of items || []) assertProjectDelegateForPath(req, item?.params?.outputFilePath);
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ error: error.message });
+  }
   const reservation = reservedJobs.get(reservationId);
   if (!reservation) return res.status(404).json({ error: 'reservation not found or expired' });
   const filledJobIds = [];
@@ -2385,6 +2722,11 @@ app.post('/api/queue/batch-enqueue', async (req, res) => {
   try {
     const ownerId = req.body.ownerId || null;
     const jobs = req.body.jobs || [];
+    for (const job of jobs) {
+      if (typeof job?.sessionName === 'string') {
+        assertProjectDelegateForPath(req, `outs/${job.sessionName}/_lease-check`);
+      }
+    }
     const config = await loadConfig();
     const modelVersion = config.modelVersion || '4-5-full';
     const reservations = [];
@@ -2436,7 +2778,7 @@ app.post('/api/queue/batch-enqueue', async (req, res) => {
     res.json({ reservations }); // 즉시 응답 — 클라는 jobIds로 mirror 매핑 후 bg 가도 됨
     setImmediate(() => fillBatchInBackground(jobs, reservations, config, modelVersion)
       .catch((e) => console.error('[batch-enqueue] bg fill crashed:', e)));
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 // 백그라운드: 각 job의 vibe/ref 인코딩 → ImageGenInput 조립 → reserved를 genQueue로 fill.
@@ -3021,6 +3363,7 @@ app.post('/api/generate', async (req, res) => {
     if (!nai.token) return res.status(401).json({ error: 'Not logged in' });
 
     const params = req.body;
+    assertProjectDelegateForPath(req, params.outputFilePath);
 
     // Generate request 로깅 — 기본 false. prompt + 캐릭터 prompt 같은 사용자 콘텐츠가
     // pm2 logs(local stdout)에 누적되는 거 회피. 디버깅 필요 시 `DEBUG_GENERATE_LOG=true`
@@ -3069,7 +3412,7 @@ app.post('/api/generate', async (req, res) => {
     res.json({ ok: true, outputFilePath: finalOutputFilePath });
   } catch (e) {
     console.error(`[NAI Studio] Generate error:`, e.message);
-    res.status(500).json({ error: e.message });
+    res.status(e.statusCode || 500).json({ error: e.message });
   }
 });
 
@@ -3081,6 +3424,7 @@ app.post('/api/augment', async (req, res) => {
     if (!nai.token) return res.status(401).json({ error: 'Not logged in' });
 
     const params = req.body;
+    assertProjectDelegateForPath(req, params.outputFilePath);
     const buffer = await nai.augmentImage(params);
 
     if (params.outputFilePath) {
@@ -3090,7 +3434,7 @@ app.post('/api/augment', async (req, res) => {
     }
 
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 // ─── API: File System ───────────────────────────────────────────────
@@ -3214,11 +3558,13 @@ app.get('/api/fs/read', async (req, res) => {
 
 app.post('/api/fs/write', async (req, res) => {
   try {
+    assertProjectLeaseForPath(req, req.body.path);
     const filePath = resolvePath(req.body.path);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await atomicWriteFile(filePath, req.body.data, 'utf-8');
+    notifyResourceChanged(req, req.body.path, 'write');
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 app.get('/api/fs/read-data', async (req, res) => {
@@ -3234,6 +3580,11 @@ app.get('/api/fs/read-data', async (req, res) => {
 
 app.post('/api/fs/write-data', async (req, res) => {
   try {
+    if (isEncodedVibeCachePath(req.body.path)) {
+      assertProjectDelegateForPath(req, req.body.path);
+    } else {
+      assertProjectLeaseForPath(req, req.body.path);
+    }
     const filePath = resolvePath(req.body.path);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     // Strip data URI prefix if present (data:mime;base64,...)
@@ -3242,8 +3593,9 @@ app.post('/api/fs/write-data', async (req, res) => {
       data = data.split(',')[1] || data;
     }
     await atomicWriteFile(filePath, Buffer.from(data, 'base64'));
+    notifyResourceChanged(req, req.body.path, 'write');
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 // raw 바이너리 업로드 → tmp/ 스테이징 (진단 Med-8). 옛 경로(write-data base64 JSON)는
@@ -3291,17 +3643,20 @@ app.post('/api/fs/upload-raw', async (req, res) => {
 
 app.post('/api/fs/copy', async (req, res) => {
   try {
+    assertProjectLeaseForPath(req, req.body.dest);
     const src = resolvePath(req.body.src);
     const dest = resolvePath(req.body.dest);
     await fs.mkdir(path.dirname(dest), { recursive: true });
     await fs.copyFile(src, dest);
+    notifyResourceChanged(req, req.body.dest, 'write');
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 // 디렉토리 재귀 복사 (프로젝트 복제 — 이미지 디렉토리 통째 복사). src 없으면 no-op(ok).
 app.post('/api/fs/copy-dir', async (req, res) => {
   try {
+    assertProjectLeaseForPath(req, req.body.dest);
     const src = resolvePath(req.body.src);
     const dest = resolvePath(req.body.dest);
     try {
@@ -3310,47 +3665,70 @@ app.post('/api/fs/copy-dir', async (req, res) => {
       return res.json({ ok: true, skipped: true }); // 원본 디렉토리 없음(이미지 없는 프로젝트)
     }
     await fs.cp(src, dest, { recursive: true });
+    notifyResourceChanged(req, req.body.dest, 'write');
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 app.post('/api/fs/rename', async (req, res) => {
   try {
+    assertProjectLeaseForPath(req, req.body.oldPath);
+    assertProjectLeaseForPath(req, req.body.newPath);
     const oldPath = resolvePath(req.body.oldPath);
     const newPath = resolvePath(req.body.newPath);
     await fs.mkdir(path.dirname(newPath), { recursive: true });
     await fs.rename(oldPath, newPath);
     rewriteImageHistoryPath(req.body.oldPath, req.body.newPath);
+    const oldProjectName = projectNameFromDataPath(req.body.oldPath);
+    const newProjectName = projectNameFromDataPath(req.body.newPath);
+    if (oldProjectName && newProjectName && oldProjectName !== newProjectName) {
+      projectLeaseRegistry.rekey(oldProjectName, newProjectName);
+      const identity = requestIdentity(req);
+      broadcastProjectLifecycle('project-renamed', {
+        oldName: oldProjectName,
+        newName: newProjectName,
+      }, identity?.clientId);
+    }
+    notifyResourceChanged(req, req.body.oldPath, 'delete');
+    notifyResourceChanged(req, req.body.newPath, 'rename');
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 app.post('/api/fs/rename-dir', async (req, res) => {
   try {
+    assertProjectLeaseForPath(req, req.body.oldPath);
+    assertProjectLeaseForPath(req, req.body.newPath);
     const oldPath = resolvePath(req.body.oldPath);
     const newPath = resolvePath(req.body.newPath);
     await fs.mkdir(path.dirname(newPath), { recursive: true });
     await fs.rename(oldPath, newPath);
     rewriteImageHistoryPath(req.body.oldPath, req.body.newPath);
+    notifyResourceChanged(req, req.body.oldPath, 'delete');
+    notifyResourceChanged(req, req.body.newPath, 'rename');
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 app.post('/api/fs/delete', async (req, res) => {
   try {
+    assertProjectLeaseForPath(req, req.body.path);
     await fs.unlink(resolvePath(req.body.path));
+    notifyResourceChanged(req, req.body.path, 'delete');
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 app.post('/api/fs/delete-dir', async (req, res) => {
   try {
     const requestedPath = req.body.path;
+    assertProjectLeaseForPath(req, requestedPath);
     assertDeletableDataDirPath(requestedPath);
     await fs.rm(resolvePath(requestedPath), { recursive: true, force: true });
+    notifyResourceChanged(req, requestedPath, 'delete');
     res.json({ ok: true });
   } catch (e) {
-    res.status(e.code === 'DATA_PATH_GUARD' ? 400 : 500).json({ error: e.message });
+    res.status(e.statusCode || (e.code === 'DATA_PATH_GUARD' ? 400 : 500)).json({ error: e.message });
   }
 });
 
@@ -3358,32 +3736,40 @@ app.post('/api/fs/delete-dir', async (req, res) => {
 app.post('/api/fs/delete-batch', async (req, res) => {
   try {
     const paths = req.body.paths || [];
+    for (const itemPath of paths) assertProjectLeaseForPath(req, itemPath);
     let deleted = 0;
     await chunkedMap(paths, FS_BATCH_CONCURRENCY, async (p) => {
       try {
         await fs.unlink(resolvePath(p));
+        notifyResourceChanged(req, p, 'delete');
         deleted++;
       } catch {}
     });
     res.json({ ok: true, deleted });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 app.post('/api/fs/move-batch', async (req, res) => {
   try {
     const moves = req.body.moves || []; // [{src, dest}]
+    for (const move of moves) {
+      assertProjectLeaseForPath(req, move.src);
+      assertProjectLeaseForPath(req, move.dest);
+    }
     const results = await chunkedMap(moves, FS_BATCH_CONCURRENCY, async ({ src, dest }) => {
       try {
         const srcPath = resolvePath(src);
         const destPath = resolvePath(dest);
         await fs.mkdir(path.dirname(destPath), { recursive: true });
         await fs.rename(srcPath, destPath);
+        notifyResourceChanged(req, src, 'delete');
+        notifyResourceChanged(req, dest, 'rename');
         return 1;
       } catch { return 0; }
     });
     const moved = results.reduce((a, b) => a + b, 0);
     res.json({ ok: true, moved });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 app.post('/api/trash/auto-cleanup', async (req, res) => {
@@ -3722,14 +4108,25 @@ async function permanentlyDeleteProjectFiles(name) {
 
 app.post('/api/project/delete-now', async (req, res) => {
   try {
+    const identity = requestIdentity(req);
     const name = sanitizeProjectName(req.body && req.body.name);
     if (!name) return res.status(400).json({ ok: false, error: 'Invalid project name' });
+    assertProjectLeaseForPath(req, `projects/${name}.json`);
     const result = await permanentlyDeleteProjectFiles(name);
+    const projectJsonSuffix = '/' + name + '.json';
+    const projectJsonDeleted = result.deleted.local.some((deletedPath) =>
+      deletedPath === 'projects/' + name + '.json' ||
+      (deletedPath.startsWith('projects/') && deletedPath.endsWith(projectJsonSuffix)));
+    if (projectJsonDeleted) {
+      projectLeaseRegistry.leases.delete(name);
+      projectLeaseRegistry.mirrors.delete(name);
+      broadcastProjectLifecycle('project-deleted', { name }, identity?.clientId);
+    }
     console.log(`[Project] delete-now "${name}": local=${result.deleted.local.length}, drive=${result.deleted.drive.length}, errors=${result.errors.length}`);
     res.json({ ok: true, ...result });
   } catch (e) {
     console.error('[Project] delete-now error:', e);
-    res.status(500).json({ ok: false, error: e.message });
+    res.status(e.statusCode || 500).json({ ok: false, error: e.message });
   }
 });
 
@@ -3752,7 +4149,7 @@ async function removeEmptyFolderTree(dirPath) {
   await fs.rmdir(dirPath);
 }
 
-async function runDeleteFolder(jobId, folder, namesArray, preserveProjects = false) {
+async function runDeleteFolder(jobId, folder, namesArray, excludedClientId, preserveProjects = false) {
   const allDeleted = { local: [], drive: [] };
   const allErrors = [];
   const deletedProjects = [];
@@ -3780,6 +4177,15 @@ async function runDeleteFolder(jobId, folder, namesArray, preserveProjects = fal
           allErrors.push(`delete project "${r.name}": ${r.error}`);
         } else {
           deletedProjects.push(r.name);
+          const projectJsonSuffix = '/' + r.name + '.json';
+          const projectJsonDeleted = r.result.deleted.local.some((deletedPath) =>
+            deletedPath === 'projects/' + r.name + '.json' ||
+            (deletedPath.startsWith('projects/') && deletedPath.endsWith(projectJsonSuffix)));
+          if (projectJsonDeleted) {
+            projectLeaseRegistry.leases.delete(r.name);
+            projectLeaseRegistry.mirrors.delete(r.name);
+            broadcastProjectLifecycle('project-deleted', { name: r.name }, excludedClientId);
+          }
           allDeleted.local.push(...r.result.deleted.local);
           allDeleted.drive.push(...r.result.deleted.drive);
           allErrors.push(...r.result.errors);
@@ -3825,6 +4231,7 @@ async function runDeleteFolder(jobId, folder, namesArray, preserveProjects = fal
 
 app.post('/api/project/delete-folder-now', async (req, res) => {
   try {
+    const identity = requestIdentity(req);
     const folder = sanitizeFolderPath(req.body && req.body.folder);
     const preserveProjects = req.body && req.body.preserveProjects === true;
     if (!folder) return res.status(400).json({ ok: false, error: 'Invalid folder name' });
@@ -3857,6 +4264,12 @@ app.post('/api/project/delete-folder-now', async (req, res) => {
     }
 
     const namesArray = Array.from(projectNames);
+    try {
+      for (const name of namesArray) assertProjectLeaseForPath(req, `projects/${name}.json`);
+    } catch (error) {
+      deleteFolderJobs.delete(folder);
+      return res.status(error.statusCode || 500).json({ ok: false, error: error.message });
+    }
     if (preserveProjects && namesArray.length > 0) {
       deleteFolderJobs.delete(folder);
       return res.status(409).json({
@@ -3868,7 +4281,7 @@ app.post('/api/project/delete-folder-now', async (req, res) => {
     broadcast('delete-folder-start', { jobId, folder, total: namesArray.length });
     res.json({ ok: true, jobId, folder, total: namesArray.length, alreadyRunning: false });
     // fire-and-forget — 응답 보낸 뒤 백그라운드 진행 (WS 진행도 broadcast)
-    runDeleteFolder(jobId, folder, namesArray, preserveProjects);
+    runDeleteFolder(jobId, folder, namesArray, identity?.clientId, preserveProjects);
   } catch (e) {
     console.error('[Project] delete-folder-now error:', e);
     res.status(500).json({ ok: false, error: e.message });
@@ -3895,8 +4308,33 @@ async function trashSceneImages(outputDir, filenames) {
   try { meta = JSON.parse(await fs.readFile(metaPath, 'utf-8')); } catch {}
   const now = Date.now();
   for (const filename of filenames) meta[filename] = now;
-  await fs.writeFile(metaPath, JSON.stringify(meta));
+  await atomicWriteFile(metaPath, JSON.stringify(meta), 'utf8');
 }
+
+app.post('/api/images/trash', async (req, res) => {
+  try {
+    const outputDir = typeof req.body?.outputDir === 'string'
+      ? req.body.outputDir.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '')
+      : '';
+    if (!/^(?:outs|inpaints)\/[^/]+\/[^/]+$/.test(outputDir)) {
+      return res.status(400).json({ error: 'invalid image output directory' });
+    }
+    const filenames = Array.isArray(req.body?.filenames)
+      ? [...new Set(req.body.filenames.filter(
+        (filename) => typeof filename === 'string' && filename &&
+          filename !== '.' && filename !== '..' && !filename.includes('/') && !filename.includes('\\'),
+      ))]
+      : [];
+    if (filenames.length === 0) return res.status(400).json({ error: 'image filenames required' });
+    assertProjectDelegateForPath(req, outputDir);
+    const projectName = projectNameFromDataPath(outputDir);
+    await withProjectOperation(projectName, () => trashSceneImages(outputDir, filenames));
+    notifyResourceChanged(req, outputDir, 'image-trash');
+    res.json({ ok: true, moved: filenames.length });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
 
 async function runImageDeleteJob(jobId, items) {
   const total = items.length; // 씬 단위 진행도
@@ -3908,7 +4346,8 @@ async function runImageDeleteJob(jobId, items) {
       const chunk = items.slice(i, i + CONCURRENCY);
       await Promise.all(chunk.map(async (item) => {
         try {
-          await trashSceneImages(item.outputDir, item.filenames);
+          const projectName = projectNameFromDataPath(item.outputDir);
+          await withProjectOperation(projectName, () => trashSceneImages(item.outputDir, item.filenames));
         } catch (e) {
           errors++;
           console.error('[Image] delete-batch scene 실패 "' + item.outputDir + '":', e.message);
@@ -3942,6 +4381,7 @@ app.post('/api/images/delete-batch-bg', async (req, res) => {
       if (filenames.length === 0) continue;
       items.push({ outputDir: it.outputDir, filenames });
     }
+    for (const item of items) assertProjectDelegateForPath(req, item.outputDir);
     const jobId = 'imgdel-' + Date.now().toString() + '-' + Math.random().toString(36).slice(2, 8);
     const total = items.length;
     console.log('[Image] delete-batch started jobId=' + jobId + ': scenes=' + total);
@@ -3951,7 +4391,7 @@ app.post('/api/images/delete-batch-bg', async (req, res) => {
     runImageDeleteJob(jobId, items);
   } catch (e) {
     console.error('[Image] delete-batch error:', e);
-    res.status(500).json({ ok: false, error: e.message });
+    res.status(e.statusCode || 500).json({ ok: false, error: e.message });
   }
 });
 
@@ -4533,6 +4973,7 @@ app.post('/api/projects/import-scenes', async (req, res) => {
     }
 
     // Apply
+    assertProjectLeaseForPath(req, `projects/${name}.json`);
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const backupPath = projectPath + '.bak-import-' + ts;
     await fs.copyFile(projectPath, backupPath);
@@ -4575,12 +5016,13 @@ app.post('/api/projects/import-scenes', async (req, res) => {
     }
 
     await atomicWriteFile(projectPath, JSON.stringify(data, null, 2), 'utf-8');
+    notifyResourceChanged(req, path.relative(DATA_DIR, projectPath), 'write');
 
     console.log(`[Import] project="${name}" applied=${plan.applied.length} skipped=${plan.skipped.length} backup=${path.basename(backupPath)}`);
     res.json({ ok: true, backup: path.basename(backupPath), plan });
   } catch (e) {
     console.error('[Import] error:', e);
-    res.status(500).json({ ok: false, error: e.message });
+    res.status(e.statusCode || 500).json({ ok: false, error: e.message });
   }
 });
 
@@ -5249,6 +5691,7 @@ app.post('/api/image/resize', async (req, res) => {
   try {
     if (!sharp) return res.status(501).json({ error: 'sharp not available' });
     const { inputPath, outputPath, maxWidth, maxHeight, optimize } = req.body;
+    assertProjectLeaseForPath(req, outputPath);
     const input = resolvePath(inputPath);
     const output = resolvePath(outputPath);
     await fs.mkdir(path.dirname(output), { recursive: true });
@@ -5265,7 +5708,7 @@ app.post('/api/image/resize', async (req, res) => {
 
     await pipeline.toFile(output);
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 // PNG → WebP 파생본 생성. 원본 삭제와 project.json 참조 변경은 클라이언트가
@@ -5280,6 +5723,8 @@ app.post('/api/image/convert-webp', async (req, res) => {
     if (!/\.png$/i.test(inputPath) || !/\.webp$/i.test(outputPath)) {
       return res.status(400).json({ error: 'PNG input and WebP output required' });
     }
+    assertProjectLeaseForPath(req, inputPath);
+    assertProjectLeaseForPath(req, outputPath);
     const input = resolvePath(inputPath);
     const output = resolvePath(outputPath);
     if (path.dirname(input) !== path.dirname(output)) {
@@ -5306,7 +5751,7 @@ app.post('/api/image/convert-webp', async (req, res) => {
     });
   } catch (error) {
     console.error('convert-webp error:', error.message);
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 
@@ -5323,6 +5768,7 @@ app.post('/api/image/flip-horizontal', async (req, res) => {
     if (!relPath || typeof relPath !== 'string') {
       return res.status(400).json({ error: 'path required' });
     }
+    assertProjectLeaseForPath(req, relPath);
     const absPath = resolvePath(relPath);
     const ext = path.extname(absPath).toLowerCase();
     if (ext !== '.png') {
@@ -5350,7 +5796,7 @@ app.post('/api/image/flip-horizontal', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('flip-horizontal error:', e && e.message);
-    res.status(500).json({ error: e && e.message });
+    res.status(e.statusCode || 500).json({ error: e && e.message });
   }
 });
 
@@ -5476,14 +5922,32 @@ async function start() {
     console.log('[NAI Studio] WebSocket client connected');
     // ws v8+ 이상에선 'error' listener 없으면 EventEmitter unhandled로 process crash 위험.
     ws.on('error', (err) => console.warn('[ws] client error:', err && err.message));
-    ws.on('close', () => console.log('[NAI Studio] WebSocket client disconnected'));
+    ws.on('close', () => {
+      if (ws.clientId) {
+        projectLeaseRegistry.disconnect(ws.clientId, ws);
+      }
+      console.log('[NAI Studio] WebSocket client disconnected');
+    });
     // Application-level ping/pong — 클라가 silent stale(onclose 미발화)을 직접 감지하기 위해
     // 클라 → 서버 ping을 보내고 서버 → 클라 pong을 응답. native ping/pong frame은 브라우저가
     // 자동 응답하지만 그 응답이 클라 JS layer에 도달하지 않아 silent stale 감지 불가.
     ws.on('message', (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
+        if (msg && msg.type === 'hello') {
+          const clientId = typeof msg.clientId === 'string' ? msg.clientId.trim() : '';
+          const deviceId = typeof msg.deviceId === 'string' ? msg.deviceId.trim() : '';
+          if (!clientId || !deviceId) return;
+          ws.clientId = clientId;
+          projectLeaseRegistry.connect(clientId, deviceId, ws);
+          replayProjectLifecycle(ws);
+          return;
+        }
         if (msg && msg.type === 'ping') {
+          if (ws.clientId) {
+            const client = projectLeaseRegistry.clients.get(ws.clientId);
+            projectLeaseRegistry.touch(ws.clientId, client?.deviceId || '');
+          }
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'pong', t: Date.now() }));
           }

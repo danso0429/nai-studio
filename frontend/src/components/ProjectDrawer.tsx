@@ -361,7 +361,7 @@ const ProjectDrawer = observer(() => {
       );
       if (session) {
         imageService.refreshBatch(session);
-        appState.curSession = session;
+        await appState.activateSession(session);
         pushRecentProject(name);
       }
       appState.dismissMessage(toastId);

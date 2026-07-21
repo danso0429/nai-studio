@@ -33,6 +33,29 @@ export interface WebpConversionResult {
   stealthPreserved: boolean;
 }
 
+export interface ProjectLeaseResult {
+  acquired: boolean;
+  projectName: string;
+  ownerConnected?: boolean;
+  renamedTo?: string;
+}
+
+export interface ResourceChangedEvent {
+  path: string;
+  revision: number;
+  kind: 'write' | 'rename' | 'delete' | 'config' | 'generation-asset' | 'image-trash';
+  projectName?: string;
+  originClientId?: string;
+}
+
+export interface SessionImageMainOp {
+  projectName: string;
+  sceneType: 'scene' | 'inpaint';
+  sceneName: string;
+  filename: string;
+  value: boolean;
+}
+
 export interface FileStatEntry {
   name: string;
   size: number;
@@ -224,6 +247,17 @@ export interface CleanupOrphansError {
 export abstract class Backend {
   abstract getConfig(): Promise<Config>;
   abstract setConfig(newConfig: Config): Promise<void>;
+  abstract acquireProjectLease(name: string): Promise<ProjectLeaseResult>;
+  abstract useProjectMirror(name: string): Promise<void>;
+  abstract releaseProjectLease(name: string): Promise<void>;
+  abstract revalidateProjectLease(name: string): Promise<ProjectLeaseResult>;
+  abstract isProjectReadOnly(name: string): boolean;
+  abstract assertProjectWritable(name: string): void;
+  abstract ensureQuickProject(data: string): Promise<{ name: string; created: boolean }>;
+  abstract notifySessionImageMain(op: SessionImageMainOp): Promise<void>;
+  abstract writeGenerationAsset(filename: string, data: string): Promise<void>;
+  abstract trashImages(outputDir: string, filenames: string[]): Promise<void>;
+  abstract importScenes(payload: Record<string, unknown>): Promise<any>;
   abstract openWebPage(url: string): Promise<void>;
   abstract generateImage(arg: ImageGenInput): Promise<void>;
   abstract queueAddBatch(items: Array<{ params: ImageGenInput; meta?: QueueJobMeta }>): Promise<{ jobIds: string[]; rejected: number }>;
@@ -315,6 +349,10 @@ export abstract class Backend {
   abstract onImageChanged(callback: (path: string) => void): () => void;
   abstract onClose(callback: () => void): () => void;
   abstract onWsReconnect(callback: () => void): () => void;
+  abstract onResourceChanged(callback: (event: ResourceChangedEvent) => void): () => void;
+  abstract onSessionImageMain(callback: (op: SessionImageMainOp) => void): () => void;
+  abstract onProjectRenamed(callback: (event: { oldName: string; newName: string }) => void): () => void;
+  abstract onProjectDeleted(callback: (event: { name: string }) => void): () => void;
   abstract deleteProjectNow(name: string): Promise<DeleteProjectResult>;
   abstract deleteFolderNow(folder: string, preserveProjects?: boolean): Promise<DeleteFolderStart>;
   abstract onDeleteFolderStart(callback: (data: { jobId: string; folder: string; total: number }) => void): () => void;
