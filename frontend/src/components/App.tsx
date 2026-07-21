@@ -350,6 +350,7 @@ export const App = observer(() => {
       setTrueDark(conf.trueDark ?? false);
       setThemeVars(buildThemeVars(conf.uiTheme, conf.whiteMode ?? false));
       appState.classicSceneCard = conf.classicSceneCard ?? false;
+      appState.uiToolbar = conf.uiToolbar ?? {};
       appState.initialThumbSize = conf.initialThumbSize;
       appState.historyThumbnailPercent = Math.max(
         60,

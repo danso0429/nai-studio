@@ -10,7 +10,7 @@ import {
   flushPersistentStores,
 } from '../models';
 import { extractApiError, apiUrl } from '../models/util';
-import { Config, ImageEditor, RemoveBgQuality, UiThemeConfig, UiThemePreset } from '../main/config';
+import { Config, ImageEditor, RemoveBgQuality, UiThemeConfig, UiThemePreset, UiToolbarConfig } from '../main/config';
 import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
 import { TaskLog } from '../models/TaskQueueService';
@@ -34,6 +34,7 @@ import {
   normalizeUiThemePresets,
   upsertUiThemePreset,
 } from '../models/uiThemePresets';
+import ToolbarLayoutEditor from './ToolbarLayoutEditor';
 
 interface ConfigScreenProps {
   onSave: () => void;
@@ -49,6 +50,7 @@ interface SavedConfigDraft {
   trueDark: boolean;
   uiTheme: UiThemeConfig;
   uiThemePresets: UiThemePreset[];
+  uiToolbar: UiToolbarConfig;
   exportConcurrency: number;
   useLocalBgRemoval: boolean;
   delayTime: number;
@@ -954,6 +956,7 @@ const OtherTab = ({
   trueDark, setTrueDark,
   uiTheme, setUiTheme,
   uiThemePresets, setUiThemePresets,
+  uiToolbar, setUiToolbar,
   delayTime, setDelayTime,
   classicSceneCard, setClassicSceneCard,
   useProjectDrawer, setUseProjectDrawer,
@@ -1011,6 +1014,8 @@ const OtherTab = ({
         uiTheme, setUiTheme, whiteMode, setWhiteMode, trueDark, setTrueDark,
         uiThemePresets, setUiThemePresets,
       }} />
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <ToolbarLayoutEditor value={uiToolbar} onChange={setUiToolbar} />
       <hr className="border-gray-200 dark:border-slate-600" />
       <div className="flex items-center gap-2">
         <input type="checkbox" id="cfgClassicScene" checked={classicSceneCard}
@@ -1390,6 +1395,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const [trueDark, setTrueDark] = useState(false);
   const [uiTheme, setUiTheme] = useState<UiThemeConfig>({});
   const [uiThemePresets, setUiThemePresets] = useState<UiThemePreset[]>([]);
+  const [uiToolbar, setUiToolbar] = useState<UiToolbarConfig>({});
   const [exportConcurrency, setExportConcurrency] = useState(1);
   const [delayTime, setDelayTime] = useState(0);
   const [classicSceneCard, setClassicSceneCard] = useState(false);
@@ -1419,6 +1425,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       setTrueDark(config.trueDark ?? false);
       setUiTheme(config.uiTheme ?? {});
       setUiThemePresets(normalizeUiThemePresets(config.uiThemePresets));
+      setUiToolbar(config.uiToolbar ?? {});
       setExportConcurrency(config.exportConcurrency ?? 1);
       setImageEditor(config.imageEditor ?? 'photoshop');
       setUseGPU(config.useCUDA ?? false);
@@ -1444,6 +1451,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
         trueDark: config.trueDark ?? false,
         uiTheme: config.uiTheme ?? {},
         uiThemePresets: normalizeUiThemePresets(config.uiThemePresets),
+        uiToolbar: config.uiToolbar ?? {},
         exportConcurrency: config.exportConcurrency ?? 1,
         useLocalBgRemoval: config.useLocalBgRemoval ?? false,
         delayTime: config.delayTime ?? 0,
@@ -1580,6 +1588,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       trueDark: trueDark,
       uiTheme,
       uiThemePresets: uiThemePresets.length > 0 ? uiThemePresets : undefined,
+      uiToolbar,
       exportConcurrency: exportConcurrency,
       useLocalBgRemoval: useLocalBgRemoval,
       delayTime: delayTime,
@@ -1592,6 +1601,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     await backend.setConfig(config);
     if (old.useCUDA !== useGPU) localAIService.modelChanged();
     appState.classicSceneCard = classicSceneCard;
+    appState.uiToolbar = uiToolbar;
     appState.useProjectDrawer = useProjectDrawer;
     appState.useBatchEnqueue = useBatchEnqueue;
     appState.initialThumbSize = initialThumbSize === 0 ? undefined : initialThumbSize;
@@ -1607,6 +1617,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       trueDark,
       uiTheme,
       uiThemePresets,
+      uiToolbar,
       exportConcurrency,
       useLocalBgRemoval,
       delayTime,
@@ -1630,6 +1641,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     trueDark,
     uiTheme,
     uiThemePresets,
+    uiToolbar,
     exportConcurrency,
     useLocalBgRemoval,
     delayTime,
@@ -1665,7 +1677,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       case 2:
         return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage, onClose }} />;
       case 3:
-        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, uiTheme, setUiTheme, uiThemePresets, setUiThemePresets, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, historyThumbnailPercent, setHistoryThumbnailPercent, exportConcurrency, setExportConcurrency }} />;
+        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, uiTheme, setUiTheme, uiThemePresets, setUiThemePresets, uiToolbar, setUiToolbar, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, historyThumbnailPercent, setHistoryThumbnailPercent, exportConcurrency, setExportConcurrency }} />;
       case 4:
         return <KeyBindingsTab />;
       default:

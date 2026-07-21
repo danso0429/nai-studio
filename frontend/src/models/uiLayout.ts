@@ -21,6 +21,7 @@ export interface ToolbarButtonMeta {
 export const sceneToolbarRegistry: ToolbarButtonMeta[] = [
   { id: 'add-scene', name: '씬 추가', tier: 'primary' },
   { id: 'queue-add', name: '예약 추가', tier: 'primary' },
+  { id: 'cancel-project-queue', name: '모든 예약 취소', tier: 'overflow' },
   { id: 'export-images', name: '이미지 내보내기', tier: 'secondary' },
   { id: 'quick-export', name: '빠른 export', tier: 'primary' },
   { id: 'batch-process', name: '대량 작업', tier: 'primary' },
@@ -38,6 +39,7 @@ export const sceneToolbarRegistry: ToolbarButtonMeta[] = [
   { id: 'scene-search', name: '씬 검색', tier: 'primary' },
   { id: 'bookmark-jump', name: '북마크된 씬으로 이동', tier: 'secondary' },
   { id: 'scene-trash', name: '씬 휴지통', tier: 'overflow', portable: true },
+  { id: 'reorder-scenes', name: '씬 순서 변경', tier: 'overflow' },
   {
     id: 'empty-image-trash',
     name: '삭제 이미지 일괄 비우기',
@@ -57,6 +59,7 @@ export const projectToolbarRegistry: ToolbarButtonMeta[] = [
     tier: 'primary',
     portable: true,
   },
+  { id: 'rename-session', name: '프로젝트 이름 수정', tier: 'primary' },
   { id: 'scene-template', name: '씬 템플릿', tier: 'primary', portable: true },
   {
     id: 'backup-export',
@@ -65,6 +68,7 @@ export const projectToolbarRegistry: ToolbarButtonMeta[] = [
     portable: true,
   },
   { id: 'delete-session', name: '프로젝트 삭제', tier: 'primary', portable: true },
+  { id: 'media-import', name: '백업·이미지 불러오기', tier: 'primary' },
   { id: 'project-trash', name: '프로젝트 휴지통', tier: 'primary', portable: true },
   { id: 'piece-editor', name: '프롬프트조각', tier: 'primary', portable: true },
   {

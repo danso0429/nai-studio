@@ -55,6 +55,7 @@ import {
   oneTimeFlows,
   queueRemoveBg,
 } from './workflows/OneTimeFlows';
+import type { UiToolbarConfig } from '../main/config';
 
 export interface BatchPickerItem {
   type: 'scene' | 'inpaint';
@@ -322,6 +323,9 @@ export class AppState {
 
   // 씬 카드 디자인 설정
   @observable accessor classicSceneCard: boolean = false;
+
+  // 툴바 v2 배치. 설정이 없으면 resolver가 기존 버튼 순서와 tier를 사용한다.
+  @observable accessor uiToolbar: UiToolbarConfig = {};
 
   // 씬 그리드 초기 썸네일 크기. undefined면 화면 폭으로 자동 결정. ConfigScreen
   // 에서 사용자가 명시 override 가능. App.tsx의 config-changed에서 sync.
