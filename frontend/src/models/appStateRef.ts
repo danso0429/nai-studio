@@ -4,6 +4,11 @@
 export interface AppStateRefValue {
   curSession?: { name: string };
   pushMessage(message: string): void;
+  pushDialogAsync(dialog: {
+    type: string;
+    text: string;
+    items?: Array<{ text: string; value: string }>;
+  }): Promise<string | undefined>;
 }
 
 let appStateRef: AppStateRefValue | null = null;

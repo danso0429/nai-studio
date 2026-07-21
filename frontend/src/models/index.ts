@@ -20,6 +20,8 @@ import { ToggleGroupService } from './ToggleGroupService';
 import { SamplingPresetService } from './SamplingPresetService';
 import { ProjectSizeService } from './ProjectSizeService';
 import { ImageHistoryService } from './ImageHistoryService';
+import { ProjectTemplateService } from './ProjectTemplateService';
+import { TemplateService } from './TemplateService';
 
 export const backend = new ServerBackend();
 
@@ -86,6 +88,12 @@ globalPresetService.load();
 export const globalCharacterPresetService = new GlobalCharacterPresetService();
 globalCharacterPresetService.load();
 
+export const projectTemplateService = new ProjectTemplateService();
+projectTemplateService.load();
+
+export const templateService = new TemplateService();
+templateService.load();
+
 export const artistLibraryService = new ArtistLibraryService();
 artistLibraryService.load();
 
@@ -107,6 +115,8 @@ export async function flushPersistentStores(): Promise<void> {
     globalPieceService.flushSave(),
     globalPresetService.flushSave(),
     globalCharacterPresetService.flushSave(),
+    projectTemplateService.flushSave(),
+    templateService.flushSave(),
     artistLibraryService.flushSave(),
     promptChunkService.flushSave(),
     toggleGroupService.flushSave(),

@@ -1,7 +1,7 @@
 import extractChunks from 'png-chunks-extract';
 import { Buffer } from 'buffer';
 import { v4 } from 'uuid';
-import { backend, imageService, workFlowService, zipService } from '.';
+import { backend, imageService, templateService, workFlowService, zipService } from '.';
 import { FileEntry } from '../backend';
 import defaultassets from '../defaultassets';
 import { dataUriToBase64 } from './ImageService';
@@ -81,6 +81,40 @@ export class SessionService extends ResourceSyncService<Session> {
 
   isHiddenProject(name: string): boolean {
     return Boolean(this.projectRoles[name]);
+  }
+
+  getHiddenProjectRole(name: string): HiddenProjectRole | undefined {
+    return this.projectRoles[name];
+  }
+
+  listByRole(role: HiddenProjectRole): string[] {
+    const existing = new Set(this.list());
+    return Object.entries(this.projectRoles)
+      .filter(([name, value]) => value === role && existing.has(name))
+      .map(([name]) => name);
+  }
+
+  async setHiddenProjectRole(
+    name: string,
+    role: HiddenProjectRole | null,
+  ): Promise<void> {
+    if (this.projectRolesLoadFailed) {
+      throw new Error('프로젝트 역할 정보를 불러오지 못해 변경할 수 없습니다.');
+    }
+    if (role && !this.list().includes(name)) {
+      throw new Error('프로젝트를 찾을 수 없습니다.');
+    }
+    const next = { ...this.projectRoles };
+    if (role === 'quick-generation') {
+      for (const [project, value] of Object.entries(next)) {
+        if (value === 'quick-generation') delete next[project];
+      }
+    }
+    if (role) next[name] = role;
+    else delete next[name];
+    await this.writeProjectRoles(next);
+    this.projectRoles = next;
+    this.dispatchEvent(new CustomEvent('listupdated'));
   }
 
   async ensureQuickGenerationProject(): Promise<Session | null> {
@@ -389,6 +423,8 @@ export class SessionService extends ResourceSyncService<Session> {
         saves.push(() => this.writeProjectRoles(nextRoles));
       }
       await this.persistMetadataAfterCommit('delete', saves);
+      await templateService.ensureLoaded();
+      templateService.removeProject(name);
       await this.refreshAfterCommittedMutation('project delete');
     });
   }
@@ -427,6 +463,8 @@ export class SessionService extends ResourceSyncService<Session> {
       saves.push(() => this.writeProjectRoles(nextRoles));
     }
     await this.persistMetadataAfterCommit('rename', saves);
+    await templateService.ensureLoaded();
+    templateService.renameProject(oldName, newName);
     if (hiddenRoleRenamed) this.dispatchEvent(new CustomEvent('listupdated'));
     this.dispatchEvent(new CustomEvent('renamed', {
       detail: { oldName, newName },
@@ -507,6 +545,8 @@ export class SessionService extends ResourceSyncService<Session> {
       // 색상·순서 메타는 폴더 자신 + 하위까지 path 키 마이그레이션(누락 시 색상·순서 유실).
       this.migrateFolderMeta(oldPath, newPath);
       await this.persistMetadataAfterCommit('folder rename', [() => this.saveFolderMeta()]);
+      await templateService.ensureLoaded();
+      templateService.renameFolder(oldPath, newPath);
       await this.refreshAfterCommittedMutation('folder rename');
     });
   }
@@ -542,6 +582,8 @@ export class SessionService extends ResourceSyncService<Session> {
       this.remapProjectFolders(folderPath, newPath, affected);
       this.migrateFolderMeta(folderPath, newPath);
       await this.persistMetadataAfterCommit('folder move', [() => this.saveFolderMeta()]);
+      await templateService.ensureLoaded();
+      templateService.renameFolder(folderPath, newPath);
       await this.refreshAfterCommittedMutation('folder move');
     });
   }
@@ -680,6 +722,10 @@ export class SessionService extends ResourceSyncService<Session> {
     await this.update().catch((e) => {
       console.warn('[SessionService] folder deletion post-refresh failed:', folderName, e);
     });
+    if (completed) {
+      await templateService.ensureLoaded();
+      templateService.removeFolder(folderName);
+    }
   }
 
   async moveToFolder(name: string, targetFolder: string | null): Promise<void> {
