@@ -18,12 +18,18 @@ const sdstudioVersionCheck = require('./lib/sdstudio-version-check');
 const selfUpdate = require('./lib/self-update');
 const statsSteam = require('./lib/stats-steam');
 const { ProjectLeaseRegistry, projectNameFromDataPath } = require('./lib/project-leases');
+const {
+  StorageV2,
+  PROJECT_ROOTS: STORAGE_PROJECT_ROOTS,
+  parseVirtualProjectPath,
+} = require('./lib/storage-v2');
 
 // .env.local 자동 로드 (Node 20.6+ 네이티브). 첫 install에서 `node server.js`만으로
 // PORT/URL_PREFIX가 동작하게. pm2 ecosystem이 이미 주입한 값은 덮어쓰지 않음 (Node 동작).
 try { process.loadEnvFile?.(path.join(__dirname, '.env.local')); } catch {}
 
 const DATA_DIR = path.join(__dirname, 'data');
+const storageV2 = new StorageV2(DATA_DIR);
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const PORT = process.env.PORT || 6247;
 const URL_PREFIX = process.env.URL_PREFIX || '';
@@ -213,18 +219,43 @@ function broadcast(type, data) {
 const SENSITIVE_FILES = new Set([
   path.resolve(DATA_DIR, 'TOKEN.txt'),
 ]);
+const INTERNAL_STORAGE_FILES = new Set([
+  path.resolve(DATA_DIR, 'storage_version.json'),
+  path.resolve(DATA_DIR, 'migration_ledger.json'),
+  path.resolve(DATA_DIR, 'storage_migration_optout.json'),
+]);
 
 function resolvePath(p, opts = {}) {
-  // All paths are relative to DATA_DIR
-  const resolved = path.resolve(DATA_DIR, p);
+  // 브라우저·queue ledger에는 구 논리 경로를 계속 유지하고, storage v2가 활성일 때만
+  // 서버 경계에서 workspace 물리 경로로 해석한다. 이 순서로 기존 export/Drive/custom
+  // 호출자는 저장 배치를 몰라도 같은 경로 계약을 유지한다.
+  const rawResolved = path.resolve(DATA_DIR, p);
   // Phase 7C: + path.sep 검증으로 'data2' 같은 sibling 경로 통과 방지
-  if (resolved !== DATA_DIR && !resolved.startsWith(DATA_DIR + path.sep)) {
+  if (rawResolved !== DATA_DIR && !rawResolved.startsWith(DATA_DIR + path.sep)) {
     throw new Error('Path traversal detected');
   }
+  const rawRelative = path.relative(DATA_DIR, rawResolved);
+  if (!opts.allowStorageInternal && (
+    rawRelative === 'workspace' || rawRelative.startsWith('workspace' + path.sep) ||
+    INTERNAL_STORAGE_FILES.has(rawResolved)
+  )) {
+    throw new Error('Access to internal storage layout denied');
+  }
+  const resolved = storageV2.resolve(p);
   if (!opts.allowSensitive && SENSITIVE_FILES.has(resolved)) {
     throw new Error('Access to sensitive file denied');
   }
   return resolved;
+}
+
+function projectStorageLocations(root) {
+  const locations = [{ absPath: path.join(DATA_DIR, root), projectName: null }];
+  if (storageV2.active && STORAGE_PROJECT_ROOTS.includes(root)) {
+    for (const record of storageV2.projectsByName.values()) {
+      locations.push({ absPath: storageV2.workspacePath(record, root), projectName: record.name });
+    }
+  }
+  return locations;
 }
 
 // atomic write: tmp 파일에 먼저 쓴 후 rename. POSIX 동일 fs 내 rename은 atomic.
@@ -1047,26 +1078,15 @@ function loadQueueState() {
 const RECONCILE_CHUNK_SIZE = 8;
 
 async function reconcileImageMap() {
-  const PROJECTS_DIR = path.join(DATA_DIR, 'projects');
-  const OUTS_DIR = path.join(DATA_DIR, 'outs');
-  const t0 = Date.now();
-
-  async function listProjectFilesRecursive(dir) {
-    const out = [];
-    let entries;
-    try { entries = await fs.readdir(dir, { withFileTypes: true }); }
-    catch (e) { if (e.code === 'ENOENT') return out; throw e; }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) out.push(...(await listProjectFilesRecursive(full)));
-      else if (entry.isFile() && entry.name.endsWith('.json') && !entry.name.includes('.bak')) out.push(full);
-    }
-    return out;
+  if (storageV2.migrating || storageV2.migrationIncomplete) {
+    console.log('[Reconcile] skipped while storage migration is incomplete');
+    return;
   }
+  const t0 = Date.now();
 
   let scenesChecked = 0, entriesRemoved = 0, projectsUpdated = 0;
   try {
-    const files = await listProjectFilesRecursive(PROJECTS_DIR);
+    const files = (await listAllProjectFiles()).map((project) => project.absPath);
     for (const file of files) {
       // audit M2: 옛 file loop는 yield 없음. 부팅 시 1000+ project 시나리오에서
       // 수 초 event loop 블록. 매 file 시작 시 setImmediate yield로 HTTP/WS
@@ -1088,11 +1108,11 @@ async function reconcileImageMap() {
       for (let i = 0; i < targets.length; i += RECONCILE_CHUNK_SIZE) {
         const chunk = targets.slice(i, i + RECONCILE_CHUNK_SIZE);
         await Promise.all(chunk.map(async (scene) => {
-          const dir = path.join(OUTS_DIR, data.name, scene.name);
+          const dir = resolvePath(`outs/${data.name}/${scene.name}`);
           let fileSet;
           try {
             const entries = await fs.readdir(dir);
-            fileSet = new Set(entries.filter(f => f.endsWith('.png')));
+            fileSet = new Set(entries.filter((f) => /\.(?:png|webp|avif)$/i.test(f)));
           } catch (e) {
             if (e.code === 'ENOENT') fileSet = new Set();
             else return; // transient I/O: don't touch
@@ -1236,6 +1256,9 @@ let driveRetryProcessing = false;
 const DRIVE_RETRY_CONCURRENCY = Math.max(1, parseInt(process.env.DRIVE_RETRY_CONCURRENCY) || 3);
 
 async function processDriveRetryQueue({ ignoreSchedule = false, targetLocalPath = null } = {}) {
+  if (storageV2.migrating || storageV2.migrationIncomplete) {
+    return { succeeded: 0, failed: 0, skipped: driveRetryQueue.length };
+  }
   if (driveRetryProcessing) return { succeeded: 0, failed: 0, skipped: 0 };
   if (driveRetryQueue.length === 0) return { succeeded: 0, failed: 0, skipped: 0 };
   driveRetryProcessing = true;
@@ -1271,7 +1294,7 @@ async function processDriveRetryQueue({ ignoreSchedule = false, targetLocalPath 
         console.log('[Drive retry] success: ' + entry.localPath);
         succeeded++;
         broadcast('drive-sync-complete', {
-          localPath: path.relative(DATA_DIR, entry.localPath),
+          localPath: storageV2.toVirtualPath(entry.localPath),
           requestedPath: entry.requestedPath,
           fileName: path.basename(entry.localPath),
         });
@@ -1303,7 +1326,7 @@ async function processDriveRetryQueue({ ignoreSchedule = false, targetLocalPath 
         entry.nextRetryAt = Date.now() + delay;
       }
       broadcast('drive-sync-failed', {
-        localPath: path.relative(DATA_DIR, entry.localPath),
+        localPath: storageV2.toVirtualPath(entry.localPath),
         requestedPath: entry.requestedPath,
         fileName: path.basename(entry.localPath),
         error: result.error,
@@ -1733,7 +1756,6 @@ async function diskCleanupStage3() {
 async function diskCleanupStage4() {
   // outs/ 30일+ 이미지 — Drive 동기화 확인 후 삭제
   let cleaned = 0;
-  const outsDir = path.join(DATA_DIR, 'outs');
 
   // rclone 가용성 확인 — 60초 캐시 헬퍼 사용
   if (!checkRcloneAvailable()) {
@@ -1744,9 +1766,13 @@ async function diskCleanupStage4() {
   try {
     // 30일 이상 된 png 파일 찾기
     // audit B6 — execSync 동기 블록 → execFileP(async). 패턴은 find 인자로 그대로 전달.
-    const { stdout } = await execFileP('find', [outsDir, '-name', '*.png', '-not', '-path', '*/.trash/*', '-not', '-path', '*/fastcache/*', '-mtime', '+30']);
-    const output = stdout.trim();
-    const files = output ? output.split('\n') : [];
+    const files = [];
+    for (const location of projectStorageLocations('outs')) {
+      try { await fs.access(location.absPath); } catch { continue; }
+      const { stdout } = await execFileP('find', [location.absPath, '-type', 'f', '(', '-name', '*.png', '-o', '-name', '*.webp', '-o', '-name', '*.avif', ')', '-not', '-path', '*/.trash/*', '-not', '-path', '*/fastcache/*', '-mtime', '+30']);
+      const output = stdout.trim();
+      if (output) files.push(...output.split('\n'));
+    }
     if (files.length === 0) return 0;
     // Drive 인덱스를 한 번에 빌드 (lsjson --recursive). N개 lsf 호출 -> 1번 호출.
     let driveSet;
@@ -1766,7 +1792,7 @@ async function diskCleanupStage4() {
     }
     for (const localFile of files) {
       // DATA_DIR 기준 상대 경로를 outs/ 기준 (Drive Path 형식)으로 변환
-      const relPath = path.relative(DATA_DIR, localFile);
+      const relPath = storageV2.toVirtualPath(localFile);
       const driveRelPath = relPath.startsWith('outs/') ? relPath.slice(5) : relPath;
       if (driveSet.has(driveRelPath)) {
         try {
@@ -2029,6 +2055,17 @@ app.use((req, res, next) => {
   next();
 });
 
+// storage migration은 물리 rename 중 논리 경로가 잠깐 양쪽에 걸친다. 승인된 서버
+// 작업 외 API가 그 사이 읽거나 쓰면 split layout이 생길 수 있으므로 storage 상태 조회만
+// 열고 나머지 API는 명시적으로 재시도 응답한다. 정적 UI는 계속 열려 진행률을 표시한다.
+app.use('/api', (req, res, next) => {
+  if (
+    (!storageV2.migrating && !storageV2.migrationIncomplete) ||
+    req.path.startsWith('/storage/')
+  ) return next();
+  res.status(503).json({ error: 'storage migration is incomplete', retryable: true });
+});
+
 // 기본 보안 헤더. tailnet 폐쇄망이 가정이지만, 외부 노출 위치/시점에 한 줄이라도
 // 깔린 게 안전. clickjacking + MIME sniffing + referrer leak 회피 + 권한 요청 차단.
 // CSP는 P13(5/15) 보안 감사에서 enforce 모드로 격상됨 (이전 Report-Only). 'self'
@@ -2094,6 +2131,333 @@ app.post('/api/config', async (req, res) => {
     notifyResourceChanged(req, 'config', 'config');
     res.json({ ok: true });
   } catch (e) { res.status(e.statusCode || 500).json({ error: e.message }); }
+});
+
+const STORAGE_MIGRATION_CONFIRMATION = 'MOVE_PROJECT_DATA_TO_STORAGE_V2';
+const STORAGE_CLEANUP_CONFIRMATION = 'DELETE_MIGRATED_LEGACY_STORAGE';
+const STORAGE_REMNANT_CLEANUP_CONFIRMATION = 'DELETE_SCANNED_LEGACY_REMNANTS';
+const STORAGE_ROLLBACK_CONFIRMATION = 'ROLLBACK_STORAGE_V2';
+const STORAGE_OPTOUT_ENABLE_CONFIRMATION = 'DISMISS_STORAGE_V2_MIGRATION_NOTICE';
+const STORAGE_OPTOUT_CLEAR_CONFIRMATION = 'SHOW_STORAGE_V2_MIGRATION_NOTICE';
+const STORAGE_OPTOUT_FILE = path.join(DATA_DIR, 'storage_migration_optout.json');
+let storageMigrationRuntime = {
+  running: false,
+  phase: 'idle',
+  current: 0,
+  total: 0,
+  name: '',
+  error: null,
+};
+
+async function storageMigrationBlockers() {
+  const blockers = [];
+  if (genQueue.length > 0 || queueProcessing || reservedJobs.size > 0) blockers.push('generation-queue');
+  if (exportQueue.length > 0 || activeExportJobs.size > 0) blockers.push('export-queue');
+  if (projectLeaseRegistry.leases.size > 0) blockers.push('project-leases');
+  return blockers;
+}
+
+async function estimateLegacyStorageBytes() {
+  let bytes = 0;
+  for (const root of ['projects', ...STORAGE_PROJECT_ROOTS]) {
+    bytes += (await sumDirAll(path.join(DATA_DIR, root))).size;
+  }
+  if (!storageV2.active) bytes += (await sumDirAll(storageV2.workspaceDir)).size;
+  return bytes;
+}
+
+async function storageMigrationOptedOut() {
+  try {
+    await fs.access(STORAGE_OPTOUT_FILE);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function createPreMigrationBackup() {
+  const JSZip = require('jszip');
+  const backupsDir = path.join(DATA_DIR, 'exports', EXPORTS_BACKUPS_DIRNAME);
+  await fs.mkdir(backupsDir, { recursive: true });
+  const zip = new JSZip();
+  let included = 0;
+  const skipNames = new Set(['fastcache', '.trash', 'tmp', '.cache']);
+  async function addTree(absPath, zipPath) {
+    const stat = await fs.stat(absPath).catch(() => null);
+    if (!stat) return;
+    if (stat.isDirectory()) {
+      zip.folder(zipPath);
+      for (const entry of await fs.readdir(absPath)) {
+        if (skipNames.has(entry)) continue;
+        await addTree(path.join(absPath, entry), `${zipPath}/${entry}`);
+      }
+    } else if (stat.isFile()) {
+      zip.file(zipPath, fss.createReadStream(absPath));
+      included++;
+    }
+  }
+  for (const root of ['projects', ...STORAGE_PROJECT_ROOTS, 'workspace']) {
+    await addTree(path.join(DATA_DIR, root), root);
+  }
+  for (const entry of await fs.readdir(DATA_DIR, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    if (
+      entry.name === 'storage_version.json' ||
+      entry.name === 'migration_ledger.json' ||
+      entry.name === 'storage_migration_optout.json'
+    ) continue;
+    zip.file(entry.name, fss.createReadStream(path.join(DATA_DIR, entry.name)));
+    included++;
+  }
+  if (included === 0) throw new Error('No project data to back up');
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const filename = `pre-migration-storage-v2-${timestamp}.zip`;
+  const finalPath = path.join(backupsDir, filename);
+  const partPath = `${finalPath}.part`;
+  try {
+    await new Promise((resolve, reject) => {
+      const output = fss.createWriteStream(partPath, { flags: 'wx' });
+      output.on('error', reject);
+      output.on('finish', resolve);
+      zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'STORE' })
+        .on('error', reject)
+        .pipe(output);
+    });
+    await fs.rename(partPath, finalPath);
+  } catch (error) {
+    await fs.rm(partPath, { force: true }).catch(() => {});
+    throw error;
+  }
+  return `exports/${EXPORTS_BACKUPS_DIRNAME}/${filename}`;
+}
+
+async function runStorageMigration({ backupRequested, authorizedAt, resumed = false }) {
+  if (storageMigrationRuntime.running) return;
+  storageMigrationRuntime = {
+    running: true,
+    phase: backupRequested ? 'backing-up' : 'migrating',
+    current: 0,
+    total: 0,
+    name: '',
+    error: null,
+    resumed,
+  };
+  broadcast('storage-migration', storageMigrationRuntime);
+  try {
+    const driveRetryLogicalPaths = new Map(
+      driveRetryQueue.map((entry) => [entry, storageV2.toVirtualPath(entry.localPath)]),
+    );
+    const migrationStatus = await storageV2.migrate({
+      authorizedAt,
+      backup: backupRequested ? createPreMigrationBackup : null,
+      onProgress: ({ index, total, name }) => {
+        storageMigrationRuntime = {
+          ...storageMigrationRuntime,
+          phase: 'migrating',
+          current: index,
+          total,
+          name,
+        };
+        broadcast('storage-migration', storageMigrationRuntime);
+      },
+    });
+    await fs.unlink(STORAGE_OPTOUT_FILE).catch((error) => {
+      if (error.code !== 'ENOENT') {
+        console.warn('[storage-v2] opt-out cleanup failed after migration:', error.message);
+      }
+    });
+    for (const [entry, logicalPath] of driveRetryLogicalPaths) {
+      entry.localPath = resolvePath(logicalPath);
+    }
+    if (driveRetryLogicalPaths.size > 0) flushDriveRetryQueue();
+    const partial = migrationStatus.migration?.state === 'partial';
+    storageMigrationRuntime = {
+      ...storageMigrationRuntime,
+      running: false,
+      phase: partial ? 'failed' : 'done',
+      name: '',
+      error: partial ? '일부 프로젝트를 이동하지 못했어요. 원인을 확인한 뒤 다시 시도하거나 롤백해 주세요.' : null,
+    };
+    if (!partial) void reconcileImageMap().catch(() => {});
+  } catch (error) {
+    console.error('[storage-v2] migration failed:', error);
+    storageMigrationRuntime = {
+      ...storageMigrationRuntime,
+      running: false,
+      phase: 'failed',
+      error: error.message,
+    };
+  }
+  broadcast('storage-migration', storageMigrationRuntime);
+}
+
+app.get('/api/storage/status', async (req, res) => {
+  try {
+    const [status, estimatedBytes, blockers, optedOut] = await Promise.all([
+      storageV2.status(),
+      estimateLegacyStorageBytes(),
+      storageMigrationBlockers(),
+      storageMigrationOptedOut(),
+    ]);
+    let freeBytes = null;
+    try {
+      const stat = await fs.statfs(DATA_DIR);
+      freeBytes = Number(stat.bavail) * Number(stat.bsize);
+    } catch {}
+    res.json({
+      ...status,
+      estimatedBytes,
+      freeBytes,
+      blockers,
+      optedOut,
+      runtime: storageMigrationRuntime,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/storage/migrate', async (req, res) => {
+  try {
+    if (req.body?.confirmation !== STORAGE_MIGRATION_CONFIRMATION) {
+      return res.status(400).json({ error: 'explicit migration confirmation required' });
+    }
+    if (storageMigrationRuntime.running || storageV2.migrating) {
+      return res.status(409).json({ error: 'storage migration already running' });
+    }
+    if (storageV2.migrationLedgerError) {
+      return res.status(409).json({
+        error: 'storage migration blocked by an invalid migration ledger',
+        migrationLedgerError: storageV2.migrationLedgerError,
+      });
+    }
+    if (storageV2.scanWarnings.length > 0) {
+      return res.status(409).json({
+        error: 'storage migration blocked by unreadable workspace metadata',
+        scanWarnings: storageV2.scanWarnings,
+      });
+    }
+    const blockers = await storageMigrationBlockers();
+    if (blockers.length > 0) {
+      return res.status(409).json({ error: 'storage migration blocked', blockers });
+    }
+    const backupRequested = req.body?.backup !== false;
+    const authorizedAt = Date.now();
+    await fs.unlink(STORAGE_OPTOUT_FILE).catch((error) => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+    void runStorageMigration({ backupRequested, authorizedAt });
+    res.status(202).json({ ok: true, backupRequested, authorizedAt });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/storage/cleanup-legacy', async (req, res) => {
+  try {
+    if (req.body?.confirmation !== STORAGE_CLEANUP_CONFIRMATION) {
+      return res.status(400).json({ error: 'explicit legacy cleanup confirmation required' });
+    }
+    if (storageV2.migrationIncomplete) {
+      return res.status(409).json({ error: 'legacy cleanup blocked until migration is resolved' });
+    }
+    const blockers = (await storageMigrationBlockers()).filter((item) => item !== 'project-leases');
+    if (blockers.length > 0) return res.status(409).json({ error: 'legacy cleanup blocked', blockers });
+    const result = await storageV2.cleanupLegacyCopies({ authorizedAt: Date.now() });
+    res.json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+app.get('/api/storage/legacy-remnants', async (req, res) => {
+  try {
+    if (storageV2.migrationIncomplete) {
+      return res.status(409).json({ error: 'legacy remnant scan blocked until migration is resolved' });
+    }
+    res.json(await storageV2.scanLegacyRemnants());
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/storage/cleanup-remnants', async (req, res) => {
+  try {
+    if (req.body?.confirmation !== STORAGE_REMNANT_CLEANUP_CONFIRMATION) {
+      return res.status(400).json({ error: 'explicit legacy remnant cleanup confirmation required' });
+    }
+    if (storageV2.migrationIncomplete) {
+      return res.status(409).json({ error: 'legacy remnant cleanup blocked until migration is resolved' });
+    }
+    const blockers = (await storageMigrationBlockers()).filter((item) => item !== 'project-leases');
+    if (blockers.length > 0) {
+      return res.status(409).json({ error: 'legacy remnant cleanup blocked', blockers });
+    }
+    const result = await storageV2.cleanupLegacyRemnants({
+      authorizedAt: Date.now(),
+      expectedFingerprint: req.body?.fingerprint,
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message, blocked: error.blocked });
+  }
+});
+
+app.post('/api/storage/opt-out', async (req, res) => {
+  try {
+    const enabled = req.body?.enabled === true;
+    const expected = enabled
+      ? STORAGE_OPTOUT_ENABLE_CONFIRMATION
+      : STORAGE_OPTOUT_CLEAR_CONFIRMATION;
+    if (req.body?.confirmation !== expected) {
+      return res.status(400).json({ error: 'explicit storage migration notice preference required' });
+    }
+    if (enabled) {
+      const status = await storageV2.status();
+      if (status.active && status.legacyProjects === 0) {
+        return res.status(409).json({ error: 'storage v2 is already active' });
+      }
+      await atomicWriteFile(STORAGE_OPTOUT_FILE, JSON.stringify({ dismissedAt: Date.now() }, null, 2));
+    } else {
+      await fs.unlink(STORAGE_OPTOUT_FILE).catch((error) => {
+        if (error.code !== 'ENOENT') throw error;
+      });
+    }
+    res.json({ ok: true, optedOut: enabled });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/storage/rollback', async (req, res) => {
+  try {
+    if (req.body?.confirmation !== STORAGE_ROLLBACK_CONFIRMATION) {
+      return res.status(400).json({ error: 'explicit storage rollback confirmation required' });
+    }
+    if (storageV2.migrationLedgerError) {
+      return res.status(409).json({
+        error: 'storage rollback blocked by an invalid migration ledger',
+        migrationLedgerError: storageV2.migrationLedgerError,
+      });
+    }
+    const blockers = await storageMigrationBlockers();
+    if (blockers.length > 0) return res.status(409).json({ error: 'storage rollback blocked', blockers });
+    const logicalPaths = new Map(
+      driveRetryQueue.map((entry) => [entry, storageV2.toVirtualPath(entry.localPath)]),
+    );
+    const result = await storageV2.rollbackMigration({ authorizedAt: Date.now() });
+    await atomicWriteFile(STORAGE_OPTOUT_FILE, JSON.stringify({
+      dismissedAt: Date.now(),
+      reason: 'storage-v2-rollback',
+    }, null, 2)).catch((error) => {
+      console.warn('[storage-v2] rollback opt-out record failed:', error.message);
+    });
+    for (const [entry, logicalPath] of logicalPaths) entry.localPath = resolvePath(logicalPath);
+    if (logicalPaths.size > 0) flushDriveRetryQueue();
+    res.json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
 });
 
 function validateLeaseProjectName(value) {
@@ -2236,7 +2600,7 @@ app.post('/api/projects/session-image-main', async (req, res) => {
         if (!op.value && index >= 0) mains.splice(index, 1);
         scene.mains = mains;
         await atomicWriteFile(projectPath, JSON.stringify(project), 'utf8');
-        notifyResourceChanged(req, path.relative(DATA_DIR, projectPath), 'write');
+        notifyResourceChanged(req, storageV2.toVirtualPath(projectPath), 'write');
       });
     }
     broadcastExcept('session-image-main', op, identity.clientId);
@@ -2256,11 +2620,10 @@ async function ensureQuickProjectAtomic(req) {
   } catch (error) {
     if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
   }
-  const projectRoot = resolvePath('projects');
-  await fs.mkdir(projectRoot, { recursive: true });
-  const listing = await walkDir(projectRoot, 10);
-  const projectFiles = listing.files.filter((file) => /\.json$/i.test(file));
-  const existingNames = new Set(projectFiles.map((file) => path.basename(file, '.json')));
+  const listing = await storageV2.listProjects();
+  const existingNames = new Set(
+    listing.records.filter((project) => project.kind === 'active').map((project) => project.name),
+  );
   const current = Object.entries(roles).find(
     ([name, role]) => role === 'quick-generation' && existingNames.has(name),
   );
@@ -2292,7 +2655,10 @@ async function ensureQuickProjectAtomic(req) {
     if (role === 'quick-generation') delete roles[roleName];
   }
   roles[name] = 'quick-generation';
-  await atomicWriteFile(resolvePath(`projects/${name}.json`), JSON.stringify(project), 'utf8');
+  const projectPayload = JSON.stringify(project);
+  const prepared = await storageV2.serialize(() =>
+    storageV2.prepareProjectWrite(`projects/${name}.json`, projectPayload));
+  await atomicWriteFile(prepared.path, projectPayload, 'utf8');
   await atomicWriteFile(rolesPath, JSON.stringify({ version: 1, roles }), 'utf8');
   notifyResourceChanged(req, `projects/${name}.json`, 'write');
   notifyResourceChanged(req, 'project_roles.json', 'write');
@@ -2954,24 +3320,10 @@ app.get('/api/queue/status', async (req, res) => {
 app.get('/api/queue/full-state', async (req, res) => {
   let folders = {};
   try {
-    const projectsDir = path.join(DATA_DIR, 'projects');
-    const walk = await walkDir(projectsDir, PROJECT_NEST_WALK_DEPTH);
-    for (const f of walk.files) {
-      if (!f.endsWith('.json')) continue;
-      // 중첩 폴더: 마지막 슬래시 = 폴더 path와 파일명 경계 (frontend getList와 동일 정책).
-      const slash = f.lastIndexOf('/');
-      let project;
-      let folder;
-      if (slash >= 0) {
-        folder = f.substring(0, slash);
-        project = f.substring(slash + 1, f.length - 5);
-      } else {
-        folder = null;
-        project = f.substring(0, f.length - 5);
-      }
-      // 동명 충돌 시 첫 발견 유지 (frontend ResourceSyncService와 동일 정책)
-      if (project in folders) continue;
-      folders[project] = folder;
+    const projects = await storageV2.listProjects();
+    for (const project of projects.records) {
+      if (project.kind !== 'active' || project.name in folders) continue;
+      folders[project.name] = project.folder || null;
     }
   } catch (e) {
     console.warn('[full-state] folder map walk failed:', e.message);
@@ -3043,43 +3395,49 @@ app.get('/api/queue/completed', async (req, res) => {
   const memEntries = completedJobs.slice().reverse();
   const seenPaths = new Set(memEntries.map((e) => e.outputFilePath).filter(Boolean));
 
-  // 파일시스템 fallback: outs/ 안 4시간 내 mtime png. ring buffer에 없는 것만 추가.
+  // 파일시스템 fallback: 논리 outs/ 전체에서 4시간 내 출력 이미지. ring buffer에 없는 것만 추가.
   // audit H5: execSync find가 HTTP path에서 event loop 블록 (수만 파일 시 100ms+).
   // execFile async로 전환 — 같은 timeout/maxBuffer 유지.
   const fsEntries = [];
   try {
-    const outsDir = path.join(DATA_DIR, 'outs');
-    const { stdout: out } = await execFileP('find', [
-      outsDir, '-type', 'f', '-name', '*.png',
-      '-mmin', '-240',
-      '-not', '-path', '*/.trash/*',
-      '-not', '-path', '*/fastcache/*',
-      '-printf', '%T@ %P\\n',
-    ], { maxBuffer: 50 * 1024 * 1024, timeout: 10000 });
-    for (const line of out.split('\n')) {
-      if (!line.trim()) continue;
-      const sp = line.indexOf(' ');
-      if (sp < 0) continue;
-      const mtimeSec = parseFloat(line.substring(0, sp));
-      const relPath = line.substring(sp + 1);
-      const completedAt = Math.round(mtimeSec * 1000);
-      if (completedAt < sinceMs) continue;
-      const outputFilePath = 'outs/' + relPath;
-      if (seenPaths.has(outputFilePath)) continue;
-      const parts = relPath.split('/');
-      const project = parts[0] || '';
-      const sceneName = parts.length >= 2 ? parts[parts.length - 2] : '';
-      fsEntries.push({
-        jobId: null,
-        outputFilePath,
-        meta: {
-          sceneKey: project + '/scene/' + sceneName,
-          sceneName,
-          taskType: 'scene',
-        },
-        completedAt,
-        durationMs: 0,
-      });
+    for (const location of projectStorageLocations('outs')) {
+      try { await fs.access(location.absPath); } catch { continue; }
+      const { stdout: out } = await execFileP('find', [
+        location.absPath, '-type', 'f', '(', '-name', '*.png', '-o', '-name', '*.webp', '-o', '-name', '*.avif', ')',
+        '-mmin', '-240',
+        '-not', '-path', '*/.trash/*',
+        '-not', '-path', '*/fastcache/*',
+        '-printf', '%T@ %P\\n',
+      ], { maxBuffer: 50 * 1024 * 1024, timeout: 10000 });
+      for (const line of out.split('\n')) {
+        if (!line.trim()) continue;
+        const sp = line.indexOf(' ');
+        if (sp < 0) continue;
+        const mtimeSec = parseFloat(line.substring(0, sp));
+        const localRelPath = line.substring(sp + 1);
+        const relPath = location.projectName
+          ? `${location.projectName}/${localRelPath}`
+          : localRelPath;
+        const completedAt = Math.round(mtimeSec * 1000);
+        if (completedAt < sinceMs) continue;
+        const outputFilePath = 'outs/' + relPath;
+        if (seenPaths.has(outputFilePath)) continue;
+        seenPaths.add(outputFilePath);
+        const parts = relPath.split('/');
+        const project = parts[0] || '';
+        const sceneName = parts.length >= 2 ? parts[parts.length - 2] : '';
+        fsEntries.push({
+          jobId: null,
+          outputFilePath,
+          meta: {
+            sceneKey: project + '/scene/' + sceneName,
+            sceneName,
+            taskType: 'scene',
+          },
+          completedAt,
+          durationMs: 0,
+        });
+      }
     }
   } catch (e) {
     console.warn('[completed] fs walk failed:', e.message);
@@ -3440,6 +3798,15 @@ app.post('/api/augment', async (req, res) => {
 // ─── API: File System ───────────────────────────────────────────────
 app.get('/api/fs/list', async (req, res) => {
   try {
+    const virtualProjects = await storageV2.listVirtualProjectDirectory(req.query.path);
+    if (virtualProjects) {
+      const listHash = crypto.createHash('sha1').update(JSON.stringify(virtualProjects)).digest('hex').slice(0, 12);
+      const etag = `W/\"storage-v2-${storageV2.active ? 2 : 1}-${listHash}\"`;
+      res.set('Cache-Control', 'private, max-age=0, must-revalidate');
+      res.set('ETag', etag);
+      if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
+      return res.json(virtualProjects);
+    }
     const dirPath = resolvePath(req.query.path);
     await fs.mkdir(dirPath, { recursive: true });
     const dirStat = await fs.stat(dirPath);
@@ -3463,6 +3830,15 @@ app.get('/api/fs/list', async (req, res) => {
 
 app.get('/api/fs/list-stats', async (req, res) => {
   try {
+    const virtualProjects = await storageV2.listVirtualProjectDirectory(req.query.path, true);
+    if (virtualProjects) {
+      const maxMtime = virtualProjects.reduce((value, entry) => Math.max(value, entry.mtime), 0);
+      const etag = `W/\"storage-v2-${maxMtime.toFixed(0)}-${virtualProjects.length}\"`;
+      res.set('Cache-Control', 'private, max-age=0, must-revalidate');
+      res.set('ETag', etag);
+      if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
+      return res.json(virtualProjects);
+    }
     const dirPath = resolvePath(req.query.path);
     await fs.mkdir(dirPath, { recursive: true });
     const files = await fs.readdir(dirPath);
@@ -3534,6 +3910,9 @@ async function walkDir(basePath, depth) {
 
 app.get('/api/fs/list-recursive', async (req, res) => {
   try {
+    if (String(req.query.path || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') === 'projects') {
+      return res.json(await storageV2.listVirtualProjectTree());
+    }
     const dirPath = resolvePath(req.query.path);
     await fs.mkdir(dirPath, { recursive: true });
     const parsed = parseInt(req.query.depth, 10);
@@ -3559,7 +3938,9 @@ app.get('/api/fs/read', async (req, res) => {
 app.post('/api/fs/write', async (req, res) => {
   try {
     assertProjectLeaseForPath(req, req.body.path);
-    const filePath = resolvePath(req.body.path);
+    const prepared = await storageV2.serialize(() =>
+      storageV2.prepareProjectWrite(req.body.path, req.body.data));
+    const filePath = prepared.path;
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await atomicWriteFile(filePath, req.body.data, 'utf-8');
     notifyResourceChanged(req, req.body.path, 'write');
@@ -3645,7 +4026,16 @@ app.post('/api/fs/copy', async (req, res) => {
   try {
     assertProjectLeaseForPath(req, req.body.dest);
     const src = resolvePath(req.body.src);
-    const dest = resolvePath(req.body.dest);
+    const parsedDest = parseVirtualProjectPath(req.body.dest);
+    let dest;
+    if (parsedDest?.root === 'projects' && parsedDest.kind === 'active') {
+      const projectPayload = await fs.readFile(src, 'utf8');
+      const prepared = await storageV2.serialize(() =>
+        storageV2.prepareProjectWrite(req.body.dest, projectPayload));
+      dest = prepared.path;
+    } else {
+      dest = resolvePath(req.body.dest);
+    }
     await fs.mkdir(path.dirname(dest), { recursive: true });
     await fs.copyFile(src, dest);
     notifyResourceChanged(req, req.body.dest, 'write');
@@ -3661,8 +4051,15 @@ app.post('/api/fs/copy-dir', async (req, res) => {
     const dest = resolvePath(req.body.dest);
     try {
       await fs.access(src);
-    } catch {
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
       return res.json({ ok: true, skipped: true }); // 원본 디렉토리 없음(이미지 없는 프로젝트)
+    }
+    try {
+      await fs.access(dest);
+      return res.status(409).json({ error: 'copy destination already exists' });
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
     }
     await fs.cp(src, dest, { recursive: true });
     notifyResourceChanged(req, req.body.dest, 'write');
@@ -3674,10 +4071,14 @@ app.post('/api/fs/rename', async (req, res) => {
   try {
     assertProjectLeaseForPath(req, req.body.oldPath);
     assertProjectLeaseForPath(req, req.body.newPath);
-    const oldPath = resolvePath(req.body.oldPath);
-    const newPath = resolvePath(req.body.newPath);
-    await fs.mkdir(path.dirname(newPath), { recursive: true });
-    await fs.rename(oldPath, newPath);
+    const storageMutation = await storageV2.serialize(() =>
+      storageV2.mutateProjectPath(req.body.oldPath, req.body.newPath));
+    const oldPath = storageMutation.handled ? storageMutation.oldAbs : resolvePath(req.body.oldPath);
+    const newPath = storageMutation.handled ? storageMutation.newAbs : resolvePath(req.body.newPath);
+    if (!storageMutation.handled) {
+      await fs.mkdir(path.dirname(newPath), { recursive: true });
+      await fs.rename(oldPath, newPath);
+    }
     rewriteImageHistoryPath(req.body.oldPath, req.body.newPath);
     const oldProjectName = projectNameFromDataPath(req.body.oldPath);
     const newProjectName = projectNameFromDataPath(req.body.newPath);
@@ -3699,10 +4100,39 @@ app.post('/api/fs/rename-dir', async (req, res) => {
   try {
     assertProjectLeaseForPath(req, req.body.oldPath);
     assertProjectLeaseForPath(req, req.body.newPath);
+    const assetMutation = storageV2.mutateProjectAssetPath(req.body.oldPath, req.body.newPath);
+    const storageMutation = assetMutation.handled
+      ? assetMutation
+      : await storageV2.serialize(() =>
+        storageV2.mutateProjectFolder(req.body.oldPath, req.body.newPath));
     const oldPath = resolvePath(req.body.oldPath);
     const newPath = resolvePath(req.body.newPath);
-    await fs.mkdir(path.dirname(newPath), { recursive: true });
-    await fs.rename(oldPath, newPath);
+    let physicalRenamed = false;
+    try {
+      if (assetMutation.handled) {
+        rewriteImageHistoryPath(req.body.oldPath, req.body.newPath);
+        notifyResourceChanged(req, req.body.oldPath, 'delete');
+        notifyResourceChanged(req, req.body.newPath, 'rename');
+        return res.json({ ok: true, logicalOnly: true });
+      }
+      await fs.access(oldPath);
+      await fs.mkdir(path.dirname(newPath), { recursive: true });
+      await fs.rename(oldPath, newPath);
+      physicalRenamed = true;
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        if (storageMutation.handled) {
+          await storageV2.serialize(() =>
+            storageV2.mutateProjectFolder(req.body.newPath, req.body.oldPath)).catch(() => {});
+        }
+        throw error;
+      }
+    }
+    if (!storageMutation.handled && !physicalRenamed) {
+      const error = new Error('Source directory not found');
+      error.statusCode = 404;
+      throw error;
+    }
     rewriteImageHistoryPath(req.body.oldPath, req.body.newPath);
     notifyResourceChanged(req, req.body.oldPath, 'delete');
     notifyResourceChanged(req, req.body.newPath, 'rename');
@@ -3783,26 +4213,21 @@ app.post('/api/trash/auto-cleanup', async (req, res) => {
     let cleanedImages = 0;
     let cleanedOrphans = 0;
 
-    // 1. Clean orphan .deleted files (recursive: folders allowed at depth 1)
-    const projectDir = resolvePath('projects');
-    try {
-      const walked = await walkDir(projectDir, PROJECT_NEST_WALK_DEPTH);
-      for (const f of walked.files) {
-        if (f.endsWith('.deleted')) {
-          try { await fs.unlink(path.join(projectDir, f)); cleanedOrphans++; } catch {}
-        }
-      }
-    } catch {}
+    // 1. Clean orphan .deleted projects. workspace 항목은 프로젝트 물리 폴더 전체가
+    // 한 단위이고, legacy 항목은 기존 단일 .deleted 파일 계약을 유지한다.
+    const projectListing = await storageV2.listProjects();
+    for (const project of projectListing.records.filter((entry) => entry.kind === 'deleted')) {
+      try {
+        if (project.storage === 'workspace') await storageV2.removeWorkspaceProject(project.name);
+        else await fs.unlink(project.absPath);
+        cleanedOrphans++;
+      } catch {}
+    }
 
     // 2. Clean expired image trash (walk server-side, folder-aware)
-    const activeProjects = [];
-    try {
-      const walked = await walkDir(projectDir, PROJECT_NEST_WALK_DEPTH);
-      for (const f of walked.files) {
-        // 중첩 폴더: 이미지 dir은 프로젝트명(basename) 기준 flat이라 path가 아닌 basename으로.
-        if (f.endsWith('.json')) activeProjects.push(path.basename(f, '.json'));
-      }
-    } catch {}
+    const activeProjects = projectListing.records
+      .filter((project) => project.kind === 'active')
+      .map((project) => project.name);
 
     for (const proj of activeProjects) {
       for (const imgDir of ['outs', 'inpaints']) {
@@ -3956,13 +4381,10 @@ function pushRcloneResult(r, deletedArr, deletedLabel, errorsArr, errorPrefix) {
 
 // projects 안에서 살아있는 프로젝트 basename set (폴더 depth 1 포함)
 async function listActiveProjectNames() {
-  const projectsDir = resolvePath('projects');
-  const walked = await walkDir(projectsDir, PROJECT_NEST_WALK_DEPTH);
   const names = new Set();
-  for (const f of walked.files) {
-    if (!f.endsWith('.json')) continue;
-    const base = path.basename(f, '.json');
-    if (base) names.add(base);
+  const listing = await storageV2.listProjects();
+  for (const project of listing.records) {
+    if (project.kind === 'active') names.add(project.name);
   }
   return names;
 }
@@ -3986,8 +4408,22 @@ async function permanentlyDeleteProjectFiles(name) {
   const deleted = { local: [], drive: [] };
   const errors = [];
 
+  // storage v2 프로젝트는 JSON·이미지·부속 파일이 한 물리 폴더에 있다. 이 단일 삭제가
+  // 성공한 뒤에만 레지스트리에서 제거하고, 외부 계약에는 계속 논리 경로를 보고한다.
+  if (storageV2.active && storageV2.getRecord(name)) {
+    try {
+      const removed = await storageV2.removeWorkspaceProject(name);
+      if (removed) {
+        deleted.local.push(removed.virtualProjectPath);
+        for (const root of PROJECT_SUB_DIRS) deleted.local.push(`${root}/${name}`);
+      }
+    } catch (e) {
+      errors.push('local rm workspace project ' + name + ': ' + e.message);
+    }
+  }
+
   // 1. 로컬 projects/<...>.json + <...>.deleted (폴더형 포함, 중첩 폴더 깊이까지)
-  const projectsDir = resolvePath('projects');
+  const projectsDir = path.join(DATA_DIR, 'projects');
   try {
     const walked = await walkDir(projectsDir, PROJECT_NEST_WALK_DEPTH);
     for (const f of walked.files) {
@@ -4245,20 +4681,19 @@ app.post('/api/project/delete-folder-now', async (req, res) => {
     const jobId = 'delfolder-' + Date.now().toString() + '-' + Math.random().toString(36).slice(2, 8);
     deleteFolderJobs.set(folder, jobId);
 
-    const folderDir = resolvePath('projects/' + folder);
-    const projectNames = new Set();
-    try {
-      // 중첩 폴더: 하위 폴더 프로젝트까지 전수 열거. 직접 자식만 읽던 옛 코드는 하위 폴더
-      // 프로젝트의 이미지(outs/<name> 등)를 안 지워 orphan으로 잔류시켰음. fs.rm은 트리를
-      // 통째 지우지만 이미지 dir은 projects/ 밖이라 프로젝트별 정리가 필요. (SDStudio 4.13 ① 중첩폴더)
-      await fs.access(folderDir); // 폴더 존재 확인 (없으면 throw → 404)
-      const walked = await walkDir(folderDir, PROJECT_NEST_WALK_DEPTH);
-      for (const f of walked.files) {
-        if (!f.endsWith('.json') && !f.endsWith('.deleted')) continue;
-        const base = path.basename(f, path.extname(f));
-        if (base) projectNames.add(base);
-      }
-    } catch {
+    const folderDir = path.join(DATA_DIR, 'projects', ...folder.split('/'));
+    const projectListing = await storageV2.listProjects();
+    const projectNames = new Set(
+      projectListing.records
+        .filter((project) => project.folder === folder || project.folder.startsWith(folder + '/'))
+        .map((project) => project.name),
+    );
+    const logicalFolderExists = projectListing.dirs.some(
+      (dir) => dir === folder || dir.startsWith(folder + '/'),
+    ) || projectNames.size > 0;
+    let physicalFolderExists = false;
+    try { await fs.access(folderDir); physicalFolderExists = true; } catch {}
+    if (!logicalFolderExists && !physicalFolderExists) {
       deleteFolderJobs.delete(folder); // 폴더 없음 — reserve 해제
       return res.status(404).json({ ok: false, error: 'Folder not found' });
     }
@@ -4503,12 +4938,39 @@ async function sumDirAll(dirPath, opts = {}) {
   return { count, size };
 }
 
+async function sumProjectStorageRoot(root, opts = {}) {
+  const totals = await sumDirAll(path.join(DATA_DIR, root), opts);
+  if (!storageV2.active || !STORAGE_PROJECT_ROOTS.includes(root)) return totals;
+  for (const record of storageV2.projectsByName.values()) {
+    const current = await sumDirAll(storageV2.workspacePath(record, root), opts);
+    totals.count += current.count;
+    totals.size += current.size;
+  }
+  return totals;
+}
+
+async function clearProjectStorageRoot(root) {
+  const targets = [path.join(DATA_DIR, root)];
+  if (storageV2.active && STORAGE_PROJECT_ROOTS.includes(root)) {
+    for (const record of storageV2.projectsByName.values()) {
+      targets.push(storageV2.workspacePath(record, root));
+    }
+  }
+  for (const target of targets) {
+    let entries;
+    try { entries = await fs.readdir(target, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      await fs.rm(path.join(target, entry.name), { recursive: true, force: true });
+    }
+  }
+}
+
 app.get('/api/disk/usage', async (req, res) => {
   try {
     const result = {};
     for (const cat of DISK_CLEANUP_CATEGORIES) {
       if (cat === 'outs-thumbnails') {
-        result[cat] = await sumDirAll(path.join(DATA_DIR, 'outs'), { fastcacheOnly: true });
+        result[cat] = await sumProjectStorageRoot('outs', { fastcacheOnly: true });
       } else if (cat === 'exports') {
         // 'exports' 수치는 삭제 대상(backups 제외)만 — 'exports-backups'와 합산 시 전체.
         const whole = await sumDirAll(path.join(DATA_DIR, 'exports'));
@@ -4517,7 +4979,9 @@ app.get('/api/disk/usage', async (req, res) => {
       } else if (cat === 'exports-backups') {
         result[cat] = await sumDirAll(path.join(DATA_DIR, 'exports', EXPORTS_BACKUPS_DIRNAME));
       } else {
-        result[cat] = await sumDirAll(path.join(DATA_DIR, cat));
+        result[cat] = STORAGE_PROJECT_ROOTS.includes(cat)
+          ? await sumProjectStorageRoot(cat)
+          : await sumDirAll(path.join(DATA_DIR, cat));
       }
     }
     res.json(result);
@@ -4534,19 +4998,15 @@ const PROJECT_IMAGE_DIRS = ['outs', 'inpaints', 'inpaint_orgs', 'inpaint_masks',
 // 모든 프로젝트 파일 재귀 열거. 프로젝트는 루트 projects/<name>.json 또는
 // 폴더 안 projects/<folder>/<name>.json 두 형태로 저장된다(폴더=조직용). 이름은
 // 전역 unique(basename), 이미지 dir(vibes/<name> 등)은 이름 기준(flat·폴더무관).
-async function listAllProjectFiles(dir, baseRel) {
-  dir = dir || path.join(DATA_DIR, 'projects');
-  baseRel = baseRel || '';
-  const out = [];
-  let entries;
-  try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return out; }
-  for (const e of entries) {
-    const full = path.join(dir, e.name);
-    if (e.isDirectory()) out.push(...(await listAllProjectFiles(full, baseRel + e.name + '/')));
-    else if (e.isFile() && e.name.endsWith('.json') && !e.name.includes('.bak'))
-      out.push({ name: e.name.slice(0, -5), relPath: baseRel + e.name, absPath: full });
-  }
-  return out;
+async function listAllProjectFiles() {
+  const listing = await storageV2.listProjects();
+  return listing.records
+    .filter((project) => project.kind === 'active')
+    .map((project) => ({
+      name: project.name,
+      relPath: `${project.folder ? `${project.folder}/` : ''}${project.name}.json`,
+      absPath: project.absPath,
+    }));
 }
 
 async function computeProjectBytes(name, jsonAbs) {
@@ -4585,7 +5045,18 @@ app.get('/api/backup/estimate', async (req, res) => {
   try {
     let bytes = 0;
     for (const d of BACKUP_ESTIMATE_DIRS) {
-      try { bytes += (await sumDirAll(resolvePath(d))).size; } catch {}
+      try {
+        if (d === 'projects') {
+          const projects = await storageV2.listProjects();
+          for (const project of projects.records.filter((entry) => entry.kind === 'active')) {
+            try { bytes += (await fs.stat(project.absPath)).size; } catch {}
+          }
+        } else if (STORAGE_PROJECT_ROOTS.includes(d)) {
+          bytes += (await sumProjectStorageRoot(d)).size;
+        } else {
+          bytes += (await sumDirAll(path.join(DATA_DIR, d))).size;
+        }
+      } catch {}
     }
     const all = await listAllProjectFiles();
     res.json({ bytes, projects: all.length });
@@ -4607,11 +5078,10 @@ app.post('/api/disk/cleanup', async (req, res) => {
         // outs/ 하위 모든 fastcache/ 파일만 rm. 원본 PNG 보존. 빈 fastcache/ dir도
         // 같이 삭제 (cleanupDirByPattern). prewarmThumbnails가 다음 NAI 이미지 생성
         // 시 자동 재생성.
-        const outsDir = path.join(DATA_DIR, 'outs');
-        const before = await sumDirAll(outsDir, { fastcacheOnly: true });
+        const before = await sumProjectStorageRoot('outs', { fastcacheOnly: true });
         try {
           await cleanupDirByPattern('*/fastcache/*', 'fastcache');
-          const after = await sumDirAll(outsDir, { fastcacheOnly: true });
+          const after = await sumProjectStorageRoot('outs', { fastcacheOnly: true });
           results[cat] = {
             deletedFiles: before.count - after.count,
             deletedBytes: before.size - after.size,
@@ -4655,16 +5125,24 @@ app.post('/api/disk/cleanup', async (req, res) => {
         continue;
       }
       const dirPath = path.join(DATA_DIR, cat);
-      const before = await sumDirAll(dirPath);
+      const projectRoot = STORAGE_PROJECT_ROOTS.includes(cat);
+      const before = projectRoot
+        ? await sumProjectStorageRoot(cat)
+        : await sumDirAll(dirPath);
       try {
         // 폴더 안 entries 통째 rm — 폴더 자체(data/outs 등)는 유지해서 ensureDirs
         // 의도 보존. 새 mkdir 불필요.
-        const entries = await fs.readdir(dirPath, { withFileTypes: true });
-        for (const e of entries) {
-          const full = path.join(dirPath, e.name);
-          try { await fs.rm(full, { recursive: true, force: true }); } catch {}
+        if (projectRoot) await clearProjectStorageRoot(cat);
+        else {
+          const entries = await fs.readdir(dirPath, { withFileTypes: true });
+          for (const e of entries) {
+            const full = path.join(dirPath, e.name);
+            try { await fs.rm(full, { recursive: true, force: true }); } catch {}
+          }
         }
-        const after = await sumDirAll(dirPath);
+        const after = projectRoot
+          ? await sumProjectStorageRoot(cat)
+          : await sumDirAll(dirPath);
         results[cat] = {
           deletedFiles: before.count - after.count,
           deletedBytes: before.size - after.size,
@@ -4869,15 +5347,7 @@ const SCENE_IMPORT_SCHEMA_EXAMPLE = {
 };
 
 async function findProjectFile(name) {
-  const projectsDir = resolvePath('projects');
-  const walked = await walkDir(projectsDir, PROJECT_NEST_WALK_DEPTH);
-  for (const f of walked.files) {
-    if (!f.endsWith('.json')) continue;
-    if (path.basename(f, '.json') === name) {
-      return path.join(projectsDir, f);
-    }
-  }
-  return null;
+  return await storageV2.findProject(name);
 }
 
 function normalizeSceneImport(body) {
@@ -5016,7 +5486,7 @@ app.post('/api/projects/import-scenes', async (req, res) => {
     }
 
     await atomicWriteFile(projectPath, JSON.stringify(data, null, 2), 'utf-8');
-    notifyResourceChanged(req, path.relative(DATA_DIR, projectPath), 'write');
+    notifyResourceChanged(req, storageV2.toVirtualPath(projectPath), 'write');
 
     console.log(`[Import] project="${name}" applied=${plan.applied.length} skipped=${plan.skipped.length} backup=${path.basename(backupPath)}`);
     res.json({ ok: true, backup: path.basename(backupPath), plan });
@@ -5053,6 +5523,8 @@ app.get('/api/fs/download', async (req, res) => {
 // 제외: outs/ (생성 이미지, GBs), exports/ (이미 사용자 손), tmp/fastcache/.trash (캐시),
 //        db.csv (Danbooru 태그 DB, 사용자 데이터 아님), .queue_state/.drive-retry-queue/
 //        .timing-history/completed-jobs (런타임 상태).
+const FULL_BACKUP_MANIFEST_FILE = '_sdstudio_backup_manifest.json';
+const SUPPORTED_FULL_BACKUP_VERSION = 1;
 app.get('/api/backup/full', async (req, res) => {
   try {
     const JSZip = require('jszip');
@@ -5080,6 +5552,7 @@ app.get('/api/backup/full', async (req, res) => {
       const stat = await fs.stat(absPath).catch(() => null);
       if (!stat) return;
       if (stat.isDirectory()) {
+        zip.folder(zipPath);
         const entries = await fs.readdir(absPath);
         for (const e of entries) {
           if (SKIP_NAMES.has(e)) continue;
@@ -5092,8 +5565,29 @@ app.get('/api/backup/full', async (req, res) => {
       }
     }
 
+    const projectListing = await storageV2.listProjects();
+    const logicalProjectFolders = new Set(projectListing.dirs);
+    for (const project of projectListing.records) {
+      if (!project.folder) continue;
+      const parts = project.folder.split('/');
+      for (let index = 1; index <= parts.length; index++) {
+        logicalProjectFolders.add(parts.slice(0, index).join('/'));
+      }
+    }
+    for (const folder of logicalProjectFolders) zip.folder(`projects/${folder}`);
     for (const dir of INCLUDE_DIRS) {
+      if (dir === 'projects') {
+        for (const project of projectListing.records.filter((entry) => entry.kind === 'active')) {
+          await walkAndAdd(project.absPath, `projects/${project.folder ? `${project.folder}/` : ''}${project.name}.json`);
+        }
+        continue;
+      }
       await walkAndAdd(path.join(DATA_DIR, dir), dir);
+      if (storageV2.active && STORAGE_PROJECT_ROOTS.includes(dir)) {
+        for (const record of storageV2.projectsByName.values()) {
+          await walkAndAdd(storageV2.workspacePath(record, dir), `${dir}/${record.name}`);
+        }
+      }
     }
     for (const file of INCLUDE_FILES) {
       const abs = path.join(DATA_DIR, file);
@@ -5107,6 +5601,12 @@ app.get('/api/backup/full', async (req, res) => {
         if (e.code !== 'ENOENT') console.warn('[Backup] skip', file, e.message);
       }
     }
+    zip.file(FULL_BACKUP_MANIFEST_FILE, JSON.stringify({
+      version: SUPPORTED_FULL_BACKUP_VERSION,
+      format: 'logical-project-layout',
+      createdAt: Date.now(),
+    }));
+    fileCount++;
 
     const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const fileName = `sdstudio-backup-${dateStr}.zip`;
@@ -5175,6 +5675,14 @@ app.post('/api/backup/restore', async (req, res) => {
   const tmpZip = path.join(DATA_DIR, 'tmp', 'restore-' + uuidv4() + '.zip');
   let snapshotDir = null;
   try {
+    const identity = requestIdentity(req);
+    if (!identity?.clientId) return res.status(400).json({ error: 'client identity required' });
+    for (const projectName of projectLeaseRegistry.leases.keys()) {
+      const lease = projectLeaseRegistry.get(projectName);
+      if (lease && lease.clientId !== identity.clientId) {
+        return res.status(409).json({ error: 'backup restore blocked by another project owner' });
+      }
+    }
     await fs.mkdir(path.join(DATA_DIR, 'tmp'), { recursive: true });
     // 1. 업로드 스트림 → tmp 파일 (메모리 스파이크 회피). 2GB 상한.
     await new Promise((resolve, reject) => {
@@ -5191,6 +5699,27 @@ app.post('/api/backup/restore', async (req, res) => {
     const JSZip = require('jszip');
     const zip = await JSZip.loadAsync(await fs.readFile(tmpZip));
     const entryNames = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+    const projectDirectories = Object.keys(zip.files).filter(
+      (name) => zip.files[name].dir && /^projects\/.+\/$/.test(name),
+    );
+    if (zip.files[FULL_BACKUP_MANIFEST_FILE]) {
+      let manifest;
+      try {
+        manifest = JSON.parse(await zip.files[FULL_BACKUP_MANIFEST_FILE].async('string'));
+      } catch {
+        return res.status(400).json({ error: 'backup manifest is invalid' });
+      }
+      if (!Number.isInteger(manifest?.version) || manifest.version < 1) {
+        return res.status(400).json({ error: 'backup manifest version is invalid' });
+      }
+      if (manifest.version > SUPPORTED_FULL_BACKUP_VERSION) {
+        return res.status(409).json({
+          error: 'backup was created by a newer SDStudio version; update before restoring',
+          backupVersion: manifest.version,
+          supportedVersion: SUPPORTED_FULL_BACKUP_VERSION,
+        });
+      }
+    }
     const projectFiles = entryNames.filter((n) => /^projects\/.+\.json$/.test(n) && !path.basename(n).includes('.bak'));
 
     // 3. 안전망 — 복원 전 현재 settings(루트 json) + projects 디렉토리 스냅샷
@@ -5205,6 +5734,7 @@ app.post('/api/backup/restore', async (req, res) => {
         }
       }
       await fs.cp(path.join(DATA_DIR, 'projects'), path.join(snapshotDir, 'projects'), { recursive: true }).catch(() => {});
+      await fs.cp(path.join(DATA_DIR, 'workspace'), path.join(snapshotDir, 'workspace'), { recursive: true }).catch(() => {});
     } catch (e) { console.warn('[Restore] snapshot 일부 실패:', e.message); }
 
     await fs.mkdir(path.join(DATA_DIR, 'projects'), { recursive: true });
@@ -5221,14 +5751,32 @@ app.post('/api/backup/restore', async (req, res) => {
       const folderRel = path.dirname(relPath);           // '.' | '강주'
       const origName = path.basename(relPath, '.json');   // 'NSFW' | '강주 nsfw'
       let target = origName;
+      let preservedProjectId = null;
       if (existing.has(origName)) {
         if (policy === 'skip') { skipped++; continue; }
         if (policy === 'overwrite') {
           // 기존 동명 프로젝트(실제 경로=루트/폴더 무관) + 이미지 dir(이름 기준 flat) 삭제
           const exAbs = existingPathByName.get(origName);
-          if (exAbs) { try { await fs.rm(exAbs, { force: true }); } catch {} }
-          for (const d of RESTORE_IMAGE_DIRS) {
-            try { await fs.rm(resolvePath(path.join(d, origName)), { recursive: true, force: true }); } catch {}
+          if (storageV2.active && storageV2.getRecord(origName)) {
+            // 전체 백업은 outs/를 포함하지 않는다. workspace 폴더 전체를 지우면 구 배치에서
+            // 보존되던 생성 결과까지 사라지므로, 복원 포맷이 실제로 대체하는 JSON과
+            // 비재생성 입력 루트만 비운다.
+            const record = storageV2.getRecord(origName);
+            preservedProjectId = record.id;
+            for (const relative of [
+              'project.json', 'project.json.bak', 'project.json.deleted',
+              ...RESTORE_IMAGE_DIRS,
+            ]) {
+              await fs.rm(storageV2.workspacePath(record, relative), {
+                recursive: RESTORE_IMAGE_DIRS.includes(relative),
+                force: true,
+              });
+            }
+          } else {
+            if (exAbs) { try { await fs.rm(exAbs, { force: true }); } catch {} }
+            for (const d of RESTORE_IMAGE_DIRS) {
+              try { await fs.rm(resolvePath(path.join(d, origName)), { recursive: true, force: true }); } catch {}
+            }
           }
           overwritten++;
         } else {
@@ -5241,11 +5789,18 @@ app.post('/api/backup/restore', async (req, res) => {
 
       // 프로젝트 json → projects/<folder>/<target>.json (폴더 보존, name=target)
       const destRel = (folderRel === '.' ? '' : folderRel + '/') + target + '.json';
-      let projDest;
-      try { projDest = resolvePath(path.join('projects', destRel)); }
-      catch { continue; } // Zip Slip 방어 — 비정상 경로 skip
       const projJson = JSON.parse(await zip.files[pf].async('string'));
       projJson.name = target;
+      // 복원은 원본과 별개인 새 로컬 프로젝트다. 단, overwrite는 현재 물리
+      // workspace의 정체성을 보존해 meta.json과 project.json이 갈라지지 않게 한다.
+      projJson.id = preservedProjectId || uuidv4();
+      let projDest;
+      try {
+        const projectPayload = JSON.stringify(projJson);
+        const prepared = await storageV2.serialize(() =>
+          storageV2.prepareProjectWrite(path.join('projects', destRel), projectPayload));
+        projDest = prepared.path;
+      } catch { continue; } // Zip Slip/잘못된 프로젝트 경로 방어
       await fs.mkdir(path.dirname(projDest), { recursive: true });
       await fs.writeFile(projDest, JSON.stringify(projJson));
       existing.add(target);
@@ -5267,10 +5822,23 @@ app.post('/api/backup/restore', async (req, res) => {
       }
     }
 
+    // 빈 프로젝트 폴더도 사용자 조직 데이터다. 파일 엔트리가 없는 폴더까지 복원해
+    // v1/v2 모두에서 프로젝트 드로어 구조가 보존되게 한다.
+    for (const directory of projectDirectories) {
+      const relative = directory.replace(/^projects\//, '').replace(/\/$/, '');
+      if (!relative) continue;
+      try {
+        await fs.mkdir(resolvePath(`projects/${relative}`), { recursive: true });
+      } catch {
+        imgErrors++;
+      }
+    }
+
     // 5. 설정 병합 (루트 *.json만)
     let merged = 0, settingsRestored = 0;
     for (const n of entryNames) {
       if (n.includes('/') || !n.endsWith('.json')) continue;
+      if (n === FULL_BACKUP_MANIFEST_FILE) continue;
       let curPath;
       try { curPath = resolvePath(n); } catch { continue; }
       let bakData;
@@ -5390,7 +5958,7 @@ app.get('/api/drive/retry-status', (req, res) => {
     // localPath는 DATA_DIR 기준 상대 경로로 emit — 절대 path는 deployee install dir 노출. fileName과
     // 분리해서 보낸 이유: 동일 basename 다른 디렉토리(예: outs/A.png vs exports/A.png) 구분 용도.
     entries: driveRetryQueue.map((e) => ({
-      localPath: path.relative(DATA_DIR, e.localPath),
+      localPath: storageV2.toVirtualPath(e.localPath),
       requestedPath: e.requestedPath || null,
       fileName: path.basename(e.localPath),
       addedAt: e.addedAt,
@@ -5436,7 +6004,9 @@ app.post('/api/drive/retry-dismiss', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'localPath required' });
   }
   // 클라가 DATA_DIR 기준 상대 path를 보내고 서버가 abs로 복원 — install dir 노출 차단.
-  const absLocalPath = path.resolve(DATA_DIR, localPath);
+  let absLocalPath;
+  try { absLocalPath = resolvePath(localPath); }
+  catch { return res.status(400).json({ ok: false, error: 'invalid localPath' }); }
   const idx = driveRetryQueue.findIndex((e) => e.localPath === absLocalPath);
   if (idx < 0) return res.json({ ok: true, removed: false });
   driveRetryQueue.splice(idx, 1);
@@ -5459,7 +6029,9 @@ app.post('/api/drive/retry-one', async (req, res) => {
   if (!localPath || typeof localPath !== 'string') {
     return res.status(400).json({ ok: false, error: 'localPath required' });
   }
-  const absLocalPath = path.resolve(DATA_DIR, localPath);
+  let absLocalPath;
+  try { absLocalPath = resolvePath(localPath); }
+  catch { return res.status(400).json({ ok: false, error: 'invalid localPath' }); }
   const entry = driveRetryQueue.find((e) => e.localPath === absLocalPath);
   if (!entry) return res.status(404).json({ ok: false, error: 'not found' });
   if (entry.status === 'failed') {
@@ -5870,6 +6442,15 @@ app.use((err, req, res, next) => {
 // ─── Start server ───────────────────────────────────────────────────
 async function start() {
   await ensureDirs();
+  let storageStatus = await storageV2.initialize();
+  if (storageStatus.detection === 'fresh' && !storageStatus.migrationLedgerError) {
+    await storageV2.writeMarker();
+    storageStatus = await storageV2.status();
+  }
+  console.log(
+    `[storage-v2] version=${storageStatus.storageVersion} active=${storageStatus.active} ` +
+    `workspace=${storageStatus.workspaceProjects} legacy=${storageStatus.legacyProjects}`,
+  );
   await tagSearch.loadTagDB(path.join(DATA_DIR, 'db.csv'));
 
   // Try to load saved token
@@ -5962,6 +6543,9 @@ async function start() {
   loadTimingHistory();
   loadCompletedJobs();
   loadImageHistory();
+    const resumableMigration = storageStatus.migration &&
+      storageStatus.migration.authorizedAt &&
+      ['backing-up', 'migrating'].includes(storageStatus.migration.state);
     loadDriveRetryQueue().then(() => {
       // Migrate legacy entries (pre-F1): no status/nextRetryAt fields.
       // 부팅 직후 모두 즉시 시도하지 않게 nextRetryAt을 띄움.
@@ -5978,6 +6562,20 @@ async function start() {
     });
     console.log(`[NAI Studio] Frontend: http://localhost:${PORT}`);
     console.log(`[NAI Studio] API: http://localhost:${PORT}/api`);
+    if (resumableMigration) {
+      setImmediate(async () => {
+        const blockers = await storageMigrationBlockers();
+        if (blockers.length > 0) {
+          console.warn('[storage-v2] approved migration resume deferred:', blockers.join(', '));
+          return;
+        }
+        void runStorageMigration({
+          backupRequested: storageStatus.migration.state === 'backing-up',
+          authorizedAt: storageStatus.migration.authorizedAt,
+          resumed: true,
+        });
+      });
+    }
     // 부팅 블록 0ms — listen 콜백 다음 tick에서 background reconcile.
     setImmediate(() => { reconcileImageMap().catch(() => {}); });
   });

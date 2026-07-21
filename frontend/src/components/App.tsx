@@ -83,6 +83,7 @@ import { normalizeQuickMenu } from '../models/quickMenu';
 import { resolveLayout } from '../models/layoutTemplates';
 import GenControlFloating from './GenControlFloating';
 import ProjectStrip from './ProjectStrip';
+import StorageMigrationGate from './StorageMigrationGate';
 configure({
   enforceActions: 'never',
 });
@@ -1343,6 +1344,7 @@ export const App = observer(() => {
             </div>
           </div>
         )}
+        <StorageMigrationGate />
       </div>
     </DndProvider>
   );

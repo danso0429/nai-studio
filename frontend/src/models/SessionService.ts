@@ -1,7 +1,15 @@
 import extractChunks from 'png-chunks-extract';
 import { Buffer } from 'buffer';
 import { v4 } from 'uuid';
-import { backend, imageService, templateService, workFlowService, zipService } from '.';
+import {
+  backend,
+  imageService,
+  projectSizeService,
+  templateService,
+  trashService,
+  workFlowService,
+  zipService,
+} from '.';
 import { FileEntry } from '../backend';
 import defaultassets from '../defaultassets';
 import { dataUriToBase64 } from './ImageService';
@@ -264,21 +272,32 @@ export class SessionService extends ResourceSyncService<Session> {
     if (this.resourceList.includes(newName)) {
       throw new Error('이미 존재하는 프로젝트 이름입니다.');
     }
-    if (withImages) {
-      // references 포함 (진단 Med-5): 누락 시 복제본에서 캐릭터 레퍼런스 이미지 fetch 실패
-      // → 레퍼런스 없이 생성되던 silent 결손.
-      const imageDirs = ['outs', 'inpaints', 'vibes', 'inpaint_masks', 'inpaint_orgs', 'references'];
-      for (const dir of imageDirs) {
-        try {
-          await backend.copyDir(dir + '/' + session.name, dir + '/' + newName);
-        } catch (e) {
-          console.warn('[duplicate] copyDir failed:', dir, e);
+    const createdDests: string[] = [];
+    try {
+      if (withImages) {
+        const imageDirs = ['outs', 'inpaints', 'vibes', 'inpaint_masks', 'inpaint_orgs', 'references'];
+        for (const dir of imageDirs) {
+          const source = dir + '/' + session.name;
+          if (!(await backend.existFile(source))) continue;
+          const destination = dir + '/' + newName;
+          if (await backend.existFile(destination)) {
+            throw new Error(`복제 대상 이미지 폴더가 이미 존재해요: ${destination}`);
+          }
+          await backend.copyDir(source, destination);
+          createdDests.push(destination);
         }
       }
+      const json = session.toJSON();
+      json.name = newName;
+      json.id = v4();
+      await this.createFrom(newName, json);
+    } catch (error) {
+      for (const destination of createdDests.reverse()) {
+        try { await backend.deleteDir(destination); } catch {}
+      }
+      delete this.folderMap[newName];
+      throw error;
     }
-    const json = session.toJSON();
-    json.name = newName;
-    await this.createFrom(newName, json);
   }
 
   // 북마크 기능
@@ -474,12 +493,28 @@ export class SessionService extends ResourceSyncService<Session> {
       saves.push(() => this.writeProjectRoles(nextRoles));
     }
     await this.persistMetadataAfterCommit('rename', saves);
+    await trashService.renameProjectKeys(oldName, newName);
+    await projectSizeService.renameProject(oldName, newName);
     await templateService.ensureLoaded();
     templateService.renameProject(oldName, newName);
     if (hiddenRoleRenamed) this.dispatchEvent(new CustomEvent('listupdated'));
     this.dispatchEvent(new CustomEvent('renamed', {
       detail: { oldName, newName },
     }));
+  }
+
+  async renameProject(oldName: string, newName: string): Promise<void> {
+    await imageService.onRenameSession(oldName, newName);
+    try {
+      await this.rename(oldName, newName);
+    } catch (error) {
+      try {
+        await imageService.onRenameSession(newName, oldName);
+      } catch (rollbackError) {
+        console.error('[SessionService] project rename rollback failed:', rollbackError);
+      }
+      throw error;
+    }
   }
 
   // ===== Folder API =====
@@ -771,6 +806,9 @@ export class SessionService extends ResourceSyncService<Session> {
       await legacy.recoverSession(rc);
     }
     await this.migrateSession(rc);
+    // 저장소 v2의 물리 폴더 식별자. 기존 프로젝트는 로드 시 지연 발급되고,
+    // 신규/유래 프로젝트는 각 생성 경로에서 원본과 다른 UUID를 선발급한다.
+    if (!rc.id) rc.id = v4();
     console.log('migrated', rc);
     return rc;
   }
@@ -784,6 +822,7 @@ export class SessionService extends ResourceSyncService<Session> {
   async createDefault(name: string) {
     const newSession = Session.fromJSON({
       name: name,
+      id: v4(),
       version: 1,
       presets: {},
       inpaints: {},
@@ -1123,6 +1162,7 @@ export class SessionService extends ResourceSyncService<Session> {
         continue;
       }
       sessionData.name = finalName;
+      sessionData.id = v4();
       existing.add(finalName);
       if (finalName !== origName) renamed.push({ from: origName, to: finalName });
 
@@ -1164,6 +1204,7 @@ export class SessionService extends ResourceSyncService<Session> {
       throw new Error('Resource already exists');
     }
     session.name = name;
+    session.id = v4();
 
     // Phase 7A: preset profile (vibe reference base64) 업로드 병렬화
     // 기존: for-await 직렬 처리로 N x 라운드트립
@@ -1229,6 +1270,7 @@ export class SessionService extends ResourceSyncService<Session> {
       await backend.readFile(path + '/project.json'),
     );
     session.name = name;
+    session.id = v4();
 
     // 6개 renameDir를 직렬에서 병렬로 (디렉토리들이 서로 독립적이라 안전).
     // 폴더가 비어있거나 없을 수도 있어서 각자 catch.

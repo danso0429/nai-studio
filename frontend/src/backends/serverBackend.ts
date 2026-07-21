@@ -1,6 +1,6 @@
 import { Config } from '../main/config';
 import { EncodeVibeImageInput, ImageAugmentInput, ImageGenInput } from './imageGen';
-import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderDone, DeleteFolderError, DeleteFolderProgress, DeleteFolderStart, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, ImageDeleteDone, ImageDeleteError, ImageDeleteProgress, ImageDeleteStart, LoginValidity, ProjectLeaseResult, QueueCompletedResult, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput, ResourceChangedEvent, SessionImageMainOp } from '../backend';
+import { Backend, CleanupOrphansDone, CleanupOrphansError, CleanupOrphansProgress, CleanupOrphansStart, DeleteFolderDone, DeleteFolderError, DeleteFolderProgress, DeleteFolderStart, DeleteProjectResult, DiskCleanupResult, DiskUsageResult, DriveRetryOneResult, DriveRetryResult, DriveRetryStatus, FileEntry, FileStatEntry, ImageDeleteDone, ImageDeleteError, ImageDeleteProgress, ImageDeleteStart, LegacyStorageRemnantScan, LoginValidity, ProjectLeaseResult, QueueCompletedResult, QueueFullEvent, QueueFullState, QueueJobMeta, RecursiveListResult, ResizeImageInput, ResourceChangedEvent, SessionImageMainOp, StorageStatus } from '../backend';
 import { BackendApiError } from './apiError';
 import { TextWriteCoordinator } from './TextWriteCoordinator';
 
@@ -29,8 +29,8 @@ function projectNameFromPath(rawPath: string): string | null {
   const parts = normalized.split('/').filter(Boolean);
   if (parts[0] === 'projects' && parts.length >= 2) {
     const filename = parts[parts.length - 1];
-    if (/\.json(?:\.(?:bak|deleted))?$/i.test(filename)) {
-      return filename.replace(/\.json(?:\.(?:bak|deleted))?$/i, '');
+    if (/(?:\.json(?:\.(?:bak|deleted))?|\.deleted)$/i.test(filename)) {
+      return filename.replace(/(?:\.json(?:\.(?:bak|deleted))?|\.deleted)$/i, '');
     }
     return null;
   }
@@ -196,6 +196,84 @@ export class ServerBackend extends Backend {
         } catch {}
       }
     });
+  }
+
+  async getStorageStatus(): Promise<StorageStatus> {
+    return await apiJSON('/storage/status');
+  }
+
+  async startStorageMigration(backup: boolean): Promise<void> {
+    await api('/storage/migrate', {
+      method: 'POST',
+      body: JSON.stringify({
+        backup,
+        confirmation: 'MOVE_PROJECT_DATA_TO_STORAGE_V2',
+      }),
+    });
+  }
+
+  async setStorageMigrationOptOut(enabled: boolean): Promise<void> {
+    await api('/storage/opt-out', {
+      method: 'POST',
+      body: JSON.stringify({
+        enabled,
+        confirmation: enabled
+          ? 'DISMISS_STORAGE_V2_MIGRATION_NOTICE'
+          : 'SHOW_STORAGE_V2_MIGRATION_NOTICE',
+      }),
+    });
+  }
+
+  async cleanupLegacyStorage(): Promise<{ removed: string[]; skipped: string[] }> {
+    return await apiJSON('/storage/cleanup-legacy', {
+      method: 'POST',
+      body: JSON.stringify({ confirmation: 'DELETE_MIGRATED_LEGACY_STORAGE' }),
+    });
+  }
+
+  async scanLegacyStorageRemnants(): Promise<LegacyStorageRemnantScan> {
+    return await apiJSON('/storage/legacy-remnants');
+  }
+
+  async cleanupLegacyStorageRemnants(
+    fingerprint: string,
+  ): Promise<{
+    removed: string[];
+    failed: Array<{ path: string; error: string }>;
+    fingerprint: string;
+  }> {
+    return await apiJSON('/storage/cleanup-remnants', {
+      method: 'POST',
+      body: JSON.stringify({
+        fingerprint,
+        confirmation: 'DELETE_SCANNED_LEGACY_REMNANTS',
+      }),
+    });
+  }
+
+  async rollbackStorageV2(): Promise<{ restored: string[] }> {
+    return await apiJSON('/storage/rollback', {
+      method: 'POST',
+      body: JSON.stringify({ confirmation: 'ROLLBACK_STORAGE_V2' }),
+    });
+  }
+
+  async restoreFullBackup(file: File, policy: 'rename' | 'skip' | 'overwrite'): Promise<any> {
+    const response = await fetch(`${API_BASE}/api/backup/restore?policy=${encodeURIComponent(policy)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-NAI-Client-ID': CLIENT_ID,
+        'X-NAI-Device-ID': DEVICE_ID,
+      },
+      body: file,
+    });
+    if (!response.ok) {
+      let message = String(response.status);
+      try { message = (await response.json()).error || message; } catch {}
+      throw new BackendApiError(response.status, message);
+    }
+    return await response.json();
   }
 
   private connectWebSocket() {

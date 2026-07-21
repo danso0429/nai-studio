@@ -72,6 +72,7 @@ test('only a registered readonly mirror can delegate project operations', () => 
 
 test('project path ownership covers JSON and all mutable asset roots but not global stores', () => {
   assert.equal(projectNameFromDataPath('projects/a/b/demo.json'), 'demo');
+  assert.equal(projectNameFromDataPath('projects/a/b/demo.deleted'), 'demo');
   assert.equal(projectNameFromDataPath('outs/demo/scene/1.png'), 'demo');
   assert.equal(projectNameFromDataPath('inpaint_masks/demo/x.png'), 'demo');
   assert.equal(projectNameFromDataPath('global_presets.json'), null);

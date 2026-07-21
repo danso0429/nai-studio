@@ -66,6 +66,26 @@ export class ProjectSizeService {
     }
   }
 
+  async renameProject(oldName: string, newName: string): Promise<void> {
+    // 일반 ensureLoaded의 stale prune는 이미 이름이 바뀐 뒤 oldName 캐시를 먼저 지운다.
+    // rename seam에서는 원본 sidecar를 prune 없이 읽은 다음 키를 옮긴다.
+    if (!this.loaded) {
+      this.loaded = true;
+      try {
+        const raw = JSON.parse(await backend.readFile(SIDECAR_PATH));
+        if (raw && raw.entries) {
+          runInAction(() => { this.entries = raw.entries; });
+        }
+      } catch {}
+    }
+    if (!this.entries[oldName]) return;
+    runInAction(() => {
+      this.entries[newName] = this.entries[oldName];
+      delete this.entries[oldName];
+    });
+    await this.save();
+  }
+
   private async fetchProjectBytes(name: string): Promise<number> {
     const res = await fetch(
       apiUrl('/api/project/size?name=' + encodeURIComponent(name)),

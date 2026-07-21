@@ -32,6 +32,7 @@ test('recursive delete rejects data roots and ambiguous paths', () => {
     'projects/',
     '/projects/',
     'outs',
+    'workspace',
     'tmp',
     'projects/../outs',
     'projects//child',

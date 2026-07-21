@@ -402,6 +402,7 @@ export interface SelectedWorkflow {
 export interface ISession {
   version: number;
   name: string;
+  id?: string;
   selectedWorkflow?: SelectedWorkflow;
   presets: Record<string, any[]>;
   inpaints: Record<string, IInpaintScene>;
@@ -423,6 +424,7 @@ export interface ISession {
 export class Session implements Serealizable {
   @observable accessor version: number = 1;
   @observable accessor name: string = '';
+  @observable accessor id: string | undefined = undefined;
   @observable accessor selectedWorkflow: SelectedWorkflow | undefined =
     undefined;
   @observable accessor presets: Map<string, any[]> = new Map();
@@ -582,6 +584,7 @@ export class Session implements Serealizable {
     const session = new Session();
     session.name = json.name;
     session.version = json.version;
+    session.id = json.id;
     session.selectedWorkflow = json.selectedWorkflow;
     session.presets = new Map(
       Object.entries(json.presets).map(([key, value]) => [
@@ -654,6 +657,7 @@ export class Session implements Serealizable {
     return {
       name: this.name,
       version: this.version,
+      id: this.id,
       selectedWorkflow: this.selectedWorkflow,
       presets: Object.fromEntries(
         Array.from(this.presets.entries()).map(([key, value]) => [

@@ -2438,10 +2438,13 @@ export class AppState {
           appState.pushMessage(`프로젝트 "${oldName}"${josaIGa(oldName)} 백그라운드 내보내기 중이에요. 끝난 뒤 다시 시도해주세요.`);
           return;
         }
-        await imageService.onRenameSession(oldName, inputValue);
-        await sessionService.rename(oldName, inputValue);
-        session.name = inputValue;
-        appState.pushMessage('프로젝트 이름이 변경되었습니다.');
+        try {
+          await sessionService.renameProject(oldName, inputValue);
+          session.name = inputValue;
+          appState.pushMessage('프로젝트 이름이 변경되었습니다.');
+        } catch (error) {
+          appState.pushMessage('프로젝트 이름 변경 실패: ' + extractApiError(error));
+        }
       },
     });
   }

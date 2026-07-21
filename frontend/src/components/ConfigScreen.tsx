@@ -39,6 +39,7 @@ import QuickMenuSettings from './QuickMenuSettings';
 import { normalizeQuickMenu } from '../models/quickMenu';
 import CompanionSettings from './CompanionSettings';
 import LayoutTemplateSettings from './LayoutTemplateSettings';
+import { LegacyStorageRemnantScan, StorageStatus } from '../backend';
 
 interface ConfigScreenProps {
   onSave: () => void;
@@ -197,6 +198,18 @@ const ImageEditTab = ({
 );
 
 /* ── 탭 3: 이미지 및 데이터 저장경로 ── */
+function formatStorageBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value.toFixed(unit === 0 ? 0 : value >= 10 ? 1 : 2)} ${units[unit]}`;
+}
+
 const StorageTab = ({
   saveLocation, selectFolder, clearImageCache,
   refreshImage, setRefreshImage, onClose,
@@ -205,6 +218,125 @@ const StorageTab = ({
 }: any) => {
   const [backupBusy, setBackupBusy] = useState(false);
   const [storageManageOpen, setStorageManageOpen] = useState(false);
+  const [storageLayout, setStorageLayout] = useState<StorageStatus | null>(null);
+  const [storageLayoutBusy, setStorageLayoutBusy] = useState(false);
+  const [legacyRemnantScan, setLegacyRemnantScan] = useState<LegacyStorageRemnantScan | null>(null);
+  const refreshStorageLayout = useCallback(async () => {
+    try { setStorageLayout(await backend.getStorageStatus()); }
+    catch (error) { console.warn('[storage-v2] status failed:', error); }
+  }, []);
+  useEffect(() => { void refreshStorageLayout(); }, [refreshStorageLayout]);
+
+  const cleanupLegacyStorage = async () => {
+    if (!storageLayout?.legacyCleanupCandidates) return;
+    const answer = await appState.pushDialogAsync({
+      type: 'select',
+      text:
+        `저장소 v2 정본이 확인된 구 저장소 프로젝트 파일 ${storageLayout.legacyCleanupCandidates}개를 영구 삭제해요.\n` +
+        'v2 정본이 없거나 이동에 실패한 프로젝트와 정체불명 폴더는 건드리지 않아요. 진행할까요?',
+      items: [{ text: '예, 확인된 구 파일만 삭제', value: 'yes' }],
+    });
+    if (answer !== 'yes') return;
+    setStorageLayoutBusy(true);
+    try {
+      const result = await backend.cleanupLegacyStorage();
+      appState.pushMessage(`구 저장소 정리 완료: ${result.removed.length}개 삭제, ${result.skipped.length}개 보존`);
+      setLegacyRemnantScan(null);
+      await refreshStorageLayout();
+    } catch (error) {
+      appState.pushMessage('구 저장소 정리 실패: ' + extractApiError(error));
+    } finally {
+      setStorageLayoutBusy(false);
+    }
+  };
+
+  const scanLegacyRemnants = async () => {
+    setStorageLayoutBusy(true);
+    try {
+      const scan = await backend.scanLegacyStorageRemnants();
+      setLegacyRemnantScan(scan);
+      if (scan.blocked?.code === 'legacy-projects-present') {
+        appState.pushMessage(`이동되지 않은 구 저장소 프로젝트 ${scan.blocked.count}개가 있어 고아 잔재 검사를 중단했어요.`);
+      }
+    } catch (error) {
+      appState.pushMessage('구 저장소 잔재 검사 실패: ' + extractApiError(error));
+    } finally {
+      setStorageLayoutBusy(false);
+    }
+  };
+
+  const cleanupLegacyRemnants = async () => {
+    const scan = legacyRemnantScan;
+    if (!scan?.fingerprint || scan.blocked || scan.remnants.length === 0) return;
+    const answer = await appState.pushDialogAsync({
+      type: 'select',
+      text:
+        `검사된 구 저장소 고아 항목 ${scan.remnants.length}개(파일 ${scan.totalFiles}개, ${formatStorageBytes(scan.totalSize)})를 영구 삭제해요.\n` +
+        '확인 뒤 내용이 달라졌으면 서버가 삭제하지 않고 새 검사를 요구해요. 계속할까요?',
+      items: [{ text: '예, 지금 검사한 잔재만 영구 삭제', value: 'yes' }],
+    });
+    if (answer !== 'yes') return;
+    setStorageLayoutBusy(true);
+    try {
+      const result = await backend.cleanupLegacyStorageRemnants(scan.fingerprint);
+      appState.pushMessage(
+        result.failed.length > 0
+          ? `구 저장소 고아 잔재 ${result.removed.length}개 삭제, ${result.failed.length}개 실패했어요.`
+          : `구 저장소 고아 잔재 ${result.removed.length}개를 삭제했어요.`,
+      );
+      setLegacyRemnantScan(await backend.scanLegacyStorageRemnants());
+      await refreshStorageLayout();
+    } catch (error) {
+      appState.pushMessage('구 저장소 잔재 정리 실패: ' + extractApiError(error));
+      setLegacyRemnantScan(null);
+    } finally {
+      setStorageLayoutBusy(false);
+    }
+  };
+
+  const restoreStorageMigrationNotice = async () => {
+    setStorageLayoutBusy(true);
+    try {
+      await backend.setStorageMigrationOptOut(false);
+      await refreshStorageLayout();
+      appState.pushMessage('저장소 v2 전환 안내를 다시 켰어요. 다음 페이지 새로고침 때 안내가 표시돼요.');
+    } catch (error) {
+      appState.pushMessage('전환 안내 설정 실패: ' + extractApiError(error));
+    } finally {
+      setStorageLayoutBusy(false);
+    }
+  };
+
+  const rollbackStorageLayout = async () => {
+    const first = await appState.pushDialogAsync({
+      type: 'select',
+      text:
+        '저장소 v2 전환을 되돌려 프로젝트를 구 물리 배치로 옮겨요. 전환 뒤 새 프로젝트가 생겼거나 대상 경로가 충돌하면 서버가 중단해요. 진행할까요?',
+      items: [{ text: '롤백 조건을 검사하고 진행', value: 'yes' }],
+    });
+    if (first !== 'yes') return;
+    const second = await appState.pushDialogAsync({
+      type: 'select',
+      text: '프로젝트 파일을 다시 물리 이동하는 작업이에요. 열린 프로젝트와 큐를 모두 닫은 뒤에만 시작됩니다. 정말 진행할까요?',
+      items: [{ text: '예, 저장소 v2 롤백', value: 'yes' }],
+    });
+    if (second !== 'yes') return;
+    setStorageLayoutBusy(true);
+    try {
+      await appState.closeCurrentSession();
+      await backend.flushAllFileWrites();
+      const result = await backend.rollbackStorageV2();
+      await appState.pushDialogAsync({
+        type: 'yes-only',
+        text: `저장소 롤백 완료: ${result.restored.length}개 프로젝트\n앱을 새로고침합니다.`,
+      });
+      location.reload();
+    } catch (error) {
+      appState.pushMessage('저장소 롤백 실패: ' + extractApiError(error));
+      await refreshStorageLayout();
+      setStorageLayoutBusy(false);
+    }
+  };
   const startBackup = () => {
     if (backupBusy) return;
     setBackupBusy(true);
@@ -267,17 +399,7 @@ const StorageTab = ({
         sessionService.loadedNames(),
         async () => {
           restoreRequestStarted = true;
-          const res = await fetch(apiUrl('/api/backup/restore?policy=' + policy), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/octet-stream' },
-            body: file,
-          });
-          if (!res.ok) {
-            let msg = '' + res.status;
-            try { msg = (await res.json()).error || msg; } catch {}
-            throw new Error(msg);
-          }
-          return await res.json();
+          return await backend.restoreFullBackup(file, policy as 'rename' | 'skip' | 'overwrite');
         },
       );
       appState.dismissMessage(toastId);
@@ -358,6 +480,91 @@ const StorageTab = ({
         </button>
       </div>
       <hr className="border-gray-200 dark:border-slate-600" />
+      {storageLayout && !storageLayout.active && storageLayout.optedOut && (
+        <>
+          <div className="space-y-2">
+            <label className="block text-sm font-semibold gray-label">저장소 구조</label>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {storageLayout.detection === 'recovery-required'
+                ? '마커 없는 기존 workspace 데이터의 복구 확인 안내를 표시하지 않도록 설정했어요.'
+                : '구 저장소 구조를 사용 중이며 저장소 v2 전환 안내를 표시하지 않도록 설정했어요.'}
+            </p>
+            <button
+              className="w-full back-sky py-2 rounded disabled:opacity-50"
+              disabled={storageLayoutBusy}
+              onClick={() => void restoreStorageMigrationNotice()}
+            >
+              저장소 v2 전환 안내 다시 표시
+            </button>
+          </div>
+          <hr className="border-gray-200 dark:border-slate-600" />
+        </>
+      )}
+      {storageLayout?.active && (
+        <>
+          <div className="space-y-2">
+            <label className="block text-sm font-semibold gray-label">저장소 v2 유지 관리</label>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              workspace 프로젝트 {storageLayout.workspaceProjects}개 · 구 저장소 잔존 {storageLayout.legacyProjects}개
+            </p>
+            {storageLayout.legacyCleanupCandidates > 0 && (
+              <button
+                className="w-full back-orange py-2 rounded disabled:opacity-50"
+                disabled={storageLayoutBusy}
+                onClick={() => void cleanupLegacyStorage()}
+              >
+                확인된 구 저장소 중복 {storageLayout.legacyCleanupCandidates}개 정리
+              </button>
+            )}
+            <button
+              className="w-full back-gray py-2 rounded disabled:opacity-50"
+              disabled={storageLayoutBusy}
+              onClick={() => void scanLegacyRemnants()}
+            >
+              {storageLayoutBusy ? '구 저장소 검사 중…' : '구 저장소 고아 잔재 검사'}
+            </button>
+            {legacyRemnantScan?.blocked && (
+              <p className="text-xs text-amber-500">
+                {legacyRemnantScan.blocked.code === 'legacy-projects-present'
+                  ? `이동되지 않은 프로젝트 ${legacyRemnantScan.blocked.count}개가 있어 잔재 정리를 차단했어요.`
+                  : '저장소 v2가 활성화되지 않아 잔재 정리를 사용할 수 없어요.'}
+              </p>
+            )}
+            {legacyRemnantScan && !legacyRemnantScan.blocked && legacyRemnantScan.remnants.length === 0 && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">구 저장소에 고아 잔재가 없어요.</p>
+            )}
+            {legacyRemnantScan && !legacyRemnantScan.blocked && legacyRemnantScan.remnants.length > 0 && (
+              <div className="space-y-2 rounded-lg bg-[var(--c-surface-2)] p-3 text-xs">
+                <p>
+                  {legacyRemnantScan.remnants.length}개 항목 · 파일 {legacyRemnantScan.totalFiles}개 · {formatStorageBytes(legacyRemnantScan.totalSize)}
+                </p>
+                <div className="max-h-32 overflow-y-auto break-all text-[var(--c-text-muted)]">
+                  {legacyRemnantScan.remnants.map((item) => (
+                    <p key={item.path}>• {item.path} ({item.files}개 파일, {formatStorageBytes(item.size)})</p>
+                  ))}
+                </div>
+                <button
+                  className="w-full back-red py-2 rounded disabled:opacity-50"
+                  disabled={storageLayoutBusy}
+                  onClick={() => void cleanupLegacyRemnants()}
+                >
+                  지금 검사한 고아 잔재 영구 삭제
+                </button>
+              </div>
+            )}
+            {storageLayout.migration && storageLayout.migration.projects.length > 0 && storageLayout.migration.state !== 'rolled-back' && (
+              <button
+                className="w-full back-red py-2 rounded disabled:opacity-50"
+                disabled={storageLayoutBusy}
+                onClick={() => void rollbackStorageLayout()}
+              >
+                저장소 v2 전환 롤백
+              </button>
+            )}
+          </div>
+          <hr className="border-gray-200 dark:border-slate-600" />
+        </>
+      )}
       <div>
         <label className="block text-sm font-semibold gray-label mb-1">프로젝트별 저장 공간</label>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">

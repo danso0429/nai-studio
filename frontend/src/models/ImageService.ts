@@ -469,9 +469,40 @@ export class ImageService extends EventTarget {
     for (const key of toDelete) {
       cache.delete(key);
     }
-    // audit H10 — images/inpaints 맵도 session.name keyed. rename 시 옛 key 잔존하면
-    // 동일 캐시가 두 곳에 남고 후속 read는 새 key 빈 객체로 시작 → 첫 refresh 전엔
-    // 비어 보임. 옛 key 이름만 바뀌도록 이전.
+    // encodedVibeExistsCache key는 file path 포함 (e.g. 'vibes/<oldName>/<file>')
+    const vibeKeysToDelete: string[] = [];
+    for (const key of this.encodedVibeExistsCache.cache.keys()) {
+      if (key.includes('/' + oldName + '/')) vibeKeysToDelete.push(key);
+    }
+    for (const key of vibeKeysToDelete) this.encodedVibeExistsCache.delete(key);
+    const moved: string[] = [];
+    for (const dir of ['outs', 'inpaints', 'vibes', 'references', 'inpaint_masks', 'inpaint_orgs']) {
+      const source = dir + '/' + oldName;
+      if (!(await backend.existFile(source))) continue;
+      try {
+        await backend.renameDir(source, dir + '/' + newName);
+        moved.push(dir);
+      } catch (error) {
+        const rollbackErrors: string[] = [];
+        for (const rollbackDir of moved.slice().reverse()) {
+          try {
+            await backend.renameDir(
+              rollbackDir + '/' + newName,
+              rollbackDir + '/' + oldName,
+            );
+          } catch (rollbackError) {
+            rollbackErrors.push(rollbackDir + ': ' + String(rollbackError));
+          }
+        }
+        const failure = new Error(
+          `프로젝트 이미지 폴더(${dir}) 이름 변경에 실패했어요.` +
+          (rollbackErrors.length > 0 ? ` 롤백 실패: ${rollbackErrors.join(', ')}` : ''),
+        );
+        (failure as any).cause = error;
+        throw failure;
+      }
+    }
+    // 모든 물리/논리 루트 이동이 끝난 뒤에만 이름 keyed 메모리 맵을 전환한다.
     if (oldName in this.images) {
       this.images[newName] = this.images[oldName];
       delete this.images[oldName];
@@ -479,19 +510,6 @@ export class ImageService extends EventTarget {
     if (oldName in this.inpaints) {
       this.inpaints[newName] = this.inpaints[oldName];
       delete this.inpaints[oldName];
-    }
-    // encodedVibeExistsCache key는 file path 포함 (e.g. 'vibes/<oldName>/<file>')
-    const vibeKeysToDelete: string[] = [];
-    for (const key of this.encodedVibeExistsCache.cache.keys()) {
-      if (key.includes('/' + oldName + '/')) vibeKeysToDelete.push(key);
-    }
-    for (const key of vibeKeysToDelete) this.encodedVibeExistsCache.delete(key);
-    for (const dir of ['outs', 'inpaints', 'vibes', 'references', 'inpaint_masks', 'inpaint_orgs']) {
-      try {
-        await backend.renameDir(dir + '/' + oldName, dir + '/' + newName);
-      } catch (e) {
-        // 폴더가 없을 수 있음
-      }
     }
   }
 

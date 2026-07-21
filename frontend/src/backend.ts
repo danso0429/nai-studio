@@ -56,6 +56,59 @@ export interface SessionImageMainOp {
   value: boolean;
 }
 
+export interface StorageMigrationProjectStatus {
+  name: string;
+  state: 'pending' | 'moving' | 'done' | 'failed';
+  error: string | null;
+}
+
+export interface StorageStatus {
+  storageVersion: 1 | 2;
+  active: boolean;
+  detection: 'fresh' | 'active' | 'legacy' | 'recovery-required';
+  legacyProjects: number;
+  legacyCleanupCandidates: number;
+  workspaceProjects: number;
+  scanWarnings: Array<{ dir: string; error: string }>;
+  migrationLedgerError: string | null;
+  migration: null | {
+    state: 'idle' | 'backing-up' | 'migrating' | 'partial' | 'done' | 'rolled-back';
+    startedAt: number;
+    authorizedAt: number | null;
+    backup: null | { done: boolean; file: string; completedAt: number };
+    projects: StorageMigrationProjectStatus[];
+  };
+  estimatedBytes: number;
+  freeBytes: number | null;
+  blockers: string[];
+  optedOut: boolean;
+  runtime: {
+    running: boolean;
+    phase: 'idle' | 'backing-up' | 'migrating' | 'done' | 'failed';
+    current: number;
+    total: number;
+    name: string;
+    error: string | null;
+    resumed?: boolean;
+  };
+}
+
+export interface LegacyStorageRemnant {
+  path: string;
+  isDirectory: boolean;
+  size: number;
+  files: number;
+  mtimeMs: number;
+}
+
+export interface LegacyStorageRemnantScan {
+  blocked: null | { code: 'storage-v2-inactive' | 'legacy-projects-present'; count: number };
+  remnants: LegacyStorageRemnant[];
+  totalSize: number;
+  totalFiles: number;
+  fingerprint: string | null;
+}
+
 export interface FileStatEntry {
   name: string;
   size: number;
@@ -247,6 +300,18 @@ export interface CleanupOrphansError {
 export abstract class Backend {
   abstract getConfig(): Promise<Config>;
   abstract setConfig(newConfig: Config): Promise<void>;
+  abstract getStorageStatus(): Promise<StorageStatus>;
+  abstract startStorageMigration(backup: boolean): Promise<void>;
+  abstract setStorageMigrationOptOut(enabled: boolean): Promise<void>;
+  abstract cleanupLegacyStorage(): Promise<{ removed: string[]; skipped: string[] }>;
+  abstract scanLegacyStorageRemnants(): Promise<LegacyStorageRemnantScan>;
+  abstract cleanupLegacyStorageRemnants(fingerprint: string): Promise<{
+    removed: string[];
+    failed: Array<{ path: string; error: string }>;
+    fingerprint: string;
+  }>;
+  abstract rollbackStorageV2(): Promise<{ restored: string[] }>;
+  abstract restoreFullBackup(file: File, policy: 'rename' | 'skip' | 'overwrite'): Promise<any>;
   abstract acquireProjectLease(name: string): Promise<ProjectLeaseResult>;
   abstract useProjectMirror(name: string): Promise<void>;
   abstract releaseProjectLease(name: string): Promise<void>;

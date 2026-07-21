@@ -57,6 +57,23 @@ export class TrashService extends EventTarget {
     this.dispatchEvent(new CustomEvent('trash-updated'));
   }
 
+  async renameProjectKeys(oldName: string, newName: string): Promise<void> {
+    if (!this.loaded) {
+      console.warn('[TrashService] rename skipped because trash.json is not loaded:', oldName);
+      return;
+    }
+    const prefix = oldName + ':';
+    let changed = false;
+    for (const key of Object.keys(this.data.scenes)) {
+      if (!key.startsWith(prefix)) continue;
+      const newKey = newName + ':' + key.slice(prefix.length);
+      this.data.scenes[newKey] = this.data.scenes[key];
+      delete this.data.scenes[key];
+      changed = true;
+    }
+    if (changed) await this.saveTrash();
+  }
+
   private ensureLoaded() {
     if (!this.loaded) throw new Error('TrashService not loaded');
   }

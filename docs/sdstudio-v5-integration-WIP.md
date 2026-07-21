@@ -98,7 +98,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - `2503f60`, `1eafeeb`의 공유 pool·코어 적응은 `ADAPT/ALREADY`. 클라이언트 수동 변환은 검증된 `runPool`과 사용자 `exportConcurrency`의 서버 안전 상한 4를 사용하고, 기존 서버 export worker는 ARM `sharp.concurrency()=1` 실측 환경에서 job 10·이미지 chunk 4 계약을 유지한다. Electron UV threadpool과 브라우저 WASM은 서버 단일 codec 구조에 중복이라 `N/A`다.
 - `5d1356d`, `53dd622`의 인코딩 handler·품질·NAI metadata·stealth를 `ADAPT`. 서버 codec이 PNG tEXt/zTXt/iTXt Comment를 WebP/AVIF EXIF로 옮기고, alpha 열 우선 stealth 비트스트림을 WebP alphaQuality 100에 재삽입한 뒤 exact bit round-trip을 검증한다. 내보내기 프리셋/일회 옵션은 lossy·AVIF 품질과 WebP stealth 보존을 서버 worker에 전달하며, 프론트 메타 가져오기는 WebP `ImageDescription` 배열도 읽는다. 검증: `test/image-codec.test.js`의 손실 WebP stealth exact 왕복·Comment EXIF 왕복·용량 부족 감지 4건 pass.
 - `f8a4b09`, `dfe5391`, `a343ffd`의 자동/수동 변환·프로젝트 최적화·취소를 `ADAPT`. 새 이미지 자동 변환은 서버 config opt-in이며 검증된 WebP 생성 뒤 PNG 삭제에 실패하면 WebP를 되돌리고 PNG를 유지한다. 수동 씬/프로젝트 변환은 모바일 포함 서버 codec을 사용하고, 생성한 WebP의 `imageMap`·`mains`·`game` 참조를 단일 project JSON에 flush ACK 받은 뒤에만 확인창에서 고지한 PNG 영구 삭제를 실행한다. 저장 응답이 불명확하면 양쪽 파일을 유지하고 dirty retry하며, 취소는 진행분만 같은 commit 경로로 닫는다. 저장공간 관리에서 프로젝트 전체 최적화와 크기 재계산을 제공한다. 검증: frontend tsc 0 error, server syntax check, `test/webp-integration.test.js`, `test/config-unsaved-badge.test.js`, `test/toolbar-consumers.test.js`, `test/ui-layout-v2.test.js` pass.
-- 변환 직후 메모리에는 남지만 다음 파일 재스캔에서 PNG만 통과해 WebP/AVIF가 사라지던 Remote 필터를 발견해, 이미지 정본 재구성도 세 형식을 보존하도록 닫았다. 검증: `test/webp-integration.test.js`의 refresh 회귀 항목 pass.
+- `dbff670`을 포함해 변환 직후 메모리에는 남지만 다음 파일 재스캔에서 PNG만 통과해 WebP/AVIF가 사라지던 Remote 필터와, reference URL이 캐시되어 변환 뒤 옛 확장자를 가리키는 경로를 닫았다. 이미지 정본 재구성과 참조 refresh 모두 PNG/WebP/AVIF를 보존한다. 검증: `test/webp-integration.test.js`의 refresh 회귀 항목 pass.
 
 ### V5-F — 멀티클라이언트 동기화
 
@@ -116,7 +116,13 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 
 - 범위: `projectPaths`, `storageLayout`, migration gate/ledger, workspace scan, legacy cleanup, backup/rollback.
 - 처리: 서버 권위 migration API와 restart-resumable ledger로 `ADAPT`. queue output, completed history, Drive, queue.html, project delete, import/export, full backup/restore, disk cleanup을 dual-layout로 함께 전환한다.
-- 상태: `PENDING`.
+- 상태: `COMPLETE`.
+- `93b5ede`, `c090e2c`, `d36946e`의 A0~A2를 `PORT/ADAPT`. 모든 서버 파일 API는 기존 논리 경로 계약을 유지하면서 단일 `StorageV2.resolve` 관문을 통과하고, workspace 내부 경로는 외부 입력에서 차단한다. 프로젝트 이름변경은 이미지 6루트→JSON/meta→즐겨찾기·북마크·휴지통·용량·템플릿 키를 한 관문에서 옮기며 중간 실패 시 역롤백한다. v2에서는 이미지 루트 rename을 논리 no-op로 처리해 불변 물리 폴더가 legacy 경로로 빠져나오지 않는다. 이미지 포함 복제도 배타적 copy와 생성분 역정리로 반쪽 복제본을 남기지 않는다.
+- `f176363`의 B1+B2를 서버 구조로 `ADAPT`. Session UUID를 로드 migration seam에서 지연 발급하고 새 프로젝트·복제·템플릿/가져오기·Quick·full backup 복원에는 새 UUID를 발급한다. overwrite 복원은 기존 workspace UUID를 보존한다. `workspace/<정제이름__짧은id>/meta.json`을 단일 registry로 삼아 JSON·6개 이미지 루트를 한 물리 폴더에 모으고, 이름/폴더 이동은 meta만 갱신하며 영구삭제는 그 폴더 하나를 제거한다. 실제 데이터 이동은 명시 승인 토큰·사전 전체 백업·원자 ledger·root별 재개·동명 `_복구N`·부분 fallback·rollback으로 구성했다. Electron/Android IPC, 앱 재실행, wake lock, PAX tar 구현은 Remote 실행 경로에 없어 `N/A`이고, 동등 효과는 Node 서버 작업과 ZIP stream으로 제공한다.
+- `85d2c0a`, `dc9d94a`의 B3/후속을 `ADAPT`. 부팅 상태는 fresh/legacy/recovery-required/partial/active를 구분하고, 손상 ledger는 fail-closed로 UI에 노출한다. 사용자는 백업 포함/백업 없음 2중 확인/지속 opt-out을 선택할 수 있으며, 큐·내보내기·타 클라이언트 lease가 있으면 시작하지 않는다. migration/partial 동안 일반 API와 Drive retry/reconcile을 막고 서버 재시작 뒤 승인된 backing-up/migrating만 이어간다. 브라우저 세션 reload와 서버 고정 데이터 루트에 맞춰 saveLocation·전역 TOKEN 이동은 `N/A`다.
+- `019a7d1`의 B4를 `ADAPT`. JSON 의미가 같은 legacy 중복만 별도 승인으로 지우고, 내용이 다른 동명 파일은 보존한다. 고아 잔재는 먼저 전수 스캔해 경로·크기와 fingerprint를 표시하고, 그 fingerprint가 그대로일 때만 별도 승인 삭제한다. legacy 프로젝트가 하나라도 남으면 차단하며 빈 프로젝트 조직 폴더는 삭제 대상으로 보지 않는다.
+- queue 출력/최근 히스토리/Drive 업로드·재시도/queue.html/프로젝트 크기·삭제·folder rename·가져오기/내보내기/full backup·restore/disk cleanup의 실제 호출 경로를 dual-layout으로 연결했다. full backup은 논리 legacy 호환 레이아웃과 버전 manifest를 사용하고, 미래 manifest는 복원을 거부하며 빈 프로젝트 폴더도 왕복한다. 사전 migration backup은 일반 disk cleanup에서 보호한다.
+- 자동검증: frontend tsc 0 error, server/storage 문법·`git diff --check` 통과, `node --test test/*.test.js` 30 files pass. `test/storage-v2.test.js`는 UUID→meta 일치, collision, logical rename, 부분 migration/재개/복구/rollback, exact duplicate cleanup, fingerprint 고아 정리, 빈 폴더 보존과 UI/server wiring을 확인한다. 실제 production 데이터 migration·legacy cleanup·rollback은 실행하지 않았다.
 
 ### V5-H — 플랫폼·패키징 전용
 
