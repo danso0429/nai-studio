@@ -2810,18 +2810,21 @@ const WFRInline = observer(({ element }: WFElementProps) => {
       return (
         <>
           {showPresetBtn && (
-            <SamplingPresetButton
-              getCurrent={() => ({
-                steps: preset.steps,
-                promptGuidance: preset.promptGuidance,
-                cfgRescale: preset.cfgRescale,
-                sampling: preset.sampling,
-                noiseSchedule: preset.noiseSchedule,
-              })}
-              onApply={(id) => {
-                appState.setAppliedSamplingPreset(id);
-              }}
-            />
+            <div className="flex items-center gap-1">
+              <SamplingPresetButton
+                getCurrent={() => ({
+                  steps: preset.steps,
+                  promptGuidance: preset.promptGuidance,
+                  cfgRescale: preset.cfgRescale,
+                  sampling: preset.sampling,
+                  noiseSchedule: preset.noiseSchedule,
+                })}
+                onApply={(id) => {
+                  appState.setAppliedSamplingPreset(id);
+                }}
+              />
+              <CompanionButtons host="sampling" />
+            </div>
           )}
           {/* 라벨+버튼을 PromptEditTextArea 헤더 줄로(item ④: 입력창 위 absolute 버튼 → 라벨 줄).
               EditorField의 라벨/래퍼를 직접 대체 — 라벨은 headerLabel로 넘김. */}
@@ -3248,6 +3251,7 @@ const PreSetEditor = observer(
                 };
               }}
             />
+            <CompanionButtons host="presetTop" />
           </StackFixed>
           <PreSetEditorImpl
             type={workflowType}

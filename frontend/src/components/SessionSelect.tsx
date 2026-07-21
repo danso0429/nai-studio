@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import SessionTreePicker from './SessionTreePicker';
 import { FaEllipsisH, FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaThLarge, FaFolder, FaLayerGroup } from 'react-icons/fa';
 import ProjectBrowser from './ProjectBrowser';
@@ -18,6 +18,7 @@ import {
   ToolbarSlotDropTarget,
 } from './ToolbarDnd';
 import TemplateManagerModal from './TemplateManagerModal';
+import { PORTABLE_TOOLBAR_ACTION_EVENT } from '../models/portableToolbarActions';
 
 const SessionSelect = observer(({
   variant = 'bar',
@@ -83,6 +84,17 @@ const SessionSelect = observer(({
     setShowCharacterPresets(true);
   };
 
+  useEffect(() => {
+    const onPortableAction = (event: Event) => {
+      const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+      if (action === 'add-session') addSession();
+      else if (action === 'character-presets') openCharacterPresets();
+      else if (action === 'scene-template') setShowTemplateManager(true);
+    };
+    window.addEventListener(PORTABLE_TOOLBAR_ACTION_EVENT, onPortableAction);
+    return () => window.removeEventListener(PORTABLE_TOOLBAR_ACTION_EVENT, onPortableAction);
+  }, []);
+
   const projectToolbarNodes: Record<string, React.ReactNode> = {
     'add-session': (
       <button className="icon-button nback-sky mx-1" onClick={addSession}>
@@ -123,6 +135,16 @@ const SessionSelect = observer(({
           onClick={() => setShowTemplateManager(true)}
         >
           <FaLayerGroup size={16} />
+        </button>
+      </Tooltip>
+    ),
+    'backup-export': (
+      <Tooltip content="프로젝트 백업/내보내기">
+        <button
+          className="icon-button nback-teal mx-1"
+          onClick={() => appState.projectBackupMenu()}
+        >
+          <FaShare size={14} />
         </button>
       </Tooltip>
     ),

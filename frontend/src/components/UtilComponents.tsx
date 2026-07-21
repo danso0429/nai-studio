@@ -175,6 +175,7 @@ interface TabComponentProps {
   // 복원. 프로젝트 전환(컴포넌트 key 리마운트)은 기존대로 0번 탭으로 리셋됨 — 복원은
   // PWA 부팅 1회로 한정(App 워크스페이스 탭 전용). prop 미전달 시 기존 동작(0번, 저장 X).
   persistKey?: string;
+  onActiveTabChange?: (index: number) => void;
 }
 
 // persistKey별로 "이 페이지 세션에서 이미 복원했는지" 기록. 부팅 후 첫 마운트만 복원값을
@@ -186,6 +187,7 @@ export const TabComponent: React.FC<TabComponentProps> = ({
   tabs,
   toggleView,
   persistKey,
+  onActiveTabChange,
 }) => {
   const [activeTab, setActiveTab] = useState(() => {
     if (persistKey && !consumedTabPersistKeys.has(persistKey)) {
@@ -200,6 +202,10 @@ export const TabComponent: React.FC<TabComponentProps> = ({
     return 0;
   });
   const [toggleViewOpen, setToggleViewOpen] = useState(false);
+
+  useEffect(() => {
+    onActiveTabChange?.(activeTab);
+  }, [activeTab, onActiveTabChange]);
 
   const handleTabClick = (index: number) => {
     tabs[index].onClick?.();

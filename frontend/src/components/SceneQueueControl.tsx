@@ -52,6 +52,7 @@ import {
   ToolbarHideZone,
   ToolbarSlotDropTarget,
 } from './ToolbarDnd';
+import { PORTABLE_TOOLBAR_ACTION_EVENT } from '../models/portableToolbarActions';
 
 const createMissingPiecesForSession = (
   session: Session,
@@ -1651,6 +1652,17 @@ const QueueControl = observer(
     }, []);
 
     const [showSceneTrash, setShowSceneTrash] = useState(false);
+    useEffect(() => {
+      const onPortableAction = (event: Event) => {
+        const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+        const activeType = appState.activeWorkspaceTab === 1 ? 'inpaint' : 'scene';
+        if (action === 'scene-trash' && showPannel && type === activeType) {
+          setShowSceneTrash(true);
+        }
+      };
+      window.addEventListener(PORTABLE_TOOLBAR_ACTION_EVENT, onPortableAction);
+      return () => window.removeEventListener(PORTABLE_TOOLBAR_ACTION_EVENT, onPortableAction);
+    }, []);
 
     const [bmRev, setBmRev] = useState(0);
     useEffect(() => {

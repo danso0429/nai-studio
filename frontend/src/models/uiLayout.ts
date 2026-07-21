@@ -69,18 +69,8 @@ export const projectToolbarRegistry: ToolbarButtonMeta[] = [
   },
   { id: 'delete-session', name: '프로젝트 삭제', tier: 'primary', portable: true },
   { id: 'media-import', name: '백업·이미지 불러오기', tier: 'primary' },
-  { id: 'project-trash', name: '프로젝트 휴지통', tier: 'primary', portable: true },
   { id: 'piece-editor', name: '프롬프트조각', tier: 'primary', portable: true },
-  {
-    id: 'new-window',
-    name: '새 창',
-    pcOnly: true,
-    tier: 'primary',
-    portable: true,
-  },
 ];
-
-export const MOBILE_PROJECT_TOPROW_IDS = ['project-browser', 'project-trash'];
 
 export interface ToolbarRegistryEntry {
   area: string;

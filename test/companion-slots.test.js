@@ -44,13 +44,38 @@ test('assignment moves one button between hosts without mutating input', () => {
   assert.equal(model.assignCompanion(original, 'vibes', 'stale'), original);
 });
 
-test('three persistent preset rows render companion buttons and toolbars exclude assignments', () => {
+test('all persistent preset rows render companion drop hosts and toolbars exclude assignments', () => {
   const preset = read('frontend/src/components/PreSetEditor.tsx');
   const scene = read('frontend/src/components/SceneQueueControl.tsx');
   const project = read('frontend/src/components/SessionSelect.tsx');
-  for (const host of ['characterPrompts', 'vibes', 'characterReferences']) {
+  for (const host of [
+    'presetTop',
+    'sampling',
+    'characterPrompts',
+    'vibes',
+    'characterReferences',
+  ]) {
     assert.ok(preset.includes(`host="${host}"`), host);
   }
   assert.match(scene, /companionAssignedIds\(appState\.uiCompanionSlots\)/);
   assert.match(project, /companionAssignedIds\(appState\.uiCompanionSlots\)/);
+});
+
+test('every allowed companion button has an executable portable action', () => {
+  const model = loadModel();
+  const portable = read('frontend/src/components/PortableToolbarButton.tsx');
+  for (const id of model.COMPANION_BUTTON_IDS) {
+    assert.ok(portable.includes(`'${id}'`), id);
+  }
+  assert.match(portable, /requestLocallyOwnedPortableAction/);
+  assert.match(portable, /projectBackupMenu/);
+  assert.match(portable, /SESSION_REQUIRED\.has\(id\)/);
+});
+
+test('companion drag ownership is persisted bidirectionally', () => {
+  const dnd = read('frontend/src/components/ToolbarDnd.tsx');
+  assert.match(dnd, /applyCompanionMove/);
+  assert.match(dnd, /assignCompanion\(previous, host, id\)/);
+  assert.match(dnd, /removeCompanion\(previousCompanions, move\.id\)/);
+  assert.match(dnd, /uiCompanionSlots: nextCompanions/);
 });

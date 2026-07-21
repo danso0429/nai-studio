@@ -1,4 +1,6 @@
 export const COMPANION_HOSTS = [
+  'presetTop',
+  'sampling',
   'characterPrompts',
   'vibes',
   'characterReferences',
@@ -7,6 +9,8 @@ export const COMPANION_HOSTS = [
 export type CompanionHost = (typeof COMPANION_HOSTS)[number];
 
 export const COMPANION_HOST_LABELS: Record<CompanionHost, string> = {
+  presetTop: '프리셋 상단 행',
+  sampling: '샘플링 프리셋 행',
   characterPrompts: '캐릭터 프롬프트 행',
   vibes: '바이브 설정 행',
   characterReferences: '캐릭터 레퍼런스 행',
@@ -16,13 +20,22 @@ export const COMPANION_HOST_LABELS: Record<CompanionHost, string> = {
 // 배정해 툴바와 호스트 양쪽에서 사라지게 하지 않는 것이 우선이다.
 export const COMPANION_BUTTON_IDS = [
   'project-browser',
+  'add-session',
+  'character-presets',
+  'scene-template',
+  'backup-export',
   'delete-session',
   'piece-editor',
+  'scene-trash',
   'empty-image-trash',
   'find-replace',
 ] as const;
 
 const allowed = new Set<string>(COMPANION_BUTTON_IDS);
+
+export function isCompanionButtonId(id: string): boolean {
+  return allowed.has(id);
+}
 
 function assignment(slots?: Record<string, string[]>): Map<string, CompanionHost> {
   const result = new Map<string, CompanionHost>();

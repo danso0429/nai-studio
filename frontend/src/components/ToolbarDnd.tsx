@@ -9,16 +9,22 @@ import {
   moveToolbarButton,
   type ToolbarMove,
 } from '../models/uiLayout';
+import {
+  assignCompanion,
+  isCompanionButtonId,
+  removeCompanion,
+  type CompanionHost,
+} from '../models/companionSlots';
 
 export type ToolbarGroup = 'scene' | 'project';
 export const TOOLBAR_DND_TYPE = 'toolbar-button/main';
 
-interface ToolbarDragItem {
+export interface ToolbarDragItem {
   id: string;
   name: string;
   area: ToolbarGroup;
   portable: boolean;
-  from: 'inline' | 'menu';
+  from: 'inline' | 'menu' | 'companion';
 }
 
 const metaOf = (id: string) =>
@@ -26,18 +32,118 @@ const metaOf = (id: string) =>
 
 export async function applyToolbarMove(move: ToolbarMove): Promise<void> {
   const previous = appState.uiToolbar;
+  const previousCompanions = appState.uiCompanionSlots;
   const next = moveToolbarButton(TOOLBAR_VIEW_MAIN, previous, move);
-  if (next === previous) return;
+  const nextCompanions = removeCompanion(previousCompanions, move.id);
+  if (next === previous && nextCompanions === previousCompanions) return;
   appState.uiToolbar = next;
+  appState.uiCompanionSlots = nextCompanions;
   try {
     const config = await backend.getConfig();
-    await backend.setConfig({ ...config, uiToolbar: next });
+    await backend.setConfig({
+      ...config,
+      uiToolbar: next,
+      uiCompanionSlots: nextCompanions,
+    });
   } catch (error) {
     appState.uiToolbar = previous;
+    appState.uiCompanionSlots = previousCompanions;
     appState.pushMessage('툴바 배치를 저장하지 못했습니다.');
     console.error('툴바 배치 저장 실패:', error);
   }
 }
+
+export async function applyCompanionMove(
+  host: CompanionHost,
+  id: string,
+): Promise<void> {
+  if (!isCompanionButtonId(id)) return;
+  const previous = appState.uiCompanionSlots;
+  const next = assignCompanion(previous, host, id);
+  if (next === previous) return;
+  appState.uiCompanionSlots = next;
+  try {
+    const config = await backend.getConfig();
+    await backend.setConfig({ ...config, uiCompanionSlots: next });
+  } catch (error) {
+    appState.uiCompanionSlots = previous;
+    appState.pushMessage('동반 버튼 배치를 저장하지 못했습니다.');
+    console.error('동반 버튼 배치 저장 실패:', error);
+  }
+}
+
+export const CompanionDropTarget = observer(
+  ({ host, children }: { host: CompanionHost; children: ReactNode }) => {
+    const [{ isOver }, drop] = useDrop(
+      () => ({
+        accept: TOOLBAR_DND_TYPE,
+        canDrop: (item: ToolbarDragItem) => isCompanionButtonId(item.id),
+        drop: (item: ToolbarDragItem, monitor) => {
+          if (monitor.didDrop()) return;
+          void applyCompanionMove(host, item.id);
+        },
+        collect: (monitor) => ({
+          isOver: monitor.isOver({ shallow: true }) && monitor.canDrop(),
+        }),
+      }),
+      [host],
+    );
+    return (
+      <div
+        ref={(node) => drop(node)}
+        className={`${isOver ? 'ring-2 ring-sky-400 rounded-lg bg-sky-400/10 ' : ''}${appState.editMode ? 'min-w-8 min-h-8 border border-dashed border-sky-400/60 rounded-lg' : ''}`}
+      >
+        {children}
+      </div>
+    );
+  },
+);
+
+export const DraggableCompanionButton = observer(
+  ({ id, children }: { id: string; children: ReactNode }) => {
+    const meta = metaOf(id);
+    const area = TOOLBAR_VIEW_MAIN.find(({ registry }) =>
+      registry.some((candidate) => candidate.id === id),
+    )?.area as ToolbarGroup | undefined;
+    const [{ isDragging }, drag, preview] = useDrag(
+      () => ({
+        type: TOOLBAR_DND_TYPE,
+        item: (): ToolbarDragItem => ({
+          id,
+          name: meta?.name ?? id,
+          area: area ?? 'project',
+          portable: meta?.portable === true,
+          from: 'companion',
+        }),
+        canDrag: () => canEdit() && !appState.uiToolbar.classic,
+        collect: (monitor) => ({ isDragging: monitor.isDragging() }),
+        end: () => {
+          appState.toolbarDragging = false;
+        },
+      }),
+      [id, area, appState.editMode, appState.uiToolbar.classic],
+    );
+    useEffect(() => {
+      preview(getEmptyImage(), { captureDraggingState: true });
+    }, [preview]);
+    useEffect(() => {
+      if (isDragging) appState.toolbarDragging = true;
+    }, [isDragging]);
+    return (
+      <div
+        ref={(node) => drag(node)}
+        className={isDragging ? 'opacity-30' : ''}
+        onClickCapture={(event) => {
+          if (!appState.editMode) return;
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      >
+        {children}
+      </div>
+    );
+  },
+);
 
 const canEdit = () => isMobile || appState.editMode;
 

@@ -337,6 +337,7 @@ export class AppState {
   @observable accessor quickMenuButton: boolean = false;
   @observable accessor quickMenuOpen: boolean = false;
   @observable accessor uiCompanionSlots: Record<string, string[]> = {};
+  @observable accessor activeWorkspaceTab: number = 0;
   @observable accessor uiLayoutTemplate: string = 'classic';
   @observable accessor uiLayoutSlots: UiLayoutSlots = {};
   @observable accessor genWidget: GenWidgetConfig = {};
@@ -1799,6 +1800,23 @@ export class AppState {
         });
       }
     };
+
+  @action
+  projectBackupMenu() {
+    if (!this.curSession) return;
+    this.pushDialog({
+      type: 'select',
+      text: '프로젝트를 어떤 형식으로 내보낼까요?',
+      items: [
+        { text: '프로젝트 파일 (.json, 이미지 제외)', value: 'shallow' },
+        { text: '전체 백업 (.tar, 이미지 포함)', value: 'deep' },
+      ],
+      callback: (value?: string) => {
+        if (value === 'shallow') void this.projectExportShallow();
+        else if (value === 'deep') void this.projectExportDeep();
+      },
+    });
+  }
 
   @action
   async projectExportShallow() {

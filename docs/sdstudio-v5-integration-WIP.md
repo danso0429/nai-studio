@@ -69,18 +69,22 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 
 - 범위: 프로젝트/폴더/씬 템플릿, 상속, 전역 캐릭터 프리셋 폴더·이동·파일 입출력, 조합 편집, 일괄 생성 계획과 예약.
 - 처리: 계획 계산은 클라이언트 pure layer, 실제 예약·취소·복원은 기존 서버 큐 계약을 사용한다.
-- 상태: `PENDING`.
+- 상태: `COMPLETE`.
+- 조합 에디터를 `PORT/ADAPT`. 표시 전용 셀 이름을 하위호환 직렬화하고, Remote 생성 경로의 활성 조각·빈 열 규칙과 같은 순수 열거/개수 계층을 사용해 100종 상한의 간략·상세 미리보기를 제공한다. 검증: frontend tsc 0 error, `test/combination-editor.test.js` pass.
+- 프로젝트/폴더/씬 템플릿과 상속을 `ADAPT`. 독립 템플릿 저장소가 프롬프트·스타일·캐릭터·수동 바이브/레퍼런스·씬 스냅숏과 전용 이미지를 보관하고, 폴더는 가까운 조상의 기본 템플릿을 해석한다. 적용 기록은 템플릿이 만든 인스턴스만 교체하며 배치 축의 캐릭터·씬은 보호한다. 숨김 씬 템플릿의 생성·편집·충돌 정책 임포트·파일 이동, ♚/♟ 배지·상속 끊기·명시적 자식 재적용까지 연결했다. 검증: frontend tsc 0 error, `test/project-templates.test.js`, `test/project-roles.test.js` pass.
+- 글로벌 캐릭터 프리셋 폴더·다중 적용·파일 입출력을 `PORT/ADAPT`. 빈 폴더를 보존하는 평면 레지스트리, 다중 선택 이동/적용, 로컬 전체 승격, 바이브·레퍼런스·대표이미지 인라인 JSON 왕복을 기존 글로벌 이미지 저장소에 연결했다. `fromPreset` 출처별 추가/개별 해제로 수동 항목과 다른 프리셋을 보존한다. 검증: frontend tsc 0 error, `test/global-character-v5.test.js` pass.
+- 일괄 생성 계획·실행·예약을 `ADAPT`. 캐릭터×씬 순수 조합, 충돌 이름, 선택적 캐릭터 서브폴더를 계산하고 항목별 실패 수집·현재 항목 뒤 취소·50개 확인을 제공한다. 생성 완료 뒤 별도 사용자 동작으로 실제 서버 예약 등록을 수행하며 Remote의 프로젝트별 batch-enqueue/vibe consent 계약을 재사용한다. 검증: frontend tsc 0 error, `test/batch-create-plan.test.js` pass.
 
 ### V5-D — 레이아웃 편집·Quick menu·portable toolbar
 
 - 범위: config v2, 레이아웃 template, edit shell, portable button/companion slot, Quick menu, sidebar/float generation control.
 - 처리: 현재 모바일 하단 탭·프로젝트 드로어·히스토리 핸들을 고정 호환 계약으로 둔다.
-- 상태: `IN_PROGRESS`.
+- 상태: `COMPLETE`.
 - `3433721`, `932651c`의 config schema v2·portable cross-area 배치 해석/이동을 순수 계층으로 `PORT`. 기존 레이아웃을 기본값으로 유지하고, 전역 중복 방지·stale/nonportable 거부·v1 dual-write·원본 불변을 자동 검증한다. 실제 툴바 소비처·편집 shell·DnD wiring은 후속이다.
 - config 로드·저장과 환경설정 편집 shell을 연결하고, 씬·프로젝트 툴바가 같은 v2 resolver를 실제 소비하도록 `PORT/ADAPT`. Remote 고유 버튼(프로젝트 이름 변경·백업/이미지 불러오기·프로젝트 예약 취소·씬 재정렬)도 안정 id로 레지스트리에 포함하며 기존 확인 대화상자와 콜백은 보존한다. 숨김/더보기는 실제 버튼 노드를 이동할 뿐 기능을 재구현하지 않는다. 순서 DnD·portable cross-area UI는 후속이다. 검증: frontend tsc 0 error, `test/ui-layout-v2.test.js`, `test/config-unsaved-badge.test.js`, `test/toolbar-consumers.test.js` pass.
 - PC의 명시적 화면 편집 shell과 모바일 long-press DnD를 연결했다. 인라인·더보기 내부 순서, 더보기/숨김 이동, portable 버튼의 씬↔프로젝트 이동은 모두 `moveToolbarButton` 단일 관문으로 즉시 저장하고 실패 시 메모리 배치를 되돌린다. 모바일 더보기는 드래그 중 시각적으로 치워 실제 툴바 drop target을 노출한다. companion slot·Quick menu·패널 layout은 후속이다. 검증: frontend tsc 0 error, `test/toolbar-consumers.test.js` pass.
 - Quick menu를 `ADAPT`. Remote에서 전역으로 안전하게 호출 가능한 프로젝트 목록·프롬프트조각·찾기/변환·미디어 불러오기·씬 임포트·히스토리·이미지 휴지통 비우기·프로젝트 삭제를 config 순서로 구성한다. destructive 항목은 기존 확인 진입점을 재사용한다. PC `Ctrl+K`와 옵트인 플로팅 버튼이 같은 메뉴를 열며, 버튼은 400ms long-press 뒤 이동하고 위치는 기기 localStorage에만 저장한다. 검증: frontend tsc 0 error, `test/quick-menu.test.js`, `test/config-unsaved-badge.test.js` pass.
-- companion slot 기반을 `ADAPT`. 현재 Remote에서 실제 전역 콜백이 있는 portable 버튼만 허용하고, 캐릭터 프롬프트·바이브·캐릭터 레퍼런스의 항상 존재하는 행에 배정한다. first-host-wins·stale/비허용 무시·원본 불변 이동을 순수 계층으로 고정하고, 배정된 버튼은 양 툴바에서 파생 제외되며 해제 시 원래 배치로 복귀한다. 아직 전역화되지 않은 portable 액션과 sampling/preset-top 호스트, companion 직접 DnD는 후속이다. 검증: frontend tsc 0 error, `test/companion-slots.test.js`, `test/config-unsaved-badge.test.js` pass.
+- companion slot을 `ADAPT` 완료. 프로젝트 탐색·신규·캐릭터 프리셋·씬 템플릿·백업·삭제·프롬프트조각과 씬 휴지통·이미지 휴지통 비우기·찾기/변환을 실제 소유 컴포넌트의 기존 동작에 연결하고, 프리셋 상단·샘플링·캐릭터 프롬프트·바이브·캐릭터 레퍼런스 다섯 host를 제공한다. 툴바↔companion 직접 DnD는 반대편 소유권을 함께 해제해 한 버튼이 한 위치에만 남고 같은 config write로 저장된다. 현재 작업 탭만 씬 휴지통 요청을 소비하며, upstream의 프로젝트 휴지통·새 Electron 창은 Remote에 복구 저장소·Electron 창 수명주기가 없어 `N/A`로 registry에서도 제외했다. 검증: frontend tsc 0 error, `test/companion-slots.test.js`, `test/ui-layout-v2.test.js`, `test/toolbar-consumers.test.js` pass.
 - 레이아웃 템플릿의 `classic`/`compact` slice를 `PORT/ADAPT`. compact는 PC에서 하단 바를 제거하고 프로젝트 도구를 상단 별도 행, 기존 생성 컨트롤을 우하단 플로팅 카드로 옮긴다. 하단 바 제거 시 `--bottombar-h`도 0으로 갱신해 잔여 여백을 막고, 모바일·stale id는 classic으로 강제 폴백한다. sidebar/modern·패널 좌우 슬롯·플로팅 위치 저장은 후속이다. 검증: frontend tsc 0 error, `test/layout-templates.test.js`, `test/config-unsaved-badge.test.js` pass.
 - layout slot을 확장해 프리셋·히스토리 패널 좌우 배치를 CSS order로 전환하고, 생성 컨트롤 docked/floating을 템플릿 위에 해석한다. compact처럼 하단 바가 없는 템플릿은 stale `docked` override가 있어도 floating을 강제해 컨트롤 소실을 막는다. 플로팅 카드는 전용 handle로 뷰포트 안에서 이동하고 좌표를 config에 저장하며, classic에서는 하단 도크 복귀가 가능하다. 모바일은 모든 slot override를 무시한다. sidebar/modern·projectSide 소비는 후속이다. 검증: frontend tsc 0 error, `test/layout-templates.test.js`, `test/config-unsaved-badge.test.js` pass.
 - `sidebar` 템플릿과 projectSide 소비를 `PORT/ADAPT`. 프로젝트 선택·모든 실제 Remote 프로젝트 버튼·더보기·DnD·캐릭터 프리셋 오버레이를 같은 `SessionSelect` 인스턴스의 세로 variant로 렌더하고, 좌우 위치는 CSS order로 바꾼다. 하단 바는 없고 생성 컨트롤은 floating이며 모바일은 classic으로 폴백한다. modern strip은 companion 전역 액션 확대 뒤 진행한다. 검증: frontend tsc 0 error, `test/layout-templates.test.js`, `test/toolbar-consumers.test.js` pass.

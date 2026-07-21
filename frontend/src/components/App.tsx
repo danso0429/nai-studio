@@ -1049,6 +1049,9 @@ export const App = observer(() => {
                             <TabComponent
                               key={appState.curSession.name}
                               persistKey={LAST_TAB_KEY}
+                              onActiveTabChange={(index) => {
+                                appState.activeWorkspaceTab = index;
+                              }}
                               tabs={tabs}
                               toggleView={
                                 <PreSetEditor
