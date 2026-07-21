@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import SessionTreePicker from './SessionTreePicker';
-import { FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaThLarge, FaFolder } from 'react-icons/fa';
+import { FaEllipsisH, FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaThLarge, FaFolder } from 'react-icons/fa';
 import ProjectBrowser from './ProjectBrowser';
 import Tooltip from './Tooltip';
 import { sessionService, workFlowService, isMobile } from '../models';
@@ -11,10 +11,13 @@ import { CharacterPreset, CharacterPrompt, VibeItem, ReferenceItem } from '../mo
 import { v4 as uuidv4 } from 'uuid';
 import { formatProjectNameConflict } from '../models/util';
 import { runInAction } from 'mobx';
+import { TOOLBAR_VIEW_MAIN, resolveToolbarView } from '../models/uiLayout';
+import ToolbarOverflowMenu from './ToolbarOverflowMenu';
 
 const SessionSelect = observer(() => {
   const [showCharacterPresets, setShowCharacterPresets] = useState(false);
   const [showProjectBrowser, setShowProjectBrowser] = useState(false);
+  const [showProjectMenu, setShowProjectMenu] = useState(false);
   const addSession = () => {
     (async () => {
       appState.pushDialog({
@@ -41,6 +44,108 @@ const SessionSelect = observer(() => {
     if (!appState.curSession) return;
     appState.deleteProjectBackground(appState.curSession.name);
   };
+
+  const openCharacterPresets = () => {
+    if (!appState.curSession) {
+      appState.pushMessage('프로젝트를 먼저 선택해주세요');
+      return;
+    }
+    if (isMobile && appState.appliedCharacterPreset) {
+      appState.pushDialog({
+        type: 'select',
+        text: `"${appState.appliedCharacterPreset}" 프리셋이 적용 중입니다.`,
+        items: [
+          { text: '프리셋 해제', value: 'clear' },
+          { text: '프리셋 관리 열기', value: 'manage' },
+        ],
+        callback: (value?: string) => {
+          if (value === 'clear') appState.clearAppliedCharacterPreset();
+          else if (value === 'manage') setShowCharacterPresets(true);
+        },
+      });
+      return;
+    }
+    setShowCharacterPresets(true);
+  };
+
+  const projectToolbarNodes: Record<string, React.ReactNode> = {
+    'add-session': (
+      <button className="icon-button nback-sky mx-1" onClick={addSession}>
+        <FaPlus size={18} />
+      </button>
+    ),
+    'character-presets': (
+      <Tooltip
+        content={
+          appState.appliedCharacterPreset
+            ? `프리셋: ${appState.appliedCharacterPreset} (클릭하여 관리)`
+            : '캐릭터 프리셋 관리'
+        }
+      >
+        <button
+          className={`icon-button mx-1 ${appState.appliedCharacterPreset ? 'back-green' : 'nback-green'}`}
+          onClick={openCharacterPresets}
+        >
+          <FaUserAlt size={18} />
+        </button>
+      </Tooltip>
+    ),
+    'rename-session': (
+      <Tooltip content="프로젝트 이름 수정">
+        <button
+          className="icon-button nback-orange mx-1 flex items-center gap-1"
+          onClick={() => appState.projectRename()}
+        >
+          <FaPen size={14} />
+          <span className="hidden md:inline text-sm">이름</span>
+        </button>
+      </Tooltip>
+    ),
+    'project-browser': (
+      <Tooltip content="프로젝트 탐색 (카드 그리드 뷰)">
+        <button
+          className="icon-button nback-purple mx-1"
+          onClick={() => setShowProjectBrowser(true)}
+        >
+          <FaThLarge size={14} />
+        </button>
+      </Tooltip>
+    ),
+    'media-import': (
+      <Tooltip content="백업(.tar) 또는 이미지(.png) 불러오기">
+        <button className="icon-button nback-teal mx-1" onClick={() => appState.mediaImport()}>
+          <FaShare size={14} />
+        </button>
+      </Tooltip>
+    ),
+    'delete-session': (
+      <Tooltip content="프로젝트 영구 삭제 (로컬 + Drive)">
+        <button className="icon-button nback-red mx-1" onClick={deleteSession}>
+          <FaTrashAlt size={18} />
+        </button>
+      </Tooltip>
+    ),
+    'piece-editor': (
+      <Tooltip content="프롬프트조각 라이브러리">
+        <button
+          className="icon-button nback-green mx-1 flex items-center gap-1"
+          onClick={() => appState.openPieceEditor()}
+        >
+          <FaPuzzlePiece size={18} />
+          <span className="hidden md:inline text-sm">프롬프트조각</span>
+        </button>
+      </Tooltip>
+    ),
+  };
+  const projectArea = resolveToolbarView(
+    TOOLBAR_VIEW_MAIN,
+    appState.uiToolbar,
+    isMobile,
+  ).find(({ area }) => area === 'project');
+  const projectInline = (projectArea?.inline ?? []).filter((id) => projectToolbarNodes[id]);
+  const projectMenu = (projectArea?.menu ?? []).filter((id) => projectToolbarNodes[id]);
+  const projectButtonName = (id: string) =>
+    TOOLBAR_VIEW_MAIN.flatMap(({ registry }) => registry).find((button) => button.id === id)?.name ?? id;
 
   return (
     <div className="flex gap-2 items-center w-full flex-wrap">
@@ -169,82 +274,30 @@ const SessionSelect = observer(() => {
           />
         )}
       </div>
-      <button className={`icon-button nback-sky mx-1`} onClick={addSession}>
-        <FaPlus size={18} />
-      </button>
-      <Tooltip content={appState.appliedCharacterPreset ? `프리셋: ${appState.appliedCharacterPreset} (클릭하여 관리)` : '캐릭터 프리셋 관리'}>
-      <button
-        className={`icon-button mx-1 ${appState.appliedCharacterPreset ? 'back-green' : 'nback-green'}`}
-        onClick={() => {
-          if (!appState.curSession) {
-            appState.pushMessage('프로젝트를 먼저 선택해주세요');
-            return;
-          }
-          // 모바일 + 프리셋 적용 중: 해제/관리 선택 dialog. 데스크탑은 옆에 [×]
-          // clear chip이 보이므로 mobile-only. upstream SDStudio v4.8.2 patch port.
-          if (isMobile && appState.appliedCharacterPreset) {
-            appState.pushDialog({
-              type: 'select',
-              text: `"${appState.appliedCharacterPreset}" 프리셋이 적용 중입니다.`,
-              items: [
-                { text: '프리셋 해제', value: 'clear' },
-                { text: '프리셋 관리 열기', value: 'manage' },
-              ],
-              callback: (value?: string) => {
-                if (value === 'clear') {
-                  appState.clearAppliedCharacterPreset();
-                } else if (value === 'manage') {
-                  setShowCharacterPresets(true);
-                }
-              },
-            });
-            return;
-          }
-          setShowCharacterPresets(true);
-        }}
-      >
-        <FaUserAlt size={18} />
-      </button>
-      </Tooltip>
-      <Tooltip content="프로젝트 이름 수정">
-      <button
-        className={`icon-button nback-orange mx-1 flex items-center gap-1`}
-        onClick={() => appState.projectRename()}
-      >
-        <FaPen size={14} />
-        <span className="hidden md:inline text-sm">이름</span>
-      </button>
-      </Tooltip>
-      <Tooltip content="프로젝트 탐색 (카드 그리드 뷰)">
-      <button
-        className={`icon-button nback-purple mx-1`}
-        onClick={() => setShowProjectBrowser(true)}
-      >
-        <FaThLarge size={14} />
-      </button>
-      </Tooltip>
-      <Tooltip content="백업(.tar) 또는 이미지(.png) 불러오기">
-      <button
-        className={`icon-button nback-teal mx-1`}
-        onClick={() => appState.mediaImport()}
-      >
-        <FaShare size={14} />
-      </button>
-      </Tooltip>
-      <Tooltip content="프로젝트 영구 삭제 (로컬 + Drive)">
-      <button className={`icon-button nback-red mx-1`} onClick={deleteSession}>
-        <FaTrashAlt size={18} />{' '}
-      </button>
-      </Tooltip>
-      <Tooltip content="프롬프트조각 라이브러리">
-      <button
-        className={`icon-button nback-green mx-1 flex items-center gap-1`}
-        onClick={() => appState.openPieceEditor()}
-      >
-        <FaPuzzlePiece size={18} />
-        <span className="hidden md:inline text-sm">프롬프트조각</span>
-      </button>
-      </Tooltip>
+      {projectInline.map((id) => <span key={id}>{projectToolbarNodes[id]}</span>)}
+      {projectMenu.length > 0 && (
+        <div className="relative">
+          <Tooltip content="프로젝트 도구 더보기">
+            <button
+              className={`icon-button mx-1 ${showProjectMenu ? 'back-sky' : ''}`}
+              onClick={() => setShowProjectMenu((open) => !open)}
+            >
+              <FaEllipsisH size={18} />
+            </button>
+          </Tooltip>
+          <ToolbarOverflowMenu
+            isOpen={showProjectMenu}
+            onClose={() => setShowProjectMenu(false)}
+            title="프로젝트 도구 더보기"
+            dropUp
+            items={projectMenu.map((id) => ({
+              id,
+              name: projectButtonName(id),
+              node: projectToolbarNodes[id],
+            }))}
+          />
+        </div>
+      )}
       {showProjectBrowser && (
         <ProjectBrowser onClose={() => setShowProjectBrowser(false)} />
       )}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { FloatView } from './FloatView';
 import SceneEditor from './SceneEditor';
-import { FaBookmark, FaBroom, FaChevronDown, FaChevronLeft, FaChevronRight, FaChevronUp, FaEdit, FaExchangeAlt, FaFileImage, FaPen, FaPlus, FaRegCalendarTimes, FaSearch, FaSort, FaStar, FaTimes, FaTrash, FaTrashRestore } from 'react-icons/fa';
+import { FaBookmark, FaBroom, FaChevronDown, FaChevronLeft, FaChevronRight, FaChevronUp, FaEdit, FaEllipsisH, FaExchangeAlt, FaFileImage, FaPen, FaPlus, FaRegCalendarTimes, FaSearch, FaSort, FaStar, FaTimes, FaTrash, FaTrashRestore } from 'react-icons/fa';
 import ResultViewer from './ResultViewer';
 import InPaintEditor from './InPaintEditor';
 import { useDrag, useDrop } from 'react-dnd';
@@ -43,6 +43,8 @@ import { observer } from 'mobx-react-lite';
 import { createInpaintPreset, prepareMirrorCanvas } from '../models/workflows/SDWorkFlow';
 import { reaction } from 'mobx';
 import { oneTimeFlowMap, oneTimeFlows } from '../models/workflows/OneTimeFlows';
+import { TOOLBAR_VIEW_MAIN, resolveToolbarView } from '../models/uiLayout';
+import ToolbarOverflowMenu from './ToolbarOverflowMenu';
 
 const createMissingPiecesForSession = (
   session: Session,
@@ -795,6 +797,7 @@ const QueueControl = observer(
     const gridContainerRef = useRef<HTMLDivElement>(null);
     const [sceneSearchQuery, setSceneSearchQuery] = useState('');
     const [showSceneSearch, setShowSceneSearch] = useState(false);
+    const [showToolbarMenu, setShowToolbarMenu] = useState(false);
     const sceneSearchRef = useRef<HTMLInputElement>(null);
 
     // activeIndex번째 매칭(.syntax-search-hit)에 active 클래스 + 그 위치로 스크롤.
@@ -1700,6 +1703,151 @@ const QueueControl = observer(
       curSession!.moveScene(draggingScene, targetIndex);
     };
 
+    const sceneToolbarNodes: Record<string, React.ReactNode> = {
+      'add-scene': (
+        <button className="round-button back-sky" onClick={addScene}>씬 추가</button>
+      ),
+      'queue-add': (
+        <button className="round-button back-sky" onClick={addAllToQueue}>모두 예약추가</button>
+      ),
+      'cancel-project-queue': (
+        <button
+          className="round-button"
+          style={{ background: '#ef4444', color: '#fff' }}
+          onClick={() => {
+            appState.pushDialog({
+              type: 'confirm',
+              text: '이 프로젝트의 모든 예약(대기 + 준비 중)을 취소할까요?',
+              callback: () => taskQueueService.removeTasksFromProject(curSession),
+            });
+          }}
+        >
+          모든 예약 취소
+        </button>
+      ),
+      'export-images': (
+        <button className="round-button back-gray" onClick={() => appState.exportPackage(type)}>
+          {isMobile ? '' : '이미지 '}내보내기
+        </button>
+      ),
+      'batch-process': (
+        <button
+          className="round-button back-gray"
+          onClick={() => appState.openBatchProcessMenu(type, setBatchPicker)}
+        >
+          대량 작업
+        </button>
+      ),
+      'change-resolution': (
+        <button
+          className="round-button back-gray"
+          onClick={() => appState.openChangeResolutionMenu(type, setBatchPicker)}
+        >
+          {isMobile ? '해상도' : '해상도 변경'}
+        </button>
+      ),
+      'import-image': (
+        <Tooltip content="이미지 프롬프트 추출">
+          <button
+            className="round-button back-gray"
+            onClick={() => {
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.accept = 'image/png';
+              input.onchange = (event: any) => {
+                const file = event.target.files?.[0];
+                if (file) appState.handleFile(file);
+              };
+              input.click();
+            }}
+          >
+            <FaFileImage size={18} />
+          </button>
+        </Tooltip>
+      ),
+      'scene-search': (
+        <Tooltip content="씬 검색">
+          <button
+            className={`round-button ${showSceneSearch ? 'back-sky' : 'back-gray'}`}
+            onClick={toggleSceneSearch}
+          >
+            <FaSearch size={18} />
+          </button>
+        </Tooltip>
+      ),
+      'bookmark-jump': (
+        <Tooltip content="북마크된 씬으로 이동">
+          <button
+            className={`round-button ${sceneBookmark ? 'back-orange' : 'back-gray'}`}
+            onClick={() => {
+              if (!sceneBookmark) {
+                appState.pushMessage('북마크된 씬이 없습니다.');
+                return;
+              }
+              if (sceneBookmark.type !== type) {
+                appState.pushMessage(
+                  '북마크된 씬은 ' +
+                    (sceneBookmark.type === 'scene' ? '일반' : '인페인트') +
+                    ' 탭에 있습니다.',
+                );
+                return;
+              }
+              const element = document.getElementById(
+                `scene-cell-${type}-${sceneBookmark.name}`,
+              );
+              if (element) element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              else appState.pushMessage('북마크된 씬을 찾을 수 없습니다.');
+            }}
+          >
+            <FaBookmark size={18} />
+          </button>
+        </Tooltip>
+      ),
+      'scene-trash': (
+        <Tooltip content="씬 휴지통">
+          <button className="round-button back-gray" onClick={() => setShowSceneTrash(true)}>
+            <FaTrash size={18} />
+          </button>
+        </Tooltip>
+      ),
+      'reorder-scenes': (
+        <Tooltip content="씬 순서 변경">
+          <button
+            className={`round-button ${reorderMode ? 'back-sky' : 'back-gray'}`}
+            onClick={() => setReorderMode((value) => !value)}
+          >
+            <FaSort size={18} />
+          </button>
+        </Tooltip>
+      ),
+      'empty-image-trash': (
+        <Tooltip content="모든 씬 내 삭제한 이미지 일괄 비우기">
+          <button
+            className="round-button back-gray"
+            onClick={() => appState.emptyProjectImageTrashWithConfirm()}
+          >
+            <FaBroom size={18} />
+          </button>
+        </Tooltip>
+      ),
+      'find-replace': (
+        <Tooltip content="찾기 및 변환 (Ctrl+H)">
+          <button className="round-button back-gray" onClick={() => appState.openFindReplace()}>
+            <FaExchangeAlt size={18} />
+          </button>
+        </Tooltip>
+      ),
+    };
+    const sceneArea = resolveToolbarView(
+      TOOLBAR_VIEW_MAIN,
+      appState.uiToolbar,
+      isMobile,
+    ).find(({ area }) => area === 'scene');
+    const sceneInline = (sceneArea?.inline ?? []).filter((id) => sceneToolbarNodes[id]);
+    const sceneMenu = (sceneArea?.menu ?? []).filter((id) => sceneToolbarNodes[id]);
+    const sceneButtonName = (id: string) =>
+      TOOLBAR_VIEW_MAIN.flatMap(({ registry }) => registry).find((button) => button.id === id)?.name ?? id;
+
     return (
       <div className={'flex flex-col h-full ' + (className ?? '')}>
         {batchPicker && (
@@ -1736,132 +1884,29 @@ const QueueControl = observer(
         {!!showPannel && (
           <div className="flex flex-none pb-1.5 flex-wrap">
             <div className="flex gap-1 md:gap-1.5 flex-wrap items-center">
-              <button className={`round-button back-sky`} onClick={addScene}>
-                씬 추가
-              </button>
-              <button
-                className={`round-button back-sky`}
-                onClick={addAllToQueue}
-              >
-                모두 예약추가
-              </button>
-              <button
-                className={`round-button`}
-                style={{ background: '#ef4444', color: '#fff' }}
-                onClick={() => {
-                  appState.pushDialog({
-                    type: 'confirm',
-                    text: '이 프로젝트의 모든 예약(대기 + 준비 중)을 취소할까요?',
-                    callback: () => taskQueueService.removeTasksFromProject(curSession),
-                  });
-                }}
-              >
-                모든 예약 취소
-              </button>
-              <button
-                className={`round-button back-gray`}
-                onClick={() => appState.exportPackage(type)}
-              >
-                {isMobile ? '' : '이미지 '}내보내기
-              </button>
-              <button
-                className={`round-button back-gray`}
-                onClick={() => {
-                  appState.openBatchProcessMenu(type, setBatchPicker);
-                }}
-              >
-                대량 작업
-              </button>
-              <button
-                className={`round-button back-gray`}
-                onClick={() => {
-                  appState.openChangeResolutionMenu(type, setBatchPicker);
-                }}
-              >
-                {isMobile ? '해상도' : '해상도 변경'}
-              </button>
-              <Tooltip content="이미지 프롬프트 추출">
-              <button
-                className={`round-button back-gray`}
-                onClick={() => {
-                  const input = document.createElement('input');
-                  input.type = 'file';
-                  input.accept = 'image/png';
-                  input.onchange = (e: any) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      appState.handleFile(file);
-                    }
-                  };
-                  input.click();
-                }}
-              >
-                <FaFileImage size={18} />
-              </button>
-              </Tooltip>
-              <Tooltip content="씬 검색">
-              <button
-                className={`round-button ${showSceneSearch ? 'back-sky' : 'back-gray'}`}
-                onClick={toggleSceneSearch}
-              >
-                <FaSearch size={18} />
-              </button>
-              </Tooltip>
-              <Tooltip content="북마크된 씬으로 이동">
-              <button
-                className={`round-button ${sceneBookmark ? 'back-orange' : 'back-gray'}`}
-                onClick={() => {
-                  if (!sceneBookmark) {
-                    appState.pushMessage('북마크된 씬이 없습니다.');
-                    return;
-                  }
-                  if (sceneBookmark.type !== type) {
-                    appState.pushMessage('북마크된 씬은 ' + (sceneBookmark.type === 'scene' ? '일반' : '인페인트') + ' 탭에 있습니다.');
-                    return;
-                  }
-                  const el = document.getElementById(`scene-cell-${type}-${sceneBookmark.name}`);
-                  if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  } else {
-                    appState.pushMessage('북마크된 씬을 찾을 수 없습니다.');
-                  }
-                }}
-              >
-                <FaBookmark size={18} />
-              </button>
-              </Tooltip>
-              <Tooltip content="씬 휴지통">
-              <button
-                className={`round-button back-gray`}
-                onClick={() => setShowSceneTrash(true)}
-              >
-                <FaTrash size={18} />
-              </button>
-              </Tooltip>
-              <Tooltip content="씬 순서 변경">
-              <button
-                className={`round-button ${reorderMode ? 'back-sky' : 'back-gray'}`}
-                onClick={() => setReorderMode((v) => !v)}
-              >
-                <FaSort size={18} />
-              </button>
-              </Tooltip>
-              <Tooltip content="모든 씬 내 삭제한 이미지 일괄 비우기">
-              <button
-                className={`round-button back-gray`}
-                onClick={() => appState.emptyProjectImageTrashWithConfirm()}
-              >
-                <FaBroom size={18} />
-              </button>
-              </Tooltip>
-              <Tooltip content="찾기 및 변환 (Ctrl+H)">
-              <button
-                className={`round-button back-gray`}
-                onClick={() => appState.openFindReplace()}
-              >
-                <FaExchangeAlt size={18} />
-              </button>
-              </Tooltip>
+              {sceneInline.map((id) => <span key={id}>{sceneToolbarNodes[id]}</span>)}
+              {sceneMenu.length > 0 && (
+                <div className="relative">
+                  <Tooltip content="더보기">
+                    <button
+                      className={`round-button ${showToolbarMenu ? 'back-sky' : 'back-gray'}`}
+                      onClick={() => setShowToolbarMenu((open) => !open)}
+                    >
+                      <FaEllipsisH size={18} />
+                    </button>
+                  </Tooltip>
+                  <ToolbarOverflowMenu
+                    isOpen={showToolbarMenu}
+                    onClose={() => setShowToolbarMenu(false)}
+                    title="씬 도구 더보기"
+                    items={sceneMenu.map((id) => ({
+                      id,
+                      name: sceneButtonName(id),
+                      node: sceneToolbarNodes[id],
+                    }))}
+                  />
+                </div>
+              )}
             </div>
             <div className="ml-auto mr-2 hidden md:flex items-center gap-2">
               {!appState.classicSceneCard && (

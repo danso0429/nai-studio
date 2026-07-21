@@ -77,6 +77,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - 처리: 현재 모바일 하단 탭·프로젝트 드로어·히스토리 핸들을 고정 호환 계약으로 둔다.
 - 상태: `IN_PROGRESS`.
 - `3433721`, `932651c`의 config schema v2·portable cross-area 배치 해석/이동을 순수 계층으로 `PORT`. 기존 레이아웃을 기본값으로 유지하고, 전역 중복 방지·stale/nonportable 거부·v1 dual-write·원본 불변을 자동 검증한다. 실제 툴바 소비처·편집 shell·DnD wiring은 후속이다.
+- config 로드·저장과 환경설정 편집 shell을 연결하고, 씬·프로젝트 툴바가 같은 v2 resolver를 실제 소비하도록 `PORT/ADAPT`. Remote 고유 버튼(프로젝트 이름 변경·백업/이미지 불러오기·프로젝트 예약 취소·씬 재정렬)도 안정 id로 레지스트리에 포함하며 기존 확인 대화상자와 콜백은 보존한다. 숨김/더보기는 실제 버튼 노드를 이동할 뿐 기능을 재구현하지 않는다. 순서 DnD·portable cross-area UI는 후속이다. 검증: frontend tsc 0 error, `test/ui-layout-v2.test.js`, `test/config-unsaved-badge.test.js`, `test/toolbar-consumers.test.js` pass.
 
 ### V5-E — WebP
 
