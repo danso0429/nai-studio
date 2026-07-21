@@ -27,6 +27,12 @@ export interface ResizeImageInput {
   optimize?: ImageOptimizeMethod;
 }
 
+export interface WebpConversionResult {
+  commentPreserved: boolean;
+  stealthFound: boolean;
+  stealthPreserved: boolean;
+}
+
 export interface FileStatEntry {
   name: string;
   size: number;
@@ -285,6 +291,11 @@ export abstract class Backend {
   abstract existFile(filename: string): Promise<boolean>;
   abstract download(url: string, dest: string, filename: string): Promise<void>;
   abstract resizeImage(input: ResizeImageInput): Promise<void>;
+  abstract convertToWebp(
+    inputPath: string,
+    outputPath: string,
+    quality: number,
+  ): Promise<WebpConversionResult>;
   abstract openImageEditor(inputPath: string): Promise<void>;
   abstract watchImage(inputPath: string): Promise<void>;
   abstract unwatchImage(inputPath: string): Promise<void>;

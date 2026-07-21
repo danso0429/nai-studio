@@ -50,6 +50,8 @@ interface SavedConfigDraft {
   useGPU: boolean;
   quality: string;
   refreshImage: boolean;
+  autoConvertWebp: boolean;
+  autoConvertWebpQuality: number;
   whiteMode: boolean;
   trueDark: boolean;
   uiTheme: UiThemeConfig;
@@ -198,6 +200,8 @@ const ImageEditTab = ({
 const StorageTab = ({
   saveLocation, selectFolder, clearImageCache,
   refreshImage, setRefreshImage, onClose,
+  autoConvertWebp, setAutoConvertWebp,
+  autoConvertWebpQuality, setAutoConvertWebpQuality,
 }: any) => {
   const [backupBusy, setBackupBusy] = useState(false);
   const [storageManageOpen, setStorageManageOpen] = useState(false);
@@ -376,6 +380,35 @@ const StorageTab = ({
         <input type="checkbox" id="cfgRefresh" checked={refreshImage}
           onChange={(e) => setRefreshImage(e.target.checked)} />
         <label htmlFor="cfgRefresh" className="text-sm gray-label">이미지 폴더 직접 편집 감지</label>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div className="space-y-2">
+        <label className="flex items-center gap-2 text-sm gray-label">
+          <input
+            type="checkbox"
+            checked={autoConvertWebp}
+            onChange={(event) => setAutoConvertWebp(event.target.checked)}
+          />
+          새 생성 이미지를 서버에서 WebP로 자동 변환
+        </label>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          변환 결과의 NAI 메타데이터를 검증한 뒤에만 PNG를 정리하며, 실패하면 PNG를 유지해요.
+        </p>
+        {autoConvertWebp && (
+          <label className="flex items-center gap-2 text-sm gray-label">
+            변환 품질
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={autoConvertWebpQuality}
+              onChange={(event) => setAutoConvertWebpQuality(
+                Math.max(1, Math.min(100, parseInt(event.target.value) || 1)),
+              )}
+              className="gray-input w-20 text-sm"
+            />
+          </label>
+        )}
       </div>
       <hr className="border-gray-200 dark:border-slate-600" />
       <div>
@@ -1442,6 +1475,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const [fullWordAc, setFullWordAc] = useState(appState.fullWordAutoComplete);
   const [useLocalBgRemoval, setUseLocalBgRemoval] = useState(false);
   const [refreshImage, setRefreshImage] = useState(false);
+  const [autoConvertWebp, setAutoConvertWebp] = useState(false);
+  const [autoConvertWebpQuality, setAutoConvertWebpQuality] = useState(80);
   const [ready, setReady] = useState(false);
   const [quality, setQuality] = useState('');
   const [progress, setProgress] = useState(0);
@@ -1471,6 +1506,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       setUseGPU(config.useCUDA ?? false);
       setQuality(config.removeBgQuality ?? 'normal');
       setRefreshImage(config.refreshImage ?? false);
+      setAutoConvertWebp(config.autoConvertWebp ?? false);
+      setAutoConvertWebpQuality(config.autoConvertWebpQuality ?? 80);
       setUseLocalBgRemoval(config.useLocalBgRemoval ?? false);
       setDelayTime(config.delayTime ?? 0);
       setClassicSceneCard(config.classicSceneCard ?? false);
@@ -1487,6 +1524,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
         useGPU: config.useCUDA ?? false,
         quality: config.removeBgQuality ?? 'normal',
         refreshImage: config.refreshImage ?? false,
+        autoConvertWebp: config.autoConvertWebp ?? false,
+        autoConvertWebpQuality: config.autoConvertWebpQuality ?? 80,
         whiteMode: config.whiteMode ?? false,
         trueDark: config.trueDark ?? false,
         uiTheme: config.uiTheme ?? {},
@@ -1629,6 +1668,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       modelType: 'quality',
       removeBgQuality: quality as RemoveBgQuality,
       refreshImage: refreshImage,
+      autoConvertWebp,
+      autoConvertWebpQuality,
       whiteMode: whiteMode,
       trueDark: trueDark,
       uiTheme,
@@ -1668,6 +1709,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       useGPU,
       quality,
       refreshImage,
+      autoConvertWebp,
+      autoConvertWebpQuality,
       whiteMode,
       trueDark,
       uiTheme,
@@ -1697,6 +1740,8 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     useGPU,
     quality,
     refreshImage,
+    autoConvertWebp,
+    autoConvertWebpQuality,
     whiteMode,
     trueDark,
     uiTheme,
@@ -1740,7 +1785,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       case 1:
         return <ImageEditTab {...{ imageEditor, setImageEditor, useLocalBgRemoval, setUseLocalBgRemoval, ready, stage, progress, stageTexts, useGPU, setUseGPU, quality, setQuality }} />;
       case 2:
-        return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage, onClose }} />;
+        return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage, autoConvertWebp, setAutoConvertWebp, autoConvertWebpQuality, setAutoConvertWebpQuality, onClose }} />;
       case 3:
         return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, uiTheme, setUiTheme, uiThemePresets, setUiThemePresets, uiToolbar, setUiToolbar, quickMenu, setQuickMenu, quickMenuButton, setQuickMenuButton, uiCompanionSlots, setUiCompanionSlots, uiLayoutTemplate, setUiLayoutTemplate, uiLayoutSlots, setUiLayoutSlots, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, historyThumbnailPercent, setHistoryThumbnailPercent, exportConcurrency, setExportConcurrency }} />;
       case 4:

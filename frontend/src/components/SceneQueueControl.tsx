@@ -1731,6 +1731,16 @@ const QueueControl = observer(
           {isMobile ? '해상도' : '해상도 변경'}
         </button>
       ),
+      'webp-convert': (
+        <Tooltip content="선택한 씬의 PNG를 NAI 메타데이터를 보존한 WebP로 변환">
+          <button
+            className="round-button back-gray"
+            onClick={() => appState.openConvertToWebpMenu(type, setBatchPicker)}
+          >
+            {isMobile ? 'WebP' : 'WebP 변환'}
+          </button>
+        </Tooltip>
+      ),
       'import-image': (
         <Tooltip content="이미지 프롬프트 추출">
           <button

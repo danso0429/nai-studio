@@ -354,9 +354,12 @@ export async function extractPromptDataFromBase64(
   // 1차: EXIF Comment에서 추출 시도
   try {
     const exif = await extractExifFromBase64(base64);
-    const comment = exif['Comment'];
+    const comment = exif['Comment'] ?? exif['ImageDescription'];
     if (comment && comment.value) {
-      const data = JSON.parse(comment.value as string);
+      const rawComment = Array.isArray(comment.value)
+        ? comment.value.join('')
+        : String(comment.value);
+      const data = JSON.parse(rawComment);
       const result = parseCommentToJob(data);
       if (result) return result;
     }

@@ -517,6 +517,18 @@ export abstract class ResourceSyncService<
     await Promise.all(names.map((name) => this.writeResource(name)));
   }
 
+  // 파일 수명주기 전환처럼 "이 resource의 새 참조가 디스크에 도달했다"는 ACK가
+  // 필요한 호출자를 위한 단일-resource flush. 성공 전에 원본 파일을 지우지 않게 한다.
+  async flushResource(name: string): Promise<void> {
+    const entry = this.entries.get(name);
+    if (!entry?.instance) throw new Error(`Resource is not loaded: ${name}`);
+    const sequence = entry.seq;
+    const result = await this.writeResource(name);
+    if (result !== 'done') throw new Error(`Resource is busy: ${name}`);
+    const current = this.entries.get(name);
+    if (current === entry && current.seq === sequence) current.dirty = false;
+  }
+
   async createFrom(name: string, value: any) {
     if (this.hasResource(name)) {
       throw new Error('Resource already exists');

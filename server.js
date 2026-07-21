@@ -173,10 +173,54 @@ function makeDebouncedSaver(syncFn, delayMs) {
 
 // ─── Sharp (optional) ───────────────────────────────────────────────
 let sharp;
+let imageCodec;
 try {
   sharp = require('sharp');
+  imageCodec = require('./lib/image-codec');
 } catch {
   console.warn('[NAI Studio] sharp not available, image resize disabled');
+}
+
+function normalizeImageQuality(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(1, Math.min(100, Math.round(parsed))) : fallback;
+}
+
+async function encodeImagePathAtomic(inputPath, outputPath, options) {
+  if (!sharp || !imageCodec) throw new Error('sharp not available');
+  const source = await fs.readFile(inputPath);
+  const encoded = await imageCodec.encodeImageBuffer(source, options);
+  if (options.preserveStealth && encoded.stealthFound && !encoded.stealthPreserved) {
+    throw new Error('stealth metadata does not fit the converted image');
+  }
+  await atomicWriteFile(outputPath, encoded.buffer);
+  return encoded;
+}
+
+async function maybeAutoConvertGeneratedImage(relativePath, config) {
+  if (!relativePath || !config.autoConvertWebp || !sharp || !imageCodec) return relativePath;
+  if (path.extname(relativePath).toLowerCase() !== '.png') return relativePath;
+  const inputPath = resolvePath(relativePath);
+  const outputRelative = relativePath.replace(/\.png$/i, '.webp');
+  const outputPath = resolvePath(outputRelative);
+  try {
+    await encodeImagePathAtomic(inputPath, outputPath, {
+      format: 'webp',
+      quality: normalizeImageQuality(config.autoConvertWebpQuality, 80),
+      carryMetadata: true,
+      preserveStealth: true,
+    });
+    try {
+      await fs.unlink(inputPath);
+    } catch (error) {
+      try { await fs.unlink(outputPath); } catch {}
+      throw error;
+    }
+    return outputRelative;
+  } catch (error) {
+    console.error('[WebP] automatic conversion failed; PNG kept:', error.message);
+    return relativePath;
+  }
 }
 
 // 서버측 캐릭터 레퍼런스 재인코딩 (클라 canvas reencode의 sharp 등가물).
@@ -1274,7 +1318,16 @@ async function processExportQueue() {
 }
 
 async function runExportJob(job) {
-  const { jobId, paths: items, outFilePath, optimize, imageSize, nestedByPrefix } = job;
+  const {
+    jobId,
+    paths: items,
+    outFilePath,
+    optimize,
+    imageSize,
+    nestedByPrefix,
+    quality,
+    preserveStealth,
+  } = job;
   console.log('[Export] start jobId=' + jobId + ' items=' + items.length + ' optimize=' + optimize + (nestedByPrefix ? ' nested' : ''));
 
   // Phase 1: resize (skip when optimize === 'none')
@@ -1293,11 +1346,15 @@ async function runExportJob(job) {
         const inputPath = resolvePath(item.srcPath);
         const outputPath = resolvePath('tmp/' + uuidv4() + ext);
         await fs.mkdir(path.dirname(outputPath), { recursive: true });
-        let pipeline = sharp(inputPath).resize(imageSize, imageSize, { fit: 'inside', withoutEnlargement: true });
-        if (optimize === 'lossy') pipeline = pipeline.webp({ quality: 80 });
-        else if (optimize === 'lossless') pipeline = pipeline.webp({ lossless: true });
-        else if (optimize === 'avif') pipeline = pipeline.avif({ quality: 65, effort: 2 });
-        await pipeline.toFile(outputPath);
+        await encodeImagePathAtomic(inputPath, outputPath, {
+          format: optimize === 'avif' ? 'avif' : 'webp',
+          quality: normalizeImageQuality(quality, optimize === 'avif' ? 65 : 80),
+          lossless: optimize === 'lossless',
+          effort: 2,
+          resize: { width: imageSize, height: imageSize },
+          carryMetadata: true,
+          preserveStealth: optimize !== 'avif' && preserveStealth === true,
+        });
         item.processedPath = outputPath;
       }));
       done += chunk.length;
@@ -1754,23 +1811,29 @@ async function processQueue() {
       const config = await loadConfig();
       const buffer = await nai.generateImage(job.params, config);
 
+      let finalOutputFilePath = job.params.outputFilePath;
       if (job.params.outputFilePath) {
         const outPath = resolvePath(job.params.outputFilePath);
         await fs.mkdir(path.dirname(outPath), { recursive: true });
         await fs.writeFile(outPath, buffer);
+        finalOutputFilePath = await maybeAutoConvertGeneratedImage(
+          job.params.outputFilePath,
+          config,
+        );
+        const finalOutPath = resolvePath(finalOutputFilePath);
         // audit M5: thumbnail 생성은 background 비동기로 — sharp resize 3 사이즈(200/400/500)
         // serial ~300ms 블록이 다음 job 시작을 지연시킴. fire-and-forget으로 다음 job
         // 즉시 진행. fastcache 누락은 클라 측 fetchImageSmall이 fallback resize 자동 처리.
-        prewarmThumbnails(outPath, job.params.outputFilePath, 'queue').catch(() => {});
+        prewarmThumbnails(finalOutPath, finalOutputFilePath, 'queue').catch(() => {});
       }
 
       broadcast('queue-job-complete', {
         jobId: job.jobId,
-        outputFilePath: job.params.outputFilePath,
+        outputFilePath: finalOutputFilePath,
         meta: job.meta || {},
       });
       broadcastQueueStatus();
-      broadcast('image-changed', job.params.outputFilePath);
+      broadcast('image-changed', finalOutputFilePath);
       const durationMs = Date.now() - jobStartedAt;
       queueStats.totalProcessTimeMs += durationMs;
       queueStats.completedWithTiming++;
@@ -1781,7 +1844,7 @@ async function processQueue() {
       // 완료 jobs (queue.html 완료 탭용). 4시간 retention.
       const completedEntry = {
         jobId: job.jobId,
-        outputFilePath: job.params.outputFilePath,
+        outputFilePath: finalOutputFilePath,
         meta: job.meta || {},
         completedAt: Date.now(),
         durationMs,
@@ -2990,17 +3053,20 @@ app.post('/api/generate', async (req, res) => {
     console.log(`[NAI Studio] Generate success: ${params.outputFilePath || 'no output path'}`);
 
     // Write the output file
+    let finalOutputFilePath = params.outputFilePath;
     if (params.outputFilePath) {
       const outPath = resolvePath(params.outputFilePath);
       await fs.mkdir(path.dirname(outPath), { recursive: true });
       await fs.writeFile(outPath, buffer);
+      finalOutputFilePath = await maybeAutoConvertGeneratedImage(params.outputFilePath, config);
+      const finalOutPath = resolvePath(finalOutputFilePath);
       // audit M5 — direct generate path도 fire-and-forget. 응답 빨리 반환, thumbnail
       // background에서 생성.
-      prewarmThumbnails(outPath, params.outputFilePath, 'direct').catch(() => {});
+      prewarmThumbnails(finalOutPath, finalOutputFilePath, 'direct').catch(() => {});
     }
 
-    broadcast('image-changed', params.outputFilePath);
-    res.json({ ok: true });
+    broadcast('image-changed', finalOutputFilePath);
+    res.json({ ok: true, outputFilePath: finalOutputFilePath });
   } catch (e) {
     console.error(`[NAI Studio] Generate error:`, e.message);
     res.status(500).json({ error: e.message });
@@ -4971,7 +5037,15 @@ app.post('/api/drive/retry-one', async (req, res) => {
 // body: { paths: [{ srcPath, finalName }], outFilePath, optimize: 'none'|'lossy'|'lossless'|'avif', imageSize }
 // 큐에 적재 + 즉시 처리 트리거, 202 + jobId 반환. WS 이벤트로 진행/완료 알림.
 app.post('/api/export/scene-pack', async (req, res) => {
-  const { paths: items, outFilePath, optimize, imageSize, nestedByPrefix } = req.body || {};
+  const {
+    paths: items,
+    outFilePath,
+    optimize,
+    imageSize,
+    nestedByPrefix,
+    quality,
+    preserveStealth,
+  } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ ok: false, error: 'paths required' });
   }
@@ -5007,6 +5081,8 @@ app.post('/api/export/scene-pack', async (req, res) => {
     optimize: optimize || 'none',
     imageSize: imageSize || 0,
     nestedByPrefix: !!nestedByPrefix,
+    quality: normalizeImageQuality(quality, optimize === 'avif' ? 65 : 80),
+    preserveStealth: preserveStealth === true,
   });
   setImmediate(() => processExportQueue());
   res.status(202).json({ ok: true, jobId, queued: true });
@@ -5190,6 +5266,48 @@ app.post('/api/image/resize', async (req, res) => {
     await pipeline.toFile(output);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PNG → WebP 파생본 생성. 원본 삭제와 project.json 참조 변경은 클라이언트가
+// 참조 저장 ACK 뒤 수행하므로 이 endpoint는 원본을 절대 건드리지 않는다.
+app.post('/api/image/convert-webp', async (req, res) => {
+  try {
+    if (!sharp || !imageCodec) return res.status(501).json({ error: 'sharp not available' });
+    const { inputPath, outputPath, quality } = req.body || {};
+    if (typeof inputPath !== 'string' || typeof outputPath !== 'string') {
+      return res.status(400).json({ error: 'inputPath and outputPath required' });
+    }
+    if (!/\.png$/i.test(inputPath) || !/\.webp$/i.test(outputPath)) {
+      return res.status(400).json({ error: 'PNG input and WebP output required' });
+    }
+    const input = resolvePath(inputPath);
+    const output = resolvePath(outputPath);
+    if (path.dirname(input) !== path.dirname(output)) {
+      return res.status(400).json({ error: 'output must be beside input' });
+    }
+    try {
+      await fs.access(output);
+      return res.status(409).json({ error: 'WebP output already exists' });
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    const result = await encodeImagePathAtomic(input, output, {
+      format: 'webp',
+      quality: normalizeImageQuality(quality, 80),
+      carryMetadata: true,
+      preserveStealth: true,
+    });
+    broadcast('image-changed', outputPath);
+    res.json({
+      ok: true,
+      commentPreserved: result.commentPreserved,
+      stealthFound: result.stealthFound,
+      stealthPreserved: result.stealthPreserved,
+    });
+  } catch (error) {
+    console.error('convert-webp error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.post('/api/image/remove-bg', async (req, res) => {

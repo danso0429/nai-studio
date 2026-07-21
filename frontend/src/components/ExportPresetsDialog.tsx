@@ -13,6 +13,8 @@ const DEFAULT_PRESET = (): ExportPreset => ({
   prefixName: '',
   optimize: 'lossy',
   imageSize: 1024,
+  quality: 80,
+  preserveStealth: false,
   separator: '.',
   charsToReplace: [],
 });
@@ -149,6 +151,10 @@ const PresetRow = ({ preset, onApply, onEdit, onDelete }: PresetRowProps) => {
       : '씬.번호',
   );
   summary.push(optimizeLabel[preset.optimize]);
+  if (preset.optimize === 'lossy' || preset.optimize === 'avif') {
+    summary.push(`품질 ${preset.quality ?? (preset.optimize === 'avif' ? 65 : 80)}`);
+  }
+  if (preset.preserveStealth && preset.optimize !== 'avif') summary.push('NAI 메타 보존');
   if (preset.optimize !== 'original' && preset.imageSize) summary.push(`${preset.imageSize}px`);
   if (preset.separator && preset.separator !== '.') summary.push(`구분자 "${preset.separator}"`);
   if (preset.charsToReplace.length > 0) summary.push(`변환 ${preset.charsToReplace.length}자`);
@@ -277,6 +283,41 @@ export const PresetForm = ({ preset, onChange, onSave, onCancel, hideName, saveL
             }}
           />
         </div>
+      )}
+
+      {(preset.optimize === 'lossy' || preset.optimize === 'avif') && (
+        <div>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+            압축 품질 (1~100)
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={100}
+            className="w-full p-1.5 border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-sm"
+            value={preset.quality ?? (preset.optimize === 'avif' ? 65 : 80)}
+            onChange={(event) => onChange({
+              ...preset,
+              quality: Math.max(1, Math.min(100, parseInt(event.target.value) || 1)),
+            })}
+          />
+        </div>
+      )}
+
+      {(preset.optimize === 'lossy' || preset.optimize === 'lossless') && (
+        <label className="flex items-start gap-2 text-sm gray-label">
+          <input
+            type="checkbox"
+            checked={preset.preserveStealth === true}
+            onChange={(event) => onChange({ ...preset, preserveStealth: event.target.checked })}
+          />
+          <span>
+            NAI 스텔스 메타데이터 보존
+            <span className="block text-xs text-gray-500 dark:text-gray-400">
+              알파 채널의 생성 정보를 WebP로 이송하고 결과를 검증해요.
+            </span>
+          </span>
+        </label>
       )}
 
       <div>

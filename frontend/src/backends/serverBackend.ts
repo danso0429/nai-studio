@@ -413,6 +413,8 @@ export class ServerBackend extends Backend {
     optimize: 'none' | 'lossy' | 'lossless' | 'avif';
     imageSize: number;
     nestedByPrefix?: boolean;
+    quality?: number;
+    preserveStealth?: boolean;
   }): Promise<{ jobId: string; queued: boolean }> {
     const data = await apiJSON('/export/scene-pack', {
       method: 'POST',
@@ -656,6 +658,14 @@ export class ServerBackend extends Backend {
 
   async resizeImage(input: ResizeImageInput): Promise<void> {
     await api('/image/resize', { method: 'POST', body: JSON.stringify(input) });
+  }
+
+  async convertToWebp(inputPath: string, outputPath: string, quality: number) {
+    return apiJSON('/image/convert-webp', {
+      method: 'POST',
+      body: JSON.stringify({ inputPath, outputPath, quality }),
+      timeout: BINARY_API_TIMEOUT_MS,
+    });
   }
 
   async openImageEditor(_inputPath: string): Promise<void> {}

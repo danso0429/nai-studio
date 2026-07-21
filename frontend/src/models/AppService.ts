@@ -6,6 +6,7 @@ import {
   imageService,
   isMobile,
   localAIService,
+  projectSizeService,
   samplingPresetService,
   sessionService,
   taskQueueService,
@@ -61,6 +62,7 @@ import {
 } from './workflows/OneTimeFlows';
 import type { GenWidgetConfig, UiLayoutSlots, UiToolbarConfig } from '../main/config';
 import { DEFAULT_QUICK_MENU } from './quickMenu';
+import { runPool } from './concurrency';
 
 export interface BatchPickerItem {
   type: 'scene' | 'inpaint';
@@ -79,6 +81,8 @@ export interface ExportPreset {
   prefixName: string; // prefix 형식일 때 캐릭터 이름. normal/prefix_ask면 빈 string.
   optimize: 'original' | 'lossy' | 'lossless' | 'avif';
   imageSize: number; // optimize !== 'original'일 때만 사용
+  quality?: number; // lossy/avif 압축 품질. 구형 프리셋은 서버 기본값 사용.
+  preserveStealth?: boolean; // WebP 내보내기에서 NAI alpha stealth 보존.
   separator: string; // 파일명 구분자 (기본 '.')
   charsToReplace: string[]; // 변환할 특수문자 list
 }
@@ -392,6 +396,8 @@ export class AppState {
         prefixName: '',
         optimize: 'lossy',
         imageSize: 1024,
+        quality: 80,
+        preserveStealth: false,
         separator: '.',
         charsToReplace: [],
         ...defaults,
@@ -2320,6 +2326,8 @@ export class AppState {
       imageSize: number,
       separator: string,
       charsToReplace: Set<string>,
+      quality?: number,
+      preserveStealth?: boolean,
     ) => {
       const items = await this.gatherExportItems(
         sess,
@@ -2345,6 +2353,9 @@ export class AppState {
         outFilePath,
         optimize,
         opt === 'original' ? 0 : imageSize,
+        false,
+        quality,
+        preserveStealth,
       );
     };
     // 프리셋이 주어지면 다이얼로그 chain skip — 옵션 직접 사용해 즉시 실행.
@@ -2362,6 +2373,8 @@ export class AppState {
         preset.imageSize,
         preset.separator || '.',
         new Set(preset.charsToReplace || []),
+        preset.quality,
+        preset.preserveStealth,
       );
       return;
     }
@@ -2413,6 +2426,8 @@ export class AppState {
       opts.imageSize,
       opts.separator || '.',
       new Set(opts.charsToReplace || []),
+      opts.quality,
+      opts.preserveStealth,
     );
   }
 
@@ -2499,6 +2514,8 @@ export class AppState {
     optimize: 'none' | 'lossy' | 'lossless' | 'avif',
     imageSize: number,
     nestedByPrefix: boolean = false,
+    quality?: number,
+    preserveStealth?: boolean,
   ): Promise<string | null> {
     const pid = appState.pushProgressDialog('이미지 내보내기 큐 등록 중...', 1);
     let jobId: string | null = null;
@@ -2509,6 +2526,8 @@ export class AppState {
         optimize,
         imageSize,
         nestedByPrefix,
+        quality,
+        preserveStealth,
       });
       jobId = result.queued ? result.jobId : null;
     } catch (e: any) {
@@ -2842,6 +2861,8 @@ export class AppState {
       optimize,
       opt === 'original' ? 0 : imageSize,
       true,
+      preset.quality,
+      preset.preserveStealth,
     );
 
     if (failures.length > 0) {
@@ -2931,6 +2952,9 @@ export class AppState {
       outFilePath,
       optimize,
       opt === 'original' ? 0 : imageSize,
+      false,
+      preset.quality,
+      preset.preserveStealth,
     );
   }
 
@@ -4049,6 +4073,189 @@ export class AppState {
         });
       },
     });
+  }
+
+  openConvertToWebpMenu(
+    type: 'scene' | 'inpaint',
+    setBatchPicker: (item: BatchPickerItem | undefined) => void,
+  ) {
+    setBatchPicker({
+      type,
+      text: '🗜️ WebP로 변환할 씬 선택',
+      callback: async (selected) => {
+        setBatchPicker(undefined);
+        if (selected.length === 0 || !this.curSession) return;
+        const qualityInput = await this.pushDialogAsync({
+          type: 'input-confirm',
+          text: 'WebP 품질을 입력해 주세요 (1~100, 기본 80)',
+        });
+        if (qualityInput === undefined) return;
+        const parsed = Number.parseInt(qualityInput, 10);
+        const quality = Number.isFinite(parsed) && parsed >= 1 && parsed <= 100
+          ? parsed
+          : 80;
+        const session = this.curSession;
+        this.pushDialog({
+          type: 'confirm',
+          text:
+            `선택한 ${selected.length}개 씬의 PNG를 WebP(품질 ${quality})로 변환할까요?\n` +
+            'WebP 생성과 프로젝트 참조 저장이 모두 확인된 파일만 원본 PNG를 영구 삭제합니다. ' +
+            '변환 중 취소하면 완료된 분량까지만 저장해요.',
+          callback: () => void this.runWebpConversion(session, selected, quality),
+        });
+      },
+    });
+  }
+
+  async openProjectWebpOptimize(name: string) {
+    const qualityInput = await this.pushDialogAsync({
+      type: 'input-confirm',
+      text: `"${name}" 프로젝트의 WebP 품질을 입력해 주세요 (1~100, 기본 80)`,
+    });
+    if (qualityInput === undefined) return;
+    const parsed = Number.parseInt(qualityInput, 10);
+    const quality = Number.isFinite(parsed) && parsed >= 1 && parsed <= 100
+      ? parsed
+      : 80;
+    this.pushDialog({
+      type: 'confirm',
+      text:
+        `"${name}"의 일반·인페인트 씬 PNG를 WebP(품질 ${quality})로 변환할까요?\n` +
+        '프로젝트 참조 저장이 확인된 원본만 영구 삭제합니다.',
+      callback: async () => {
+        const session = await sessionService.get(name, { throwOnError: true });
+        if (!session) {
+          this.pushMessage('프로젝트를 불러오지 못했습니다.');
+          return;
+        }
+        await this.runWebpConversion(
+          session,
+          [...session.scenes.values(), ...session.inpaints.values()],
+          quality,
+        );
+      },
+    });
+  }
+
+  private async runWebpConversion(
+    session: Session,
+    selected: GenericScene[],
+    quality: number,
+  ) {
+    await imageService.refreshBatch(session);
+    await Promise.allSettled(selected.map((scene) => gameService.refreshList(session, scene)));
+    const tasks: Array<{
+      scene: GenericScene;
+      directory: string;
+      png: string;
+      webp: string;
+    }> = [];
+    for (const scene of selected) {
+      const directory = imageService.getOutputDir(session, scene);
+      for (const png of gameService.getOutputs(session, scene)) {
+        if (!/\.png$/i.test(png)) continue;
+        tasks.push({
+          scene,
+          directory,
+          png,
+          webp: png.replace(/\.png$/i, '.webp'),
+        });
+      }
+    }
+    if (tasks.length === 0) {
+      this.pushMessage('변환할 PNG 이미지가 없습니다.');
+      return;
+    }
+
+    let cancelled = false;
+    let done = 0;
+    let failed = 0;
+    let skipped = 0;
+    const progressId = this.pushProgressDialog('WebP 변환 중...', tasks.length, () => {
+      cancelled = true;
+      this.updateProgressDialog(progressId, {
+        text: 'WebP 변환 취소 중... 완료분 저장 중',
+        onCancel: undefined,
+      });
+    });
+    const renames = new Map<GenericScene, Map<string, string>>();
+    const created: Array<{ pngPath: string; webpPath: string }> = [];
+    for (const scene of selected) renames.set(scene, new Map());
+    const config = await backend.getConfig();
+    const concurrency = Math.max(1, Math.min(4, config.exportConcurrency ?? 1));
+
+    await runPool(tasks, concurrency, async (task) => {
+      if (cancelled) {
+        skipped++;
+        done++;
+        this.updateProgressDialog(progressId, { done });
+        return;
+      }
+      const pngPath = `${task.directory}/${task.png}`;
+      const webpPath = `${task.directory}/${task.webp}`;
+      try {
+        await backend.convertToWebp(pngPath, webpPath, quality);
+        renames.get(task.scene)!.set(task.png, task.webp);
+        created.push({ pngPath, webpPath });
+      } catch (error) {
+        failed++;
+        console.error('WebP 변환 실패:', pngPath, error);
+      } finally {
+        done++;
+        this.updateProgressDialog(progressId, { done });
+      }
+    });
+
+    const replaceReferences = (maps: Map<GenericScene, Map<string, string>>) => {
+      for (const scene of selected) {
+        const map = maps.get(scene)!;
+        if (map.size === 0) continue;
+        scene.imageMap = scene.imageMap.map((value) => map.get(value) ?? value);
+        scene.mains = scene.mains.map((value) => map.get(value) ?? value);
+        if (scene.game) {
+          for (const player of scene.game) player.path = map.get(player.path) ?? player.path;
+        }
+      }
+    };
+    replaceReferences(renames);
+    sessionService.markDirty(session.name);
+    try {
+      await sessionService.flushResource(session.name);
+    } catch (error) {
+      // 서버 write가 적용된 뒤 응답만 유실됐을 수도 있다. 이때 메모리를 옛 참조로
+      // 되돌리거나 WebP를 지우면 어느 한 상태에서 파일이 사라진다. 양쪽 파일과 새
+      // 참조를 유지하고 dirty 재시도에 맡기면 old/new 디스크 어느 쪽도 유효하다.
+      sessionService.markDirty(session.name);
+      this.finishProgressDialog(
+        progressId,
+        '프로젝트 참조 저장 응답 불명 — PNG와 WebP를 모두 유지하고 저장을 재시도합니다.',
+        false,
+      );
+      return;
+    }
+
+    let deleteFailed = 0;
+    await runPool(created, concurrency, async ({ pngPath }) => {
+      try {
+        await backend.deleteFile(pngPath);
+        await imageService.invalidateCache(pngPath);
+      } catch (error) {
+        deleteFailed++;
+        console.warn('변환 완료 PNG 정리 실패(중복 파일 유지):', pngPath, error);
+      }
+    });
+    await imageService.refreshBatch(session);
+    await Promise.allSettled(selected.map((scene) => gameService.refreshList(session, scene)));
+    void projectSizeService.calculate(session.name);
+    const succeeded = created.length;
+    const summary = cancelled
+      ? `WebP 변환 취소: ${succeeded}개 저장, ${skipped}개 중단`
+      : `WebP 변환 완료: ${succeeded}개 성공`;
+    this.finishProgressDialog(
+      progressId,
+      `${summary}${failed ? `, ${failed}개 실패(PNG 유지)` : ''}${deleteFailed ? `, ${deleteFailed}개 PNG 중복 유지` : ''}`,
+      failed === 0 && deleteFailed === 0,
+    );
   }
 
   @action

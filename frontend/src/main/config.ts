@@ -59,6 +59,8 @@ export interface Config {
   samplingPresetId?: string;
   trueDark?: boolean;
   exportConcurrency?: number;
+  autoConvertWebp?: boolean;
+  autoConvertWebpQuality?: number;
   uiTheme?: UiThemeConfig;
   uiThemePresets?: UiThemePreset[];
   uiToolbar?: UiToolbarConfig;

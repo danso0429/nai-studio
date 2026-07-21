@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import ModalOverlay from './ModalOverlay';
 import { projectSizeService, sessionService } from '../models';
+import { appState } from '../models/AppService';
 
 // 고용량 하이라이트 기준 (3GB)
 const HIGHLIGHT_BYTES = 3 * 1024 * 1024 * 1024;
@@ -102,6 +103,7 @@ const StorageManageModal = observer(
               프로젝트별 차지 용량(이미지 포함)을 계산합니다. 부하를 피하기 위해
               자동으로 계산하지 않으며, 계산 결과는 저장되어 다음에도 표시됩니다.
               3GB 이상 프로젝트는 붉게 강조됩니다.
+              {' '}[최적화]는 PNG를 NAI 메타데이터 보존 WebP로 변환해요.
             </div>
           </div>
 
@@ -167,6 +169,13 @@ const StorageManageModal = observer(
                     onClick={() => projectSizeService.calculate(n)}
                   >
                     {busy ? '...' : e ? '↻' : '계산'}
+                  </button>
+                  <button
+                    className="text-xs back-green px-2 py-1 rounded flex-none hover:brightness-95 active:brightness-90 disabled:opacity-50"
+                    disabled={busy || !!bulk}
+                    onClick={() => appState.openProjectWebpOptimize(n)}
+                  >
+                    최적화
                   </button>
                   <button
                     className="text-xs back-sky px-2 py-1 rounded flex-none hover:brightness-95 active:brightness-90"

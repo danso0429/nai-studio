@@ -94,7 +94,10 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 
 - 범위: 동시성 helper, 자동/수동 변환, 취소, NAI 스텔스 메타데이터 보존.
 - 처리: `@jsquash/webp` 브라우저 WASM 대신 서버 ARM `sharp` 후보와 upstream stealth codec를 비교한다. PNG 원본은 metadata round-trip·참조 원자 갱신이 검증되기 전 삭제하지 않는다.
-- 상태: `PENDING`.
+- 상태: `COMPLETE`.
+- `2503f60`, `1eafeeb`의 공유 pool·코어 적응은 `ADAPT/ALREADY`. 클라이언트 수동 변환은 검증된 `runPool`과 사용자 `exportConcurrency`의 서버 안전 상한 4를 사용하고, 기존 서버 export worker는 ARM `sharp.concurrency()=1` 실측 환경에서 job 10·이미지 chunk 4 계약을 유지한다. Electron UV threadpool과 브라우저 WASM은 서버 단일 codec 구조에 중복이라 `N/A`다.
+- `5d1356d`, `53dd622`의 인코딩 handler·품질·NAI metadata·stealth를 `ADAPT`. 서버 codec이 PNG tEXt/zTXt/iTXt Comment를 WebP/AVIF EXIF로 옮기고, alpha 열 우선 stealth 비트스트림을 WebP alphaQuality 100에 재삽입한 뒤 exact bit round-trip을 검증한다. 내보내기 프리셋/일회 옵션은 lossy·AVIF 품질과 WebP stealth 보존을 서버 worker에 전달하며, 프론트 메타 가져오기는 WebP `ImageDescription` 배열도 읽는다. 검증: `test/image-codec.test.js`의 손실 WebP stealth exact 왕복·Comment EXIF 왕복·용량 부족 감지 4건 pass.
+- `f8a4b09`, `dfe5391`, `a343ffd`의 자동/수동 변환·프로젝트 최적화·취소를 `ADAPT`. 새 이미지 자동 변환은 서버 config opt-in이며 검증된 WebP 생성 뒤 PNG 삭제에 실패하면 WebP를 되돌리고 PNG를 유지한다. 수동 씬/프로젝트 변환은 모바일 포함 서버 codec을 사용하고, 생성한 WebP의 `imageMap`·`mains`·`game` 참조를 단일 project JSON에 flush ACK 받은 뒤에만 확인창에서 고지한 PNG 영구 삭제를 실행한다. 저장 응답이 불명확하면 양쪽 파일을 유지하고 dirty retry하며, 취소는 진행분만 같은 commit 경로로 닫는다. 저장공간 관리에서 프로젝트 전체 최적화와 크기 재계산을 제공한다. 검증: frontend tsc 0 error, server syntax check, `test/webp-integration.test.js`, `test/config-unsaved-badge.test.js`, `test/toolbar-consumers.test.js`, `test/ui-layout-v2.test.js` pass.
 
 ### V5-F — 멀티클라이언트 동기화
 
