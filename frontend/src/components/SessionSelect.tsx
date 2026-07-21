@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import SessionTreePicker from './SessionTreePicker';
-import { FaEllipsisH, FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaThLarge, FaFolder } from 'react-icons/fa';
+import { FaEllipsisH, FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaThLarge, FaFolder, FaLayerGroup } from 'react-icons/fa';
 import ProjectBrowser from './ProjectBrowser';
 import Tooltip from './Tooltip';
-import { sessionService, workFlowService, isMobile } from '../models';
+import { sessionService, templateService, workFlowService, isMobile } from '../models';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { CharacterPresetFloatEditor } from './CharacterPresetEditor';
@@ -19,6 +19,7 @@ import {
   ToolbarHideZone,
   ToolbarSlotDropTarget,
 } from './ToolbarDnd';
+import TemplateManagerModal from './TemplateManagerModal';
 
 const SessionSelect = observer(({
   variant = 'bar',
@@ -28,6 +29,7 @@ const SessionSelect = observer(({
   const [showCharacterPresets, setShowCharacterPresets] = useState(false);
   const [showProjectBrowser, setShowProjectBrowser] = useState(false);
   const [showProjectMenu, setShowProjectMenu] = useState(false);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
   const addSession = () => {
     (async () => {
       appState.pushDialog({
@@ -41,8 +43,13 @@ const SessionSelect = observer(({
               appState.pushMessage(formatProjectNameConflict(sessionService.getFolderOf(inputValue)));
               return;
             }
-            await sessionService.add(inputValue);
-            const newSession = (await sessionService.get(inputValue))!;
+            const templateId = await templateService.pickForCreate();
+            if (templateId === undefined) return;
+            const newSession = await templateService.createProject(
+              inputValue,
+              null,
+              templateId,
+            );
             appState.curSession = newSession;
           }
         },
@@ -108,6 +115,16 @@ const SessionSelect = observer(({
         >
           <FaPen size={14} />
           <span className={variant === 'sidebar' ? 'hidden' : 'hidden md:inline text-sm'}>이름</span>
+        </button>
+      </Tooltip>
+    ),
+    'scene-template': (
+      <Tooltip content="프로젝트·씬 템플릿 관리">
+        <button
+          className="icon-button nback-purple mx-1"
+          onClick={() => setShowTemplateManager(true)}
+        >
+          <FaLayerGroup size={16} />
         </button>
       </Tooltip>
     ),
@@ -383,6 +400,10 @@ const SessionSelect = observer(({
       {showProjectBrowser && (
         <ProjectBrowser onClose={() => setShowProjectBrowser(false)} />
       )}
+      <TemplateManagerModal
+        isOpen={showTemplateManager}
+        onClose={() => setShowTemplateManager(false)}
+      />
     </div>
   );
 });

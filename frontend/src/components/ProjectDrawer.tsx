@@ -19,13 +19,15 @@ import {
   FaUpload,
   FaArchive,
   FaSignInAlt,
+  FaLayerGroup,
 } from 'react-icons/fa';
-import { sessionService, imageService, isMobile } from '../models';
+import { sessionService, imageService, isMobile, projectTemplateService, templateService } from '../models';
 import { MAX_FOLDER_DEPTH } from '../models/ResourceSyncService';
 import { appState } from '../models/AppService';
 import Tooltip from './Tooltip';
 import MobileColorPicker from './MobileColorPicker';
 import ModalOverlayCountMarker from './ModalOverlayCountMarker';
+import TemplateManagerModal from './TemplateManagerModal';
 
 // 최근 프로젝트 기록 (localStorage — 업스트림 ProjectBrowser.pushRecentProject 대체).
 const pushRecentProject = (name: string) => {
@@ -200,6 +202,7 @@ const ProjectDrawer = observer(() => {
   const [colorPickerFor, setColorPickerFor] = useState<string | null>(null);
   const [editingFolder, setEditingFolder] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [folderTemplateEditId, setFolderTemplateEditId] = useState<string | null>(null);
   // 커스텀 컬러 피커 저장 디바운스 타이머 (훅 규칙: 조기 반환 이전에 선언)
   const customColorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 선택 모드(다중 선택 → 폴더 일괄 이동)
@@ -332,13 +335,16 @@ const ProjectDrawer = observer(() => {
     // 진행 중 sticky 토스트 + 완료 시 "생성됨"으로 확실한 피드백.
     const toastId = appState.pushMessage('프로젝트 만드는 중…', { sticky: true });
     try {
-      await sessionService.add(name);
-      if (folder) {
-        try {
-          await sessionService.moveToFolder(name, folder);
-        } catch (e) {}
+      const templateId = folder ? null : await templateService.pickForCreate();
+      if (templateId === undefined) {
+        appState.dismissMessage(toastId);
+        return;
       }
-      const session = await sessionService.get(name);
+      const session = await templateService.createProject(
+        name,
+        folder,
+        templateId,
+      );
       if (session) {
         imageService.refreshBatch(session);
         appState.curSession = session;
@@ -518,6 +524,52 @@ const ProjectDrawer = observer(() => {
   };
 
   // 모바일: 폴더마다 ⋮ 메뉴 (데스크톱은 인라인 버튼 유지)
+  const manageFolderTemplate = async (folder: string) => {
+    await Promise.all([
+      templateService.ensureLoaded(),
+      projectTemplateService.loaded ? Promise.resolve() : projectTemplateService.load(),
+    ]);
+    const direct = templateService.getFolderTemplate(folder);
+    const inherited = await templateService.resolveFolderTemplate(folder);
+    const items = [
+      ...(direct
+        ? [{ text: '현재 폴더 템플릿 편집', value: 'edit' }]
+        : []),
+      { text: '폴더 전용 템플릿 새로 만들기', value: 'new-local' },
+      ...(projectTemplateService.listGlobal().length
+        ? [{ text: '전역 템플릿을 기본값으로 지정', value: 'choose-global' }]
+        : []),
+      ...(direct ? [{ text: '이 폴더의 지정 해제', value: 'clear' }] : []),
+    ];
+    const choice = await appState.pushDialogAsync({
+      type: 'select',
+      text: inherited
+        ? `"${folder}" 기본 템플릿: ${projectTemplateService.get(inherited.templateId)?.name || '알 수 없음'}${inherited.folder !== folder ? ` (${inherited.folder}에서 상속)` : ''}`
+        : `"${folder}" 기본 템플릿`,
+      items,
+    });
+    if (!choice) return;
+    if (choice === 'edit' && direct) {
+      setFolderTemplateEditId(direct.templateId);
+    } else if (choice === 'new-local') {
+      const entry = projectTemplateService.create(`${leafOfFolder(folder)} 기본`, true);
+      templateService.setFolderTemplate(folder, entry.id);
+      setFolderTemplateEditId(entry.id);
+    } else if (choice === 'choose-global') {
+      const id = await appState.pushDialogAsync({
+        type: 'select',
+        text: '이 폴더의 기본 템플릿',
+        items: projectTemplateService.listGlobal().map((entry) => ({
+          text: entry.name,
+          value: entry.id,
+        })),
+      });
+      if (id) templateService.setFolderTemplate(folder, id);
+    } else if (choice === 'clear') {
+      templateService.clearFolderTemplate(folder);
+    }
+  };
+
   const openFolderMenu = async (f: string) => {
     const v = await appState.pushDialogAsync({
       type: 'select',
@@ -527,6 +579,7 @@ const ProjectDrawer = observer(() => {
         ...(canAddSubfolder(f) ? [{ text: '📁 하위 폴더 만들기', value: 'subfolder' }] : []),
         { text: '📂 폴더로 이동', value: 'move' },
         { text: '📤 내보내기/불러오기', value: 'export' },
+        { text: '🧩 기본 템플릿', value: 'template' },
         { text: '🎨 색상 변경', value: 'color' },
         { text: '✏️ 이름 편집', value: 'rename' },
         { text: '🗑️ 폴더 삭제', value: 'delete' },
@@ -537,6 +590,7 @@ const ProjectDrawer = observer(() => {
     if (v === 'subfolder') createSubFolder(f);
     else if (v === 'move') moveFolderTo(f);
     else if (v === 'export') appState.folderBackupMenu(f);
+    else if (v === 'template') manageFolderTemplate(f);
     else if (v === 'color') setColorPickerFor((p) => (p === f ? null : f));
     else if (v === 'rename') startRename(f);
     else if (v === 'delete') deleteFolderConfirm(f);
@@ -1236,6 +1290,14 @@ const ProjectDrawer = observer(() => {
                             <FaFileExport size={14} />
                           </button>
                           </Tooltip>
+                          <Tooltip content="폴더 기본 템플릿">
+                          <button
+                            onClick={() => manageFolderTemplate(f)}
+                            className="p-1.5 rounded-md flex-none text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                          >
+                            <FaLayerGroup size={14} />
+                          </button>
+                          </Tooltip>
                           <Tooltip content="폴더 색상">
                           <button
                             onClick={() =>
@@ -1468,6 +1530,11 @@ const ProjectDrawer = observer(() => {
           )}
         </div>
       </div>
+      <TemplateManagerModal
+        isOpen={Boolean(folderTemplateEditId)}
+        initialTemplateId={folderTemplateEditId}
+        onClose={() => setFolderTemplateEditId(null)}
+      />
     </div>
   );
 });
