@@ -78,6 +78,7 @@ import QuickMenu from './QuickMenu';
 import { normalizeQuickMenu } from '../models/quickMenu';
 import { resolveLayout } from '../models/layoutTemplates';
 import GenControlFloating from './GenControlFloating';
+import ProjectStrip from './ProjectStrip';
 configure({
   enforceActions: 'never',
 });
@@ -999,6 +1000,14 @@ export const App = observer(() => {
                   style={{ order: resolvedLayout.projectSide === 'left' ? -3 : 3 }}
                 >
                   <SessionSelect variant="sidebar" />
+                </div>
+              )}
+              {!isMobile && resolvedLayout.projectStrip && (
+                <div
+                  className="flex-none hidden md:flex h-full"
+                  style={{ order: resolvedLayout.projectSide === 'left' ? -3 : 3 }}
+                >
+                  <ProjectStrip side={resolvedLayout.projectSide} />
                 </div>
               )}
               <div className="relative flex-1 min-w-0 h-full" style={{ order: 0 }}>

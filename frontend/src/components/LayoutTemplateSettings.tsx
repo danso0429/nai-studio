@@ -17,7 +17,7 @@ const LayoutTemplateSettings = ({
       <h3 className="text-sm font-semibold text-default">화면 배치</h3>
       <p className="text-xs text-sub mt-0.5">모바일은 안정적인 클래식 배치를 항상 유지해요.</p>
     </div>
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
       {layoutTemplates.map((template) => (
         <button
           key={template.id}

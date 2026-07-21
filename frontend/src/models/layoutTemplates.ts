@@ -1,7 +1,7 @@
 import type { UiLayoutSlots } from '../main/config';
 
 export interface LayoutTemplateMeta {
-  id: 'classic' | 'compact' | 'sidebar';
+  id: 'classic' | 'compact' | 'sidebar' | 'modern';
   name: string;
   description: string;
   bottomBar: 'bottom' | 'none';
@@ -9,6 +9,7 @@ export interface LayoutTemplateMeta {
   generationControl: 'docked' | 'floating';
   mobileAllowed: boolean;
   projectSidebar: boolean;
+  projectStrip: boolean;
 }
 
 export interface ResolvedLayout extends LayoutTemplateMeta {
@@ -27,6 +28,7 @@ export const layoutTemplates: LayoutTemplateMeta[] = [
     generationControl: 'docked',
     mobileAllowed: true,
     projectSidebar: false,
+    projectStrip: false,
   },
   {
     id: 'compact',
@@ -37,6 +39,7 @@ export const layoutTemplates: LayoutTemplateMeta[] = [
     generationControl: 'floating',
     mobileAllowed: false,
     projectSidebar: false,
+    projectStrip: false,
   },
   {
     id: 'sidebar',
@@ -47,6 +50,18 @@ export const layoutTemplates: LayoutTemplateMeta[] = [
     generationControl: 'floating',
     mobileAllowed: false,
     projectSidebar: true,
+    projectStrip: false,
+  },
+  {
+    id: 'modern',
+    name: '모던 스트립',
+    description: '얇은 프로젝트 스트립으로 진입하고 전체 도구는 별도 시트에 보존해요.',
+    bottomBar: 'none',
+    sessionSelectTop: false,
+    generationControl: 'floating',
+    mobileAllowed: false,
+    projectSidebar: false,
+    projectStrip: true,
   },
 ];
 

@@ -84,6 +84,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - 레이아웃 템플릿의 `classic`/`compact` slice를 `PORT/ADAPT`. compact는 PC에서 하단 바를 제거하고 프로젝트 도구를 상단 별도 행, 기존 생성 컨트롤을 우하단 플로팅 카드로 옮긴다. 하단 바 제거 시 `--bottombar-h`도 0으로 갱신해 잔여 여백을 막고, 모바일·stale id는 classic으로 강제 폴백한다. sidebar/modern·패널 좌우 슬롯·플로팅 위치 저장은 후속이다. 검증: frontend tsc 0 error, `test/layout-templates.test.js`, `test/config-unsaved-badge.test.js` pass.
 - layout slot을 확장해 프리셋·히스토리 패널 좌우 배치를 CSS order로 전환하고, 생성 컨트롤 docked/floating을 템플릿 위에 해석한다. compact처럼 하단 바가 없는 템플릿은 stale `docked` override가 있어도 floating을 강제해 컨트롤 소실을 막는다. 플로팅 카드는 전용 handle로 뷰포트 안에서 이동하고 좌표를 config에 저장하며, classic에서는 하단 도크 복귀가 가능하다. 모바일은 모든 slot override를 무시한다. sidebar/modern·projectSide 소비는 후속이다. 검증: frontend tsc 0 error, `test/layout-templates.test.js`, `test/config-unsaved-badge.test.js` pass.
 - `sidebar` 템플릿과 projectSide 소비를 `PORT/ADAPT`. 프로젝트 선택·모든 실제 Remote 프로젝트 버튼·더보기·DnD·캐릭터 프리셋 오버레이를 같은 `SessionSelect` 인스턴스의 세로 variant로 렌더하고, 좌우 위치는 CSS order로 바꾼다. 하단 바는 없고 생성 컨트롤은 floating이며 모바일은 classic으로 폴백한다. modern strip은 companion 전역 액션 확대 뒤 진행한다. 검증: frontend tsc 0 error, `test/layout-templates.test.js`, `test/toolbar-consumers.test.js` pass.
+- `modern` 얇은 프로젝트 스트립을 `ADAPT`. 주 버튼은 프로젝트 드로어를 열고, 별도 프로젝트 도구 시트가 기존 `SessionSelect` 전체 기능을 그대로 렌더해 companion으로 아직 전역화되지 않은 버튼도 접근 가능하게 보존한다. 좌우 projectSide·하단바 none·생성 floating·모바일 classic 폴백 계약을 공유한다. 검증: frontend tsc 0 error, `test/layout-templates.test.js` pass.
 
 ### V5-E — WebP
 

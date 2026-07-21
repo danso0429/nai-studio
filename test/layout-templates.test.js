@@ -50,6 +50,10 @@ test('layout resolver keeps classic defaults and forces mobile fallback', () => 
   assert.equal(sidebar.projectSide, 'right');
   assert.equal(sidebar.bottomBar, 'none');
   assert.equal(resolveLayout('sidebar', true).id, 'classic');
+  const modern = resolveLayout('modern', false);
+  assert.equal(modern.projectStrip, true);
+  assert.equal(modern.bottomBar, 'none');
+  assert.equal(resolveLayout('modern', true).id, 'classic');
 });
 
 test('App and top bar consume the resolved layout without duplicating generation controls', () => {
@@ -63,6 +67,14 @@ test('App and top bar consume the resolved layout without duplicating generation
   assert.match(app, /resolvedLayout\.historySide === 'left'/);
   assert.match(app, /<GenControlFloating/);
   assert.match(app, /<SessionSelect variant="sidebar"/);
+  assert.match(app, /<ProjectStrip side=\{resolvedLayout\.projectSide\}/);
+});
+
+test('modern strip preserves access to the complete project tool surface', () => {
+  const strip = read('frontend/src/components/ProjectStrip.tsx');
+  assert.match(strip, /appState\.openProjectDrawer\(\)/);
+  assert.match(strip, /<ModalOverlay/);
+  assert.match(strip, /<SessionSelect/);
 });
 
 test('floating generation control persists coordinates and supports docking when available', () => {
