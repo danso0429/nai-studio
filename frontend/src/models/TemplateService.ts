@@ -365,8 +365,9 @@ export class TemplateService extends DebouncedJsonStore {
         if (!source || sessionService.getHiddenProjectRole(batch.sceneTemplateName) !== 'scene-template') {
           throw new Error(`씬 템플릿을 찾을 수 없습니다: ${batch.sceneTemplateName}`);
         }
-        session.scenes.clear();
-        for (const sourceScene of source.getScenes('scene')) {
+        const sourceScenes = source.getScenes('scene');
+        if (sourceScenes.length > 0) session.scenes.clear();
+        for (const sourceScene of sourceScenes) {
           const scene = genericSceneFromJSON(sourceScene.toJSON());
           if (!scene) continue;
           scene.imageMap = [];
@@ -440,7 +441,7 @@ export class TemplateService extends DebouncedJsonStore {
   }
 
   async pickForCreate(): Promise<string | null | undefined> {
-    await projectTemplateService.load();
+    if (!projectTemplateService.loaded) await projectTemplateService.load();
     const templates = projectTemplateService.listGlobal();
     if (!templates.length) return null;
     const value = await getAppState().pushDialogAsync({

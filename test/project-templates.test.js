@@ -64,3 +64,13 @@ test('inheritance is visible, breakable, and explicitly propagated', () => {
   assert.match(app, /__break_inheritance__/);
   assert.match(app, /templateService\.breakInheritance\(name\)/);
 });
+
+test('template lifecycle preserves pending state and releases replaced image ownership', () => {
+  const project = read('frontend/src/models/ProjectTemplateService.ts');
+  const inheritance = read('frontend/src/models/TemplateService.ts');
+  assert.match(inheritance, /if \(!projectTemplateService\.loaded\) await projectTemplateService\.load\(\)/);
+  assert.match(inheritance, /if \(sourceScenes\.length > 0\) session\.scenes\.clear\(\)/);
+  assert.match(project, /const previousTokens = this\.imageTokens\(target\)/);
+  assert.match(project, /const retainedTokens = new Set\(this\.imageTokens\(entry\)\)/);
+  assert.ok((project.match(/await backend\.deleteFile\(this\.getImagePath\(token\)\)/g) ?? []).length >= 3);
+});

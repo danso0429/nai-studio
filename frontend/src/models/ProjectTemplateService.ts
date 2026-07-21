@@ -276,6 +276,7 @@ export class ProjectTemplateService extends DebouncedJsonStore {
     const target = this.get(targetId);
     const source = this.get(sourceId);
     if (!target || !source) throw new Error('템플릿을 찾을 수 없습니다.');
+    const previousTokens = this.imageTokens(target);
     const clone = await this.cloneContent(source);
     target.preset = clone.preset;
     target.characterPresets = clone.characterPresets;
@@ -283,6 +284,13 @@ export class ProjectTemplateService extends DebouncedJsonStore {
     target.characterReferences = clone.characterReferences;
     target.scenes = clone.scenes;
     this.touch(target);
+    const currentTokens = new Set(this.imageTokens(target));
+    for (const token of previousTokens) {
+      if (currentTokens.has(token)) continue;
+      try {
+        await backend.deleteFile(this.getImagePath(token));
+      } catch {}
+    }
   }
 
   @action
@@ -404,8 +412,25 @@ export class ProjectTemplateService extends DebouncedJsonStore {
   async removeCharacterPreset(id: string, index: number): Promise<void> {
     const entry = this.get(id);
     if (!entry) return;
+    const removed = entry.characterPresets[index];
+    if (!removed) return;
     entry.characterPresets = entry.characterPresets.filter((_, current) => current !== index);
     this.touch(entry);
+    const retainedTokens = new Set(this.imageTokens(entry));
+    const removedTokens = this.imageTokens({
+      ...entry,
+      preset: null,
+      characterPresets: [removed],
+      vibes: [],
+      characterReferences: [],
+      scenes: [],
+    });
+    for (const token of removedTokens) {
+      if (retainedTokens.has(token)) continue;
+      try {
+        await backend.deleteFile(this.getImagePath(token));
+      } catch {}
+    }
   }
 
   async importScenesFromProject(id: string, projectName: string): Promise<number> {
