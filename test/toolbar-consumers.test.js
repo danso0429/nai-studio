@@ -69,4 +69,6 @@ test('all pre-v5 Remote toolbar actions remain bound to a stable id', () => {
   }
   assert.match(scene, /모든 예약\(대기 \+ 준비 중\)을 취소할까요/);
   assert.match(project, /deleteProjectBackground/);
+  assert.match(project, /variant\?: 'bar' \| 'sidebar'/);
+  assert.match(project, /variant === 'sidebar'/);
 });

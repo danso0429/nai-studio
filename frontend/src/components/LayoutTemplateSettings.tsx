@@ -17,7 +17,7 @@ const LayoutTemplateSettings = ({
       <h3 className="text-sm font-semibold text-default">화면 배치</h3>
       <p className="text-xs text-sub mt-0.5">모바일은 안정적인 클래식 배치를 항상 유지해요.</p>
     </div>
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
       {layoutTemplates.map((template) => (
         <button
           key={template.id}
@@ -61,8 +61,8 @@ const LayoutTemplateSettings = ({
         생성 컨트롤
         <select
           className="gray-input block w-full mt-1"
-          value={value === 'compact' ? 'floating' : (slots.genControl ?? 'docked')}
-          disabled={value === 'compact'}
+          value={value !== 'classic' ? 'floating' : (slots.genControl ?? 'docked')}
+          disabled={value !== 'classic'}
           onChange={(event) =>
             onSlotsChange({
               ...slots,

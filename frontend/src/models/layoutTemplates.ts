@@ -1,13 +1,14 @@
 import type { UiLayoutSlots } from '../main/config';
 
 export interface LayoutTemplateMeta {
-  id: 'classic' | 'compact';
+  id: 'classic' | 'compact' | 'sidebar';
   name: string;
   description: string;
   bottomBar: 'bottom' | 'none';
   sessionSelectTop: boolean;
   generationControl: 'docked' | 'floating';
   mobileAllowed: boolean;
+  projectSidebar: boolean;
 }
 
 export interface ResolvedLayout extends LayoutTemplateMeta {
@@ -25,6 +26,7 @@ export const layoutTemplates: LayoutTemplateMeta[] = [
     sessionSelectTop: false,
     generationControl: 'docked',
     mobileAllowed: true,
+    projectSidebar: false,
   },
   {
     id: 'compact',
@@ -34,6 +36,17 @@ export const layoutTemplates: LayoutTemplateMeta[] = [
     sessionSelectTop: true,
     generationControl: 'floating',
     mobileAllowed: false,
+    projectSidebar: false,
+  },
+  {
+    id: 'sidebar',
+    name: '프로젝트 사이드바',
+    description: '프로젝트 도구를 세로 바로 옮기고 생성 컨트롤을 플로팅으로 표시해요.',
+    bottomBar: 'none',
+    sessionSelectTop: false,
+    generationControl: 'floating',
+    mobileAllowed: false,
+    projectSidebar: true,
   },
 ];
 

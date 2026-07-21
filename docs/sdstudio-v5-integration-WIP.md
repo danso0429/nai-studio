@@ -83,6 +83,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - companion slot 기반을 `ADAPT`. 현재 Remote에서 실제 전역 콜백이 있는 portable 버튼만 허용하고, 캐릭터 프롬프트·바이브·캐릭터 레퍼런스의 항상 존재하는 행에 배정한다. first-host-wins·stale/비허용 무시·원본 불변 이동을 순수 계층으로 고정하고, 배정된 버튼은 양 툴바에서 파생 제외되며 해제 시 원래 배치로 복귀한다. 아직 전역화되지 않은 portable 액션과 sampling/preset-top 호스트, companion 직접 DnD는 후속이다. 검증: frontend tsc 0 error, `test/companion-slots.test.js`, `test/config-unsaved-badge.test.js` pass.
 - 레이아웃 템플릿의 `classic`/`compact` slice를 `PORT/ADAPT`. compact는 PC에서 하단 바를 제거하고 프로젝트 도구를 상단 별도 행, 기존 생성 컨트롤을 우하단 플로팅 카드로 옮긴다. 하단 바 제거 시 `--bottombar-h`도 0으로 갱신해 잔여 여백을 막고, 모바일·stale id는 classic으로 강제 폴백한다. sidebar/modern·패널 좌우 슬롯·플로팅 위치 저장은 후속이다. 검증: frontend tsc 0 error, `test/layout-templates.test.js`, `test/config-unsaved-badge.test.js` pass.
 - layout slot을 확장해 프리셋·히스토리 패널 좌우 배치를 CSS order로 전환하고, 생성 컨트롤 docked/floating을 템플릿 위에 해석한다. compact처럼 하단 바가 없는 템플릿은 stale `docked` override가 있어도 floating을 강제해 컨트롤 소실을 막는다. 플로팅 카드는 전용 handle로 뷰포트 안에서 이동하고 좌표를 config에 저장하며, classic에서는 하단 도크 복귀가 가능하다. 모바일은 모든 slot override를 무시한다. sidebar/modern·projectSide 소비는 후속이다. 검증: frontend tsc 0 error, `test/layout-templates.test.js`, `test/config-unsaved-badge.test.js` pass.
+- `sidebar` 템플릿과 projectSide 소비를 `PORT/ADAPT`. 프로젝트 선택·모든 실제 Remote 프로젝트 버튼·더보기·DnD·캐릭터 프리셋 오버레이를 같은 `SessionSelect` 인스턴스의 세로 variant로 렌더하고, 좌우 위치는 CSS order로 바꾼다. 하단 바는 없고 생성 컨트롤은 floating이며 모바일은 classic으로 폴백한다. modern strip은 companion 전역 액션 확대 뒤 진행한다. 검증: frontend tsc 0 error, `test/layout-templates.test.js`, `test/toolbar-consumers.test.js` pass.
 
 ### V5-E — WebP
 

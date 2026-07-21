@@ -20,7 +20,11 @@ import {
   ToolbarSlotDropTarget,
 } from './ToolbarDnd';
 
-const SessionSelect = observer(() => {
+const SessionSelect = observer(({
+  variant = 'bar',
+}: {
+  variant?: 'bar' | 'sidebar';
+}) => {
   const [showCharacterPresets, setShowCharacterPresets] = useState(false);
   const [showProjectBrowser, setShowProjectBrowser] = useState(false);
   const [showProjectMenu, setShowProjectMenu] = useState(false);
@@ -103,7 +107,7 @@ const SessionSelect = observer(() => {
           onClick={() => appState.projectRename()}
         >
           <FaPen size={14} />
-          <span className="hidden md:inline text-sm">이름</span>
+          <span className={variant === 'sidebar' ? 'hidden' : 'hidden md:inline text-sm'}>이름</span>
         </button>
       </Tooltip>
     ),
@@ -138,7 +142,7 @@ const SessionSelect = observer(() => {
           onClick={() => appState.openPieceEditor()}
         >
           <FaPuzzlePiece size={18} />
-          <span className="hidden md:inline text-sm">프롬프트조각</span>
+          <span className={variant === 'sidebar' ? 'hidden' : 'hidden md:inline text-sm'}>프롬프트조각</span>
         </button>
       </Tooltip>
     ),
@@ -155,7 +159,9 @@ const SessionSelect = observer(() => {
     TOOLBAR_VIEW_MAIN.flatMap(({ registry }) => registry).find((button) => button.id === id)?.name ?? id;
 
   return (
-    <div className="flex gap-2 items-center w-full flex-wrap">
+    <div className={variant === 'sidebar'
+      ? 'w-14 h-full flex flex-col items-center gap-1.5 py-2 overflow-y-auto border-r line-color bg-[var(--c-surface-2)]'
+      : 'flex gap-2 items-center w-full flex-wrap'}>
       {showCharacterPresets && appState.curSession && (
         <CharacterPresetFloatEditor
           onClose={() => setShowCharacterPresets(false)}
@@ -229,6 +235,57 @@ const SessionSelect = observer(() => {
           }}
         />
       )}
+      {variant === 'sidebar' ? (
+        <>
+          <Tooltip content={appState.curSession?.name ?? '프로젝트 목록'}>
+            <button
+              className="icon-button nback-sky flex-none"
+              onClick={() => appState.openProjectDrawer()}
+            >
+              <FaFolder size={18} />
+            </button>
+          </Tooltip>
+          {projectInline.map((id, index) => (
+            <DraggableToolbarButton
+              key={id}
+              group="project"
+              id={id}
+              name={projectButtonName(id)}
+              index={index}
+            >
+              {projectToolbarNodes[id]}
+            </DraggableToolbarButton>
+          ))}
+          {(projectMenu.length > 0 || appState.editMode) && (
+            <div className="relative">
+              <ToolbarSlotDropTarget group="project" slot="menu">
+                <button
+                  className={`icon-button ${showProjectMenu ? 'back-sky' : ''}`}
+                  onClick={() => {
+                    if (projectMenu.length > 0) setShowProjectMenu((open) => !open);
+                  }}
+                  title="프로젝트 도구 더보기"
+                >
+                  <FaEllipsisH size={18} />
+                </button>
+              </ToolbarSlotDropTarget>
+              <ToolbarOverflowMenu
+                isOpen={showProjectMenu}
+                onClose={() => setShowProjectMenu(false)}
+                title="프로젝트 도구 더보기"
+                group="project"
+                items={projectMenu.map((id) => ({
+                  id,
+                  name: projectButtonName(id),
+                  node: projectToolbarNodes[id],
+                }))}
+              />
+            </div>
+          )}
+          <ToolbarHideZone group="project" />
+        </>
+      ) : (
+      <>
       
       {/* 현재 적용된 캐릭터 프리셋 표시 */}
       {appState.appliedCharacterPreset && (
@@ -321,6 +378,8 @@ const SessionSelect = observer(() => {
         </div>
       )}
       <ToolbarHideZone group="project" />
+      </>
+      )}
       {showProjectBrowser && (
         <ProjectBrowser onClose={() => setShowProjectBrowser(false)} />
       )}

@@ -993,6 +993,14 @@ export const App = observer(() => {
               </StackFixed>
             )}
             <StackGrow className="relative flex">
+              {!isMobile && resolvedLayout.projectSidebar && (
+                <div
+                  className="flex-none hidden md:flex h-full"
+                  style={{ order: resolvedLayout.projectSide === 'left' ? -3 : 3 }}
+                >
+                  <SessionSelect variant="sidebar" />
+                </div>
+              )}
               <div className="relative flex-1 min-w-0 h-full" style={{ order: 0 }}>
               <FloatViewProvider>
                 <AppContextMenu />
