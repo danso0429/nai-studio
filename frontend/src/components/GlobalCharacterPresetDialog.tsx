@@ -9,6 +9,9 @@ import {
   FaCopy,
   FaTimes,
   FaUpload,
+  FaFolder,
+  FaFileExport,
+  FaCheck,
 } from 'react-icons/fa';
 import { globalCharacterPresetService } from '../models';
 import { appState } from '../models/AppService';
@@ -71,6 +74,16 @@ const GlobalCharacterPresetDialog = observer(
     onClose: () => void;
   }) => {
     const presets = globalCharacterPresetService.presets;
+    const [folderFilter, setFolderFilter] = useState('__all__');
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const folders = globalCharacterPresetService.listFolders();
+    const visiblePresets = presets.filter((entry) =>
+      folderFilter === '__all__'
+        ? true
+        : folderFilter === '__unfiled__'
+          ? !entry.folder
+          : entry.folder === folderFilter,
+    );
 
     // 이 프로젝트의 로컬 프리셋 중 하나를 골라 글로벌로 저장.
     const handleSaveLocalToGlobal = async () => {
@@ -135,6 +148,106 @@ const GlobalCharacterPresetDialog = observer(
       );
     };
 
+    const handleSaveAllLocal = () => {
+      const locals = curSession.getCharacterPresets();
+      if (!locals.length) return;
+      appState.pushDialog({
+        type: 'confirm',
+        text: `이 프로젝트의 캐릭터 프리셋 ${locals.length}개를 모두 글로벌로 복사할까요?`,
+        callback: async () => {
+          let success = 0;
+          for (const preset of locals) {
+            try {
+              await globalCharacterPresetService.addFromSessionPreset(curSession, preset);
+              success += 1;
+            } catch {}
+          }
+          appState.pushMessage(`${success}개를 글로벌로 복사했습니다.`);
+        },
+      });
+    };
+
+    const handleCreateFolder = async () => {
+      const name = await appState.pushDialogAsync({
+        type: 'input-confirm',
+        text: '새 글로벌 프리셋 폴더 이름',
+      });
+      if (!name) return;
+      try {
+        setFolderFilter(globalCharacterPresetService.createFolder(name));
+      } catch (error: any) {
+        appState.pushMessage(error?.message || '폴더를 만들 수 없습니다.');
+      }
+    };
+
+    const chooseFolder = async (): Promise<string | null | undefined> => {
+      const value = await appState.pushDialogAsync({
+        type: 'select',
+        text: '이동할 폴더',
+        items: [
+          { text: '미분류', value: '/unfiled' },
+          ...globalCharacterPresetService.listFolders().map((folder) => ({
+            text: `📁 ${folder}`,
+            value: folder,
+          })),
+        ],
+      });
+      return value === undefined ? undefined : value === '/unfiled' ? null : value;
+    };
+
+    const moveSelected = async () => {
+      const folder = await chooseFolder();
+      if (folder === undefined) return;
+      for (const id of selectedIds) globalCharacterPresetService.setFolder(id, folder);
+      setSelectedIds(new Set());
+    };
+
+    const applySelected = async () => {
+      const locals = [];
+      for (const entry of presets.filter((candidate) => selectedIds.has(candidate.id))) {
+        try {
+          locals.push(
+            await globalCharacterPresetService.instantiateIntoSession(curSession, entry.id),
+          );
+        } catch {}
+      }
+      appState.applyCharacterPresets(locals);
+      setSelectedIds(new Set());
+      onClose();
+    };
+
+    const exportAll = async () => {
+      const blob = new Blob(
+        [JSON.stringify(await globalCharacterPresetService.exportToFileData())],
+        { type: 'application/json' },
+      );
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'global-character-presets.json';
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    };
+
+    const importFile = () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json,application/json';
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        try {
+          const count = await globalCharacterPresetService.importFromFileData(
+            JSON.parse(await file.text()),
+          );
+          appState.pushMessage(`${count}개 글로벌 캐릭터 프리셋을 불러왔습니다.`);
+        } catch (error: any) {
+          appState.pushMessage(error?.message || '불러오기에 실패했습니다.');
+        }
+      };
+      input.click();
+    };
+
     const iconBtn =
       'p-1.5 rounded text-gray-500 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700';
 
@@ -160,14 +273,39 @@ const GlobalCharacterPresetDialog = observer(
             </button>
           </div>
 
-          <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
+          <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700 flex flex-wrap gap-2">
             <button
               onClick={handleSaveLocalToGlobal}
-              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-purple-500 hover:bg-purple-600 text-white transition-colors"
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-purple-500 hover:bg-purple-600 text-white transition-colors"
             >
               <FaUpload size={12} /> 이 프로젝트의 프리셋을 글로벌로 저장
             </button>
+            <button className={iconBtn} title="이 프로젝트의 프리셋 모두 글로벌로 복사" onClick={handleSaveAllLocal}>
+              모두
+            </button>
+            <button className={iconBtn} title="글로벌 프리셋 파일 저장" onClick={exportAll}><FaFileExport /></button>
+            <button className={iconBtn} title="글로벌 프리셋 파일 불러오기" onClick={importFile}><FaUpload /></button>
           </div>
+
+          <div className="px-3 py-2 border-b line-color flex gap-1.5 overflow-x-auto">
+            <button className={`round-button text-xs ${folderFilter === '__all__' ? 'back-sky' : 'back-gray'}`} onClick={() => setFolderFilter('__all__')}>전체</button>
+            <button className={`round-button text-xs ${folderFilter === '__unfiled__' ? 'back-sky' : 'back-gray'}`} onClick={() => setFolderFilter('__unfiled__')}>미분류</button>
+            {folders.map((folder) => (
+              <button key={folder} className={`round-button text-xs whitespace-nowrap ${folderFilter === folder ? 'back-sky' : 'back-gray'}`} onClick={() => setFolderFilter(folder)}>
+                <FaFolder className="inline mr-1" />{folder}
+              </button>
+            ))}
+            <button className="round-button text-xs back-green whitespace-nowrap" onClick={handleCreateFolder}>+ 폴더</button>
+          </div>
+
+          {selectedIds.size > 0 && (
+            <div className="px-3 py-2 border-b line-color flex flex-wrap items-center gap-2">
+              <span className="text-sm">{selectedIds.size}개 선택</span>
+              <button className="round-button back-green" onClick={applySelected}>선택 적용</button>
+              <button className="round-button back-gray" onClick={moveSelected}>폴더 이동</button>
+              <button className="round-button back-gray" onClick={() => setSelectedIds(new Set())}>해제</button>
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto p-3 min-h-0">
             {presets.length === 0 ? (
@@ -176,12 +314,22 @@ const GlobalCharacterPresetDialog = observer(
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {presets.map((entry) => (
+                {visiblePresets.map((entry) => (
                   <div
                     key={entry.id}
                     className="rounded-lg border-2 border-purple-300 dark:border-purple-600 overflow-hidden bg-white dark:bg-slate-800"
                   >
                     <div className="relative aspect-[3/4]">
+                      <button
+                        className={`absolute z-10 top-1.5 right-1.5 w-6 h-6 rounded border flex items-center justify-center ${selectedIds.has(entry.id) ? 'bg-sky-500 text-white' : 'bg-white/80 text-gray-600'}`}
+                        onClick={() => {
+                          const next = new Set(selectedIds);
+                          next.has(entry.id) ? next.delete(entry.id) : next.add(entry.id);
+                          setSelectedIds(next);
+                        }}
+                      >
+                        {selectedIds.has(entry.id) && <FaCheck size={12} />}
+                      </button>
                       <GlobalCardImage entry={entry} className="w-full h-full object-cover" />
                       <div className="absolute top-1.5 left-1.5 bg-purple-500 text-white text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-1 shadow">
                         <FaGlobe size={9} /> 글로벌
@@ -191,6 +339,7 @@ const GlobalCharacterPresetDialog = observer(
                       <div className="text-sm font-medium truncate" title={entry.name}>
                         {entry.name}
                       </div>
+                      {entry.folder && <div className="text-[10px] text-sub truncate">📁 {entry.folder}</div>}
                       <div className="flex gap-0.5 mt-1.5">
                         <button onClick={() => handleLoad(entry)} title="이 프로젝트로 불러오기" className={iconBtn}>
                           <FaDownload size={13} />

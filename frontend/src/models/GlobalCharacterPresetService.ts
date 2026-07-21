@@ -15,11 +15,13 @@ export interface IGlobalCharacterPresetEntry {
   updatedAt: number;
   // 이미지 경로(vibes/characterReferences/representativeImage)는 글로벌 파일명을 가리킨다.
   preset: ICharacterPreset;
+  folder?: string;
 }
 
 export interface IGlobalCharacterPresetStore {
   version: 1;
   presets: IGlobalCharacterPresetEntry[];
+  folders?: string[];
 }
 
 // 글로벌(프로젝트 공통) 캐릭터 프리셋.
@@ -27,6 +29,7 @@ export interface IGlobalCharacterPresetStore {
 // 이미지를 따로 보관하고(data URI 파일), 불러올 때 세션으로 복사한다.
 export class GlobalCharacterPresetService extends DebouncedJsonStore {
   @observable accessor presets: IGlobalCharacterPresetEntry[] = [];
+  @observable accessor folders: string[] = [];
 
   // ---------- lifecycle ----------
 
@@ -45,25 +48,41 @@ export class GlobalCharacterPresetService extends DebouncedJsonStore {
   }
 
   protected buildStore(): IGlobalCharacterPresetStore {
-    return { version: 1, presets: this.presets };
+    return { version: 1, presets: this.presets, folders: this.folders };
   }
 
   protected applyParsed(json: any): void {
     const j = json as IGlobalCharacterPresetStore;
     this.presets =
       j && Array.isArray(j.presets)
-        ? j.presets.filter(
-            (p) =>
-              p &&
-              typeof p.id === 'string' &&
-              typeof p.name === 'string' &&
-              p.preset,
-          )
+        ? j.presets
+            .filter(
+              (p) =>
+                p &&
+                typeof p.id === 'string' &&
+                typeof p.name === 'string' &&
+                p.preset,
+            )
+            .map((p) => ({
+              ...p,
+              folder:
+                typeof p.folder === 'string' && p.folder.trim()
+                  ? p.folder.trim()
+                  : undefined,
+            }))
         : [];
+    const folders: string[] = [];
+    for (const folder of Array.isArray(j?.folders) ? j.folders : []) {
+      if (typeof folder !== 'string') continue;
+      const trimmed = folder.trim();
+      if (trimmed && !folders.includes(trimmed)) folders.push(trimmed);
+    }
+    this.folders = folders;
   }
 
   protected resetState(): void {
     this.presets = [];
+    this.folders = [];
   }
 
   // ---------- read ----------
@@ -75,6 +94,77 @@ export class GlobalCharacterPresetService extends DebouncedJsonStore {
   }
   getByName(name: string): IGlobalCharacterPresetEntry | undefined {
     return this.presets.find((p) => p.name === name);
+  }
+
+  listFolders(): string[] {
+    const derived = new Set(
+      this.presets.map((entry) => entry.folder).filter(Boolean) as string[],
+    );
+    for (const folder of this.folders) derived.delete(folder);
+    return [
+      ...this.folders,
+      ...[...derived].sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }),
+      ),
+    ];
+  }
+
+  @action
+  createFolder(name: string): string {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error('폴더 이름을 입력해 주세요.');
+    if (this.listFolders().includes(trimmed)) {
+      throw new Error('같은 이름의 폴더가 있습니다.');
+    }
+    this.folders = [...this.folders, trimmed];
+    this.scheduleSave();
+    this.dispatchEvent(new CustomEvent('changed'));
+    return trimmed;
+  }
+
+  @action
+  setFolder(id: string, folder: string | null): void {
+    const entry = this.get(id);
+    if (!entry) return;
+    const next = folder?.trim() || undefined;
+    if (entry.folder === next) return;
+    entry.folder = next;
+    entry.updatedAt = Date.now();
+    if (next && !this.folders.includes(next)) this.folders = [...this.folders, next];
+    this.presets = [...this.presets];
+    this.scheduleSave();
+    this.dispatchEvent(new CustomEvent('changed'));
+  }
+
+  @action
+  renameFolder(oldName: string, newName: string): void {
+    const trimmed = newName.trim();
+    if (!trimmed) throw new Error('폴더 이름을 입력해 주세요.');
+    if (oldName !== trimmed && this.listFolders().includes(trimmed)) {
+      throw new Error('같은 이름의 폴더가 있습니다.');
+    }
+    this.folders = this.folders.includes(oldName)
+      ? this.folders.map((folder) => (folder === oldName ? trimmed : folder))
+      : [...this.folders, trimmed];
+    this.presets = this.presets.map((entry) =>
+      entry.folder === oldName
+        ? { ...entry, folder: trimmed, updatedAt: Date.now() }
+        : entry,
+    );
+    this.scheduleSave();
+    this.dispatchEvent(new CustomEvent('changed'));
+  }
+
+  @action
+  deleteFolder(name: string): void {
+    this.folders = this.folders.filter((folder) => folder !== name);
+    this.presets = this.presets.map((entry) =>
+      entry.folder === name
+        ? { ...entry, folder: undefined, updatedAt: Date.now() }
+        : entry,
+    );
+    this.scheduleSave();
+    this.dispatchEvent(new CustomEvent('changed'));
   }
 
   // ---------- image helpers (data URI 파일) ----------
@@ -314,6 +404,7 @@ export class GlobalCharacterPresetService extends DebouncedJsonStore {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       preset: json,
+      ...(entry.folder ? { folder: entry.folder } : {}),
     };
     const idx = this.presets.findIndex((p) => p.id === id);
     const arr = [...this.presets];
@@ -371,5 +462,98 @@ export class GlobalCharacterPresetService extends DebouncedJsonStore {
     this.presets = this.presets.filter((p) => p.id !== id);
     this.scheduleSave();
     this.dispatchEvent(new CustomEvent('changed', {}));
+  }
+
+  async exportToFileData(): Promise<any> {
+    const output: any = { version: 1, presets: [] };
+    for (const entry of this.presets) {
+      const json: any = JSON.parse(JSON.stringify(entry.preset));
+      json.vibeImages = [];
+      for (const vibe of json.vibes || []) {
+        const data = vibe.path ? await this.fetchImageData(vibe.path) : null;
+        if (data) json.vibeImages.push({ filename: vibe.path, data });
+      }
+      json.referenceImages = [];
+      for (const ref of json.characterReferences || []) {
+        const data = ref.path ? await this.fetchImageData(ref.path) : null;
+        if (data) json.referenceImages.push({ filename: ref.path, data });
+      }
+      if (json.representativeImage) {
+        json.representativeImageData = await this.fetchImageData(
+          json.representativeImage,
+        );
+      }
+      if (entry.folder) json.globalFolder = entry.folder;
+      output.presets.push(json);
+    }
+    return output;
+  }
+
+  @action
+  async importFromFileData(data: any): Promise<number> {
+    if (!data || !Array.isArray(data.presets)) {
+      throw new Error('올바른 캐릭터 프리셋 파일이 아닙니다.');
+    }
+    let imported = 0;
+    for (const raw of data.presets) {
+      if (!raw || typeof raw !== 'object') continue;
+      try {
+        const json: any = JSON.parse(JSON.stringify(raw));
+        const folder =
+          typeof json.globalFolder === 'string' && json.globalFolder.trim()
+            ? json.globalFolder.trim()
+            : undefined;
+        const images = new Map<string, string>();
+        for (const image of [
+          ...(json.vibeImages || []),
+          ...(json.referenceImages || []),
+        ]) {
+          if (!image?.filename || typeof image.data !== 'string') continue;
+          images.set(
+            String(image.filename).split('/').pop()!,
+            await this.storeImageData(image.data),
+          );
+        }
+        for (const vibe of json.vibes || []) {
+          vibe.path = images.get(String(vibe.path || '').split('/').pop()!) || '';
+        }
+        for (const ref of json.characterReferences || []) {
+          ref.path = images.get(String(ref.path || '').split('/').pop()!) || '';
+        }
+        json.representativeImage =
+          json.representativeImage && typeof json.representativeImageData === 'string'
+            ? await this.storeImageData(json.representativeImageData)
+            : '';
+        delete json.vibeImages;
+        delete json.referenceImages;
+        delete json.representativeImageData;
+        delete json.globalFolder;
+        const clean = CharacterPreset.fromJSON(json).toJSON();
+        const name = this.resolveNameCollision(clean.name?.trim() || '이름없음');
+        clean.name = name;
+        this.presets = [
+          ...this.presets,
+          {
+            id: uuidv4(),
+            name,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            preset: clean,
+            ...(folder ? { folder } : {}),
+          },
+        ];
+        if (folder && !this.folders.includes(folder)) {
+          this.folders = [...this.folders, folder];
+        }
+        imported += 1;
+      } catch (error) {
+        console.error('글로벌 캐릭터 프리셋 항목 불러오기 실패:', error);
+      }
+    }
+    if (imported) {
+      this.scheduleSave();
+      this.dispatchEvent(new CustomEvent('changed'));
+    }
+    return imported;
   }
 }

@@ -29,6 +29,9 @@ import {
 import { action, observable, reaction } from 'mobx';
 import {
   CharacterPreset,
+  CharacterPrompt,
+  ReferenceItem,
+  VibeItem,
   GenericScene,
   InpaintScene,
   ISession,
@@ -4147,6 +4150,147 @@ export class AppState {
   @action
   setAppliedCharacterPreset(presetName: string | undefined) {
     this.appliedCharacterPreset = presetName;
+  }
+
+  get appliedCharacterPresetNames(): string[] {
+    const session = this.curSession;
+    const workflowType = session?.selectedWorkflow?.workflowType;
+    const shared = workflowType ? session?.presetShareds.get(workflowType) : undefined;
+    if (!shared) return [];
+    const names: string[] = [];
+    for (const list of [
+      shared.characterPrompts,
+      shared.vibes,
+      shared.characterReferences,
+    ]) {
+      for (const item of list || []) {
+        if (item?.fromPreset && !names.includes(item.fromPreset)) {
+          names.push(item.fromPreset);
+        }
+      }
+    }
+    if (shared._appliedPresetName && !names.includes(shared._appliedPresetName)) {
+      names.push(shared._appliedPresetName);
+    }
+    return names;
+  }
+
+  @action
+  applyCharacterPresetToSession(
+    session: Session,
+    workflowType: string,
+    preset: CharacterPreset,
+    mode: 'easy' | 'character',
+  ): boolean {
+    if (mode === 'easy' && workflowType !== 'SDImageGenEasy') return false;
+    let shared = session.presetShareds.get(workflowType);
+    if (!shared) {
+      shared = workFlowService.buildShared(workflowType);
+      session.presetShareds.set(workflowType, shared);
+    }
+    const keep =
+      mode === 'easy'
+        ? (item: any) => !item.fromPreset
+        : (item: any) => item.fromPreset !== preset.name;
+    const vibes = (preset.vibes || []).map((source: VibeItem) => {
+      const item = VibeItem.fromJSON(source.toJSON());
+      item.fromPreset = preset.name;
+      return item;
+    });
+    const references = (preset.characterReferences || []).map(
+      (source: ReferenceItem) => {
+        const item = ReferenceItem.fromJSON(source.toJSON());
+        item.fromPreset = preset.name;
+        return item;
+      },
+    );
+    shared.vibes = [...(shared.vibes || []).filter(keep), ...vibes];
+    shared.characterReferences = [
+      ...(shared.characterReferences || []).filter(keep),
+      ...references,
+    ];
+    if (mode === 'easy') {
+      shared.characterPrompt = preset.characterPrompt || '';
+      shared.backgroundPrompt = preset.backgroundPrompt || '';
+      shared.uc = preset.characterUC || '';
+    } else {
+      const prompts = (shared.characterPrompts || []).filter(keep);
+      if (preset.characterPrompt || preset.characterUC) {
+        const item: CharacterPrompt = {
+          id: v4(),
+          prompt: preset.characterPrompt || '',
+          uc: preset.characterUC || '',
+          position: { x: 0.5, y: 0.5 },
+          enabled: true,
+          fromPreset: preset.name,
+        };
+        shared.characterPrompts = [...prompts, item];
+      } else {
+        shared.characterPrompts = prompts;
+      }
+    }
+    shared._appliedPresetName = preset.name;
+    if (session === this.curSession) this.appliedCharacterPreset = preset.name;
+    return true;
+  }
+
+  @action
+  applyCharacterPreset(preset: CharacterPreset, mode: 'easy' | 'character') {
+    const session = this.curSession;
+    const workflowType = session?.selectedWorkflow?.workflowType;
+    if (!session || !workflowType) {
+      this.pushMessage('워크플로우를 먼저 선택해주세요');
+      return;
+    }
+    if (!this.applyCharacterPresetToSession(session, workflowType, preset, mode)) {
+      this.pushMessage('이지모드 적용은 이미지 생성 이지모드에서만 사용할 수 있습니다.');
+      return;
+    }
+    this.pushMessage(`"${preset.name}" 프리셋이 적용되었습니다`);
+  }
+
+  @action
+  applyCharacterPresets(presets: CharacterPreset[]) {
+    const session = this.curSession;
+    const workflowType = session?.selectedWorkflow?.workflowType;
+    if (!session || !workflowType || presets.length === 0) return;
+    for (const preset of presets) {
+      this.applyCharacterPresetToSession(session, workflowType, preset, 'character');
+    }
+    this.pushMessage(`캐릭터 프리셋 ${presets.length}개를 추가 적용했습니다.`);
+  }
+
+  private removeAppliedCharacterPresetCore(name: string): boolean {
+    const session = this.curSession;
+    const workflowType = session?.selectedWorkflow?.workflowType;
+    const shared = workflowType ? session?.presetShareds.get(workflowType) : undefined;
+    if (!shared) return false;
+    shared.vibes = (shared.vibes || []).filter((item: any) => item.fromPreset !== name);
+    shared.characterReferences = (shared.characterReferences || []).filter(
+      (item: any) => item.fromPreset !== name,
+    );
+    shared.characterPrompts = (shared.characterPrompts || []).filter(
+      (item: any) => item.fromPreset !== name,
+    );
+    if (shared._appliedPresetName === name) {
+      const remaining = this.appliedCharacterPresetNames.filter((item) => item !== name);
+      shared._appliedPresetName = remaining[remaining.length - 1] || '';
+      this.appliedCharacterPreset = shared._appliedPresetName || undefined;
+    }
+    return true;
+  }
+
+  @action
+  removeAppliedCharacterPreset(name: string) {
+    if (this.removeAppliedCharacterPresetCore(name)) {
+      this.pushMessage(`"${name}" 프리셋을 해제했습니다.`);
+    }
+  }
+
+  @action
+  removeAppliedCharacterPresets(names: string[]) {
+    const removed = names.filter((name) => this.removeAppliedCharacterPresetCore(name));
+    if (removed.length) this.pushMessage(`캐릭터 프리셋 ${removed.length}개를 해제했습니다.`);
   }
 
   // ─── 샘플링 프리셋 (적용/해제 override 모델) ───

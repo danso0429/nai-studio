@@ -1039,8 +1039,8 @@ export const CharacterPresetEditor = observer(({
       callback: () => {
         // 삭제하려는 프리셋이 현재 적용 중이면 먼저 해제 — residual data 잔여 회피.
         // upstream SDStudio v4.8.1 patch port.
-        if (appState.appliedCharacterPreset === preset.name) {
-          appState.clearAppliedCharacterPreset();
+        if (appState.appliedCharacterPresetNames.includes(preset.name)) {
+          appState.removeAppliedCharacterPreset(preset.name);
         }
         curSession.removeCharacterPreset(preset.name);
       },
@@ -1149,7 +1149,7 @@ export const CharacterPresetEditor = observer(({
               onClick={() => cyclingMode ? exitCyclingMode() : enterCyclingMode()}
             >
               <FaSync size={11} />
-              {cyclingMode ? '순차 생성 모드 끄기' : '순차 생성 모드'}
+              {cyclingMode ? '선택 모드 끄기' : '선택/순차 생성'}
             </button>
           )}
         </div>
@@ -1355,7 +1355,19 @@ export const CharacterPresetEditor = observer(({
                 />
               </div>
               <button
-                className="ml-auto px-4 py-1.5 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-medium transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="ml-auto px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                onClick={() => {
+                  appState.applyCharacterPresets(
+                    presets.filter((preset) => selectedPresets.has(preset.name)),
+                  );
+                  exitCyclingMode();
+                }}
+                disabled={selectedPresets.size === 0}
+              >
+                선택 적용
+              </button>
+              <button
+                className="px-4 py-1.5 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-medium transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={startCycling}
                 disabled={selectedPresets.size === 0 || selectedScenes.size === 0}
               >

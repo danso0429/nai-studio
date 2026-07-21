@@ -3,14 +3,12 @@ import SessionTreePicker from './SessionTreePicker';
 import { FaEllipsisH, FaPlus, FaPuzzlePiece, FaTrashAlt, FaUserAlt, FaTimes, FaPen, FaShare, FaBookmark, FaThLarge, FaFolder, FaLayerGroup } from 'react-icons/fa';
 import ProjectBrowser from './ProjectBrowser';
 import Tooltip from './Tooltip';
-import { sessionService, templateService, workFlowService, isMobile } from '../models';
+import { sessionService, templateService, isMobile } from '../models';
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { CharacterPresetFloatEditor } from './CharacterPresetEditor';
-import { CharacterPreset, CharacterPrompt, VibeItem, ReferenceItem } from '../models/types';
-import { v4 as uuidv4 } from 'uuid';
+import { CharacterPreset } from '../models/types';
 import { formatProjectNameConflict } from '../models/util';
-import { runInAction } from 'mobx';
 import { TOOLBAR_VIEW_MAIN, resolveToolbarView } from '../models/uiLayout';
 import ToolbarOverflowMenu from './ToolbarOverflowMenu';
 import { companionAssignedIds } from '../models/companionSlots';
@@ -67,10 +65,10 @@ const SessionSelect = observer(({
       appState.pushMessage('프로젝트를 먼저 선택해주세요');
       return;
     }
-    if (isMobile && appState.appliedCharacterPreset) {
+    if (isMobile && appState.appliedCharacterPresetNames.length > 0) {
       appState.pushDialog({
         type: 'select',
-        text: `"${appState.appliedCharacterPreset}" 프리셋이 적용 중입니다.`,
+        text: `캐릭터 프리셋 ${appState.appliedCharacterPresetNames.length}개가 적용 중입니다.`,
         items: [
           { text: '프리셋 해제', value: 'clear' },
           { text: '프리셋 관리 열기', value: 'manage' },
@@ -94,13 +92,13 @@ const SessionSelect = observer(({
     'character-presets': (
       <Tooltip
         content={
-          appState.appliedCharacterPreset
-            ? `프리셋: ${appState.appliedCharacterPreset} (클릭하여 관리)`
+          appState.appliedCharacterPresetNames.length
+            ? `프리셋: ${appState.appliedCharacterPresetNames.join(', ')} (클릭하여 관리)`
             : '캐릭터 프리셋 관리'
         }
       >
         <button
-          className={`icon-button mx-1 ${appState.appliedCharacterPreset ? 'back-green' : 'nback-green'}`}
+          className={`icon-button mx-1 ${appState.appliedCharacterPresetNames.length ? 'back-green' : 'nback-green'}`}
           onClick={openCharacterPresets}
         >
           <FaUserAlt size={18} />
@@ -182,73 +180,9 @@ const SessionSelect = observer(({
       {showCharacterPresets && appState.curSession && (
         <CharacterPresetFloatEditor
           onClose={() => setShowCharacterPresets(false)}
-          onApplyPreset={(preset: CharacterPreset) => {
-            const curSession = appState.curSession;
-            if (!curSession) return;
-            
-            // 현재 선택된 워크플로우 타입 가져오기
-            const workflowType = curSession.selectedWorkflow?.workflowType;
-            if (!workflowType) {
-              appState.pushMessage('워크플로우를 먼저 선택해주세요');
-              return;
-            }
-            
-            // shared 설정 가져오기
-            let shared = curSession.presetShareds.get(workflowType);
-            if (!shared) {
-              shared = workFlowService.buildShared(workflowType);
-              curSession.presetShareds.set(workflowType, shared);
-            }
-            
-            runInAction(() => {
-              // 이전 프리셋에서 추가된 항목 제거 (사용자 직접 추가 항목은 유지)
-              const prevVibes = (shared.vibes || []).filter((v: VibeItem) => !v.fromPreset);
-              const prevRefs = (shared.characterReferences || []).filter((r: ReferenceItem) => !r.fromPreset);
-
-              // 프리셋의 바이브/레퍼런스를 태그 붙여서 추가
-              const presetVibes = (preset.vibes || []).map((v: VibeItem) => {
-                const item = VibeItem.fromJSON(v.toJSON());
-                item.fromPreset = preset.name;
-                return item;
-              });
-              const presetRefs = (preset.characterReferences || []).map((r: ReferenceItem) => {
-                const item = ReferenceItem.fromJSON(r.toJSON());
-                item.fromPreset = preset.name;
-                return item;
-              });
-
-              shared.vibes = [...prevVibes, ...presetVibes];
-              shared.characterReferences = [...prevRefs, ...presetRefs];
-
-              if (workflowType === 'SDImageGenEasy') {
-                shared.characterPrompt = preset.characterPrompt || '';
-                shared.backgroundPrompt = preset.backgroundPrompt || '';
-                shared.uc = preset.characterUC || '';
-              } else {
-                // 이전 프리셋 캐릭터 프롬프트 제거 (사용자 항목 유지)
-                const prevPrompts = (shared.characterPrompts || []).filter(
-                  (cp: CharacterPrompt) => !cp.fromPreset
-                );
-                if (preset.characterPrompt || preset.characterUC) {
-                  const newEntry: CharacterPrompt = {
-                    id: uuidv4(),
-                    prompt: preset.characterPrompt || '',
-                    uc: preset.characterUC || '',
-                    position: { x: 0.5, y: 0.5 },
-                    enabled: true,
-                    fromPreset: preset.name,
-                  };
-                  shared.characterPrompts = [...prevPrompts, newEntry];
-                } else {
-                  shared.characterPrompts = prevPrompts;
-                }
-              }
-
-              appState.setAppliedCharacterPreset(preset.name);
-            });
-
+          onApplyPreset={(preset: CharacterPreset, mode) => {
+            appState.applyCharacterPreset(preset, mode);
             setShowCharacterPresets(false);
-            appState.pushMessage(`"${preset.name}" 프리셋이 적용되었습니다`);
           }}
         />
       )}
@@ -305,12 +239,14 @@ const SessionSelect = observer(({
       <>
       
       {/* 현재 적용된 캐릭터 프리셋 표시 */}
-      {appState.appliedCharacterPreset && (
+      {appState.appliedCharacterPresetNames.length > 0 && (
         <div className="hidden md:flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900 rounded-lg text-sm">
           <FaUserAlt className="text-green-600 dark:text-green-400" size={12} />
-          <Tooltip content={appState.appliedCharacterPreset ?? ''}>
+          <Tooltip content={appState.appliedCharacterPresetNames.join(', ')}>
           <span className="text-green-700 dark:text-green-300 max-w-24 truncate">
-            {appState.appliedCharacterPreset}
+            {appState.appliedCharacterPresetNames.length === 1
+              ? appState.appliedCharacterPresetNames[0]
+              : `프리셋 ${appState.appliedCharacterPresetNames.length}개`}
           </span>
           </Tooltip>
           <Tooltip content="캐릭터 프리셋 해제">
