@@ -82,6 +82,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - Quick menu를 `ADAPT`. Remote에서 전역으로 안전하게 호출 가능한 프로젝트 목록·프롬프트조각·찾기/변환·미디어 불러오기·씬 임포트·히스토리·이미지 휴지통 비우기·프로젝트 삭제를 config 순서로 구성한다. destructive 항목은 기존 확인 진입점을 재사용한다. PC `Ctrl+K`와 옵트인 플로팅 버튼이 같은 메뉴를 열며, 버튼은 400ms long-press 뒤 이동하고 위치는 기기 localStorage에만 저장한다. 검증: frontend tsc 0 error, `test/quick-menu.test.js`, `test/config-unsaved-badge.test.js` pass.
 - companion slot 기반을 `ADAPT`. 현재 Remote에서 실제 전역 콜백이 있는 portable 버튼만 허용하고, 캐릭터 프롬프트·바이브·캐릭터 레퍼런스의 항상 존재하는 행에 배정한다. first-host-wins·stale/비허용 무시·원본 불변 이동을 순수 계층으로 고정하고, 배정된 버튼은 양 툴바에서 파생 제외되며 해제 시 원래 배치로 복귀한다. 아직 전역화되지 않은 portable 액션과 sampling/preset-top 호스트, companion 직접 DnD는 후속이다. 검증: frontend tsc 0 error, `test/companion-slots.test.js`, `test/config-unsaved-badge.test.js` pass.
 - 레이아웃 템플릿의 `classic`/`compact` slice를 `PORT/ADAPT`. compact는 PC에서 하단 바를 제거하고 프로젝트 도구를 상단 별도 행, 기존 생성 컨트롤을 우하단 플로팅 카드로 옮긴다. 하단 바 제거 시 `--bottombar-h`도 0으로 갱신해 잔여 여백을 막고, 모바일·stale id는 classic으로 강제 폴백한다. sidebar/modern·패널 좌우 슬롯·플로팅 위치 저장은 후속이다. 검증: frontend tsc 0 error, `test/layout-templates.test.js`, `test/config-unsaved-badge.test.js` pass.
+- layout slot을 확장해 프리셋·히스토리 패널 좌우 배치를 CSS order로 전환하고, 생성 컨트롤 docked/floating을 템플릿 위에 해석한다. compact처럼 하단 바가 없는 템플릿은 stale `docked` override가 있어도 floating을 강제해 컨트롤 소실을 막는다. 플로팅 카드는 전용 handle로 뷰포트 안에서 이동하고 좌표를 config에 저장하며, classic에서는 하단 도크 복귀가 가능하다. 모바일은 모든 slot override를 무시한다. sidebar/modern·projectSide 소비는 후속이다. 검증: frontend tsc 0 error, `test/layout-templates.test.js`, `test/config-unsaved-badge.test.js` pass.
 
 ### V5-E — WebP
 

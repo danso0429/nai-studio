@@ -4,7 +4,7 @@ import { appState } from '../models/AppService';
 import { FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import Tooltip from './Tooltip';
 
-const ResizableSplitter = observer(() => {
+const ResizableSplitter = observer(({ reversed = false }: { reversed?: boolean }) => {
   const isDragging = useRef(false);
   const splitterRef = useRef<HTMLDivElement>(null);
 
@@ -19,7 +19,7 @@ const ResizableSplitter = observer(() => {
 
     const onMouseMove = (ev: MouseEvent) => {
       if (!isDragging.current) return;
-      const delta = ev.clientX - startX;
+      const delta = (ev.clientX - startX) * (reversed ? -1 : 1);
       const maxWidth = Math.floor(window.innerWidth * 0.6);
       const newWidth = Math.max(250, Math.min(maxWidth, startWidth + delta));
       appState.setLeftPanelWidth(newWidth);
@@ -37,7 +37,7 @@ const ResizableSplitter = observer(() => {
     document.addEventListener('mouseup', onMouseUp);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, []);
+  }, [reversed]);
 
   const toggleCollapse = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -64,8 +64,8 @@ const ResizableSplitter = observer(() => {
         onMouseDown={(e) => e.stopPropagation()}
       >
         {appState.leftPanelCollapsed
-          ? <FaChevronRight size={10} />
-          : <FaChevronLeft size={10} />
+          ? reversed ? <FaChevronLeft size={10} /> : <FaChevronRight size={10} />
+          : reversed ? <FaChevronRight size={10} /> : <FaChevronLeft size={10} />
         }
       </button>
       </Tooltip>

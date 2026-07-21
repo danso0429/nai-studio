@@ -1,3 +1,5 @@
+import type { UiLayoutSlots } from '../main/config';
+
 export interface LayoutTemplateMeta {
   id: 'classic' | 'compact';
   name: string;
@@ -6,6 +8,12 @@ export interface LayoutTemplateMeta {
   sessionSelectTop: boolean;
   generationControl: 'docked' | 'floating';
   mobileAllowed: boolean;
+}
+
+export interface ResolvedLayout extends LayoutTemplateMeta {
+  presetSide: 'left' | 'right';
+  historySide: 'left' | 'right';
+  projectSide: 'left' | 'right';
 }
 
 export const layoutTemplates: LayoutTemplateMeta[] = [
@@ -32,9 +40,21 @@ export const layoutTemplates: LayoutTemplateMeta[] = [
 export function resolveLayout(
   id: string | undefined,
   isMobile: boolean,
-): LayoutTemplateMeta {
+  slots?: UiLayoutSlots,
+): ResolvedLayout {
   const classic = layoutTemplates[0];
   const selected = layoutTemplates.find((template) => template.id === id);
-  if (!selected || (isMobile && !selected.mobileAllowed)) return classic;
-  return selected;
+  const template = !selected || (isMobile && !selected.mobileAllowed) ? classic : selected;
+  return {
+    ...template,
+    presetSide: !isMobile && slots?.presetSide === 'right' ? 'right' : 'left',
+    historySide: !isMobile && slots?.historySide === 'left' ? 'left' : 'right',
+    projectSide: !isMobile && slots?.projectSide === 'right' ? 'right' : 'left',
+    generationControl:
+      template.bottomBar === 'none'
+        ? 'floating'
+        : !isMobile && (slots?.genControl === 'floating' || slots?.genControl === 'docked')
+          ? slots.genControl
+          : template.generationControl,
+  };
 }

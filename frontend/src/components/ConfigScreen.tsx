@@ -10,7 +10,7 @@ import {
   flushPersistentStores,
 } from '../models';
 import { extractApiError, apiUrl } from '../models/util';
-import { Config, ImageEditor, RemoveBgQuality, UiThemeConfig, UiThemePreset, UiToolbarConfig } from '../main/config';
+import { Config, ImageEditor, RemoveBgQuality, UiLayoutSlots, UiThemeConfig, UiThemePreset, UiToolbarConfig } from '../main/config';
 import { observer } from 'mobx-react-lite';
 import { appState } from '../models/AppService';
 import { TaskLog } from '../models/TaskQueueService';
@@ -59,6 +59,7 @@ interface SavedConfigDraft {
   quickMenuButton: boolean;
   uiCompanionSlots: Record<string, string[]>;
   uiLayoutTemplate: string;
+  uiLayoutSlots: UiLayoutSlots;
   exportConcurrency: number;
   useLocalBgRemoval: boolean;
   delayTime: number;
@@ -969,6 +970,7 @@ const OtherTab = ({
   quickMenuButton, setQuickMenuButton,
   uiCompanionSlots, setUiCompanionSlots,
   uiLayoutTemplate, setUiLayoutTemplate,
+  uiLayoutSlots, setUiLayoutSlots,
   delayTime, setDelayTime,
   classicSceneCard, setClassicSceneCard,
   useProjectDrawer, setUseProjectDrawer,
@@ -1029,7 +1031,12 @@ const OtherTab = ({
       <hr className="border-gray-200 dark:border-slate-600" />
       <ToolbarLayoutEditor value={uiToolbar} onChange={setUiToolbar} />
       <hr className="border-gray-200 dark:border-slate-600" />
-      <LayoutTemplateSettings value={uiLayoutTemplate} onChange={setUiLayoutTemplate} />
+      <LayoutTemplateSettings
+        value={uiLayoutTemplate}
+        onChange={setUiLayoutTemplate}
+        slots={uiLayoutSlots}
+        onSlotsChange={setUiLayoutSlots}
+      />
       <hr className="border-gray-200 dark:border-slate-600" />
       <QuickMenuSettings
         value={quickMenu}
@@ -1423,6 +1430,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const [quickMenuButton, setQuickMenuButton] = useState(false);
   const [uiCompanionSlots, setUiCompanionSlots] = useState<Record<string, string[]>>({});
   const [uiLayoutTemplate, setUiLayoutTemplate] = useState('classic');
+  const [uiLayoutSlots, setUiLayoutSlots] = useState<UiLayoutSlots>({});
   const [exportConcurrency, setExportConcurrency] = useState(1);
   const [delayTime, setDelayTime] = useState(0);
   const [classicSceneCard, setClassicSceneCard] = useState(false);
@@ -1457,6 +1465,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       setQuickMenuButton(config.quickMenuButton ?? false);
       setUiCompanionSlots(config.uiCompanionSlots ?? {});
       setUiLayoutTemplate(config.uiLayoutTemplate ?? 'classic');
+      setUiLayoutSlots(config.uiLayoutSlots ?? {});
       setExportConcurrency(config.exportConcurrency ?? 1);
       setImageEditor(config.imageEditor ?? 'photoshop');
       setUseGPU(config.useCUDA ?? false);
@@ -1487,6 +1496,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
         quickMenuButton: config.quickMenuButton ?? false,
         uiCompanionSlots: config.uiCompanionSlots ?? {},
         uiLayoutTemplate: config.uiLayoutTemplate ?? 'classic',
+        uiLayoutSlots: config.uiLayoutSlots ?? {},
         exportConcurrency: config.exportConcurrency ?? 1,
         useLocalBgRemoval: config.useLocalBgRemoval ?? false,
         delayTime: config.delayTime ?? 0,
@@ -1628,6 +1638,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       quickMenuButton,
       uiCompanionSlots,
       uiLayoutTemplate,
+      uiLayoutSlots,
       exportConcurrency: exportConcurrency,
       useLocalBgRemoval: useLocalBgRemoval,
       delayTime: delayTime,
@@ -1645,6 +1656,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     appState.quickMenuButton = quickMenuButton;
     appState.uiCompanionSlots = uiCompanionSlots;
     appState.uiLayoutTemplate = uiLayoutTemplate;
+    appState.uiLayoutSlots = uiLayoutSlots;
     appState.useProjectDrawer = useProjectDrawer;
     appState.useBatchEnqueue = useBatchEnqueue;
     appState.initialThumbSize = initialThumbSize === 0 ? undefined : initialThumbSize;
@@ -1665,6 +1677,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       quickMenuButton,
       uiCompanionSlots,
       uiLayoutTemplate,
+      uiLayoutSlots,
       exportConcurrency,
       useLocalBgRemoval,
       delayTime,
@@ -1693,6 +1706,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     quickMenuButton,
     uiCompanionSlots,
     uiLayoutTemplate,
+    uiLayoutSlots,
     exportConcurrency,
     useLocalBgRemoval,
     delayTime,
@@ -1728,7 +1742,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       case 2:
         return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage, onClose }} />;
       case 3:
-        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, uiTheme, setUiTheme, uiThemePresets, setUiThemePresets, uiToolbar, setUiToolbar, quickMenu, setQuickMenu, quickMenuButton, setQuickMenuButton, uiCompanionSlots, setUiCompanionSlots, uiLayoutTemplate, setUiLayoutTemplate, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, historyThumbnailPercent, setHistoryThumbnailPercent, exportConcurrency, setExportConcurrency }} />;
+        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, uiTheme, setUiTheme, uiThemePresets, setUiThemePresets, uiToolbar, setUiToolbar, quickMenu, setQuickMenu, quickMenuButton, setQuickMenuButton, uiCompanionSlots, setUiCompanionSlots, uiLayoutTemplate, setUiLayoutTemplate, uiLayoutSlots, setUiLayoutSlots, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, historyThumbnailPercent, setHistoryThumbnailPercent, exportConcurrency, setExportConcurrency }} />;
       case 4:
         return <KeyBindingsTab />;
       default:

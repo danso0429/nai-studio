@@ -35,6 +35,16 @@ test('layout resolver keeps classic defaults and forces mobile fallback', () => 
     },
     { bottomBar: 'none', sessionSelectTop: true, generationControl: 'floating' },
   );
+  const slotted = resolveLayout('classic', false, {
+    presetSide: 'right',
+    historySide: 'left',
+    genControl: 'floating',
+  });
+  assert.equal(slotted.presetSide, 'right');
+  assert.equal(slotted.historySide, 'left');
+  assert.equal(slotted.generationControl, 'floating');
+  assert.equal(resolveLayout('compact', false, { genControl: 'docked' }).generationControl, 'floating');
+  assert.equal(resolveLayout('classic', true, { presetSide: 'right' }).presetSide, 'left');
 });
 
 test('App and top bar consume the resolved layout without duplicating generation controls', () => {
@@ -44,4 +54,15 @@ test('App and top bar consume the resolved layout without duplicating generation
   assert.match(app, /resolvedLayout\.generationControl === 'floating'/);
   assert.match(app, /--bottombar-h', '0px'/);
   assert.match(top, /layout\.sessionSelectTop/);
+  assert.match(app, /resolvedLayout\.presetSide === 'right'/);
+  assert.match(app, /resolvedLayout\.historySide === 'left'/);
+  assert.match(app, /<GenControlFloating/);
+});
+
+test('floating generation control persists coordinates and supports docking when available', () => {
+  const widget = read('frontend/src/components/GenControlFloating.tsx');
+  assert.match(widget, /genWidget: appState\.genWidget/);
+  assert.match(widget, /uiLayoutSlots: next/);
+  assert.match(widget, /Math\.min\(window\.innerWidth/);
+  assert.match(widget, /Math\.min\(window\.innerHeight/);
 });

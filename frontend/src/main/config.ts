@@ -66,6 +66,8 @@ export interface Config {
   quickMenuButton?: boolean;
   uiCompanionSlots?: Record<string, string[]>;
   uiLayoutTemplate?: string;
+  uiLayoutSlots?: UiLayoutSlots;
+  genWidget?: GenWidgetConfig;
 }
 
 export type ToolbarButtonPlacement = 'default' | 'pinned' | 'menu' | 'hidden';
@@ -81,6 +83,18 @@ export interface UiToolbarConfig {
   buttons?: Record<string, ToolbarButtonPlacement>;
   areas?: Record<string, UiToolbarAreaLayout>;
   schema?: 2;
+}
+
+export interface UiLayoutSlots {
+  presetSide?: 'left' | 'right';
+  historySide?: 'left' | 'right';
+  projectSide?: 'left' | 'right';
+  genControl?: 'docked' | 'floating';
+}
+
+export interface GenWidgetConfig {
+  x?: number;
+  y?: number;
 }
 
 export interface UiThemePreset {

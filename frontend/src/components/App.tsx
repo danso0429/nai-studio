@@ -77,6 +77,7 @@ import EditModeShell from './EditModeShell';
 import QuickMenu from './QuickMenu';
 import { normalizeQuickMenu } from '../models/quickMenu';
 import { resolveLayout } from '../models/layoutTemplates';
+import GenControlFloating from './GenControlFloating';
 configure({
   enforceActions: 'never',
 });
@@ -365,6 +366,8 @@ export const App = observer(() => {
       appState.quickMenuButton = conf.quickMenuButton ?? false;
       appState.uiCompanionSlots = conf.uiCompanionSlots ?? {};
       appState.uiLayoutTemplate = conf.uiLayoutTemplate ?? 'classic';
+      appState.uiLayoutSlots = conf.uiLayoutSlots ?? {};
+      appState.genWidget = conf.genWidget ?? {};
       appState.initialThumbSize = conf.initialThumbSize;
       appState.historyThumbnailPercent = Math.max(
         60,
@@ -947,7 +950,11 @@ export const App = observer(() => {
       emoji: <FaBolt />,
     },
   ];
-  const resolvedLayout = resolveLayout(appState.uiLayoutTemplate, isMobile);
+  const resolvedLayout = resolveLayout(
+    appState.uiLayoutTemplate,
+    isMobile,
+    appState.uiLayoutSlots,
+  );
   return (
     <DndProvider
       backend={isMobile ? TouchBackend : HTML5Backend}
@@ -986,7 +993,7 @@ export const App = observer(() => {
               </StackFixed>
             )}
             <StackGrow className="relative flex">
-              <div className="relative flex-1 min-w-0 h-full">
+              <div className="relative flex-1 min-w-0 h-full" style={{ order: 0 }}>
               <FloatViewProvider>
                 <AppContextMenu />
                 {isMobile && <ImageHistoryDrawer />}
@@ -999,7 +1006,11 @@ export const App = observer(() => {
                         <>
                           {!appState.leftPanelCollapsed && (
                             <div
-                              style={{ width: appState.leftPanelWidth, minWidth: 250 }}
+                              style={{
+                                width: appState.leftPanelWidth,
+                                minWidth: 250,
+                                order: resolvedLayout.presetSide === 'right' ? 2 : -2,
+                              }}
                               className="flex-none overflow-hidden hidden md:block h-full"
                             >
                               <div className="h-full w-full overflow-hidden">
@@ -1010,10 +1021,13 @@ export const App = observer(() => {
                               </div>
                             </div>
                           )}
-                          <div className="flex-none hidden md:flex">
-                            <ResizableSplitter />
+                          <div
+                            className="flex-none hidden md:flex"
+                            style={{ order: resolvedLayout.presetSide === 'right' ? 1 : -1 }}
+                          >
+                            <ResizableSplitter reversed={resolvedLayout.presetSide === 'right'} />
                           </div>
-                          <StackGrow>
+                          <StackGrow className="order-0">
                             <TabComponent
                               key={appState.curSession.name}
                               persistKey={LAST_TAB_KEY}
@@ -1036,9 +1050,11 @@ export const App = observer(() => {
                           <div className="flex-1">
                             <SessionSelect />
                           </div>
-                          <div className="flex flex-none gap-4 ml-auto">
-                            <TaskQueueControl />
-                          </div>
+                          {resolvedLayout.generationControl === 'docked' && (
+                            <div className="flex flex-none gap-4 ml-auto">
+                              <TaskQueueControl />
+                            </div>
+                          )}
                         </div>
                         {/* Mobile: two-row layout (alpha split: pills row / controls row) */}
                         <div className="flex md:hidden flex-col gap-2">
@@ -1071,7 +1087,12 @@ export const App = observer(() => {
                 )}
               </FloatViewProvider>
               </div>
-              <ImageHistoryPanel />
+              <div
+                className="flex-none hidden md:flex h-full"
+                style={{ order: resolvedLayout.historySide === 'left' ? -1 : 1 }}
+              >
+                <ImageHistoryPanel />
+              </div>
             </StackGrow>
           </VerticalStack>
         </ErrorBoundary>
@@ -1110,12 +1131,7 @@ export const App = observer(() => {
         <SceneImporterDialog />
         <QuickMenu />
         {!isMobile && resolvedLayout.generationControl === 'floating' && (
-          <div
-            className="fixed right-4 bottom-4 max-w-[calc(100vw-2rem)] rounded-xl border line-color bg-[var(--c-surface-2)] shadow-xl px-3 py-2"
-            style={{ zIndex: 'var(--z-widget)' }}
-          >
-            <TaskQueueControl />
-          </div>
+          <GenControlFloating canDock={resolvedLayout.bottomBar === 'bottom'} />
         )}
         {dragOverlay && (
           <div

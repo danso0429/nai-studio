@@ -1,11 +1,16 @@
 import { layoutTemplates } from '../models/layoutTemplates';
+import type { UiLayoutSlots } from '../main/config';
 
 const LayoutTemplateSettings = ({
   value,
   onChange,
+  slots,
+  onSlotsChange,
 }: {
   value: string;
   onChange: (value: string) => void;
+  slots: UiLayoutSlots;
+  onSlotsChange: (value: UiLayoutSlots) => void;
 }) => (
   <section className="space-y-3">
     <div>
@@ -24,6 +29,51 @@ const LayoutTemplateSettings = ({
           <span className="block text-xs text-sub mt-1">{template.description}</span>
         </button>
       ))}
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+      <label className="text-xs text-sub">
+        프리셋 패널
+        <select
+          className="gray-input block w-full mt-1"
+          value={slots.presetSide ?? 'left'}
+          onChange={(event) =>
+            onSlotsChange({ ...slots, presetSide: event.target.value as 'left' | 'right' })
+          }
+        >
+          <option value="left">왼쪽</option>
+          <option value="right">오른쪽</option>
+        </select>
+      </label>
+      <label className="text-xs text-sub">
+        히스토리 패널
+        <select
+          className="gray-input block w-full mt-1"
+          value={slots.historySide ?? 'right'}
+          onChange={(event) =>
+            onSlotsChange({ ...slots, historySide: event.target.value as 'left' | 'right' })
+          }
+        >
+          <option value="left">왼쪽</option>
+          <option value="right">오른쪽</option>
+        </select>
+      </label>
+      <label className="text-xs text-sub">
+        생성 컨트롤
+        <select
+          className="gray-input block w-full mt-1"
+          value={value === 'compact' ? 'floating' : (slots.genControl ?? 'docked')}
+          disabled={value === 'compact'}
+          onChange={(event) =>
+            onSlotsChange({
+              ...slots,
+              genControl: event.target.value as 'docked' | 'floating',
+            })
+          }
+        >
+          <option value="docked">하단 도크</option>
+          <option value="floating">플로팅</option>
+        </select>
+      </label>
     </div>
   </section>
 );
