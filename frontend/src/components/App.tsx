@@ -76,6 +76,7 @@ import { buildThemeVars } from '../models/uiTheme';
 import EditModeShell from './EditModeShell';
 import QuickMenu from './QuickMenu';
 import { normalizeQuickMenu } from '../models/quickMenu';
+import { resolveLayout } from '../models/layoutTemplates';
 configure({
   enforceActions: 'never',
 });
@@ -174,7 +175,10 @@ export const App = observer(() => {
   }, []);
   useEffect(() => {
     const el = bottomBarRef.current;
-    if (!el) return;
+    if (!el) {
+      document.documentElement.style.setProperty('--bottombar-h', '0px');
+      return;
+    }
     const update = () => {
       document.documentElement.style.setProperty('--bottombar-h', el.offsetHeight + 'px');
     };
@@ -182,7 +186,7 @@ export const App = observer(() => {
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [appState.uiLayoutTemplate]);
 
   useEffect(() => {
     return () => {
@@ -360,6 +364,7 @@ export const App = observer(() => {
       appState.quickMenu = normalizeQuickMenu(conf.quickMenu);
       appState.quickMenuButton = conf.quickMenuButton ?? false;
       appState.uiCompanionSlots = conf.uiCompanionSlots ?? {};
+      appState.uiLayoutTemplate = conf.uiLayoutTemplate ?? 'classic';
       appState.initialThumbSize = conf.initialThumbSize;
       appState.historyThumbnailPercent = Math.max(
         60,
@@ -942,6 +947,7 @@ export const App = observer(() => {
       emoji: <FaBolt />,
     },
   ];
+  const resolvedLayout = resolveLayout(appState.uiLayoutTemplate, isMobile);
   return (
     <DndProvider
       backend={isMobile ? TouchBackend : HTML5Backend}
@@ -1023,7 +1029,7 @@ export const App = observer(() => {
                         </>
                       )}
                     </StackGrow>
-                    <StackFixed>
+                    {resolvedLayout.bottomBar === 'bottom' && <StackFixed>
                       <div ref={bottomBarRef} className="px-3 py-2 border-t line-color">
                         {/* Desktop: single-row layout */}
                         <div className="hidden md:flex gap-3 items-center">
@@ -1045,7 +1051,7 @@ export const App = observer(() => {
                           </div>
                         </div>
                       </div>
-                    </StackFixed>
+                    </StackFixed>}
                   </div>
                 </div>
                 {appState.externalImage && (
@@ -1103,6 +1109,14 @@ export const App = observer(() => {
         <FindReplaceDialog />
         <SceneImporterDialog />
         <QuickMenu />
+        {!isMobile && resolvedLayout.generationControl === 'floating' && (
+          <div
+            className="fixed right-4 bottom-4 max-w-[calc(100vw-2rem)] rounded-xl border line-color bg-[var(--c-surface-2)] shadow-xl px-3 py-2"
+            style={{ zIndex: 'var(--z-widget)' }}
+          >
+            <TaskQueueControl />
+          </div>
+        )}
         {dragOverlay && (
           <div
             className="fixed inset-0 z-[var(--z-drag-overlay)] flex items-center justify-center pointer-events-none"

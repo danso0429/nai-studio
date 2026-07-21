@@ -9,7 +9,9 @@ import {
   backend,
   taskQueueService,
   imageService,
+  isMobile,
 } from '../models';
+import { resolveLayout } from '../models/layoutTemplates';
 
 const TobBar = () => {
   const [loggedIn, setLoggedIn] = useState(false);
@@ -60,7 +62,9 @@ const TobBar = () => {
     return () => window.removeEventListener('shortcut-action', handler);
   }, []);
 
+  const layout = resolveLayout(appState.uiLayoutTemplate, isMobile);
   return (
+    <>
     <div className="titlebar-drag flex border-b line-color px-3 py-2 items-center select-none gap-2">
       <div className="titlebar-no-drag gap-3 hidden md:flex text-sky-500 font-bold dark:text-white">
         SDStudio
@@ -126,6 +130,12 @@ const TobBar = () => {
         />
       )}
     </div>
+    {!isMobile && layout.sessionSelectTop && (
+      <div className="px-3 py-2 border-b line-color bg-[var(--c-surface-2)]">
+        <SessionSelect />
+      </div>
+    )}
+    </>
   );
 };
 

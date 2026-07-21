@@ -65,6 +65,7 @@ export interface Config {
   quickMenu?: string[];
   quickMenuButton?: boolean;
   uiCompanionSlots?: Record<string, string[]>;
+  uiLayoutTemplate?: string;
 }
 
 export type ToolbarButtonPlacement = 'default' | 'pinned' | 'menu' | 'hidden';
