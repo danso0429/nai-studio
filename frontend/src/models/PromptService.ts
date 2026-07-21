@@ -393,6 +393,61 @@ async function dfsPrompts<T, R>(
   return results;
 }
 
+export interface CombinationSegment {
+  columnIndex: number;
+  piece: PromptPiece;
+}
+
+export type Combination = CombinationSegment[];
+
+// 현재 Remote 생성 경로는 완전히 빈 열을 건너뛴 것처럼 취급한다. 미리보기와
+// 개수 계산도 그 규칙을 공유해 UI 숫자와 실제 생성 수가 갈라지지 않게 한다.
+export function enumerateCombinations(
+  scene: Pick<Scene, 'slots'>,
+  limit?: number,
+): Combination[] {
+  const slots = scene.slots.filter((slot) => slot.length > 0);
+  const results: Combination[] = [];
+  const current: Combination = [];
+  const traverse = (level: number) => {
+    if (limit !== undefined && results.length >= limit) return;
+    if (level === slots.length) {
+      results.push([...current]);
+      return;
+    }
+    const originalColumnIndex = scene.slots.indexOf(slots[level]);
+    for (const piece of slots[level]) {
+      if (limit !== undefined && results.length >= limit) return;
+      if (piece.enabled === undefined || piece.enabled) {
+        current.push({ columnIndex: originalColumnIndex, piece });
+        traverse(level + 1);
+        current.pop();
+      }
+    }
+  };
+  traverse(0);
+  return results;
+}
+
+export function combinationCount(scene: Pick<Scene, 'slots'>): number {
+  const populated = scene.slots.filter((slot) => slot.length > 0);
+  if (populated.length === 0) return 0;
+  let total = 1;
+  for (const slot of populated) {
+    total *= slot.filter((piece) => piece.enabled === undefined || piece.enabled)
+      .length;
+    if (total === 0) return 0;
+  }
+  return total;
+}
+
+export function combinationMiddlePrompt(combo: Combination): string {
+  return combo
+    .map((segment) => segment.piece.prompt)
+    .filter((prompt) => prompt && prompt.trim() !== '')
+    .join(', ');
+}
+
 export const createSDPrompts = async (
   session: Session,
   preset: any,

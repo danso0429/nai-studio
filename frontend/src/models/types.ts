@@ -188,6 +188,8 @@ export interface IPromptPiece {
   id: string;
   enabled?: boolean;
   uc?: string; // 조합 단위 네거티브 — 같은 조합에 들어간 모든 piece의 uc를 합쳐 base negative에 추가. 2026-05-13.
+  // 조합 목록에서 사용하는 표시 이름. 생성 프롬프트에는 영향을 주지 않는다.
+  name?: string;
 }
 
 export class PromptPiece implements IPromptPiece {
@@ -196,6 +198,7 @@ export class PromptPiece implements IPromptPiece {
   @observable accessor id: string = '';
   @observable accessor enabled: boolean | undefined = undefined;
   @observable accessor uc: string = '';
+  @observable accessor name: string | undefined = undefined;
 
   static fromJSON(json: IPromptPiece): PromptPiece {
     const promptPiece = new PromptPiece();
@@ -215,6 +218,7 @@ export class PromptPiece implements IPromptPiece {
       id: this.id,
       enabled: this.enabled,
       uc: this.uc,
+      ...(this.name ? { name: this.name } : {}),
     };
   }
 }

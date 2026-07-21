@@ -22,6 +22,7 @@ import {
   FaToggleOn,
   FaToggleOff,
   FaQuestionCircle,
+  FaEdit,
 } from 'react-icons/fa';
 import PromptEditTextArea from './PromptEditTextArea';
 import { UnionPreSetEditor } from './PreSetEditor';
@@ -52,6 +53,7 @@ import {
 import { appState } from '../models/AppService';
 import { observer } from 'mobx-react-lite';
 import { runInAction } from 'mobx';
+import { CombinationList, pieceLabel } from './CombinationList';
 
 interface Props {
   scene: Scene;
@@ -399,6 +401,15 @@ const CharacterPromptsEditor = observer(
 export const SlotPiece = observer(
   ({ scene, piece, removePiece, moveSlotPiece, style }: SlotPieceProps) => {
     const [showCharacterPrompts, setShowCharacterPrompts] = useState(false);
+    const [editingName, setEditingName] = useState(false);
+    const [nameDraft, setNameDraft] = useState('');
+    const columnIndex = scene.slots.findIndex((slot) => slot.includes(piece));
+    const rowIndex =
+      columnIndex >= 0 ? scene.slots[columnIndex].indexOf(piece) : 0;
+    const commitName = () => {
+      piece.name = nameDraft.trim() || undefined;
+      setEditingName(false);
+    };
     const [{ isDragging }, drag, preview] = useDrag(
       () => ({
         type: 'slot',
@@ -448,6 +459,38 @@ export const SlotPiece = observer(
             />
           </FloatView>
         )}
+
+        <div className="mb-1 flex items-center gap-1 select-none">
+          {editingName ? (
+            <input
+              autoFocus
+              className="gray-input text-xs px-1 py-0.5 w-full min-w-0"
+              value={nameDraft}
+              placeholder={pieceLabel(piece, columnIndex, rowIndex)}
+              onChange={(event) => setNameDraft(event.currentTarget.value)}
+              onBlur={commitName}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') commitName();
+                if (event.key === 'Escape') setEditingName(false);
+              }}
+            />
+          ) : (
+            <button
+              className="flex items-center gap-1 px-1 py-0.5 rounded text-xs text-sub max-w-full"
+              title="조각 이름 편집"
+              onClick={() => {
+                if (!moveSlotPiece) return;
+                setNameDraft(piece.name ?? '');
+                setEditingName(true);
+              }}
+            >
+              <span className="truncate">
+                {pieceLabel(piece, columnIndex, rowIndex)}
+              </span>
+              <FaEdit size={11} className="flex-none" />
+            </button>
+          )}
+        </div>
 
         {/* 본인 페인 (F1, F2, P12 #7): 모바일 h-12 w-28(48×112px)이 너무 작아서 prompt
             텍스트 overflow → 네거태그 영역까지 침범 + 슬롯 크기 늘려달라 요청. 모바일
@@ -1065,6 +1108,7 @@ const SlotEndDropZone = observer(
 );
 
 export const SlotEditor = observer(({ scene }: SlotEditorProps) => {
+  const [detailedPreview, setDetailedPreview] = useState(false);
   useEffect(() => {
     // Components M: MobX observable mutate은 runInAction 안에서. 옛 코드는 reaction마다
     // 개별 dispatch — strict mode warning + 비최적. 한 action으로 batching.
@@ -1170,26 +1214,46 @@ export const SlotEditor = observer(({ scene }: SlotEditorProps) => {
       {(scene as unknown as Scene).type === 'scene' && (
         <ToggleGroupEditor scene={scene as unknown as Scene} />
       )}
-      <div className="flex flex-col md:flex-row w-full">
-        {scene.slots.map((slot, slotIndex) => (
-          <SlotColumn
-            key={slotIndex}
+      <div className="flex flex-col md:flex-row w-full min-h-0">
+        <div className="flex flex-col md:flex-row flex-1 min-w-0 overflow-auto">
+          {scene.slots.map((slot, slotIndex) => (
+            <SlotColumn
+              key={slotIndex}
+              scene={scene}
+              slot={slot}
+              slotIndex={slotIndex}
+              moveToColumn={moveSlotPieceToColumn}
+              removePiece={removePiece}
+              onRemoveColumn={removeColumn}
+            />
+          ))}
+          <SlotEndDropZone
             scene={scene}
-            slot={slot}
-            slotIndex={slotIndex}
-            moveToColumn={moveSlotPieceToColumn}
-            removePiece={removePiece}
-            onRemoveColumn={removeColumn}
+            onAddColumn={() => {
+              // 빈 열 생성 — piece를 드래그해 채우거나 하단 + 버튼으로 행 추가.
+              scene.slots.push([]);
+            }}
+            moveToNew={moveSlotPieceToNewColumn}
           />
-        ))}
-        <SlotEndDropZone
-          scene={scene}
-          onAddColumn={() => {
-            // 빈 열 생성 — piece를 드래그해 채우거나 하단 + 버튼으로 행 추가.
-            scene.slots.push([]);
-          }}
-          moveToNew={moveSlotPieceToNewColumn}
-        />
+        </div>
+        <div className="md:w-64 flex-none border-t md:border-t-0 md:border-l line-color max-h-72 md:max-h-none overflow-y-auto">
+          <div className="sticky top-0 z-10 flex items-center gap-1 p-2 bg-[var(--c-surface)] border-b line-color">
+            <span className="text-xs font-semibold">조합 미리보기</span>
+            <button
+              className={`ml-auto round-button text-xs ${detailedPreview ? 'back-gray' : 'back-sky'}`}
+              onClick={() => setDetailedPreview(false)}
+            >
+              간략
+            </button>
+            <button
+              className={`round-button text-xs ${detailedPreview ? 'back-sky' : 'back-gray'}`}
+              onClick={() => setDetailedPreview(true)}
+            >
+              자세히
+            </button>
+          </div>
+          <CombinationList scene={scene} detailed={detailedPreview} />
+        </div>
       </div>
     </div>
   );
