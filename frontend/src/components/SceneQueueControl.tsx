@@ -27,7 +27,8 @@ import {
   getMainImage,
   dataUriToBase64,
 } from '../models/ImageService';
-import { getSceneKey, queueI2IWorkflow, queueMirrorWorkflow, queueWorkflow } from '../models/TaskQueueService';
+import { getSceneKey, queueWorkflow } from '../models/TaskQueueService';
+import { queueScene } from '../models/sceneQueueActions';
 import {
   GenericScene,
   ContextMenuType,
@@ -71,40 +72,6 @@ const createMissingPiecesForSession = (
   }
   sessionService.markDirty(session.name);
   sessionService.reloadPieceLibraryDB(session);
-};
-
-export const queueScene = async (
-  session: Session,
-  scene: GenericScene,
-  samples: number,
-) => {
-  if (scene.type === 'scene') {
-    await queueWorkflow(
-      session,
-      session.selectedWorkflow!,
-      scene,
-      samples,
-    );
-  } else {
-    const inpaintScene = scene as InpaintScene;
-    if (inpaintScene.workflowType === 'SDMirror') {
-      await queueMirrorWorkflow(
-        session,
-        inpaintScene.workflowType,
-        inpaintScene.preset,
-        inpaintScene,
-        samples,
-      );
-    } else {
-      await queueI2IWorkflow(
-        session,
-        scene.workflowType,
-        scene.preset,
-        scene,
-        samples,
-      );
-    }
-  }
 };
 
 interface SceneCellProps {

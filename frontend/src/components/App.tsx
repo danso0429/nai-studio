@@ -10,7 +10,8 @@ import {
 import { extractApiError, buildDanbooruSearchUrl } from '../models/util';
 import SessionSelect from './SessionSelect';
 import PreSetEditor from './PreSetEditor';
-import { SceneCell, queueScene } from './SceneQueueControl';
+import { SceneCell } from './SceneQueueControl';
+import { queueScene } from '../models/sceneQueueActions';
 import TaskQueueControl, { TaskQueueProgress, TaskQueueControls } from './TaskQueueControl';
 import TobBar from './TobBar';
 import AlertWindow from './AlertWindow';

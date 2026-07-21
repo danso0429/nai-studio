@@ -9,6 +9,12 @@ export interface AppStateRefValue {
     text: string;
     items?: Array<{ text: string; value: string }>;
   }): Promise<string | undefined>;
+  applyCharacterPresetToSession(
+    session: any,
+    workflowType: string,
+    preset: any,
+    mode: 'easy' | 'character',
+  ): boolean;
 }
 
 let appStateRef: AppStateRefValue | null = null;

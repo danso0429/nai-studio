@@ -10,8 +10,9 @@ import {
 import { appState } from '../models/AppService';
 import ModalOverlay from './ModalOverlay';
 import PromptEditTextArea from './PromptEditTextArea';
+import BatchCreatePanel from './BatchCreatePanel';
 
-type Tab = 'project' | 'scene';
+type Tab = 'project' | 'scene' | 'batch';
 
 function downloadText(filename: string, text: string): void {
   const blob = new Blob([text], { type: 'application/json' });
@@ -237,6 +238,13 @@ const TemplateManagerModal = observer(
           >
             씬 템플릿
           </button>
+          <button
+            className={`round-button ${tab === 'batch' ? 'back-sky' : 'back-gray'}`}
+            disabled={!selected}
+            onClick={() => setTab('batch')}
+          >
+            일괄 생성
+          </button>
         </div>
 
         {tab === 'project' ? (
@@ -320,7 +328,7 @@ const TemplateManagerModal = observer(
               <div className="flex items-center justify-center text-sub">새 템플릿을 만들어주세요.</div>
             )}
           </div>
-        ) : (
+        ) : tab === 'scene' ? (
           <div className="flex flex-col gap-3 min-h-[45vh]">
             <div className="flex flex-wrap gap-2">
               <button className="round-button back-green" onClick={() => createSceneTemplate(true)}>빈 템플릿 만들기</button>
@@ -359,7 +367,9 @@ const TemplateManagerModal = observer(
               </div>
             ))}
           </div>
-        )}
+        ) : selected ? (
+          <BatchCreatePanel templateId={selected.id} />
+        ) : null}
       </ModalOverlay>
     );
   },

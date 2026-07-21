@@ -1,12 +1,17 @@
 import { observable, runInAction } from 'mobx';
 import { DebouncedJsonStore } from './DebouncedJsonStore';
 import {
+  globalCharacterPresetService,
   projectTemplateService,
   sessionService,
   trashService,
 } from '.';
 import { getAppState } from './appStateRef';
 import { genericSceneFromJSON, Session } from './types';
+import {
+  BatchCreateItem,
+  resolveBatchName,
+} from './batchCreatePlan';
 
 export type TemplateProtectArea = 'characterPresets' | 'scenes';
 
@@ -287,7 +292,7 @@ export class TemplateService extends DebouncedJsonStore {
       protectAreas?: TemplateProtectArea[];
       replaceExisting?: boolean;
     } = {},
-  ): Promise<void> {
+  ) {
     const previous = this.getApplication(session.name, templateId);
     const protectedSet = new Set(options.protectAreas || previous?.protectAreas || []);
     if (options.replaceExisting && previous) {
@@ -311,12 +316,20 @@ export class TemplateService extends DebouncedJsonStore {
       referencePaths: result.referencePaths,
       ...(protectedSet.size ? { protectAreas: [...protectedSet] } : {}),
     });
+    return result;
   }
 
   async createProject(
     name: string,
     folder: string | null,
     templateId?: string | null,
+    options?: {
+      inherited?: boolean;
+      batchAxes?: {
+        charPresetId?: string;
+        sceneTemplateName?: string;
+      };
+    },
   ): Promise<Session> {
     await sessionService.add(name);
     if (folder) await sessionService.moveToFolder(name, folder);
@@ -327,19 +340,103 @@ export class TemplateService extends DebouncedJsonStore {
       : await this.resolveFolderTemplate(folder);
     const resolvedTemplateId = templateId || inherited?.templateId;
     if (resolvedTemplateId) {
-      await this.applyProjectTemplate(session, resolvedTemplateId, {
-        inherited: Boolean(inherited && !templateId),
+      const batch = options?.batchAxes;
+      const result = await this.applyProjectTemplate(session, resolvedTemplateId, {
+        inherited:
+          options?.inherited ?? Boolean(inherited && !templateId),
+        protectAreas: batch ? ['characterPresets', 'scenes'] : undefined,
       });
+      if (result.presetInstance) {
+        session.selectedWorkflow = {
+          workflowType: result.presetInstance.type,
+          presetName: result.presetInstance.name,
+        };
+      }
       const template = projectTemplateService.get(resolvedTemplateId);
-      if (template?.scenes.length) {
+      if (!batch && template?.scenes.length) {
         session.scenes.clear();
         for (const source of template.scenes) {
           const scene = genericSceneFromJSON(JSON.parse(JSON.stringify(source)));
           if (scene) session.addScene(scene);
         }
       }
+      if (batch?.sceneTemplateName) {
+        const source = await sessionService.get(batch.sceneTemplateName);
+        if (!source || sessionService.getHiddenProjectRole(batch.sceneTemplateName) !== 'scene-template') {
+          throw new Error(`씬 템플릿을 찾을 수 없습니다: ${batch.sceneTemplateName}`);
+        }
+        session.scenes.clear();
+        for (const sourceScene of source.getScenes('scene')) {
+          const scene = genericSceneFromJSON(sourceScene.toJSON());
+          if (!scene) continue;
+          scene.imageMap = [];
+          scene.mains = [];
+          session.addScene(scene);
+        }
+      }
+      if (batch?.charPresetId) {
+        const character = await globalCharacterPresetService.instantiateIntoSession(
+          session,
+          batch.charPresetId,
+        );
+        const workflowType =
+          session.selectedWorkflow?.workflowType || 'SDImageGenEasy';
+        getAppState().applyCharacterPresetToSession(
+          session,
+          workflowType,
+          character,
+          workflowType === 'SDImageGenEasy' ? 'easy' : 'character',
+        );
+      }
     }
     return session;
+  }
+
+  async batchCreateFromTemplate(plan: {
+    templateId: string;
+    folder: string;
+    items: BatchCreateItem[];
+    onProgress?: (done: number, total: number, current: string) => void;
+    shouldCancel?: () => boolean;
+  }): Promise<{
+    created: string[];
+    failed: { name: string; error: string }[];
+    cancelled: boolean;
+  }> {
+    const created: string[] = [];
+    const failed: { name: string; error: string }[] = [];
+    const taken = new Set(sessionService.list());
+    let cancelled = false;
+    let done = 0;
+    for (const item of plan.items) {
+      if (plan.shouldCancel?.()) {
+        cancelled = true;
+        break;
+      }
+      const name = resolveBatchName(item.name, taken);
+      plan.onProgress?.(done, plan.items.length, name);
+      try {
+        const target = item.subfolder
+          ? [plan.folder, item.subfolder].filter(Boolean).join('/')
+          : plan.folder;
+        if (target && !sessionService.folderList.includes(target)) {
+          await sessionService.createFolder(target);
+        }
+        await this.createProject(name, target || null, plan.templateId, {
+          inherited: true,
+          batchAxes: {
+            charPresetId: item.charPresetId,
+            sceneTemplateName: item.sceneTemplateName,
+          },
+        });
+        created.push(name);
+      } catch (error: any) {
+        failed.push({ name, error: error?.message || String(error) });
+      }
+      done += 1;
+      plan.onProgress?.(done, plan.items.length, name);
+    }
+    return { created, failed, cancelled };
   }
 
   async pickForCreate(): Promise<string | null | undefined> {
