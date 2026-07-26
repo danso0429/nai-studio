@@ -32,6 +32,23 @@ test('mobile prompt expansion requires direct editor pointer intent and exposes 
   assert.match(prompt, /aria-label=\{fullScreen \? '프롬프트 편집 닫기'/);
 });
 
+test('top and bottom toast rows stay independently anchored with translucent click-through surfaces', () => {
+  const app = source('frontend/src/components/App.tsx');
+  const alert = source('frontend/src/components/AlertWindow.tsx');
+  const progress = source('frontend/src/components/ProgressWindow.tsx');
+  const css = source('frontend/src/components/App.css');
+
+  assert.doesNotMatch(app, /messagesCount=\{/);
+  assert.doesNotMatch(progress, /messagesCount/);
+  assert.match(progress, /const topPx = 8 \+ topOffset/);
+  assert.match(alert, /toast-surface/);
+  assert.match(progress, /toast-surface/);
+  assert.doesNotMatch(progress, /itemCls \+ ' pointer-events-auto'/);
+  assert.match(progress, /className="pointer-events-auto[^"]*"/);
+  assert.match(css, /\.toast-surface[\s\S]*var\(--c-surface-2\) 78%/);
+  assert.match(css, /backdrop-filter: blur\(4px\)/);
+});
+
 test('scene editor defaults to focused prompt inputs with a non-destructive legacy switch', () => {
   const scene = source('frontend/src/components/SceneEditor.tsx');
   const preset = source('frontend/src/components/PreSetEditor.tsx');

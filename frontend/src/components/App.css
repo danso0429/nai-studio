@@ -451,6 +451,22 @@ html.finish-classic .true-dark {
   z-index: var(--z-toast);
 }
 
+/* 상·하단 toast는 뒤 UI 위치가 보이도록 반투명하게 유지한다. 표면 자체는
+   pointer-events-none 계층에 있고, ProgressWindow의 취소 버튼만 입력을 받는다. */
+.toast-surface {
+  background-color: rgba(255, 255, 255, 0.78);
+  background-color: color-mix(in srgb, var(--c-surface-2) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-text) 14%, transparent);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.dark .toast-surface {
+  /* color-mix 미지원 브라우저용 dark fallback. 지원 환경에서는 위 테마 토큰이 우선한다. */
+  background-color: rgba(30, 41, 59, 0.78);
+  background-color: color-mix(in srgb, var(--c-surface-2) 78%, transparent);
+}
+
 .prompt-full {
   width: 60vw;
   left: 17vw;

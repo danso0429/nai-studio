@@ -1310,11 +1310,9 @@ export const App = observer(() => {
         <GlobalPresetPickerOverlay />
         <ProgressWindow
           dialogs={appState.progressDialogs}
-          messagesCount={appState.messages.length}
         />
         <ProgressWindow
           dialogs={appState.pinnedProgressDialogs}
-          messagesCount={appState.messages.length}
           pinned
           topOffset={appState.progressDialogs.length > 0 ? 48 : 0}
         />

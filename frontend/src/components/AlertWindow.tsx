@@ -15,7 +15,7 @@ const AlertWindow = observer(() => {
       {messages.map((m) => (
         <div
           key={m.id}
-          className="px-3 py-2 rounded-md shadow-lg bg-white dark:bg-slate-800 text-black dark:text-white text-xs sm:text-sm break-keep"
+          className="toast-surface px-3 py-2 rounded-md shadow-lg text-black dark:text-white text-xs sm:text-sm break-keep"
         >
           {m.text}
         </div>
