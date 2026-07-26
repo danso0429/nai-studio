@@ -49,5 +49,5 @@
 
 - source 테스트·tsc·cycle 측정을 통과했다.
 - source L2.5는 `.code-review/runtime-audit-2026-07-22-sdstudio-v5-cycle.md`에 완료했다.
-- checkpoint `6abf3bb`, root `update.sh` production build, PM2 재시작, 새 번들 대상 L2를 통과했다.
+- source checkpoint `6abf3bb`, production checkpoint `7a9a702`, root `update.sh` production build, PM2 재시작, 새 번들 대상 L2를 통과했다.
 - 실제 사용자 L3와 그 OK 뒤 stable release는 아직 수행하지 않았다.

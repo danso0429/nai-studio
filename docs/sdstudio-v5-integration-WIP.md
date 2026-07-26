@@ -161,7 +161,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - S0~S4 구현과 source 자동검증을 완료했다. 상세 정본은 `docs/cycle-reduction-WIP.md`다.
 - 통합 직후 baseline은 source 143, raw 71 / `[39,2,2]`, runtime `[31,2,2]` / internal edges 104 / direct pairs 21이었다.
 - 최종 관찰값은 source 145, raw 18 / `[22,7]`, runtime SCC `[]` / internal edges 0 / direct pairs 0이다. type-only edge가 포함된 raw 지표는 회귀 참고값으로 유지하고 runtime 완료 판정과 분리한다.
-- TypeScript 오류 0, source test 32/32, cycle fixture, server syntax 검사를 통과했다. source L2.5와 production 증분 검토는 `.code-review/runtime-audit-2026-07-22-sdstudio-v5-cycle.md`에 완료했다. checkpoint `6abf3bb`에서 production build·PM2 재시작·새 번들 L2를 통과했고 실제 사용자 L3만 남았다.
+- TypeScript 오류 0, source test 32/32, cycle fixture, server syntax 검사를 통과했다. source L2.5와 production 증분 검토는 `.code-review/runtime-audit-2026-07-22-sdstudio-v5-cycle.md`에 완료했다. source checkpoint `6abf3bb`, production checkpoint `7a9a702`에서 build·PM2 재시작·새 번들 L2를 통과했고 실제 사용자 L3만 남았다.
 
 ## 5. 게이트
 
@@ -180,3 +180,18 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - build warning: `models/index.ts`·`AppService.ts`의 static/dynamic 혼용은 별도 chunk로 분리되지 않으며, main JS는 1.75MB로 500kB warning을 유지한다. build 실패나 새 runtime SCC는 아니지만 초기 로드 성능은 실제 L3 surface로 남긴다.
 - L2: `/api/build-info` 200과 필수 필드, `/api/fs/list?path=projects`의 안전한 문자열 배열, 실제 project JSON 1개의 `/api/fs/read` 200·parse를 확인했다. 프로젝트 개수는 gate로 사용하지 않았다.
 - 실제 production storage migration·cleanup·rollback은 실행하지 않았다.
+
+## 6. 실제 사용자 L3 — 2026-07-26 요청
+
+모든 항목은 iPhone 홈 화면 PWA에서 수행한다. 데이터 생성·변환 항목은 기존 프로젝트가 아닌 이미지 포함 복사본/시험용 프로젝트를 사용한다.
+
+1. **저장소 전환 안전성** — 첫 로드에서 `저장소 v2 전환`이 보이면 `나중에 하기`를 누른다. 자동 이동 없이 기존 프로젝트가 열리고 이미지가 보여야 한다. `백업 없이 전환`, `백업 후 전환`, cleanup·rollback은 이번 L3에서 누르지 않는다.
+2. **cold load와 모바일 기본 구조** — PWA를 앱 전환기에서 완전히 닫고 다시 연다. 흰 화면·runtime-port 오류 없이 마지막 프로젝트와 탭이 복원되고, 하단 탭과 safe-area가 겹치거나 잘리지 않아야 한다.
+3. **프롬프트·결과 흐름** — 시험용 씬의 연필 버튼 `중간 프롬프트 퀵 수정`을 열어 문구를 바꾸고 닫았다 다시 열어 값이 유지되는지 본다. 기존 결과 이미지를 열어 좌우로 한 번씩 스와이프하고 닫은 뒤 `이미지변형` 탭도 열려야 한다.
+4. **Quick 생성·퀵 메뉴** — `퀵 생성` 탭에서 해상도를 선택하고 1장 생성한다. 결과가 Quick 히스토리에 나타나고 원래 프로젝트가 바뀌지 않아야 한다. 번개 플로팅 버튼은 짧게 탭하면 `퀵 메뉴`, 0.4초 이상 길게 누른 뒤 드래그하면 이동하며, PWA를 다시 열어도 마지막 위치를 유지해야 한다.
+5. **화면 배치·테마·툴바** — 환경설정 `화면 배치`에서 `modern` 또는 `sidebar`를 선택해 저장한다. iPhone에서는 설명대로 클래식 배치로 안전하게 폴백하고 버튼이 사라지지 않아야 한다. 테마 프리셋 하나를 적용해 modal·입력·선택 버튼 글자가 식별 가능하고, `화면 편집`을 열고 닫아도 툴바가 사라지지 않아야 한다.
+6. **템플릿·일괄 생성** — 프로젝트 선택 화면의 `프로젝트·씬 템플릿 관리`에서 시험용 프로젝트로 `새로 만들기`, `현재 씬 전체로 만들기`를 각각 한 번 수행한다. `일괄 생성`에서 캐릭터 프리셋 1개 × 씬 템플릿 1개 조합으로 프로젝트 1개를 만들되 `생성한 프로젝트 예약 등록`은 누르지 않는다. 생성된 프로젝트가 열리고 원본 시험 프로젝트의 씬·이미지가 그대로여야 한다.
+7. **WebP 소유권** — 이미지 포함 시험용 복사 프로젝트에서 이미지가 있는 씬 하나만 선택하고 `WebP` → 품질 80 → 확인을 누른다. 완료 뒤 이미지가 열리고 프로젝트를 닫았다 다시 열어도 유지돼야 한다. 원본 프로젝트 이미지는 그대로여야 한다.
+8. **두 화면 lease** — PWA에서 시험 프로젝트를 연 상태로 Safari의 같은 주소에서 같은 프로젝트를 연다. 두 번째 화면에서 `읽기 전용 미러로 열기`를 선택하면 읽기 전용 안내가 보이고 구조 편집이 차단돼야 한다. 첫 화면을 닫은 뒤 두 번째 화면의 `소유권 다시 확인`을 누르면 편집 가능 상태로 전환돼야 한다.
+
+응답은 실제 결과에 따라 `L3 OK` 또는 `L3 FAIL: 번호/조작/보인 증상`으로 받는다. 일부 항목 미실행은 OK로 간주하지 않는다.
