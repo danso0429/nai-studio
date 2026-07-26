@@ -202,4 +202,4 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - `+chunk` 선택 뒤 caret 복원 focus가 모바일 직접 탭과 구분되지 않아 편집 확대창이 강제로 열렸다. contenteditable 본문의 실제 pointer-down 직후 focus만 자동 확대하도록 intent를 분리했다.
 - 프로젝트 템플릿의 상위·하위·네거티브 입력에 일반 프롬프트와 같은 `+chunk` 선택기를 연결했다.
 - 모바일 확대창은 `visualViewport`의 약 72%, 최대 480px 높이로 가운데 정렬하고 긴 프롬프트는 내부 스크롤을 유지했다. 닫기 버튼은 44×44px 터치 영역과 명시적인 접근성 라벨을 사용한다.
-- source 검증은 TypeScript 오류 0, test 32/32, diff check, runtime SCC `[]` / 내부 edge 0 / direct pair 0을 통과했다. production build·L2와 위 3건의 실제 iPhone 재검사는 아직 수행하지 않았다.
+- source 검증은 TypeScript 오류 0, test 32/32, diff check, runtime SCC `[]` / 내부 edge 0 / direct pair 0을 통과했다. source commit `a247f29`의 root `update.sh` production build·PM2 재시작·index와 hash asset 200·새 번들 L2도 통과했다. 위 3건의 실제 iPhone 재검사만 남았다.
