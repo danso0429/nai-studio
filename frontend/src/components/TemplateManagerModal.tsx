@@ -330,15 +330,16 @@ const TemplateManagerModal = observer(
                       ['backPrompt', '하위 프롬프트'],
                       ['uc', '네거티브'],
                     ].map(([key, label]) => (
-                      <label key={key} className="text-xs text-sub">
-                        {label}
-                        <div className="h-28 mt-1">
+                      <div key={key} className="h-32 min-h-0">
                           <PromptEditTextArea
                             value={selected.preset?.[key] || ''}
                             onChange={(value) => projectTemplateService.patchPreset(selected.id, { [key]: value })}
+                            chunkInsert
+                            chunkLabel={label}
+                            headerLabel={label}
+                            headerFull
                           />
-                        </div>
-                      </label>
+                      </div>
                     ))}
                   </div>
                 </section>

@@ -479,8 +479,11 @@ html.finish-classic .true-dark {
 
 @media screen and (max-width: 768px) {
   .prompt-full-container {
-    width: 90vw;
-    left: 0;
+    width: 92vw;
+    left: 4vw;
+    top: 15vh;
+    height: 70vh;
+    max-height: 30rem;
   }
 }
 

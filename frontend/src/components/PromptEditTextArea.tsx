@@ -1903,6 +1903,10 @@ const PromptEditTextArea = observer(
     const onChangeRef = useLatest(onChange);
     const [fullScreen, setFullScreen] = useState(false);
     const [chunkSheetOpen, setChunkSheetOpen] = useState(false);
+    // 모바일 자동 확대는 사용자가 contenteditable 본문을 직접 누른 focus만 허용한다.
+    // chunk 선택 뒤 caret 복원, imperative focus, 헤더 버튼 focus까지 같은 onFocus로
+    // 취급하면 +chunk 삽입만으로 확대창이 열리는 회귀가 생긴다.
+    const directEditorPointerRef = useRef(false);
     // 모바일 확대 시 키보드 위 가시영역(visualViewport)에 박스를 맞추기 위한 rect.
     const [vvRect, setVvRect] = useState<{ top: number; height: number } | null>(
       null,
@@ -2061,14 +2065,35 @@ const PromptEditTextArea = observer(
     };
 
     const onFoucs = () => {
+      const directEditorPointer = directEditorPointerRef.current;
+      directEditorPointerRef.current = false;
       // 모바일: 탭 → 자동 확대. 확대 전환은 에디터를 remount시켜 iOS 키보드가 내려가므로,
       // flushSync로 동기 렌더 후 *같은 탭 제스처 안에서* 새 에디터에 즉시 재포커스 → 키보드 유지.
       // (!fullScreen 가드: 이 핸들러는 mount 시점 fullScreen을 캡처 — 첫(false) 에디터만 전환,
       //  전환 후 mount된 새 에디터의 핸들러는 fullScreen=true를 캡처해 재진입 skip.)
-      if (isMobile && !fullScreen) {
+      if (isMobile && !fullScreen && directEditorPointer) {
         flushSync(() => setFullScreen(true));
         editorRef.current?.focusEditor?.();
       }
+    };
+
+    // window capture가 이전 입력 탭 intent를 먼저 지우고, 실제 editor 본문에서 시작한
+    // pointer만 아래 container capture가 다시 true로 만든다. 버튼/다른 modal을 누른
+    // 뒤 programmatic caret 복원이 와도 stale intent를 재사용하지 않는다.
+    useEffect(() => {
+      const clearDirectEditorPointer = () => {
+        directEditorPointerRef.current = false;
+      };
+      window.addEventListener('pointerdown', clearDirectEditorPointer, true);
+      return () => {
+        window.removeEventListener('pointerdown', clearDirectEditorPointer, true);
+      };
+    }, []);
+
+    const markDirectEditorPointer = (event: any) => {
+      const target = event.target as HTMLElement | null;
+      directEditorPointerRef.current =
+        !!target?.closest?.('[contenteditable="true"]');
     };
 
     const flagRef = useRef(false);
@@ -2117,6 +2142,13 @@ const PromptEditTextArea = observer(
     if (fullScreen) bgColor = 'bg-[var(--c-input-bg)] shadow-lg';
 
     const splitMode = fullScreen && tags.length > 0;
+    const mobilePromptHeight =
+      isMobile && vvRect
+        ? Math.min(
+            Math.max(120, vvRect.height - 16),
+            Math.max(220, Math.min(480, vvRect.height * 0.72)),
+          )
+        : null;
     // +chunk / 확대(fullScreen일 땐 닫기 X) 버튼. headerLabel이면 라벨 줄(헤더)에서, 아니면
     // 입력창 위 absolute에서 렌더. fullScreen 오버레이에선 항상 absolute(닫기 X).
     const buttonsRow = (
@@ -2143,9 +2175,15 @@ const PromptEditTextArea = observer(
             flagRef.current = true;
             if (!disabled) setFullScreen(!fullScreen);
           }}
-          className="text-gray-500 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300 opacity-50"
+          className={
+            fullScreen
+              ? 'w-11 h-11 rounded-lg border line-color bg-[var(--c-surface-2)] text-default shadow flex items-center justify-center active:brightness-90'
+              : 'text-gray-500 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300 opacity-50'
+          }
+          aria-label={fullScreen ? '프롬프트 편집 닫기' : '프롬프트 편집 확대'}
+          title={fullScreen ? '프롬프트 편집 닫기' : '프롬프트 편집 확대'}
         >
-          {!fullScreen ? <FaExpand></FaExpand> : <FaTimes></FaTimes>}
+          {!fullScreen ? <FaExpand /> : <FaTimes size={22} />}
         </button>
       </>
     );
@@ -2206,10 +2244,10 @@ const PromptEditTextArea = observer(
             style={
               isMobile && vvRect
                 ? {
-                    top: vvRect.top + 6,
-                    left: '3vw',
-                    width: '94vw',
-                    height: vvRect.height - 12,
+                    top: vvRect.top + (vvRect.height - mobilePromptHeight!) / 2,
+                    left: '4vw',
+                    width: '92vw',
+                    height: mobilePromptHeight!,
                     maxHeight: 'none',
                   }
                 : undefined
@@ -2218,11 +2256,12 @@ const PromptEditTextArea = observer(
             <div
               ref={innerRef}
               onClick={handleClick}
+              onPointerDownCapture={markDirectEditorPointer}
               spellCheck={false}
               onDragStart={(event) => event.preventDefault()}
               className={
                 bgColor +
-                ' p-2 overflow-hidden rounded-lg relative ' +
+                ' p-2 pt-12 overflow-hidden rounded-lg relative ' +
                 (splitMode ? 'prompt-half' : 'w-full h-full')
               }
             >
@@ -2258,6 +2297,7 @@ const PromptEditTextArea = observer(
       <div
         ref={setFieldBoxRef}
         onClick={handleClick}
+        onPointerDownCapture={markDirectEditorPointer}
         spellCheck={false}
         onDragStart={(event) => event.preventDefault()}
         className={

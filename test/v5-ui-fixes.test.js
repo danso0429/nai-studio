@@ -22,6 +22,16 @@ test('expanded prompt follows the configured input background token', () => {
   assert.doesNotMatch(prompt, /if \(fullScreen\) bgColor = 'bg-white dark:bg-slate-600 shadow-lg'/);
 });
 
+test('mobile prompt expansion requires direct editor pointer intent and exposes a large close target', () => {
+  const prompt = source('frontend/src/components/PromptEditTextArea.tsx');
+  assert.match(prompt, /directEditorPointerRef/);
+  assert.match(prompt, /!fullScreen && directEditorPointer/);
+  assert.match(prompt, /onPointerDownCapture=\{markDirectEditorPointer\}/);
+  assert.match(prompt, /vvRect\.height \* 0\.72/);
+  assert.match(prompt, /w-11 h-11/);
+  assert.match(prompt, /aria-label=\{fullScreen \? '프롬프트 편집 닫기'/);
+});
+
 test('scene editor defaults to focused prompt inputs with a non-destructive legacy switch', () => {
   const scene = source('frontend/src/components/SceneEditor.tsx');
   const preset = source('frontend/src/components/PreSetEditor.tsx');

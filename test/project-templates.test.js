@@ -42,6 +42,13 @@ test('scene templates are hidden project roles with shallow file transfer', () =
   assert.match(manager, /씬 템플릿/);
 });
 
+test('project template prompt fields expose the shared chunk insertion controls', () => {
+  const manager = read('frontend/src/components/TemplateManagerModal.tsx');
+  assert.match(manager, /chunkInsert/);
+  assert.match(manager, /chunkLabel=\{label\}/);
+  assert.match(manager, /headerLabel=\{label\}/);
+});
+
 test('new project entry points consume explicit or inherited templates', () => {
   const selector = read('frontend/src/components/SessionSelect.tsx');
   const drawer = read('frontend/src/components/ProjectDrawer.tsx');
