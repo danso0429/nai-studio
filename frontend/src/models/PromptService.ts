@@ -345,7 +345,7 @@ export class PromptService extends EventTarget {
         }
       } else {
         txt =
-          '프롬프트를 교차합니다.\n예시:\n상위 프롬프트: 1girl, |, 캐릭터 \n중위 프롬프트: 그림체, |, 포즈\n이렇게 세팅되어 있으면 1girl, 캐릭터, 그림체, 포즈 순으로 교차됩니다.';
+          '프롬프트를 교차합니다.\n예시:\n상위 프롬프트: 1girl, |, 캐릭터\n중위 프롬프트: 그림체, |, 포즈\n이렇게 세팅되어 있으면 1girl, 캐릭터, 그림체, 포즈 순으로 교차됩니다.';
       }
       this.dispatchEvent(
         new CustomEvent('prompt-tooltip', {

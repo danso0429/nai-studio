@@ -1,6 +1,6 @@
 # SDStudio v5.0.0 Remote 통합 WIP
 
-> 상태: 5.0.0 기능 통합 구현과 134 SHA closure 완료, 전체 release gate 전 검수 중. upstream 기준은 `v5.0.0` (`aa03e417827132a17516f7cd5cc831435bcd70a8`), Remote 기준은 `v1.12.0` (`ba2b4a2`)이다.
+> 상태: 5.0.0 기능 통합·134 SHA closure·순환 S0~S4·자동 gate 완료, 실제 사용자 L3 대기. upstream 기준은 `v5.0.0` (`aa03e417827132a17516f7cd5cc831435bcd70a8`), Remote 기준은 `v1.12.0` (`ba2b4a2`)이다.
 > 순서: 5.0.0 전체 통합 → 전체 자동 게이트와 실제 사용자 L3 안내 → L3 답변과 독립적으로 2026-07-19 순환 백로그 S0~S4 실행 → 최종 자동 게이트 → 사용자 L3 OK 후 stable release.
 
 ## 1. 완료 정의
@@ -161,7 +161,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - S0~S4 구현과 source 자동검증을 완료했다. 상세 정본은 `docs/cycle-reduction-WIP.md`다.
 - 통합 직후 baseline은 source 143, raw 71 / `[39,2,2]`, runtime `[31,2,2]` / internal edges 104 / direct pairs 21이었다.
 - 최종 관찰값은 source 145, raw 18 / `[22,7]`, runtime SCC `[]` / internal edges 0 / direct pairs 0이다. type-only edge가 포함된 raw 지표는 회귀 참고값으로 유지하고 runtime 완료 판정과 분리한다.
-- TypeScript 오류 0, source test 32/32, cycle fixture, server syntax 검사를 통과했다. source L2.5는 `.code-review/runtime-audit-2026-07-22-sdstudio-v5-cycle.md`에 discovery → external anchor → triage로 완료했다. production build와 새 번들 대상 L2·실제 사용자 L3는 아직 수행하지 않았다.
+- TypeScript 오류 0, source test 32/32, cycle fixture, server syntax 검사를 통과했다. source L2.5와 production 증분 검토는 `.code-review/runtime-audit-2026-07-22-sdstudio-v5-cycle.md`에 완료했다. checkpoint `6abf3bb`에서 production build·PM2 재시작·새 번들 L2를 통과했고 실제 사용자 L3만 남았다.
 
 ## 5. 게이트
 
@@ -173,3 +173,10 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - L3: 통합 전체가 자동 gate를 지난 뒤 실제 iPhone 화면·버튼·손가락 시나리오를 사용자에게 안내한다. 사용자 답변만 결과로 기록한다.
 - 순환 작업은 L3 답변을 기다리거나 그 결과로 회피하지 않고 통합 완료 뒤 진행한다.
 - stable tag와 release는 사용자 L3 OK 뒤 L4에서만 수행한다.
+
+### 2026-07-26 자동 gate 관찰값
+
+- root `update.sh`: Vite 5.4.21, 540 modules transformed, production build 성공, PM2 `nai-studio-2` online, 실제 index와 hash JS/CSS 각각 200.
+- build warning: `models/index.ts`·`AppService.ts`의 static/dynamic 혼용은 별도 chunk로 분리되지 않으며, main JS는 1.75MB로 500kB warning을 유지한다. build 실패나 새 runtime SCC는 아니지만 초기 로드 성능은 실제 L3 surface로 남긴다.
+- L2: `/api/build-info` 200과 필수 필드, `/api/fs/list?path=projects`의 안전한 문자열 배열, 실제 project JSON 1개의 `/api/fs/read` 200·parse를 확인했다. 프로젝트 개수는 gate로 사용하지 않았다.
+- 실제 production storage migration·cleanup·rollback은 실행하지 않았다.

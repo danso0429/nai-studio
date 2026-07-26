@@ -1,6 +1,6 @@
 # Runtime cycle reduction WIP
 
-> 상태: S0~S4 구현·source 자동검증 완료. runtime-static SCC reachable 목표 0을 달성했다. 기능 통합의 사용자 L3 답변과 독립적으로 진행했으며, production build·L2·L3는 실행 승인 계층이 다시 열릴 때 수행한다.
+> 상태: S0~S4 구현·source/production 자동검증 완료. runtime-static SCC reachable 목표 0을 달성했다. 기능 통합의 사용자 L3 답변과 독립적으로 진행했으며 실제 사용자 L3만 남았다.
 
 ## 목표와 판정 기준
 
@@ -45,9 +45,9 @@
 - 최종 자동검증: source 145 modules, raw 18 paths / raw SCC `[22,7]`, runtime SCC `[]`, 내부 edge 0, direct pair 0, TypeScript 오류 0, source test 32/32, cycle fixture 통과, server syntax 통과.
 - raw SCC는 TypeScript가 제거하는 type-only edge를 포함하므로 runtime 완료 판정과 분리한다. dynamic import를 새 은닉 수단으로 추가해 수치를 낮추지 않았고, runtime 설치 port는 단일 composition root·재설치 거부·미설치 fail-fast 계약을 가진다.
 
-## 현재 게이트 제한
+## 현재 게이트 상태
 
-- source 테스트·tsc·cycle 측정은 실행 가능하다.
+- source 테스트·tsc·cycle 측정을 통과했다.
 - source L2.5는 `.code-review/runtime-audit-2026-07-22-sdstudio-v5-cycle.md`에 완료했다.
-- git checkpoint와 root `update.sh`는 코드 실패가 아니라 실행 승인 계층의 사용량 제한으로 프로세스 시작 전에 거부됐다.
-- 따라서 production build, 재시작, 새 번들 대상 L2, 실제 사용자 L3, stable tag는 아직 수행하지 않았다.
+- checkpoint `6abf3bb`, root `update.sh` production build, PM2 재시작, 새 번들 대상 L2를 통과했다.
+- 실제 사용자 L3와 그 OK 뒤 stable release는 아직 수행하지 않았다.

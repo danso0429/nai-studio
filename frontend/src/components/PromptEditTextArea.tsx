@@ -806,9 +806,10 @@ class CursorMemorizeEditor {
           const massDel = e.shiftKey || e.metaKey;
           if (massDel) {
             let i = start - 2;
-            const blanks = ' \t\n\u200B';
-            if (!blanks.includes(this.curText[start - 1])) {
-              while (i >= 0 && !blanks.includes(this.curText[i])) {
+            const isBlank = (value: string | undefined) =>
+              value != null && /[ \t\n\u200B]/.test(value);
+            if (!isBlank(this.curText[start - 1])) {
+              while (i >= 0 && !isBlank(this.curText[i])) {
                 i--;
                 delAmount++;
               }
