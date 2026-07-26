@@ -1,6 +1,6 @@
 {
-  "version": "1.12.0",
-  "sdstudioBase": "4.14.1",
-  "released": "2026-07-18",
-  "notes": "v1.11.4 → v1.12.0 — minor (SDStudio 4.14.1 선택 통합). 최근 4시간 이미지 히스토리, 1장/자동 퀵 생성, 6개 테마 템플릿과 사용자 색상 설정을 추가. 저장 직렬화·안정 snapshot·리소스 수명주기 보호로 삭제·이름 변경·가져오기·복원 중 데이터 부활과 덮어쓰기를 차단하고, 모바일 드로어·활성 탭·이동 가능한 히스토리 핸들을 개선."
+  "version": "1.13.0",
+  "sdstudioBase": "5.0.0",
+  "released": "2026-07-26",
+  "notes": "v1.12.0 → v1.13.0 — minor (SDStudio 5.0.0 전수 해소 통합). 템플릿·일괄 생성, 화면 배치·Quick menu, 추가/퀵 프롬프트, 결과 스와이프, 최근 30장 서버 히스토리, WebP, 다중 화면 lease·읽기 전용 mirror, 명시 선택 저장소 v2를 Remote 구조에 맞게 추가. runtime-static 순환 의존을 SCC·내부 edge·직접 pair 모두 0으로 해소하고 production 자동 gate와 실제 iPhone L3를 통과."
 }

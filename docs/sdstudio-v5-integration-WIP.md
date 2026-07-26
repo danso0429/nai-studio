@@ -1,6 +1,6 @@
 # SDStudio v5.0.0 Remote 통합 WIP
 
-> 상태: 5.0.0 기능 통합·134 SHA closure·순환 S0~S4·자동 gate 완료, 실제 사용자 L3 대기. upstream 기준은 `v5.0.0` (`aa03e417827132a17516f7cd5cc831435bcd70a8`), Remote 기준은 `v1.12.0` (`ba2b4a2`)이다.
+> 상태: COMPLETE — 5.0.0 기능 통합·134 SHA closure·순환 S0~S4·자동 gate·실제 사용자 L3를 완료하고 Remote `v1.13.0` stable release로 마감했다. upstream 기준은 `v5.0.0` (`aa03e417827132a17516f7cd5cc831435bcd70a8`), 통합 시작 Remote 기준은 `v1.12.0` (`ba2b4a2`)이다.
 > 순서: 5.0.0 전체 통합 → 전체 자동 게이트와 실제 사용자 L3 안내 → L3 답변과 독립적으로 2026-07-19 순환 백로그 S0~S4 실행 → 최종 자동 게이트 → 사용자 L3 OK 후 stable release.
 
 ## 1. 완료 정의
@@ -161,7 +161,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - S0~S4 구현과 source 자동검증을 완료했다. 상세 정본은 `docs/cycle-reduction-WIP.md`다.
 - 통합 직후 baseline은 source 143, raw 71 / `[39,2,2]`, runtime `[31,2,2]` / internal edges 104 / direct pairs 21이었다.
 - 최종 관찰값은 source 145, raw 18 / `[22,7]`, runtime SCC `[]` / internal edges 0 / direct pairs 0이다. type-only edge가 포함된 raw 지표는 회귀 참고값으로 유지하고 runtime 완료 판정과 분리한다.
-- TypeScript 오류 0, source test 32/32, cycle fixture, server syntax 검사를 통과했다. source L2.5와 production 증분 검토는 `.code-review/runtime-audit-2026-07-22-sdstudio-v5-cycle.md`에 완료했다. source checkpoint `6abf3bb`, production checkpoint `7a9a702`에서 build·PM2 재시작·새 번들 L2를 통과했고 실제 사용자 L3만 남았다.
+- TypeScript 오류 0, source test 32/32, cycle fixture, server syntax 검사를 통과했다. source L2.5와 production 증분 검토는 `.code-review/runtime-audit-2026-07-22-sdstudio-v5-cycle.md`에 완료했다. source checkpoint `6abf3bb`, production checkpoint `7a9a702`와 후속 L3 수정 배포에서 build·PM2 재시작·새 번들 L2를 통과했고, 2026-07-26 실제 사용자 L3도 통과했다.
 
 ## 5. 게이트
 
@@ -210,3 +210,9 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - 일반 메시지를 상단에 표시하던 옛 `messagesCount × 40px` 위치 보정이 하단 이동 뒤에도 `ProgressWindow`에 남아 있었다. 이 결합을 제거해 상단 진행 알림은 항상 상단 8px을 기준으로 하고, pinned 진행 알림만 기존 진행 행 높이만큼 분리한다.
 - 상·하단 알림은 현재 theme surface를 78% 사용하고 4px backdrop blur를 적용한다. 알림 본문은 뒤 컨트롤 입력을 통과시키며, 진행 취소 버튼만 `pointer-events-auto`로 유지한다.
 - source commit `f3e8468`은 TypeScript 오류 0, test 32/32, diff check, runtime SCC `[]` / 내부 edge 0 / direct pair 0을 통과했다. root `update.sh` production build·PM2 재시작과 build-info, 안전한 project list, 실제 project JSON parse, index/hash JS/CSS 200도 통과했다. 실제 iPhone에서 상·하단 동시 알림 위치, 배경 투명도, 뒤 버튼 조작, 진행 취소 버튼을 재검사한다.
+
+### 6.3 최종 실제 사용자 L3 결과
+
+- 2026-07-26 사용자가 프롬프트 3건과 알림 2건을 포함한 후속 배포를 실제 iPhone에서 다시 검사하고 “다 정상”으로 확인했다.
+- 이 답변을 실제 L3 `OK`로 기록한다. 자동검증이나 에이전트 판단으로 대체하지 않았다.
+- production storage migration·legacy cleanup·rollback은 실행하지 않았으며, 릴리스 뒤에도 각각 사용자의 UI 선택을 기다린다.

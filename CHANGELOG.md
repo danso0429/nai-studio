@@ -11,6 +11,44 @@ minor(`v1.X`)별로 묶고, 그 아래 patch(`v1.X.Y`)를 둡니다. sdstudioBas
 
 ---
 
+## v1.13
+
+### v1.13.0 — minor (2026-07-26) — SDStudio 5.0.0 전수 해소 통합
+
+upstream `v4.14.0..v5.0.0`의 134개 commit을 `PORT`·`ADAPT`·`ALREADY`·플랫폼 `N/A`로 빠짐없이 분류하고, Remote의 서버 큐·PWA 복원·Drive·프로젝트 폴더·보존 삭제·백업/복원 계약을 유지한 채 통합.
+
+**프롬프트·결과·모바일 UX**
+- 상위·추가·중간 프롬프트 접기와 씬 카드 중간 프롬프트 퀵 수정 추가. 일반·템플릿 prompt에서 chunk를 공유하고 모바일 직접 본문 탭만 제한 높이 편집창을 열도록 구분.
+- 상세 이미지 좌우 스와이프와 이전·다음 씬 탐색, 자동완성 visual viewport 배치, safe-area·드로어·전역 overlay 계층과 도움말 정리.
+- 환경설정 미저장 배지, 씬 휴지통 모두 비우기, 폴더 중첩 drag/reorder, 진행 취소 추가.
+- 상·하단 알림 위치를 독립시키고 theme surface 78% 반투명으로 통일. 본문 뒤 UI 조작은 통과시키고 진행 취소 버튼만 입력을 받도록 제한.
+
+**히스토리·Quick·해상도·테마**
+- 이미지 히스토리를 서버 권위 최근 30장 ledger로 영속. 프로젝트·씬 rename과 영구삭제를 반영하고 사라진 파일은 조회 중 정리.
+- Quick 출력을 숨김 전용 프로젝트로 분리하고 최초 생성 CAS, 자산 복사, 기존 서버 큐·취소·통계를 연결.
+- Quick·새 씬 기본 해상도 선택기와 64px 보정, 사용자 테마 프리셋 저장·복원·덮어쓰기·삭제 추가.
+
+**템플릿·캐릭터 프리셋·일괄 생성**
+- 프로젝트·폴더·씬 템플릿, 가까운 폴더 조상 상속, 적용 기록과 이미지 독립 소유권, import 충돌 정책 추가.
+- 글로벌 캐릭터 프리셋 폴더·다중 이동/적용과 vibe·reference·대표 이미지 포함 파일 입출력 추가.
+- 캐릭터 × 씬 조합을 100종 상한으로 미리 계산하고 이름 충돌·부분 실패·취소를 보고. 생성 뒤 별도 사용자 동작으로만 서버 큐 예약.
+
+**화면 배치·Quick menu**
+- classic/compact/sidebar/modern 배치와 패널 좌우 위치, docked/floating 생성 컨트롤, 프리셋 내부 배치 편집 추가. 모바일과 stale 설정은 classic으로 안전하게 폴백.
+- 프로젝트·씬 툴바 순서, 더보기/숨김, portable·companion 영역 이동을 단일 저장 관문으로 연결.
+- `Ctrl+K`와 선택형 플로팅 버튼 Quick menu 추가. 400ms 길게 눌러 위치를 옮기고 destructive 항목은 기존 확인 흐름 재사용.
+
+**WebP·다중 화면·저장소 v2**
+- ARM 서버 codec으로 수동/자동 WebP 변환. NAI stealth alpha bit와 Comment metadata를 왕복 검증하고 project JSON 참조 저장 ACK 뒤에만 PNG를 삭제. 실패·취소 시 원본 보존.
+- 브라우저 탭·기기별 server lease와 읽기 전용 mirror 추가. 구조 쓰기는 owner만 허용하고 등록된 mirror의 생성 예약·즐겨찾기·이미지 삭제는 서버 권위 경로로 위임.
+- 프로젝트 JSON과 이미지 6루트를 UUID workspace로 묶는 저장소 v2 추가. migration은 명시 승인·선택적 전체 backup·원자 ledger·재시작 재개·부분 fallback·별도 cleanup/rollback으로 구성.
+- 실제 production migration·legacy cleanup·rollback은 릴리스 과정에서 실행하지 않았으며, 사용자가 UI에서 명시적으로 선택하기 전 기존 저장 구조를 유지.
+
+**구조·검증**
+- 통합 직후 runtime-static 순환 의존 SCC `[31,2,2]`, 내부 edge 104, 직접 pair 21을 S0~S4에서 `[]`, 0, 0으로 해소. raw SCC `[22,7]`는 type-only edge를 포함한 참고값으로 분리.
+- TypeScript 오류 0, source test 32/32, production build 540 modules, build-info/project list/실제 project JSON/index/hash asset L2와 runtime audit L2.5 통과.
+- 실제 iPhone L3에서 통합 시나리오와 두 차례 후속 프롬프트·알림 수정을 모두 재검사해 정상 확인.
+
 ## v1.12
 
 ### v1.12.0 — minor (2026-07-18) — SDStudio 4.14.1 선택 통합 + 히스토리·퀵 생성

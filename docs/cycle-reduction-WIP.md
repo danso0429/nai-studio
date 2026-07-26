@@ -1,6 +1,6 @@
 # Runtime cycle reduction WIP
 
-> 상태: S0~S4 구현·source/production 자동검증 완료. runtime-static SCC reachable 목표 0을 달성했다. 기능 통합의 사용자 L3 답변과 독립적으로 진행했으며 실제 사용자 L3만 남았다.
+> 상태: COMPLETE — S0~S4 구현·source/production 자동검증과 실제 사용자 L3를 완료했다. runtime-static SCC reachable 목표 0을 달성하고 SDStudio v5 통합 `v1.13.0` release에 포함했다.
 
 ## 목표와 판정 기준
 
@@ -22,7 +22,7 @@
 - `SceneEditor ↔ PreSetEditor`: 프리셋 에디터 컴포넌트를 `SceneQueueControl` 조립 지점에서 주입했다. scene/preset editor의 기존 props와 render 시점은 유지했다.
 - `SceneQueueControl ↔ ResultViewer`: 결과 뷰어 내부 inpaint queue 컴포넌트를 상위 조립 지점에서 주입했다. 결과 뷰어가 queue module을 역import하지 않는다.
 - 단계 관찰: `[31,2,2] / 104 / 21` → 첫 고리 `[31,2] / 102 / 20` → 둘째 고리 `[31] / 100 / 19`. TypeScript 검사 통과.
-- 남은 L3: scene/preset 편집, 모바일 상세설정 FloatView, 결과 viewer 열기/닫기, 내부 inpaint 탭, 이미지 이동·선택.
+- 실제 사용자 L3에서 scene/preset 편집, 모바일 상세설정, 결과 viewer·스와이프와 이미지 작업을 포함한 통합 시나리오가 정상으로 확인됐다.
 
 ## S2 — `models/index.ts` 역참조 제거 (완료)
 
@@ -50,4 +50,4 @@
 - source 테스트·tsc·cycle 측정을 통과했다.
 - source L2.5는 `.code-review/runtime-audit-2026-07-22-sdstudio-v5-cycle.md`에 완료했다.
 - source checkpoint `6abf3bb`, production checkpoint `7a9a702`, root `update.sh` production build, PM2 재시작, 새 번들 대상 L2를 통과했다.
-- 실제 사용자 L3와 그 OK 뒤 stable release는 아직 수행하지 않았다.
+- 2026-07-26 실제 사용자 L3 `OK`를 받았고 stable `v1.13.0` release에 포함했다.
