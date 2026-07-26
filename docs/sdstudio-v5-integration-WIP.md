@@ -209,4 +209,4 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - 프롬프트 재검사 중 하단 일반 알림이 존재하면 상단 진행 알림도 그 개수만큼 아래로 밀리고, 두 알림 표면이 불투명해 뒤 UI 조작 가능 상태를 시각적으로 전달하지 못하는 문제를 확인했다. 전체 L3는 계속 미통과 상태다.
 - 일반 메시지를 상단에 표시하던 옛 `messagesCount × 40px` 위치 보정이 하단 이동 뒤에도 `ProgressWindow`에 남아 있었다. 이 결합을 제거해 상단 진행 알림은 항상 상단 8px을 기준으로 하고, pinned 진행 알림만 기존 진행 행 높이만큼 분리한다.
 - 상·하단 알림은 현재 theme surface를 78% 사용하고 4px backdrop blur를 적용한다. 알림 본문은 뒤 컨트롤 입력을 통과시키며, 진행 취소 버튼만 `pointer-events-auto`로 유지한다.
-- source 검증은 TypeScript 오류 0, test 32/32, diff check, runtime SCC `[]` / 내부 edge 0 / direct pair 0을 통과했다. production build·L2 뒤 실제 iPhone에서 상·하단 동시 알림 위치, 배경 투명도, 뒤 버튼 조작, 진행 취소 버튼을 재검사한다.
+- source commit `f3e8468`은 TypeScript 오류 0, test 32/32, diff check, runtime SCC `[]` / 내부 edge 0 / direct pair 0을 통과했다. root `update.sh` production build·PM2 재시작과 build-info, 안전한 project list, 실제 project JSON parse, index/hash JS/CSS 200도 통과했다. 실제 iPhone에서 상·하단 동시 알림 위치, 배경 투명도, 뒤 버튼 조작, 진행 취소 버튼을 재검사한다.
