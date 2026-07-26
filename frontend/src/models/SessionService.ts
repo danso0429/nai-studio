@@ -1,22 +1,22 @@
 import extractChunks from 'png-chunks-extract';
 import { Buffer } from 'buffer';
 import { v4 } from 'uuid';
-import {
-  backend,
-  imageService,
-  projectSizeService,
-  templateService,
-  trashService,
-  workFlowService,
-  zipService,
-} from '.';
 import { FileEntry } from '../backend';
+import type { Backend } from '../backend';
 import defaultassets from '../defaultassets';
-import { dataUriToBase64 } from './ImageService';
+import { dataUriToBase64, type ImageService } from './ImageService';
+import type { GlobalPieceService } from './GlobalPieceService';
+import type { GlobalPresetService } from './GlobalPresetService';
+import type { ProjectSizeService } from './ProjectSizeService';
 import { ResourceSyncService, MAX_FOLDER_DEPTH } from './ResourceSyncService';
+import type { TemplateService } from './TemplateService';
+import type { ToggleGroupService } from './ToggleGroupService';
+import type { TrashService } from './TrashService';
+import type { WorkFlowService } from './workflows/WorkFlowService';
 import {
   GenericScene,
   InpaintScene,
+  Scene,
   Session,
   ISession,
 } from './types';
@@ -30,6 +30,35 @@ import {
   normalizeProjectRoles,
   visibleProjectNames,
 } from './projectRoles';
+
+interface SessionRuntime {
+  sessionService: SessionService;
+  imageService: ImageService;
+  projectSizeService: ProjectSizeService;
+  templateService: TemplateService;
+  trashService: TrashService;
+  workFlowService: WorkFlowService;
+  globalPieceService: GlobalPieceService;
+  globalPresetService: GlobalPresetService;
+  toggleGroupService: ToggleGroupService;
+  zipService: {
+    zipFiles(files: FileEntry[], outPath: string): Promise<{ skipped: string[] }>;
+  };
+}
+
+let sessionRuntime: SessionRuntime | undefined;
+
+export function installSessionRuntime(runtime: SessionRuntime): void {
+  if (sessionRuntime && sessionRuntime !== runtime) {
+    throw new Error('Session runtime is already installed');
+  }
+  sessionRuntime = runtime;
+}
+
+function requireSessionRuntime(): SessionRuntime {
+  if (!sessionRuntime) throw new Error('Session runtime is not installed');
+  return sessionRuntime;
+}
 
 const SESSION_SERVICE_INTERVAL = 5000;
 const PROJECT_ROLES_PATH = 'project_roles.json';
@@ -55,23 +84,27 @@ export class SessionService extends ResourceSyncService<Session> {
   private folderDeleteFinishes = new Map<string, Promise<void>>();
   private folderDeleteRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  constructor() {
-    super('projects', SESSION_SERVICE_INTERVAL);
+  constructor(backend: Backend) {
+    super(backend, 'projects', SESSION_SERVICE_INTERVAL);
+  }
+
+  private get runtime(): SessionRuntime {
+    return requireSessionRuntime();
   }
 
   protected canWriteResource(name: string): boolean {
-    return !backend.isProjectReadOnly(name);
+    return !this.backend.isProjectReadOnly(name);
   }
 
   private async loadProjectRoles(): Promise<void> {
     try {
-      if (!(await backend.existFile(PROJECT_ROLES_PATH))) {
+      if (!(await this.backend.existFile(PROJECT_ROLES_PATH))) {
         this.projectRoles = {};
         this.projectRolesLoadFailed = false;
         return;
       }
       this.projectRoles = normalizeProjectRoles(
-        JSON.parse(await backend.readFile(PROJECT_ROLES_PATH)),
+        JSON.parse(await this.backend.readFile(PROJECT_ROLES_PATH)),
       ).roles;
       this.projectRolesLoadFailed = false;
     } catch (error) {
@@ -86,7 +119,7 @@ export class SessionService extends ResourceSyncService<Session> {
   }
 
   private async writeProjectRoles(roles: Record<string, HiddenProjectRole>): Promise<void> {
-    await backend.writeFile(PROJECT_ROLES_PATH, JSON.stringify({ version: 1, roles }));
+    await this.backend.writeFile(PROJECT_ROLES_PATH, JSON.stringify({ version: 1, roles }));
   }
 
   listVisible(): string[] {
@@ -143,7 +176,7 @@ export class SessionService extends ResourceSyncService<Session> {
     try {
       const candidateName = nextQuickProjectName(this.list());
       const candidate = await this.createDefault(candidateName);
-      const result = await backend.ensureQuickProject(JSON.stringify(candidate.toJSON()));
+      const result = await this.backend.ensureQuickProject(JSON.stringify(candidate.toJSON()));
       await this.loadProjectRoles();
       await this.update();
       return (await this.get(result.name)) ?? null;
@@ -189,17 +222,17 @@ export class SessionService extends ResourceSyncService<Session> {
 
   async loadFavorites() {
     try {
-      const str = await backend.readFile('favorites.json');
+      const str = await this.backend.readFile('favorites.json');
       const arr = JSON.parse(str);
       this.favorites = new Set(arr);
     } catch (e) {
       // 기존 projects/favorites.json에서 마이그레이션 시도
       try {
-        const oldStr = await backend.readFile('projects/favorites.json');
+        const oldStr = await this.backend.readFile('projects/favorites.json');
         const arr = JSON.parse(oldStr);
         this.favorites = new Set(arr);
         await this.saveFavorites();
-        await backend.renameFile('projects/favorites.json', 'projects/favorites.json.migrated');
+        await this.backend.renameFile('projects/favorites.json', 'projects/favorites.json.migrated');
       } catch (e2) {
         this.favorites = new Set();
       }
@@ -207,7 +240,7 @@ export class SessionService extends ResourceSyncService<Session> {
   }
 
   async saveFavorites() {
-    await backend.writeFile('favorites.json', JSON.stringify([...this.favorites]));
+    await this.backend.writeFile('favorites.json', JSON.stringify([...this.favorites]));
   }
 
   async toggleFavorite(name: string) {
@@ -227,7 +260,7 @@ export class SessionService extends ResourceSyncService<Session> {
   // ===== 폴더 색상 / 순서 (folder_meta.json 서버 파일 영속화) =====
   async loadFolderMeta() {
     try {
-      const str = await backend.readFile('folder_meta.json');
+      const str = await this.backend.readFile('folder_meta.json');
       const json = JSON.parse(str);
       this.folderColors = (json && json.colors) || {};
       this.folderOrder = (json && Array.isArray(json.order)) ? json.order : [];
@@ -237,7 +270,7 @@ export class SessionService extends ResourceSyncService<Session> {
     }
   }
   async saveFolderMeta() {
-    await backend.writeFile(
+    await this.backend.writeFile(
       'folder_meta.json',
       JSON.stringify({ colors: this.folderColors, order: this.folderOrder }),
     );
@@ -278,12 +311,12 @@ export class SessionService extends ResourceSyncService<Session> {
         const imageDirs = ['outs', 'inpaints', 'vibes', 'inpaint_masks', 'inpaint_orgs', 'references'];
         for (const dir of imageDirs) {
           const source = dir + '/' + session.name;
-          if (!(await backend.existFile(source))) continue;
+          if (!(await this.backend.existFile(source))) continue;
           const destination = dir + '/' + newName;
-          if (await backend.existFile(destination)) {
+          if (await this.backend.existFile(destination)) {
             throw new Error(`복제 대상 이미지 폴더가 이미 존재해요: ${destination}`);
           }
-          await backend.copyDir(source, destination);
+          await this.backend.copyDir(source, destination);
           createdDests.push(destination);
         }
       }
@@ -293,7 +326,7 @@ export class SessionService extends ResourceSyncService<Session> {
       await this.createFrom(newName, json);
     } catch (error) {
       for (const destination of createdDests.reverse()) {
-        try { await backend.deleteDir(destination); } catch {}
+        try { await this.backend.deleteDir(destination); } catch {}
       }
       delete this.folderMap[newName];
       throw error;
@@ -308,7 +341,7 @@ export class SessionService extends ResourceSyncService<Session> {
 
   async loadBookmarks() {
     try {
-      const str = await backend.readFile('bookmarks.json');
+      const str = await this.backend.readFile('bookmarks.json');
       const data = JSON.parse(str);
       this.bookmarkData = {
         scenes: data.scenes || {},
@@ -320,7 +353,7 @@ export class SessionService extends ResourceSyncService<Session> {
   }
 
   async saveBookmarks() {
-    await backend.writeFile('bookmarks.json', JSON.stringify(this.bookmarkData));
+    await this.backend.writeFile('bookmarks.json', JSON.stringify(this.bookmarkData));
     this.dispatchEvent(new CustomEvent('bookmark-updated'));
   }
 
@@ -395,7 +428,7 @@ export class SessionService extends ResourceSyncService<Session> {
       await this.loadFavorites();
       await this.loadBookmarks();
       await this.loadFolderMeta();
-      const { trashService } = await import('.');
+      const { trashService } = this.runtime;
       // trash.json은 legacy data (씬 휴지통이 아직 사용 중) — 로드 유지
       await trashService.loadTrash();
       // autoCleanup은 앱 시작을 블로킹하지 않도록 지연 실행
@@ -411,13 +444,13 @@ export class SessionService extends ResourceSyncService<Session> {
   }
 
   async delete(name: string) {
-    backend.assertProjectWritable(name);
+    this.backend.assertProjectWritable(name);
     await this.withResourceMutation([name], async () => {
       // 로컬 파일 + Drive 삭제가 성공한 뒤에만 메모리와 메타를 정리한다.
       // 실패하면 프로젝트·즐겨찾기·북마크가 모두 이전 상태로 남는다.
       let result;
       try {
-        result = await backend.deleteProjectNow(name);
+        result = await this.backend.deleteProjectNow(name);
       } catch (error) {
         // 응답 유실 시 서버가 삭제를 커밋했는지 알 수 없다. 옛 인스턴스를 살려 두면
         // 실제 삭제된 경우 다음 편집이 프로젝트 JSON을 되살리므로 캐시를 폐기한다.
@@ -453,8 +486,8 @@ export class SessionService extends ResourceSyncService<Session> {
         saves.push(() => this.writeProjectRoles(nextRoles));
       }
       await this.persistMetadataAfterCommit('delete', saves);
-      await templateService.ensureLoaded();
-      templateService.removeProject(name);
+      await this.runtime.templateService.ensureLoaded();
+      this.runtime.templateService.removeProject(name);
       await this.refreshAfterCommittedMutation('project delete');
     });
   }
@@ -493,10 +526,10 @@ export class SessionService extends ResourceSyncService<Session> {
       saves.push(() => this.writeProjectRoles(nextRoles));
     }
     await this.persistMetadataAfterCommit('rename', saves);
-    await trashService.renameProjectKeys(oldName, newName);
-    await projectSizeService.renameProject(oldName, newName);
-    await templateService.ensureLoaded();
-    templateService.renameProject(oldName, newName);
+    await this.runtime.trashService.renameProjectKeys(oldName, newName);
+    await this.runtime.projectSizeService.renameProject(oldName, newName);
+    await this.runtime.templateService.ensureLoaded();
+    this.runtime.templateService.renameProject(oldName, newName);
     if (hiddenRoleRenamed) this.dispatchEvent(new CustomEvent('listupdated'));
     this.dispatchEvent(new CustomEvent('renamed', {
       detail: { oldName, newName },
@@ -504,12 +537,12 @@ export class SessionService extends ResourceSyncService<Session> {
   }
 
   async renameProject(oldName: string, newName: string): Promise<void> {
-    await imageService.onRenameSession(oldName, newName);
+    await this.runtime.imageService.onRenameSession(oldName, newName);
     try {
       await this.rename(oldName, newName);
     } catch (error) {
       try {
-        await imageService.onRenameSession(newName, oldName);
+        await this.runtime.imageService.onRenameSession(newName, oldName);
       } catch (rollbackError) {
         console.error('[SessionService] project rename rollback failed:', rollbackError);
       }
@@ -566,8 +599,8 @@ export class SessionService extends ResourceSyncService<Session> {
     // 빈 디렉토리 생성: fs/write는 dirname auto-mkdir(중첩 path 자동 생성)이므로 .keep 마커
     // 후 즉시 삭제로 빈 (중첩) 디렉토리만 남김.
     const keepPath = this.folderPath(folderPath) + '/.keep';
-    await backend.writeFile(keepPath, '');
-    try { await backend.deleteFile(keepPath); } catch {}
+    await this.backend.writeFile(keepPath, '');
+    try { await this.backend.deleteFile(keepPath); } catch {}
     await this.update();
   }
 
@@ -586,13 +619,13 @@ export class SessionService extends ResourceSyncService<Session> {
     }
     const affected = this.projectNamesInFolderTree(oldPath);
     await this.withResourceMutation(affected, async () => {
-      await backend.renameDir(this.folderPath(oldPath), this.folderPath(newPath));
+      await this.backend.renameDir(this.folderPath(oldPath), this.folderPath(newPath));
       this.remapProjectFolders(oldPath, newPath, affected);
       // 색상·순서 메타는 폴더 자신 + 하위까지 path 키 마이그레이션(누락 시 색상·순서 유실).
       this.migrateFolderMeta(oldPath, newPath);
       await this.persistMetadataAfterCommit('folder rename', [() => this.saveFolderMeta()]);
-      await templateService.ensureLoaded();
-      templateService.renameFolder(oldPath, newPath);
+      await this.runtime.templateService.ensureLoaded();
+      this.runtime.templateService.renameFolder(oldPath, newPath);
       await this.refreshAfterCommittedMutation('folder rename');
     });
   }
@@ -624,12 +657,12 @@ export class SessionService extends ResourceSyncService<Session> {
     }
     const affected = this.projectNamesInFolderTree(folderPath);
     await this.withResourceMutation(affected, async () => {
-      await backend.renameDir(this.folderPath(folderPath), this.folderPath(newPath));
+      await this.backend.renameDir(this.folderPath(folderPath), this.folderPath(newPath));
       this.remapProjectFolders(folderPath, newPath, affected);
       this.migrateFolderMeta(folderPath, newPath);
       await this.persistMetadataAfterCommit('folder move', [() => this.saveFolderMeta()]);
-      await templateService.ensureLoaded();
-      templateService.renameFolder(folderPath, newPath);
+      await this.runtime.templateService.ensureLoaded();
+      this.runtime.templateService.renameFolder(folderPath, newPath);
       await this.refreshAfterCommittedMutation('folder move');
     });
   }
@@ -667,7 +700,7 @@ export class SessionService extends ResourceSyncService<Session> {
       // 로컬에서 시작한 요청은 서버 호출 전에 lease를 잡는다. 다른 탭이 시작한 요청은
       // App.tsx의 delete-folder-start WS에서 observeFolderDeletionStart가 같은 작업을 한다.
       await this.ensureFolderDeleteLease(folderName, projectsInFolder);
-      await backend.deleteFolderNow(folderName, preserveProjects);
+      await this.backend.deleteFolderNow(folderName, preserveProjects);
     } catch (e) {
       await this.finishFolderDeletion(folderName, false);
       throw e;
@@ -769,8 +802,8 @@ export class SessionService extends ResourceSyncService<Session> {
       console.warn('[SessionService] folder deletion post-refresh failed:', folderName, e);
     });
     if (completed) {
-      await templateService.ensureLoaded();
-      templateService.removeFolder(folderName);
+      await this.runtime.templateService.ensureLoaded();
+      this.runtime.templateService.removeFolder(folderName);
     }
   }
 
@@ -784,7 +817,7 @@ export class SessionService extends ResourceSyncService<Session> {
     const srcPath = this.projectFilePath(name, currentFolder);
     const destPath = this.projectFilePath(name, targetFolder);
     await this.withResourceMutation([name], async () => {
-      await backend.renameFile(srcPath, destPath);
+      await this.backend.renameFile(srcPath, destPath);
       this.folderMap[name] = targetFolder;
       await this.refreshAfterCommittedMutation('project move');
     });
@@ -796,7 +829,7 @@ export class SessionService extends ResourceSyncService<Session> {
 
   async migrate(rc: any) {
     if (!rc.version) {
-      await backend.writeFile(
+      await this.backend.writeFile(
         'projects/' + rc.name + '.json.bak',
         JSON.stringify(rc),
       );
@@ -877,7 +910,7 @@ export class SessionService extends ResourceSyncService<Session> {
       for (const preset of presetSet) {
         if (preset.profile) {
           try {
-            const data = (await imageService.fetchVibeImage(
+            const data = (await this.runtime.imageService.fetchVibeImage(
               session,
               preset.profile,
             ))!;
@@ -905,7 +938,7 @@ export class SessionService extends ResourceSyncService<Session> {
     const entries: FileEntry[] = [];
     for (const scene of session.scenes.values()) {
       const images = await ignoreError(
-        backend.listFiles('outs/' + session.name + '/' + scene.name),
+        this.backend.listFiles('outs/' + session.name + '/' + scene.name),
       );
       for (const image of images) {
         if (!image.endsWith('.png')) continue;
@@ -916,10 +949,10 @@ export class SessionService extends ResourceSyncService<Session> {
       }
     }
     const inpaintOrgs = await ignoreError(
-      backend.listFiles('inpaint_orgs/' + session.name),
+      this.backend.listFiles('inpaint_orgs/' + session.name),
     );
     const inpaintMasks = await ignoreError(
-      backend.listFiles('inpaint_masks/' + session.name),
+      this.backend.listFiles('inpaint_masks/' + session.name),
     );
     for (const image of inpaintOrgs) {
       if (!image.endsWith('.png')) continue;
@@ -937,7 +970,7 @@ export class SessionService extends ResourceSyncService<Session> {
     }
     for (const inpaint of session.inpaints.values()) {
       const inpaints = await ignoreError(
-        backend.listFiles('inpaints/' + session.name + '/' + inpaint.name),
+        this.backend.listFiles('inpaints/' + session.name + '/' + inpaint.name),
       );
       for (const image of inpaints) {
         if (!image.endsWith('.png')) continue;
@@ -947,7 +980,7 @@ export class SessionService extends ResourceSyncService<Session> {
         });
       }
     }
-    const vibes = await ignoreError(backend.listFiles('vibes/' + session.name));
+    const vibes = await ignoreError(this.backend.listFiles('vibes/' + session.name));
     for (const vibe of vibes) {
       if (!vibe.endsWith('.png')) continue;
       entries.push({
@@ -955,7 +988,7 @@ export class SessionService extends ResourceSyncService<Session> {
         name: 'vibes/' + vibe,
       });
     }
-    const references = await ignoreError(backend.listFiles('references/' + session.name));
+    const references = await ignoreError(this.backend.listFiles('references/' + session.name));
     for (const ref of references) {
       if (!ref.endsWith('.png')) continue;
       entries.push({
@@ -966,7 +999,7 @@ export class SessionService extends ResourceSyncService<Session> {
     entries.push({ path: projFile, name: 'project.json' });
     // zipFiles 자체가 outPath 중복을 throw로 막음 — 외부 사전 체크 제거 (서로 다른 outPath는 병렬 OK).
     // 서버 zip은 없는 파일을 silent skip(skipped[])하므로 호출부가 경고할 수 있게 반환 (진단 H2b).
-    return await zipService.zipFiles(entries, outPath);
+    return await this.runtime.zipService.zipFiles(entries, outPath);
   }
 
   // 폴더 전체 백업. 안의 N개 프로젝트를 1개 tar로 묶음. tar 내부 layout은
@@ -1003,12 +1036,12 @@ export class SessionService extends ResourceSyncService<Session> {
       const items: FileEntry[] = [];
       if (includeImages) {
         const [outs, inpaints, inpaintOrgs, inpaintMasks, vibes, references] = await Promise.all([
-          ignoreError(backend.listFilesRecursive('outs/' + name, 1)),
-          ignoreError(backend.listFilesRecursive('inpaints/' + name, 1)),
-          ignoreError(backend.listFilesRecursive('inpaint_orgs/' + name, 0)),
-          ignoreError(backend.listFilesRecursive('inpaint_masks/' + name, 0)),
-          ignoreError(backend.listFilesRecursive('vibes/' + name, 0)),
-          ignoreError(backend.listFilesRecursive('references/' + name, 0)),
+          ignoreError(this.backend.listFilesRecursive('outs/' + name, 1)),
+          ignoreError(this.backend.listFilesRecursive('inpaints/' + name, 1)),
+          ignoreError(this.backend.listFilesRecursive('inpaint_orgs/' + name, 0)),
+          ignoreError(this.backend.listFilesRecursive('inpaint_masks/' + name, 0)),
+          ignoreError(this.backend.listFilesRecursive('vibes/' + name, 0)),
+          ignoreError(this.backend.listFilesRecursive('references/' + name, 0)),
         ]);
         const pushSrc = (
           srcRoot: string,
@@ -1060,19 +1093,19 @@ export class SessionService extends ResourceSyncService<Session> {
       format: includeImages ? 'nested' : 'flat',
       exportedAt: Date.now(),
     };
-    await backend.writeFile(markerPath, JSON.stringify(marker));
+    await this.backend.writeFile(markerPath, JSON.stringify(marker));
     entries.push({ path: markerPath, name: 'folder-backup.json' });
 
     // zipFiles가 outPath 단위 중복을 throw로 막음 — 외부 사전 체크 제거 (서로 다른 폴더는 병렬 OK).
     onProgress?.('아카이브 압축 중...', total, total + 1);
     try {
       // 서버 zip의 silent skip(skipped[])을 호출부 경고용으로 반환 (진단 H2b).
-      const zipResult = await zipService.zipFiles(entries, outPath);
+      const zipResult = await this.runtime.zipService.zipFiles(entries, outPath);
       onProgress?.('완료', total + 1, total + 1);
       return zipResult;
     } finally {
       try {
-        await backend.deleteFile(markerPath);
+        await this.backend.deleteFile(markerPath);
       } catch {}
     }
   }
@@ -1092,12 +1125,12 @@ export class SessionService extends ResourceSyncService<Session> {
     const tmpDir = 'tmp/' + v4();
     const PHASE_TOTAL = 4;
     onProgress?.('아카이브 풀기...', 0, PHASE_TOTAL);
-    await backend.unzipFiles(tarpath, tmpDir);
+    await this.backend.unzipFiles(tarpath, tmpDir);
 
     onProgress?.('백업 검증 중...', 1, PHASE_TOTAL);
     let marker: any;
     try {
-      const raw = await backend.readFile(tmpDir + '/folder-backup.json');
+      const raw = await this.backend.readFile(tmpDir + '/folder-backup.json');
       marker = JSON.parse(raw);
     } catch (e) {
       throw new Error(
@@ -1151,7 +1184,7 @@ export class SessionService extends ResourceSyncService<Session> {
 
       let sessionData: ISession;
       try {
-        sessionData = JSON.parse(await backend.readFile(projJsonPath));
+        sessionData = JSON.parse(await this.backend.readFile(projJsonPath));
       } catch (e: any) {
         skipped.push({
           name: origName,
@@ -1169,7 +1202,7 @@ export class SessionService extends ResourceSyncService<Session> {
       if (!isFlat) {
         const renameSafe = async (src: string, dst: string) => {
           try {
-            await backend.renameDir(src, dst);
+            await this.backend.renameDir(src, dst);
           } catch (e) {
             // 빈/없는 디렉토리 — 정상 케이스
           }
@@ -1215,7 +1248,7 @@ export class SessionService extends ResourceSyncService<Session> {
       const path = 'vibes/' + name + '/' + v4() + '.png';
       const profileData = preset.profile;
       profileUploadTasks.push(
-        backend
+        this.backend
           .writeDataFile(path, profileData)
           .then(() => {
             preset.profile = path.split('/').pop()!;
@@ -1263,11 +1296,11 @@ export class SessionService extends ResourceSyncService<Session> {
 
     // 3단계: unzip → media 이동 (5개 동시) → session 생성
     onProgress?.('아카이브 풀기...', 0, 3);
-    await backend.unzipFiles(tarpath, path);
+    await this.backend.unzipFiles(tarpath, path);
 
     onProgress?.('미디어 파일 이동...', 1, 3);
     const session: Session = JSON.parse(
-      await backend.readFile(path + '/project.json'),
+      await this.backend.readFile(path + '/project.json'),
     );
     session.name = name;
     session.id = v4();
@@ -1276,7 +1309,7 @@ export class SessionService extends ResourceSyncService<Session> {
     // 폴더가 비어있거나 없을 수도 있어서 각자 catch.
     const renameSafe = async (src: string, dst: string) => {
       try {
-        await backend.renameDir(src, dst);
+        await this.backend.renameDir(src, dst);
       } catch (e) {
         // 빈/없는 디렉토리 — 정상 케이스 (백업에 outs 등이 없을 수 있음)
       }
@@ -1320,17 +1353,17 @@ export class SessionService extends ResourceSyncService<Session> {
     const orgTmp = orgPath + '.tmp';
     const maskTmp = maskPath + '.tmp';
     try {
-      await backend.writeDataFile(orgTmp, image);
-      await backend.writeDataFile(maskTmp, mask);
+      await this.backend.writeDataFile(orgTmp, image);
+      await this.backend.writeDataFile(maskTmp, mask);
     } catch (e) {
-      try { await backend.deleteFile(orgTmp); } catch {}
-      try { await backend.deleteFile(maskTmp); } catch {}
+      try { await this.backend.deleteFile(orgTmp); } catch {}
+      try { await this.backend.deleteFile(maskTmp); } catch {}
       throw e;
     }
-    await backend.renameFile(orgTmp, orgPath);
-    await backend.renameFile(maskTmp, maskPath);
-    await imageService.invalidateCache(orgPath);
-    await imageService.invalidateCache(maskPath);
+    await this.backend.renameFile(orgTmp, orgPath);
+    await this.backend.renameFile(maskTmp, maskPath);
+    await this.runtime.imageService.invalidateCache(orgPath);
+    await this.runtime.imageService.invalidateCache(maskPath);
   }
 
   styleEdit(preset: any, container: any) {
@@ -1355,7 +1388,7 @@ export class SessionService extends ResourceSyncService<Session> {
     }
     // 전역 조각 추가 (로컬과 동명인 경우 스킵)
     try {
-      const { globalPieceService } = await import('.');
+      const { globalPieceService } = this.runtime;
       for (const [k, v] of globalPieceService.library.entries()) {
         for (const piece of v.pieces) {
           const key = k + '.' + piece.name;
@@ -1365,17 +1398,15 @@ export class SessionService extends ResourceSyncService<Session> {
         }
       }
     } catch (e) {}
-    await backend.loadPiecesDB(res);
+    await this.backend.loadPiecesDB(res);
   }
 }
 
 export async function importDefaultPresets(session: Session) {
   // 글로벌 프리셋 서비스에서 "기본" 플래그 지정된 것들을 먼저 시도
-  // 순환 임포트 방지를 위해 동적 import 사용
   let hadGlobalDefaults = false;
   try {
-    const mod = await import('.');
-    const globalPresetService = (mod as any).globalPresetService;
+    const { globalPresetService } = requireSessionRuntime();
     if (globalPresetService) {
       if (!globalPresetService.loaded) {
         await globalPresetService.load();
@@ -1492,6 +1523,7 @@ export async function importPreset(session: Session, base64: string) {
     return undefined;
   }
   json = normalizePresetJson(json);
+  const { imageService, workFlowService } = requireSessionRuntime();
   const path = await imageService.storeVibeImage(session, base64);
   json.profile = path;
   const preset = workFlowService.presetFromJSON(json);
@@ -1500,6 +1532,7 @@ export async function importPreset(session: Session, base64: string) {
 }
 
 export const getResultDirectory = (session: Session, scene: GenericScene) => {
+  const { imageService } = requireSessionRuntime();
   if (scene.type === 'scene') {
     return imageService.getImageDir(session, scene);
   }
@@ -1515,6 +1548,7 @@ export const renameScene = async (
   newName: string,
   type: 'scene' | 'inpaint' = 'scene',
 ) => {
+  const { imageService, sessionService, toggleGroupService } = requireSessionRuntime();
   newName = newName.trimEnd();
   const map = (
     type === 'inpaint' ? session.inpaints : session.scenes
@@ -1525,10 +1559,14 @@ export const renameScene = async (
   }
   await imageService.onRenameScene(session, oldName, newName);
   scene.name = newName;
-  map.delete(oldName);
-  map.set(newName, scene);
+  // Map의 원래 위치에서 키만 바꿔 씬 카드/탭 순서를 보존한다.
+  const rebuilt = new Map<string, GenericScene>();
+  for (const [key, value] of map) {
+    rebuilt.set(key === oldName ? newName : key, value);
+  }
+  if (type === 'inpaint') session.inpaints = rebuilt as Map<string, InpaintScene>;
+  else session.scenes = rebuilt as Map<string, Scene>;
   // 씬이름 키 부가 데이터 이전 — 북마크(이동)·토글그룹 정의(복사, 일반 씬 전용 UI).
-  const { sessionService, toggleGroupService } = await import('.');
   await sessionService.onSceneRenamed(session.name, oldName, newName, type);
   if (type === 'scene') {
     toggleGroupService.copyGroupsOnSceneRename(oldName, newName);
@@ -1546,6 +1584,7 @@ export const mergeScene = async (
   targetName: string,
   type: 'scene' | 'inpaint',
 ) => {
+  const { imageService } = requireSessionRuntime();
   if (sourceName === targetName) return;
   const map = type === 'inpaint' ? session.inpaints : session.scenes;
   const target = map.get(targetName);

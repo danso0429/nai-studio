@@ -63,6 +63,11 @@ interface SavedConfigDraft {
   uiCompanionSlots: Record<string, string[]>;
   uiLayoutTemplate: string;
   uiLayoutSlots: UiLayoutSlots;
+  uiFont: 'noto' | 'system';
+  uiClassicFinish: boolean;
+  legacySceneEditor: boolean;
+  legacyWorkflowMode: boolean;
+  uiFloatViewMode: 'cover' | 'center';
   exportConcurrency: number;
   useLocalBgRemoval: boolean;
   delayTime: number;
@@ -1211,6 +1216,11 @@ const OtherTab = ({
   uiCompanionSlots, setUiCompanionSlots,
   uiLayoutTemplate, setUiLayoutTemplate,
   uiLayoutSlots, setUiLayoutSlots,
+  uiFont, setUiFont,
+  uiClassicFinish, setUiClassicFinish,
+  legacySceneEditor, setLegacySceneEditor,
+  legacyWorkflowMode, setLegacyWorkflowMode,
+  uiFloatViewMode, setUiFloatViewMode,
   delayTime, setDelayTime,
   classicSceneCard, setClassicSceneCard,
   useProjectDrawer, setUseProjectDrawer,
@@ -1277,6 +1287,18 @@ const OtherTab = ({
         slots={uiLayoutSlots}
         onSlotsChange={setUiLayoutSlots}
       />
+      <div className="mt-3">
+        <label className="block text-sm gray-label mb-1">큰 작업 창 범위</label>
+        <select
+          className="gray-input w-full"
+          value={uiFloatViewMode}
+          onChange={(event) => setUiFloatViewMode(event.target.value as 'cover' | 'center')}
+          disabled={isMobile}
+        >
+          <option value="cover">넓게 펼침 (프리셋 패널까지 덮기)</option>
+          <option value="center">중앙 작업 영역만</option>
+        </select>
+      </div>
       <hr className="border-gray-200 dark:border-slate-600" />
       <QuickMenuSettings
         value={quickMenu}
@@ -1286,6 +1308,45 @@ const OtherTab = ({
       />
       <hr className="border-gray-200 dark:border-slate-600" />
       <CompanionSettings value={uiCompanionSlots} onChange={setUiCompanionSlots} />
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div>
+        <label className="block text-sm gray-label mb-1">글꼴</label>
+        <div className="flex flex-wrap gap-2">
+          {([
+            { id: 'noto', label: 'Noto Sans KR', family: "'Noto Sans KR', sans-serif" },
+            { id: 'system', label: '시스템 기본', family: "system-ui, -apple-system, 'Segoe UI', sans-serif" },
+          ] as const).map((font) => (
+            <button
+              key={font.id}
+              type="button"
+              className={'px-3 py-1.5 rounded-md border text-sm text-default ' +
+                (uiFont === font.id ? 'ring-2 ring-sky-400 border-sky-400' : 'line-color')}
+              style={{ fontFamily: font.family }}
+              onClick={() => setUiFont(font.id)}
+            >
+              {font.label} — 가나다 123
+            </button>
+          ))}
+        </div>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="cfgClassicFinish" checked={uiClassicFinish}
+          onChange={(e) => setUiClassicFinish(e.target.checked)} />
+        <label htmlFor="cfgClassicFinish" className="text-sm gray-label">클래식 마감 사용</label>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="cfgLegacySceneEditor" checked={legacySceneEditor}
+          onChange={(e) => setLegacySceneEditor(e.target.checked)} />
+        <label htmlFor="cfgLegacySceneEditor" className="text-sm gray-label">기존 씬 프롬프트 편집기 사용</label>
+      </div>
+      <hr className="border-gray-200 dark:border-slate-600" />
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="cfgLegacyWorkflowMode" checked={legacyWorkflowMode}
+          onChange={(e) => setLegacyWorkflowMode(e.target.checked)} />
+        <label htmlFor="cfgLegacyWorkflowMode" className="text-sm gray-label">레거시 작업모드 활성화</label>
+      </div>
       <hr className="border-gray-200 dark:border-slate-600" />
       <div className="flex items-center gap-2">
         <input type="checkbox" id="cfgClassicScene" checked={classicSceneCard}
@@ -1671,6 +1732,11 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
   const [uiCompanionSlots, setUiCompanionSlots] = useState<Record<string, string[]>>({});
   const [uiLayoutTemplate, setUiLayoutTemplate] = useState('classic');
   const [uiLayoutSlots, setUiLayoutSlots] = useState<UiLayoutSlots>({});
+  const [uiFont, setUiFont] = useState<'noto' | 'system'>('noto');
+  const [uiClassicFinish, setUiClassicFinish] = useState(false);
+  const [legacySceneEditor, setLegacySceneEditor] = useState(false);
+  const [legacyWorkflowMode, setLegacyWorkflowMode] = useState(false);
+  const [uiFloatViewMode, setUiFloatViewMode] = useState<'cover' | 'center'>('cover');
   const [exportConcurrency, setExportConcurrency] = useState(1);
   const [delayTime, setDelayTime] = useState(0);
   const [classicSceneCard, setClassicSceneCard] = useState(false);
@@ -1708,6 +1774,11 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       setUiCompanionSlots(config.uiCompanionSlots ?? {});
       setUiLayoutTemplate(config.uiLayoutTemplate ?? 'classic');
       setUiLayoutSlots(config.uiLayoutSlots ?? {});
+      setUiFont(config.uiFont ?? 'noto');
+      setUiClassicFinish(config.uiClassicFinish ?? false);
+      setLegacySceneEditor(config.legacySceneEditor ?? false);
+      setLegacyWorkflowMode(config.legacyWorkflowMode ?? false);
+      setUiFloatViewMode(config.uiFloatViewMode ?? 'cover');
       setExportConcurrency(config.exportConcurrency ?? 1);
       setImageEditor(config.imageEditor ?? 'photoshop');
       setUseGPU(config.useCUDA ?? false);
@@ -1743,6 +1814,11 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
         uiCompanionSlots: config.uiCompanionSlots ?? {},
         uiLayoutTemplate: config.uiLayoutTemplate ?? 'classic',
         uiLayoutSlots: config.uiLayoutSlots ?? {},
+        uiFont: config.uiFont ?? 'noto',
+        uiClassicFinish: config.uiClassicFinish ?? false,
+        legacySceneEditor: config.legacySceneEditor ?? false,
+        legacyWorkflowMode: config.legacyWorkflowMode ?? false,
+        uiFloatViewMode: config.uiFloatViewMode ?? 'cover',
         exportConcurrency: config.exportConcurrency ?? 1,
         useLocalBgRemoval: config.useLocalBgRemoval ?? false,
         delayTime: config.delayTime ?? 0,
@@ -1887,6 +1963,11 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       uiCompanionSlots,
       uiLayoutTemplate,
       uiLayoutSlots,
+      uiFont,
+      uiClassicFinish,
+      legacySceneEditor,
+      legacyWorkflowMode,
+      uiFloatViewMode,
       exportConcurrency: exportConcurrency,
       useLocalBgRemoval: useLocalBgRemoval,
       delayTime: delayTime,
@@ -1905,6 +1986,11 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     appState.uiCompanionSlots = uiCompanionSlots;
     appState.uiLayoutTemplate = uiLayoutTemplate;
     appState.uiLayoutSlots = uiLayoutSlots;
+    appState.uiFont = uiFont;
+    appState.uiClassicFinish = uiClassicFinish;
+    appState.legacySceneEditor = legacySceneEditor;
+    appState.legacyWorkflowMode = legacyWorkflowMode;
+    appState.uiFloatViewMode = uiFloatViewMode;
     appState.useProjectDrawer = useProjectDrawer;
     appState.useBatchEnqueue = useBatchEnqueue;
     appState.initialThumbSize = initialThumbSize === 0 ? undefined : initialThumbSize;
@@ -1928,6 +2014,11 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       uiCompanionSlots,
       uiLayoutTemplate,
       uiLayoutSlots,
+      uiFont,
+      uiClassicFinish,
+      legacySceneEditor,
+      legacyWorkflowMode,
+      uiFloatViewMode,
       exportConcurrency,
       useLocalBgRemoval,
       delayTime,
@@ -1959,6 +2050,11 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
     uiCompanionSlots,
     uiLayoutTemplate,
     uiLayoutSlots,
+    uiFont,
+    uiClassicFinish,
+    legacySceneEditor,
+    legacyWorkflowMode,
+    uiFloatViewMode,
     exportConcurrency,
     useLocalBgRemoval,
     delayTime,
@@ -1994,7 +2090,7 @@ const ConfigScreen = observer(({ onSave, onClose }: ConfigScreenProps) => {
       case 2:
         return <StorageTab {...{ saveLocation, selectFolder, clearImageCache, refreshImage, setRefreshImage, autoConvertWebp, setAutoConvertWebp, autoConvertWebpQuality, setAutoConvertWebpQuality, onClose }} />;
       case 3:
-        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, uiTheme, setUiTheme, uiThemePresets, setUiThemePresets, uiToolbar, setUiToolbar, quickMenu, setQuickMenu, quickMenuButton, setQuickMenuButton, uiCompanionSlots, setUiCompanionSlots, uiLayoutTemplate, setUiLayoutTemplate, uiLayoutSlots, setUiLayoutSlots, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, historyThumbnailPercent, setHistoryThumbnailPercent, exportConcurrency, setExportConcurrency }} />;
+        return <OtherTab {...{ whiteMode, setWhiteMode, trueDark, setTrueDark, uiTheme, setUiTheme, uiThemePresets, setUiThemePresets, uiToolbar, setUiToolbar, quickMenu, setQuickMenu, quickMenuButton, setQuickMenuButton, uiCompanionSlots, setUiCompanionSlots, uiLayoutTemplate, setUiLayoutTemplate, uiLayoutSlots, setUiLayoutSlots, uiFont, setUiFont, uiClassicFinish, setUiClassicFinish, legacySceneEditor, setLegacySceneEditor, legacyWorkflowMode, setLegacyWorkflowMode, uiFloatViewMode, setUiFloatViewMode, delayTime, setDelayTime, classicSceneCard, setClassicSceneCard, useProjectDrawer, setUseProjectDrawer, useBatchEnqueue, setUseBatchEnqueue, fullWordAc, setFullWordAc, initialThumbSize, setInitialThumbSize, historyThumbnailPercent, setHistoryThumbnailPercent, exportConcurrency, setExportConcurrency }} />;
       case 4:
         return <KeyBindingsTab />;
       default:

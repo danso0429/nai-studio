@@ -42,6 +42,7 @@ const QuickMenu = observer(() => {
   const [position, setPosition] = useState(loadPosition);
   const [dragging, setDragging] = useState(false);
   const holdTimer = useRef<ReturnType<typeof setTimeout>>();
+  const latestPosition = useRef(position);
   const moved = useRef(false);
   const close = () => {
     appState.quickMenuOpen = false;
@@ -55,6 +56,10 @@ const QuickMenu = observer(() => {
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [appState.quickMenuOpen]);
+
+  useEffect(() => () => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+  }, []);
 
   const ids = normalizeQuickMenu(appState.quickMenu);
   const actions = ids
@@ -145,19 +150,24 @@ const QuickMenu = observer(() => {
             onPointerMove={(event) => {
               if (!dragging) return;
               moved.current = true;
-              setPosition({
+              const nextPosition = {
                 x: Math.max(4, Math.min(window.innerWidth - 48, event.clientX - 22)),
                 y: Math.max(4, Math.min(window.innerHeight - 48, event.clientY - 22)),
-              });
+              };
+              latestPosition.current = nextPosition;
+              setPosition(nextPosition);
             }}
             onPointerUp={() => {
               if (holdTimer.current) clearTimeout(holdTimer.current);
               holdTimer.current = undefined;
-              if (dragging && position) localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+              if (dragging && latestPosition.current) {
+                localStorage.setItem(POSITION_KEY, JSON.stringify(latestPosition.current));
+              }
               setDragging(false);
             }}
             onPointerCancel={() => {
               if (holdTimer.current) clearTimeout(holdTimer.current);
+              holdTimer.current = undefined;
               setDragging(false);
             }}
             onClick={() => {

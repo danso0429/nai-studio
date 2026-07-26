@@ -31,7 +31,9 @@
   --c-text-label: #374151;
   --c-text-muted: #6b7280;
   --c-text-faint: #9ca3af;
-  --c-line: #cbd5e1;
+  --c-line: #e2e8f0;
+  --c-line-strong: #94a3b8;
+  --c-input-ring: rgba(0, 0, 0, 0.2);
   --c-input-bg: #e5e7eb;
   --c-input-text: #111827;
   --c-icon-text: #4b5563;
@@ -52,7 +54,9 @@
   --c-text-label: #e2e8f0;
   --c-text-muted: #9ca3af;
   --c-text-faint: #6b7280;
-  --c-line: #334155;
+  --c-line: #293548;
+  --c-line-strong: #475569;
+  --c-input-ring: rgba(255, 255, 255, 0.16);
   --c-input-bg: #334155;
   --c-input-text: #ffffff;
   --c-icon-text: #ffffff;
@@ -68,7 +72,9 @@
 .true-dark {
   --c-surface: #000000;
   --c-surface-2: #0a0a0a;
-  --c-line: #1a1a1a;
+  --c-line: #181818;
+  --c-line-strong: #333333;
+  --c-input-ring: rgba(255, 255, 255, 0.12);
   --c-input-bg: #111111;
   --c-zone: #111111;
 }
@@ -191,6 +197,25 @@ body {
 
 body {
   font-family: 'Noto Sans KR', sans-serif;
+}
+html.font-system body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+html.finish-classic {
+  --c-line: #cbd5e1;
+  --c-line-strong: #cbd5e1;
+  --c-input-ring: transparent;
+}
+html.finish-classic .dark {
+  --c-line: #334155;
+  --c-line-strong: #334155;
+  --c-input-ring: transparent;
+}
+html.finish-classic .true-dark {
+  --c-line: #1a1a1a;
+  --c-line-strong: #1a1a1a;
+  --c-input-ring: transparent;
 }
 
 /* 커스텀 타이틀바 */
@@ -380,6 +405,11 @@ body {
   @apply focus:border-0 focus:outline-0 rounded-md focus:outline-black py-1 md:py-1.5 md:pl-2 md:pr-2 placeholder:text-gray-400;
   background-color: var(--c-input-bg);
   color: var(--c-input-text);
+  box-shadow: inset 0 0 0 1px var(--c-input-ring);
+}
+
+.input-ring {
+  box-shadow: inset 0 0 0 1px var(--c-input-ring);
 }
 
 @layer components {
@@ -387,6 +417,7 @@ body {
   } */
   .my-react-select-container .my-react-select__control {
     @apply bg-white dark:bg-slate-700 border-2 border-gray-500 dark:border-slate-700 hover:border-gray-500 dark:hover:border-slate-500;
+    border-color: var(--c-line-strong);
   }
 
   .my-react-select-container .my-react-select__control--is-focused {

@@ -7,6 +7,8 @@ import React, {
   ReactNode,
   useRef,
 } from 'react';
+import { createPortal } from 'react-dom';
+import { observer } from 'mobx-react-lite';
 import { FaTimes } from 'react-icons/fa';
 // Capacitor not available in web mode
 import { isMobile } from '../models';
@@ -41,7 +43,7 @@ interface FloatViewProviderProps {
   children: ReactNode;
 }
 
-export const FloatViewProvider: React.FC<FloatViewProviderProps> = ({
+export const FloatViewProvider: React.FC<FloatViewProviderProps> = observer(({
   children,
 }) => {
   const [views, setViews] = useState<FloatView[]>([]);
@@ -87,44 +89,49 @@ export const FloatViewProvider: React.FC<FloatViewProviderProps> = ({
     };
   }, []);
 
+  const overlay = !!views.length && (
+    <div
+      className={
+        'top-0 left-0 absolute w-full z-[var(--z-float-view)] float-view ' +
+        (views[0].showToolbar && isMobile ? 'show-toolbar' : 'h-full')
+      }
+    >
+      {views.map((view) => (
+        <div
+          key={view.id}
+          className="bg-[var(--c-surface)] h-full w-full"
+          style={{ position: 'absolute', zIndex: view.id }}
+        >
+          <div className="flex flex-col h-full w-full">
+            <div className="flex-none border-b line-color">
+              <button
+                className="text-default button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  closeTopView();
+                }}
+              >
+                <FaTimes size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">{view.component}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+  const centerAnchor = !isMobile && appState.uiFloatViewMode === 'center'
+    ? document.getElementById('float-view-center-anchor')
+    : null;
+
   return (
     <FloatViewContext.Provider value={{ registerView, unregisterView }}>
       {children}
-      {!!views.length && (
-        <div
-          className={
-            'top-0 absolute w-full z-[var(--z-float-view)] float-view ' +
-            (views[0].showToolbar ? 'show-toolbar' : 'h-full')
-          }
-        >
-          {views.map((view) => (
-            <div
-              key={view.id}
-              className="bg-[var(--c-surface)] h-full w-full"
-              style={{ position: 'absolute', zIndex: view.id }}
-            >
-              <div className="flex flex-col h-full w-full">
-                <div className="flex-none border-b line-color">
-                  <button
-                    className="text-default button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      closeTopView();
-                    }}
-                  >
-                    <FaTimes size={20} />
-                  </button>
-                </div>
-                <div className="flex-1 overflow-hidden">{view.component}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {centerAnchor && overlay ? createPortal(overlay, centerAnchor) : overlay}
     </FloatViewContext.Provider>
   );
-};
+});
 
 interface FloatViewProps {
   children: ReactNode;

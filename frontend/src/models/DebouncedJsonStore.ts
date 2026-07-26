@@ -1,5 +1,5 @@
 import { observable } from 'mobx';
-import { backend } from '.';
+import type { Backend } from '../backend';
 import { isBackendNotFoundError } from '../backends/apiError';
 
 // audit B8 — ToggleGroup/PromptChunk/Sampling/GlobalPreset/GlobalCharacterPreset 5개
@@ -17,7 +17,7 @@ export abstract class DebouncedJsonStore extends EventTarget {
   @observable accessor loadError: string | null = null;
   private saveTimeout: any = null;
 
-  constructor() {
+  constructor(protected readonly backend: Backend) {
     super();
     // 2초 debounce가 fire 전 탭 닫히면 손실 → visibility hidden 시 keepalive로 강제 flush.
     // saveTimeout 있을 때만(실제 pending). 리스너 등록만 하고 추상 호출은 flush 시점(런타임).
@@ -28,7 +28,7 @@ export abstract class DebouncedJsonStore extends EventTarget {
         clearTimeout(this.saveTimeout);
         this.saveTimeout = null;
         try {
-          void backend.writeFileKeepalive(
+          void this.backend.writeFileKeepalive(
             this.getFileName(),
             JSON.stringify(this.buildStore()),
           ).catch((e) => {
@@ -66,7 +66,7 @@ export abstract class DebouncedJsonStore extends EventTarget {
     this.loaded = false;
     this.loadError = null;
     try {
-      const str = await backend.readFile(file);
+      const str = await this.backend.readFile(file);
       try {
         const json = JSON.parse(str);
         this.applyParsed(json);
@@ -74,7 +74,7 @@ export abstract class DebouncedJsonStore extends EventTarget {
         // 손상 JSON — .corrupt-<ts>로 백업 후 reset(다음 save가 손상본 덮어쓰는 것 방지).
         const corruptName = `${file}.corrupt-${Date.now()}`;
         try {
-          await backend.renameFile(file, corruptName);
+          await this.backend.renameFile(file, corruptName);
         } catch (e) {
           // ignore rename errors
         }
@@ -112,12 +112,12 @@ export abstract class DebouncedJsonStore extends EventTarget {
     const data = JSON.stringify(this.buildStore());
     const tmp = file + '.tmp';
     try {
-      await backend.writeFile(tmp, data);
-      await backend.renameFile(tmp, file);
+      await this.backend.writeFile(tmp, data);
+      await this.backend.renameFile(tmp, file);
     } catch (e) {
       // Fallback: atomic rename 실패 시 직접 쓰기
       try {
-        await backend.writeFile(file, data);
+        await this.backend.writeFile(file, data);
       } catch (e2) {
         console.error('Failed to save ' + this.saveErrorLabel() + ':', e2);
         throw e2;

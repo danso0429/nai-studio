@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { observer } from 'mobx-react-lite';
 import { FaStar, FaSearch } from 'react-icons/fa';
-import { sessionService, isMobile } from '../models';
+import { sessionService, imageActions, isMobile } from '../models';
 import { appState } from '../models/AppService';
-import { getMainImage } from '../models/ImageService';
 import ModalOverlay from './ModalOverlay';
 
 const RECENT_KEY = 'sdstudio-recent-projects';
@@ -40,7 +39,7 @@ const ProjectThumbnail = ({ name }: { name: string }) => {
         if (!session || cancelled) return;
         const scenes = Array.from(session.scenes.values());
         if (scenes.length === 0) return;
-        const img = await getMainImage(session, scenes[0], 200);
+        const img = await imageActions.getMainImage(session, scenes[0], 200);
         if (!cancelled && img) setImage(img);
       } catch {}
     })();

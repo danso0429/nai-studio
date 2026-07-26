@@ -67,7 +67,14 @@ import {
   WFIStack,
   WFVar,
   WorkFlowDef,
+  wfiElementKey,
 } from '../models/workflows/WorkFlow';
+import {
+  movePresetInput,
+  PRESET_LAYOUT_ANCHORS,
+  presetLayoutSlotKey,
+  resolvePresetInputs,
+} from '../models/presetLayout';
 import { StackFixed, StackGrow, VerticalStack } from './LayoutComponents';
 import Tooltip from './Tooltip';
 import ModalOverlay from './ModalOverlay';
@@ -76,6 +83,14 @@ import { FaCloudUploadAlt } from 'react-icons/fa';
 import { ModelVersion } from '../backends/imageGen';
 import { ResolutionPicker, resolutionValueToSize } from './ResolutionPicker';
 import CompanionButtons from './CompanionButtons';
+import HelpIcon from './HelpIcon';
+
+const PROMPT_SYNTAX_HELP = `프롬프트 문법
+• <그룹.조각> : 로컬 우선으로 조각 삽입
+• {강조} / [약화] : 중첩 가중치
+• 1.5::내용:: : 명시 가중치
+• ##메모## : 생성에서 제외되는 주석
+• 자동완성 : 태그 추천, < 입력 시 조각 검색`;
 
 // Phase 7C: gray-label 핵심 패턴 헬퍼 (오타 재발 방지)
 const GrayLabel: React.FC<{ children: React.ReactNode; className?: string }> = ({
@@ -1240,6 +1255,7 @@ const InnerEditor: React.FC<InnerEditorProps> = ({ type, shared, preset }) => {
       </div>
       <div className="flex-1 overflow-hidden p-2">
         <BigPromptEditor
+          PresetEditor={UnionPreSetEditor}
           key="bigprompt"
           general={false}
           type={type}
@@ -2329,6 +2345,82 @@ const WFRStack = observer(({ element }: WFElementProps) => {
   );
 });
 
+const PresetRootStack = observer(({
+  stack,
+  slot,
+}: {
+  stack: WFIStack;
+  slot: string;
+}) => {
+  const footer = useContext(PresetFooterContext);
+  const dragged = useRef<string>();
+  const inputs = resolvePresetInputs(stack, appState.uiPresetLayout[slot]);
+  const keys = inputs.map(wfiElementKey);
+  const canEdit = appState.editMode && keys.every(Boolean) && new Set(keys).size === keys.length;
+
+  const commitMove = async (from: string, before?: string) => {
+    const current = keys as string[];
+    const order = movePresetInput(current, from, before);
+    if (order.join('\0') === current.join('\0')) return;
+    const previous = appState.uiPresetLayout;
+    const next = { ...previous, [slot]: order };
+    appState.uiPresetLayout = next;
+    try {
+      const config = await backend.getConfig();
+      await backend.setConfig({ ...config, uiPresetLayout: next });
+    } catch (error) {
+      appState.uiPresetLayout = previous;
+      appState.pushMessage('프리셋 배치 저장 실패: ' + String(error));
+    }
+  };
+
+  return (
+    <div
+      className="w-full h-full flex flex-col overflow-hidden"
+      onDragOver={(event) => { if (canEdit) event.preventDefault(); }}
+      onDrop={(event) => {
+        if (!canEdit || !dragged.current) return;
+        event.preventDefault();
+        void commitMove(dragged.current);
+        dragged.current = undefined;
+      }}
+    >
+      {inputs.map((element, index) => {
+        const key = keys[index] as string | undefined;
+        const movable = canEdit && !!key && !PRESET_LAYOUT_ANCHORS.has(key);
+        return (
+          <div
+            key={key ?? index}
+            draggable={movable}
+            className={canEdit ? 'relative border border-dashed border-sky-400/60 rounded-md my-0.5' : ''}
+            onDragStart={(event) => {
+              if (!movable || !key) return;
+              dragged.current = key;
+              event.dataTransfer.effectAllowed = 'move';
+            }}
+            onDragOver={(event) => { if (canEdit) event.preventDefault(); }}
+            onDrop={(event) => {
+              if (!canEdit || !dragged.current || !key) return;
+              event.preventDefault();
+              event.stopPropagation();
+              void commitMove(dragged.current, key);
+              dragged.current = undefined;
+            }}
+          >
+            {movable && (
+              <span className="absolute right-1 top-1 z-10 px-1 rounded bg-sky-500 text-white text-[10px] cursor-grab">
+                ↕
+              </span>
+            )}
+            <WFRenderElement element={element} />
+          </div>
+        );
+      })}
+      {footer}
+    </div>
+  );
+});
+
 const NewSceneResolutionRow = observer(() => {
   const session = appState.curSession;
   if (!session) return <></>;
@@ -2828,6 +2920,11 @@ const WFRInline = observer(({ element }: WFElementProps) => {
           )}
           {/* 라벨+버튼을 PromptEditTextArea 헤더 줄로(item ④: 입력창 위 absolute 버튼 → 라벨 줄).
               EditorField의 라벨/래퍼를 직접 대체 — 라벨은 headerLabel로 넘김. */}
+          {input.field === 'frontPrompt' && (
+            <div className="flex-none flex items-center gap-1 text-xs text-muted mt-1">
+              프롬프트 문법 <HelpIcon content={PROMPT_SYNTAX_HELP} size={13} />
+            </div>
+          )}
           <div className={promptFolded ? 'flex-none' : input.flex === 'flex-1' ? 'flex-1 min-h-0' : 'flex-none mt-3'}>
             <PromptEditTextArea
               key={key}
@@ -2971,6 +3068,7 @@ interface ImplProps {
   getCharacterMiddlePrompt?: (index: number) => string;
   onCharacterMiddlePromptChange?: (index: number, txt: string) => void;
   showNewSceneResolution?: boolean;
+  layoutSlot: string;
 }
 
 export const PreSetEditorImpl = observer(
@@ -2986,6 +3084,7 @@ export const PreSetEditorImpl = observer(
     getCharacterMiddlePrompt,
     onCharacterMiddlePromptChange,
     showNewSceneResolution,
+    layoutSlot,
   }: ImplProps) => {
     const [editVibe, setEditVibe] = useState<WFIInlineInput | undefined>(
       undefined,
@@ -3090,7 +3189,11 @@ export const PreSetEditorImpl = observer(
               <PresetFooterContext.Provider
                 value={showNewSceneResolution ? <NewSceneResolutionRow /> : undefined}
               >
-                <WFRenderElement element={element} />
+                {element.type === 'stack' ? (
+                  <PresetRootStack stack={element as WFIStack} slot={layoutSlot} />
+                ) : (
+                  <WFRenderElement element={element} />
+                )}
               </PresetFooterContext.Provider>
             )}
           </WFGroupContext.Provider>
@@ -3166,6 +3269,7 @@ export const InnerPreSetEditor = observer(
           meta={meta}
           element={element}
           middlePromptMode={middlePromptMode}
+          layoutSlot={presetLayoutSlotKey(type, true)}
           getMiddlePrompt={getMiddlePrompt}
           onMiddlePromptChange={onMiddlePromptChange}
           getCharacterMiddlePrompt={getCharacterMiddlePrompt}
@@ -3196,13 +3300,19 @@ const PreSetEditor = observer(
   }: Props) => {
     const [_, rerender] = useState<{}>({});
     const curSession = appState.curSession!;
+    const legacyWorkflow = appState.legacyWorkflowMode;
     const workflowType = curSession.selectedWorkflow?.workflowType;
     const shared = curSession.presetShareds?.get(workflowType!);
     const presets = curSession.presets?.get(workflowType!);
     if (!workflowType) {
       curSession.selectedWorkflow = {
-        workflowType: workFlowService.generalFlows[0].getType(),
+        workflowType: legacyWorkflow
+          ? workFlowService.generalFlows[0].getType()
+          : 'SDImageGen',
       };
+      rerender({});
+    } else if (!legacyWorkflow && workflowType !== 'SDImageGen') {
+      curSession.selectedWorkflow = { workflowType: 'SDImageGen' };
       rerender({});
     } else {
       if (!presets) {
@@ -3236,7 +3346,7 @@ const PreSetEditor = observer(
       shared &&
       curSession.selectedWorkflow!.presetName && (
         <VerticalStack className="p-2">
-          <StackFixed className="flex gap-2 items-center">
+          {legacyWorkflow && <StackFixed className="flex gap-2 items-center">
             <span className={'flex-none gray-label'}>작업모드: </span>
             <DropdownSelect
               selectedOption={workflowType}
@@ -3252,7 +3362,8 @@ const PreSetEditor = observer(
               }}
             />
             <CompanionButtons host="presetTop" />
-          </StackFixed>
+          </StackFixed>}
+          {!legacyWorkflow && <CompanionButtons host="presetTop" />}
           <PreSetEditorImpl
             type={workflowType}
             shared={shared}
@@ -3263,6 +3374,7 @@ const PreSetEditor = observer(
               )!
             }
             middlePromptMode={middlePromptMode}
+            layoutSlot={presetLayoutSlotKey(workflowType, false)}
             element={workFlowService.getGeneralEditor(workflowType)}
             getMiddlePrompt={getMiddlePrompt}
             onMiddlePromptChange={onMiddlePromptChange}

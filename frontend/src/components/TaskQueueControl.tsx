@@ -13,9 +13,10 @@ interface ProgressBarProps {
   isError: boolean;
   isPaused?: boolean;
   text: string;
+  elapsed?: number;
 }
 
-const ProgressBar = ({ duration, isError, isPaused, text }: ProgressBarProps) => {
+const ProgressBar = ({ duration, isError, isPaused, text, elapsed = 0 }: ProgressBarProps) => {
   // paused 상태: 애니메이션 정지 + 회색 톤 + ⏸ 아이콘. 본인이 명확히 "큐 등록만 됨, 진행 X" 인지.
   const barColor = isError
     ? 'bg-red-500'
@@ -23,13 +24,17 @@ const ProgressBar = ({ duration, isError, isPaused, text }: ProgressBarProps) =>
       ? 'bg-gray-400 dark:bg-slate-500'
       : 'bg-sky-500 dark:bg-indigo-400';
   const effectiveDuration = isPaused ? 0 : duration;
+  const animationStyle = {
+    animationDuration: `${effectiveDuration}s`,
+    animationDelay: `-${elapsed}s`,
+  };
   return (
     <div
       className="relative w-40 md:w-52 bg-gray-200 dark:bg-slate-700 rounded-full h-8"
     >
       <div className="top-0 left-0 w-40 md:w-52 h-8 absolute flex items-center justify-center text-gray-600 dark:text-white gap-2">
         {isPaused ? <FaPause size={16} /> : <FaRegClock size={20} />}
-        <div className="w-28 md:w-40 text-xs md:text-sm text-center overflow-hidden text-nowrap">
+        <div className="w-28 md:w-40 text-xs md:text-sm text-center overflow-hidden text-nowrap tabular-nums">
           {text}
         </div>
       </div>
@@ -40,14 +45,14 @@ const ProgressBar = ({ duration, isError, isPaused, text }: ProgressBarProps) =>
               'top-0 left-0 absolute w-40 md:w-52 progress-transition rounded-full h-8 progress-clip-animation ' +
               barColor
             }
-            style={{ animationDuration: `${effectiveDuration}s` }}
+            style={animationStyle}
           ></div>
           <div
             className="top-0 left-0 w-40 md:w-52 h-8 absolute flex items-center justify-center text-white gap-2 progress-clip-animation"
-            style={{ animationDuration: `${effectiveDuration}s` }}
+            style={animationStyle}
           >
             <FaRegClock size={20} />
-            <div className="w-28 md:w-40 text-xs md:text-sm text-center overflow-hidden text-nowrap">
+            <div className="w-28 md:w-40 text-xs md:text-sm text-center overflow-hidden text-nowrap tabular-nums">
               {text}
             </div>
           </div>
@@ -62,7 +67,16 @@ interface TaskProgressBarProps {
 }
 export const TaskProgressBar = observer(({ fast }: TaskProgressBarProps) => {
   const key = useRef<number>(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(() =>
+    taskQueueService.isRunning()
+      ? taskQueueService.estimateTopTaskTime('mean') / 1000
+      : 0,
+  );
+  const [elapsed, setElapsed] = useState(() =>
+    taskQueueService.isRunning() && taskQueueService.progressCycleStartedAt > 0
+      ? Math.max(0, (Date.now() - taskQueueService.progressCycleStartedAt) / 1000)
+      : 0,
+  );
   const [isError, setIsError] = useState(false);
   const [error, setError] = useState<string>('');
   const [_, rerender] = useState<{}>({});
@@ -110,6 +124,7 @@ export const TaskProgressBar = observer(({ fast }: TaskProgressBarProps) => {
       if (!taskQueueService.isRunning()) {
         nextKey();
         setDuration(0);
+        setElapsed(0);
         setIsError(false);
         setError('');
       }
@@ -119,6 +134,7 @@ export const TaskProgressBar = observer(({ fast }: TaskProgressBarProps) => {
       nextKey();
       setIsError(false);
       setError('');
+      setElapsed(0);
       setDuration(topTaskDurationSec());
       if (!taskQueueService.isRunning()) {
         setDuration(0);
@@ -128,6 +144,7 @@ export const TaskProgressBar = observer(({ fast }: TaskProgressBarProps) => {
       nextKey();
       setIsError(false);
       setError('');
+      setElapsed(0);
       setDuration(topTaskDurationSec());
       if (!taskQueueService.isRunning()) {
         setDuration(0);
@@ -167,6 +184,7 @@ export const TaskProgressBar = observer(({ fast }: TaskProgressBarProps) => {
         isError={isError}
         isPaused={taskQueueService.mirrorPaused && !taskQueueService.currentRun}
         duration={duration}
+        elapsed={elapsed}
         text={getProgressText()}
       />
     </div>

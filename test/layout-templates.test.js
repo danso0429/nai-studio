@@ -84,3 +84,20 @@ test('floating generation control persists coordinates and supports docking when
   assert.match(widget, /Math\.min\(window\.innerWidth/);
   assert.match(widget, /Math\.min\(window\.innerHeight/);
 });
+
+test('generation progress animation resumes from the service-owned cycle clock', () => {
+  const control = read('frontend/src/components/TaskQueueControl.tsx');
+  const service = read('frontend/src/models/TaskQueueService.ts');
+  assert.match(service, /progressCycleStartedAt = 0/);
+  assert.match(control, /Date\.now\(\) - taskQueueService\.progressCycleStartedAt/);
+  assert.match(control, /animationDelay: `-\$\{elapsed\}s`/);
+});
+
+test('float views can cover the workspace or portal into the center anchor', () => {
+  const app = read('frontend/src/components/App.tsx');
+  const floatView = read('frontend/src/components/FloatView.tsx');
+  assert.match(app, /id="float-view-center-anchor"/);
+  assert.match(floatView, /appState\.uiFloatViewMode === 'center'/);
+  assert.match(floatView, /createPortal\(overlay, centerAnchor\)/);
+  assert.match(floatView, /views\[0\]\.showToolbar && isMobile/);
+});

@@ -31,11 +31,11 @@ import {
   lowerPromptNode,
   toPARR,
 } from '../PromptService';
-import { imageService, promptService, taskQueueService, workFlowService, samplingPresetService } from '..';
-import { TaskParam } from '../TaskQueueService';
+import type { TaskParam } from '../TaskQueueService';
 import { dataUriToBase64 } from '../ImageService';
-import { appState } from '../AppService';
+import { getAppState } from '../appStateRef';
 import { extractApiError } from '../util';
+import { requireWorkflowRuntime } from './workflowRuntime';
 
 const SDImageGenPreset = new WFVarBuilder()
   .addIntVar('cfgRescale', 0, 1, 0.01, 0)
@@ -59,10 +59,10 @@ const SDImageGenShared = new WFVarBuilder()
   .addCharacterReferenceVar('characterReferences');
 
 const SDImageGenUI = wfiStack([
-  wfiPresetSelect(),
+  wfiPresetSelect('preset-select'),
   wfiInlineInput('상위 프롬프트', 'frontPrompt', 'preset', 'flex-1'),
-  wfiExtraPromptInput('추가 프롬프트'),
-  wfiMiddlePlaceholderInput('중간 프롬프트 (이 씬에만 적용됨)'),
+  wfiExtraPromptInput('추가 프롬프트', 'extra-prompt'),
+  wfiMiddlePlaceholderInput('중간 프롬프트 (이 씬에만 적용됨)', 'middle-prompt'),
   wfiInlineInput('하위 프롬프트', 'backPrompt', 'preset', 'flex-1'),
   wfiInlineInput('네거티브 프롬프트', 'uc', 'preset', 'flex-1'),
   wfiInlineInput('시드', 'seed', 'shared', 'flex-none'),
@@ -99,7 +99,7 @@ const SDImageGenUI = wfiStack([
       'preset',
       'flex-none',
     ),
-  ]),
+  ], 'sampling-group'),
   wfiInlineInput('바이브 설정', 'vibes', 'shared', 'flex-none'),
   wfiInlineInput('캐릭터 레퍼런스', 'characterReferences', 'shared', 'flex-none'),
 ]);
@@ -125,10 +125,10 @@ const SDImageGenEasyShared = SDImageGenShared.clone()
   .addCharacterPromptsVar('characterPrompts', []);
 
 const SDImageGenEasyUI = wfiStack([
-  wfiProfilePresetSelect(),
+  wfiProfilePresetSelect('profile-preset-select'),
   wfiInlineInput('캐릭터 관련 태그', 'characterPrompt', 'shared', 'flex-1'),
-  wfiExtraPromptInput('추가 프롬프트'),
-  wfiMiddlePlaceholderInput('중간 프롬프트 (이 씬에만 적용됨)'),
+  wfiExtraPromptInput('추가 프롬프트', 'extra-prompt'),
+  wfiMiddlePlaceholderInput('중간 프롬프트 (이 씬에만 적용됨)', 'middle-prompt'),
   wfiInlineInput('배경 관련 태그', 'backgroundPrompt', 'shared', 'flex-1'),
   wfiInlineInput('태그 밴 리스트', 'uc', 'shared', 'flex-1'),
   wfiInlineInput('시드', 'seed', 'shared', 'flex-none'),
@@ -139,7 +139,7 @@ const SDImageGenEasyUI = wfiStack([
 
 const SDImageGenEasyInnerUI = wfiStack([
   wfiInlineInput('상위 프롬프트', 'frontPrompt', 'preset', 'flex-1'),
-  wfiMiddlePlaceholderInput('중간 프롬프트 (이 창에만 적용됨)'),
+  wfiMiddlePlaceholderInput('중간 프롬프트 (이 창에만 적용됨)', 'middle-prompt'),
   wfiInlineInput('하위 프롬프트', 'backPrompt', 'preset', 'flex-1'),
   wfiInlineInput('네거티브 프롬프트', 'uc', 'preset', 'flex-1'),
   wfiGroup('샘플링/모델 설정', [
@@ -174,15 +174,16 @@ const SDImageGenEasyInnerUI = wfiStack([
       'preset',
       'flex-none',
     ),
-  ]),
+  ], 'sampling-group'),
 ]);
 
 // 샘플링 프리셋 오버라이드 — session.samplingPresetId에서 ID resolve.
 // appState 전역 UI 상태에 의존하지 않아서, 재예약 등 비-UI 경로에서도 정확히 적용됨.
 function applySamplingPresetOverride(preset: any, session: Session): any {
+  const { samplingPresetService } = requireWorkflowRuntime();
   const pid = session.samplingPresetId;
   const id = pid === null ? undefined
-    : pid || appState.globalSamplingPresetId;
+    : pid || getAppState().globalSamplingPresetId;
   if (!id) return preset;
   const applied = samplingPresetService.get(id);
   if (!applied) return preset;
@@ -209,6 +210,8 @@ const SDImageGenHandler = async (
   extraUc?: string,
   sceneGroup?: { sceneJobTotal: number; sceneJobStartIndex: number },
 ) => {
+  const { imageService, promptService, taskQueueService } = requireWorkflowRuntime();
+  const appState = getAppState();
   preset = applySamplingPresetOverride(preset, session);
   // 씬 전용 캐릭터 프롬프트 사용 여부 확인
   const sceneObj = scene as Scene;
@@ -420,7 +423,7 @@ const SDInpaintUI = wfiStack([
       'preset',
       'flex-none',
     ),
-  ]),
+  ], 'sampling-group'),
   wfiInlineInput('바이브 설정', 'vibes', 'preset', 'flex-none'),
   // wfiInlineInput('시드', 'seed', true, 'flex-none'),
 ]);
@@ -437,6 +440,8 @@ const createSDI2IHandler = (type: string) => {
     meta?: any,
     onComplete?: (img: string) => void,
   ) => {
+    const { imageService, taskQueueService } = requireWorkflowRuntime();
+    const appState = getAppState();
     const image = preset.image.endsWith('.png')
       ? dataUriToBase64(
           (await imageService.fetchVibeImage(session, preset.image))!,
@@ -497,6 +502,7 @@ export function createInpaintPreset(
   image?: string,
   mask?: string,
 ): any {
+  const { workFlowService } = requireWorkflowRuntime();
   const preset = workFlowService.buildPreset('SDInpaint');
   if (image !== undefined) preset.image = image;
   if (mask !== undefined) preset.mask = mask;
@@ -572,7 +578,7 @@ const SDI2IUI = wfiStack([
       'preset',
       'flex-none',
     ),
-  ]),
+  ], 'sampling-group'),
   wfiInlineInput('바이브 설정', 'vibes', 'preset', 'flex-none'),
   wfiInlineInput('캐릭터 레퍼런스', 'characterReferences', 'preset', 'flex-none'),
   // wfiInlineInput('시드', 'seed', true, 'flex-none'),
@@ -583,6 +589,7 @@ export function createI2IPreset(
   image?: string,
   mask?: string,
 ): any {
+  const { workFlowService } = requireWorkflowRuntime();
   const preset = workFlowService.buildPreset('SDI2I');
   preset.image = image;
   preset.mask = mask;
@@ -817,7 +824,7 @@ const SDMirrorUI = wfiStack([
       'preset',
       'flex-none',
     ),
-  ]),
+  ], 'sampling-group'),
   wfiInlineInput('바이브 설정', 'vibes', 'preset', 'flex-none'),
 ]);
 
@@ -834,6 +841,7 @@ const createMirrorHandler = () => {
     meta?: any,
     onComplete?: (img: string) => void,
   ) => {
+    const { promptService } = requireWorkflowRuntime();
     let front = '', back = '', globalUc = '';
     if (session.selectedWorkflow) {
       const [, genPreset] = session.getCommonSetup(session.selectedWorkflow);
@@ -867,6 +875,7 @@ export function createMirrorPreset(
   image?: string,
   mask?: string,
 ): any {
+  const { workFlowService } = requireWorkflowRuntime();
   const preset = workFlowService.buildPreset('SDMirror');
   if (image !== undefined) preset.image = image;
   if (mask !== undefined) preset.mask = mask;

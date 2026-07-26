@@ -1,5 +1,6 @@
 import { observable, makeObservable, runInAction } from 'mobx';
-import { backend, sessionService } from '.';
+import type { Backend } from '../backend';
+import type { SessionService } from './SessionService';
 import { apiUrl } from './util';
 
 export interface ProjectSizeEntry {
@@ -27,7 +28,10 @@ export class ProjectSizeService {
   private loaded = false;
   private bulkCancelled = false;
 
-  constructor() {
+  constructor(
+    private readonly backend: Backend,
+    private readonly sessionService: SessionService,
+  ) {
     makeObservable(this);
   }
 
@@ -35,7 +39,7 @@ export class ProjectSizeService {
     if (this.loaded) return;
     this.loaded = true;
     try {
-      const raw = JSON.parse(await backend.readFile(SIDECAR_PATH));
+      const raw = JSON.parse(await this.backend.readFile(SIDECAR_PATH));
       if (raw && raw.entries) {
         runInAction(() => {
           this.entries = raw.entries;
@@ -46,7 +50,7 @@ export class ProjectSizeService {
     }
     // 삭제·이름 변경된 프로젝트의 캐시 제거
     try {
-      const names = new Set(sessionService.list());
+      const names = new Set(this.sessionService.list());
       runInAction(() => {
         for (const k of Object.keys(this.entries)) {
           if (!names.has(k)) delete this.entries[k];
@@ -57,7 +61,7 @@ export class ProjectSizeService {
 
   private async save(): Promise<void> {
     try {
-      await backend.writeFile(
+      await this.backend.writeFile(
         SIDECAR_PATH,
         JSON.stringify({ version: 1, entries: this.entries }),
       );
@@ -72,7 +76,7 @@ export class ProjectSizeService {
     if (!this.loaded) {
       this.loaded = true;
       try {
-        const raw = JSON.parse(await backend.readFile(SIDECAR_PATH));
+        const raw = JSON.parse(await this.backend.readFile(SIDECAR_PATH));
         if (raw && raw.entries) {
           runInAction(() => { this.entries = raw.entries; });
         }

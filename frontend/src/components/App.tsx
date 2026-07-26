@@ -374,6 +374,12 @@ export const App = observer(() => {
       appState.uiLayoutTemplate = conf.uiLayoutTemplate ?? 'classic';
       appState.uiLayoutSlots = conf.uiLayoutSlots ?? {};
       appState.genWidget = conf.genWidget ?? {};
+      appState.uiFont = conf.uiFont ?? 'noto';
+      appState.uiClassicFinish = conf.uiClassicFinish ?? false;
+      appState.legacySceneEditor = conf.legacySceneEditor ?? false;
+      appState.uiPresetLayout = conf.uiPresetLayout ?? {};
+      appState.legacyWorkflowMode = conf.legacyWorkflowMode ?? false;
+      appState.uiFloatViewMode = conf.uiFloatViewMode ?? 'cover';
       appState.initialThumbSize = conf.initialThumbSize;
       appState.historyThumbnailPercent = Math.max(
         60,
@@ -389,6 +395,10 @@ export const App = observer(() => {
       sessionService.removeEventListener('config-changed', refreshDarkMode);
     };
   }, []);
+  useEffect(() => {
+    document.documentElement.classList.toggle('font-system', appState.uiFont === 'system');
+    document.documentElement.classList.toggle('finish-classic', appState.uiClassicFinish);
+  }, [appState.uiFont, appState.uiClassicFinish]);
   // (electron 잔재 정리) appUpdateNoticeService 'updated' 리스너 제거 — 웹 stub은
   // 이벤트를 절대 dispatch하지 않아 미발화 죽은 경로였음. 실제 업데이트 알림은
   // BuildInfo 배지(/api/version-check)가 담당.
@@ -1218,6 +1228,7 @@ export const App = observer(() => {
                             <ResizableSplitter reversed={resolvedLayout.presetSide === 'right'} />
                           </div>
                           <StackGrow className="order-0">
+                            <div id="float-view-center-anchor" className="relative h-full w-full overflow-hidden">
                             <TabComponent
                               key={appState.curSession.name}
                               persistKey={LAST_TAB_KEY}
@@ -1232,6 +1243,7 @@ export const App = observer(() => {
                                 />
                               }
                             />
+                            </div>
                           </StackGrow>
                         </>
                       )}

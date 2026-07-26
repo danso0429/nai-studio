@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { FloatView } from './FloatView';
 import SceneEditor from './SceneEditor';
+import { UnionPreSetEditor } from './PreSetEditor';
 import { FaBookmark, FaBroom, FaChevronDown, FaChevronLeft, FaChevronRight, FaChevronUp, FaEdit, FaEllipsisH, FaExchangeAlt, FaFileImage, FaPen, FaPlus, FaRegCalendarTimes, FaSearch, FaSort, FaStar, FaTimes, FaTrash, FaTrashRestore } from 'react-icons/fa';
 import ResultViewer from './ResultViewer';
 import InPaintEditor from './InPaintEditor';
@@ -22,9 +23,9 @@ import {
   trashService,
   promptService,
   getInitialThumbSize,
+  imageActions,
 } from '../models';
 import {
-  getMainImage,
   dataUriToBase64,
 } from '../models/ImageService';
 import { getSceneKey, queueWorkflow } from '../models/TaskQueueService';
@@ -1227,7 +1228,7 @@ const QueueControl = observer(
     const thumbSize = getInitialThumbSize(appState.initialThumbSize);
     const getImage = useCallback(async (scene: GenericScene) => {
       if (scene.type === 'scene') {
-        const image = await getMainImage(curSession!, scene as Scene, thumbSize);
+        const image = await imageActions.getMainImage(curSession!, scene as Scene, thumbSize);
         if (!image) throw new Error('No image available');
         return image;
       } else {
@@ -1456,6 +1457,7 @@ const QueueControl = observer(
                 onEscape={() => setEditingScene(undefined)}
               >
                 <SceneEditor
+                  PresetEditor={UnionPreSetEditor}
                   scene={editingScene as Scene}
                   onClosed={() => {
                     setEditingScene(undefined);
@@ -1561,6 +1563,7 @@ const QueueControl = observer(
             }}
           >
             <ResultViewer
+              QueueControl={QueueControl}
               ref={resultViewerRef}
               scene={displayScene}
               focusFilename={displayFocus}

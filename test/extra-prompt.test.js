@@ -23,7 +23,7 @@ test('일반·이지 워크플로우 모두 추가 프롬프트를 중간 프롬
     const start = source.indexOf(name);
     const end = source.indexOf(']);', start);
     const block = source.slice(start, end);
-    const extra = block.indexOf("wfiExtraPromptInput('추가 프롬프트')");
+    const extra = block.indexOf("wfiExtraPromptInput('추가 프롬프트'");
     const middle = block.indexOf('wfiMiddlePlaceholderInput');
     assert.notEqual(extra, -1, name);
     assert.notEqual(middle, -1, name);

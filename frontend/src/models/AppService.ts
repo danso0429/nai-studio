@@ -348,6 +348,12 @@ export class AppState {
   @observable accessor uiLayoutTemplate: string = 'classic';
   @observable accessor uiLayoutSlots: UiLayoutSlots = {};
   @observable accessor genWidget: GenWidgetConfig = {};
+  @observable accessor uiFont: 'noto' | 'system' = 'noto';
+  @observable accessor uiClassicFinish: boolean = false;
+  @observable accessor legacySceneEditor: boolean = false;
+  @observable accessor uiPresetLayout: Record<string, string[]> = {};
+  @observable accessor legacyWorkflowMode: boolean = false;
+  @observable accessor uiFloatViewMode: 'cover' | 'center' = 'cover';
 
   // 씬 그리드 초기 썸네일 크기. undefined면 화면 폭으로 자동 결정. ConfigScreen
   // 에서 사용자가 명시 override 가능. App.tsx의 config-changed에서 sync.

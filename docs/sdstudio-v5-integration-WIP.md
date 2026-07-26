@@ -1,6 +1,6 @@
 # SDStudio v5.0.0 Remote 통합 WIP
 
-> 상태: 통합 구현 진행 중. upstream 기준은 `v5.0.0` (`aa03e417827132a17516f7cd5cc831435bcd70a8`), Remote 기준은 `v1.12.0` (`ba2b4a2`)이다.
+> 상태: 5.0.0 기능 통합 구현과 134 SHA closure 완료, 전체 release gate 전 검수 중. upstream 기준은 `v5.0.0` (`aa03e417827132a17516f7cd5cc831435bcd70a8`), Remote 기준은 `v1.12.0` (`ba2b4a2`)이다.
 > 순서: 5.0.0 전체 통합 → 전체 자동 게이트와 실제 사용자 L3 안내 → L3 답변과 독립적으로 2026-07-19 순환 백로그 S0~S4 실행 → 최종 자동 게이트 → 사용자 L3 OK 후 stable release.
 
 ## 1. 완료 정의
@@ -31,13 +31,28 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 
 134개 커밋은 아래 트랙의 `upstream 범위`를 합집합으로 관리한다. 최종 closeout에서 `rev-list` 원본과 트랙별 해소표의 SHA 집합을 대조해 누락·중복 0을 증명한다.
 
+### 2.1 SHA closure ledger
+
+아래 블록은 `v4.14.0..v5.0.0` 134개 SHA를 정확히 한 번씩 소유하는 기계 대조용 목록이다. 세부 효과와 검증은 각 트랙 기록을 정본으로 하고, 중간 롤백/병합 SHA도 최종 효과에 포함해 분류한다.
+
+- `V5-A PORT/ADAPT`: `7f79c53 6df6420 20a5820 dada49a 7dd6f28 09dc976 28111f4 b058aa9 0f20d01 013bbee fadf3ad b4d46ef dceaef6 f2ad780 43c82cb aa82985 0a46cbc 8a9b442 08c8b12 1157c7a c26ac4a 9a46622 82f1c7d 348320a fa7512e 2ee92f8 01812c2 be5a7cc 52650a7 29da6c2 6689217 a3696d6 40a4022 ab5a78d 650454e 4aa5914 b62a7b6 291e877 b112fd6 5c4368f`
+- `V5-B PORT/ADAPT`: `736aeaa 4b60465 8d81d34 cbd3aae cbb640a 1506160 c020ad4`
+- `V5-C PORT/ADAPT`: `28c2139 68aa994 cac02c8 4fbe413 1d46d97 735bbf3 fbb435e 05a92dd 25c8a97 e2e9f86 42c4916 b1d2430 2807880 fa904cb 75211ec 417067a c89d2dc e42eeea 89f92c1 e6b19b0 fae91bc 5e26dc9 0666dcc 46371cb f033c60 bc2e66b`
+- `V5-D PORT/ADAPT`: `56f4e72 3433721 932651c ae2fa69 a75ef58 3872c49 159b09c f978ce4 6dc1f29 beff9eb 23b586a 7629597 ec85412 4f18fee d0c4aee 61209e9 14b4522 b1433a9 9b1febc bee5ba4 749f868 ff8bb83 a0d5aa6 d373e0b 7a55661 7f5e61f 2366a21 3368ec5 71bc619 a38c08c 9470f20 fdb12b2 43c4e9f af2187d`
+- `V5-E PORT/ADAPT`: `2503f60 1eafeeb 5d1356d 53dd622 dbff670 f8a4b09 dfe5391 a343ffd`
+- `V5-F PORT/ADAPT`: `131b92f 9a8157b 37244d9 1baddb9 2f285f6`
+- `V5-G PORT/ADAPT`: `93b5ede c090e2c d36946e f176363 85d2c0a 019a7d1 dc9d94a`
+- `V5-H N/A/RELEASE`: `acc7f43 21153f2 5f208de 2c29848 3bb879a f9eda87 aa03e41`
+
+대조 관찰값: upstream 134 / ledger 134 / unique 134 / missing 0 / extra 0 / duplicate 0.
+
 ## 3. 통합 트랙
 
 ### V5-A — 모바일·공통 UX와 안전 수정
 
 - 범위: 결과 스와이프, safe-area, 자동완성 위치, 드로어 애니메이션, z-index/token, 공용 버튼, 진행 취소, 도움말, 모바일 툴바 복구.
 - 처리: 웹에 해당하는 효과는 `PORT`; Android back stack과 Electron file reveal은 `N/A` 또는 서버/브라우저 동등 기능이 있을 때만 `ADAPT`.
-- 상태: `IN_PROGRESS`.
+- 상태: `COMPLETE`.
 - 해소 기록:
   - `09dc976`, `28111f4`, `a3696d6` 상세 이미지 스와이프·전환 로딩·이전/다음 씬 그리드 — `PORT` 완료. 수평 우세 50px 제스처만 이미지 전환으로 처리하고 fetch 취소 가드로 빠른 연속 전환의 stale 응답을 차단했다. 씬 이동은 현재 검색/필터 순서와 경계 버튼·Ctrl+방향키를 사용하며 씬별 remount로 상태 누수를 막았다. 검증: frontend tsc 0 error, `test/result-viewer-navigation.test.js` pass.
   - `dada49a` 모바일 탭 잘림·safe-area — `ALREADY`. Remote는 `viewport-fit=cover`와 body 전체 safe-area inset을 이미 적용하고, 모바일 탭은 `min-w-0` 균등 축소·비활성 아이콘/활성 짧은 라벨로 가용 폭 안에 배치한다. upstream의 개별 toast/footer inset 및 탭 가로 스크롤을 중복 적용하지 않는다.
@@ -52,12 +67,16 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
   - `b4d46ef` 전역 z-index 사다리 — `PORT/ADAPT` 완료. upstream 계층에 Remote 전용 feature modal(3000), Drive widget(4500), blocking modal(5500)을 추가하고, 전역 fixed 오버레이·드로어·토스트·컨텍스트 메뉴·툴팁·프롬프트 팝업을 단일 CSS 토큰으로 연결했다. 카드 내부 배지 등 로컬 stacking context는 유지했다. 검증: frontend tsc 0 error, `test/z-layer-contract.test.js` pass.
   - `7f79c53`, `6df6420`, `20a5820` 중립색 토큰화·입력 배경·버튼 언어 — `PORT/ADAPT` 완료. Remote의 `custom-theme` 루트 호환 브리지를 확장해 레거시 neutral Tailwind 클래스와 input/select/textarea를 semantic surface/input/text/line 토큰에 연결했다. 공용 버튼에는 focus-visible·disabled와 `btn`, solid, ghost, link 상태 계약을 추가했다. 기존 light/dark 기본 외형과 원색 상태 버튼은 유지한다. 검증: frontend tsc 0 error, `test/theme-button-contract.test.js` pass.
   - `43c82cb`, `aa82985` 폴더 드래그 중첩·재정렬·최상위 이동 — `PORT/ADAPT` 완료. 펼친 폴더에는 명시적인 “여기에 넣기” 드롭 존을 표시하고, 헤더 드롭은 같은 부모 순서변경/다른 부모의 형제 이동으로 구분한다. 미분류 드롭은 프로젝트 미분류 이동과 하위 폴더 최상위 이동을 모두 처리한다. 실제 경로 변경은 기존 `SessionService.moveFolder`의 순환·충돌·최대 깊이·resource mutation 가드를 통과한다. 검증: frontend tsc 0 error, `test/folder-drag-nesting.test.js` pass.
+  - `1157c7a`, `c26ac4a`, `9a46622` 진행 위젯·글꼴·마감 — `PORT/ADAPT` 완료. 진행 사이클 시작시각을 서비스가 소유해 도크/플로팅 재마운트 뒤 animation delay로 이어 그리며, 숫자는 tabular glyph를 쓴다. Remote의 기존 Noto Sans KR 웹폰트와 OS 시스템 글꼴을 선택하도록 적응했고, 약한 구분선/강한 입력 경계/input ring을 역할 분리하면서 클래식 마감 토글로 기존 값을 복원한다.
+  - `82f1c7d`, `348320a`, `fa7512e`, `2ee92f8`, `01812c2`, `be5a7cc` 시각 계층 — `ALREADY/ADAPT`. Remote의 모달은 이미 `rounded-xl`, 팝오버·구역 카드는 `rounded-lg`/`r-card`, 탭은 활성 segment 배경, 프리셋 행은 모바일/PC별 간격과 32px inline control을 사용한다. 히스토리 폭은 직접 drag 대신 기존 60~100% 설정 slider로 같은 결과를 지속한다.
+  - `52650a7`, `29da6c2`, `6689217`, `ab5a78d` 편집 흐름 — `PORT/ADAPT`. 순차 생성 전체선택은 카드 그리드 앞에 유지하고 Electron 창 상태는 `N/A`. 씬 rename은 Map 위치를 보존한다. 씬 첫 탭은 중간 프롬프트와 기존 Remote의 씬 전용 네거티브 두 입력을 기본으로 하며 4탭은 유지하고, legacy 토글로 전체 폼을 복구한다. 작업모드는 기본 `SDImageGen`으로 고정하되 기존 easy/기타 프리셋 데이터는 보존하고 legacy 토글로 드롭다운과 진입점을 복구한다.
+  - `650454e`, `4aa5914`, `b62a7b6`, `291e877`, `5c4368f` 좁은 화면·도움말·툴바 — `PORT/ADAPT`. 기존 반응형 overflow와 toolbar v2 아이콘/텍스트 registry를 유지하고 모바일 2행/상단 고정 배치를 적용한다. 공용 `HelpIcon`을 프롬프트 문법·조각 랜덤/스코프·템플릿·캐릭터 프리셋에 연결했다. Electron 최소 창 크기는 `N/A`다.
 
 ### V5-B — 프롬프트·Quick·히스토리·해상도·테마
 
 - 범위: 추가 프롬프트와 접기, Quick 전용 프로젝트, 최근 30장 영속, Quick/새 씬 해상도, 사용자 테마 프리셋.
 - 처리: 서버 completed history와 서버 큐를 정본으로 유지하고 v5의 사용자 효과를 합친다. 클라이언트 `history.json`과 현재 프로젝트 queue 직접 실행은 복제하지 않는다.
-- 상태: `IN_PROGRESS`.
+- 상태: `COMPLETE`.
 - 해소 기록:
   - `c020ad4` 추가 프롬프트·접기 — `PORT` 완료. Remote의 기존 PromptEditTextArea 헤더·chunk 버튼을 보존한 접기 API로 재작성했고, Session JSON과 상위→추가→중간 조합 순서를 연결했다. 검증: frontend tsc 0 error, `test/extra-prompt.test.js` pass.
   - `cbb640a`, `cbd3aae` Quick/새 씬 기본 해상도 — `PORT` 완료. Remote의 분리된 1장·자동 생성 버튼과 서버 큐는 유지하고 공용 해상도 선택기를 추가했다. 새 씬 기본값은 Session JSON에 저장되며 일반 씬·인페인트 생성에 적용되고, 기존 일반 씬 일괄 적용은 확인 대화상자를 거친다. 직접 입력은 64px 단위로 올림 보정한다. 검증: frontend tsc 0 error, `test/resolution-settings.test.js` pass.
@@ -89,6 +108,8 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - layout slot을 확장해 프리셋·히스토리 패널 좌우 배치를 CSS order로 전환하고, 생성 컨트롤 docked/floating을 템플릿 위에 해석한다. compact처럼 하단 바가 없는 템플릿은 stale `docked` override가 있어도 floating을 강제해 컨트롤 소실을 막는다. 플로팅 카드는 전용 handle로 뷰포트 안에서 이동하고 좌표를 config에 저장하며, classic에서는 하단 도크 복귀가 가능하다. 모바일은 모든 slot override를 무시한다. sidebar/modern·projectSide 소비는 후속이다. 검증: frontend tsc 0 error, `test/layout-templates.test.js`, `test/config-unsaved-badge.test.js` pass.
 - `sidebar` 템플릿과 projectSide 소비를 `PORT/ADAPT`. 프로젝트 선택·모든 실제 Remote 프로젝트 버튼·더보기·DnD·캐릭터 프리셋 오버레이를 같은 `SessionSelect` 인스턴스의 세로 variant로 렌더하고, 좌우 위치는 CSS order로 바꾼다. 하단 바는 없고 생성 컨트롤은 floating이며 모바일은 classic으로 폴백한다. modern strip은 companion 전역 액션 확대 뒤 진행한다. 검증: frontend tsc 0 error, `test/layout-templates.test.js`, `test/toolbar-consumers.test.js` pass.
 - `modern` 얇은 프로젝트 스트립을 `ADAPT`. 주 버튼은 프로젝트 드로어를 열고, 별도 프로젝트 도구 시트가 기존 `SessionSelect` 전체 기능을 그대로 렌더해 companion으로 아직 전역화되지 않은 버튼도 접근 가능하게 보존한다. 좌우 projectSide·하단바 none·생성 floating·모바일 classic 폴백 계약을 공유한다. 검증: frontend tsc 0 error, `test/layout-templates.test.js` pass.
+- `9b1febc` 큰 작업 창 범위를 `PORT/ADAPT`. 기본 cover는 프리셋+중앙을 덮고 히스토리 도크를 남기며, center는 portal anchor를 중앙에 한정해 프리셋을 함께 볼 수 있다. 모바일은 구조상 중앙만 사용하고 하단바 감산도 모바일 `showToolbar`에서만 적용한다.
+- `ff8bb83`, `a0d5aa6`, `d373e0b` 프리셋 내부 배치를 `ADAPT`. field/조건/래퍼에서 안정 요소 키를 만들고, stale 키 제거·새 정의 위치 삽입·누락/중복 없는 순열을 pure resolver가 보장한다. 화면 편집 모드에서 최상위 행을 세로 drag하고 선택기 anchor는 고정하며 즉시 config에 저장한다. 키가 없거나 중복이면 정의 순서를 그대로 사용한다. 검증: `test/preset-layout.test.js` pass.
 
 ### V5-E — WebP
 
@@ -128,16 +149,19 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 
 - 범위: Electron main/preload/window, Android Java, webpack/release app packaging.
 - 처리: Remote 실행 경로와 대응 효과가 없는 항목은 근거와 함께 `N/A`.
-- 상태: `PENDING`.
+- 상태: `COMPLETE`.
+- `acc7f43` Android 하드웨어 back stack은 iPhone PWA/브라우저에 대응 입력이 없어 `N/A`; 기존 Escape·modal focus trap·명시 닫기 수명주기를 유지한다.
+- `21153f2` 개인 guides ignore와 `5f208de` Electron titlebar drag는 Remote 실행/배포 경로에 없어 `N/A`다.
+- `3bb879a` 사용자 선택 saveLocation 권한 복구 UI는 서버 고정 `DATA_DIR` 구조에 없어 `N/A`; 서버가 데이터 경로를 열 수 없으면 별도 위치로 조용히 폴백하지 않고 부팅 실패를 표면화한다.
+- `f9eda87` OS 파일 탐색기 reveal은 브라우저 sandbox에 없어 `N/A`; Remote의 다운로드·이미지 편집기·내보내기/Drive 동선을 유지한다.
+- `2c29848`, `aa03e41` upstream 중간/최종 version bump는 기능 코드가 아니므로 Remote release 버전과 `sdstudioBase`를 최종 L4에서 갱신한다.
 
-## 4. 순환 백로그 — 통합 뒤 실행
+## 4. 순환 백로그 — 통합 뒤 실행 완료
 
-- S0: raw madge와 transpile 후 runtime-static graph 측정기·fixture·baseline.
-- S1: `SceneEditor ↔ PreSetEditor`, `SceneQueueControl ↔ ResultViewer` 제거.
-- S2: `models/index.ts` 역참조 제거와 create/start 분리.
-- S3: 순수 model/type와 workflow materialization 분리.
-- S4: AppService와 queue/workflow의 UI·command 역참조 제거.
-- baseline 출발점은 v1.12.0 raw 67, runtime `[29,2,2]`, internal edges 95, direct pairs 19지만, 목표 판정은 통합 완료 뒤 새로 측정한 graph를 사용한다.
+- S0~S4 구현과 source 자동검증을 완료했다. 상세 정본은 `docs/cycle-reduction-WIP.md`다.
+- 통합 직후 baseline은 source 143, raw 71 / `[39,2,2]`, runtime `[31,2,2]` / internal edges 104 / direct pairs 21이었다.
+- 최종 관찰값은 source 145, raw 18 / `[22,7]`, runtime SCC `[]` / internal edges 0 / direct pairs 0이다. type-only edge가 포함된 raw 지표는 회귀 참고값으로 유지하고 runtime 완료 판정과 분리한다.
+- TypeScript 오류 0, source test 32/32, cycle fixture, server syntax 검사를 통과했다. source L2.5는 `.code-review/runtime-audit-2026-07-22-sdstudio-v5-cycle.md`에 discovery → external anchor → triage로 완료했다. production build와 새 번들 대상 L2·실제 사용자 L3는 아직 수행하지 않았다.
 
 ## 5. 게이트
 
@@ -145,7 +169,7 @@ git --no-pager diff --shortstat v4.14.1 v5.0.0
 - frontend build는 루트 `update.sh`만 사용한다.
 - L1: TS 새 오류 0, lint 새 위반 0, 관련 unit/integration test, production build.
 - L2: build-info와 projects API, 실제 project JSON parse. 프로젝트 개수는 gate로 쓰지 않는다.
-- L2.5: discovery → external anchor → triage. 실행 전 결과를 예측하지 않는다.
+- L2.5: source 범위의 discovery → external anchor → triage는 완료했다. production build 결과와 새 번들 L2가 여는 surface가 있으면 최종 gate에서 증분 검토한다.
 - L3: 통합 전체가 자동 gate를 지난 뒤 실제 iPhone 화면·버튼·손가락 시나리오를 사용자에게 안내한다. 사용자 답변만 결과로 기록한다.
 - 순환 작업은 L3 답변을 기다리거나 그 결과로 회피하지 않고 통합 완료 뒤 진행한다.
 - stable tag와 release는 사용자 L3 OK 뒤 L4에서만 수행한다.

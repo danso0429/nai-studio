@@ -70,6 +70,14 @@ export interface Config {
   uiLayoutTemplate?: string;
   uiLayoutSlots?: UiLayoutSlots;
   genWidget?: GenWidgetConfig;
+  // Remote는 기존 Noto Sans KR 웹폰트와 OS 시스템 글꼴을 선택한다.
+  uiFont?: 'noto' | 'system';
+  uiClassicFinish?: boolean;
+  // false(기본)=씬의 중간/네거티브 입력을 먼저 표시, true=기존 전체 프리셋 폼.
+  legacySceneEditor?: boolean;
+  uiPresetLayout?: Record<string, string[]>;
+  legacyWorkflowMode?: boolean;
+  uiFloatViewMode?: 'cover' | 'center';
 }
 
 export type ToolbarButtonPlacement = 'default' | 'pinned' | 'menu' | 'hidden';

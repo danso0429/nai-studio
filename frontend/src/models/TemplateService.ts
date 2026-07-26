@@ -1,11 +1,10 @@
 import { observable, runInAction } from 'mobx';
+import type { Backend } from '../backend';
 import { DebouncedJsonStore } from './DebouncedJsonStore';
-import {
-  globalCharacterPresetService,
-  projectTemplateService,
-  sessionService,
-  trashService,
-} from '.';
+import type { GlobalCharacterPresetService } from './GlobalCharacterPresetService';
+import type { ProjectTemplateService } from './ProjectTemplateService';
+import type { SessionService } from './SessionService';
+import type { TrashService } from './TrashService';
 import { getAppState } from './appStateRef';
 import { genericSceneFromJSON, Session } from './types';
 import {
@@ -43,6 +42,16 @@ export class TemplateService extends DebouncedJsonStore {
     string,
     Record<string, ITemplateApplicationRecord>
   > = {};
+
+  constructor(
+    backend: Backend,
+    private readonly globalCharacterPresetService: GlobalCharacterPresetService,
+    private readonly projectTemplateService: ProjectTemplateService,
+    private readonly sessionService: SessionService,
+    private readonly trashService: TrashService,
+  ) {
+    super(backend);
+  }
 
   protected getFileName(): string {
     return 'templates.json';
@@ -132,11 +141,11 @@ export class TemplateService extends DebouncedJsonStore {
     folder: string | null,
   ): Promise<(IFolderTemplateEntry & { folder: string }) | undefined> {
     if (!this.loaded) await this.load();
-    if (!projectTemplateService.loaded) await projectTemplateService.load();
+    if (!this.projectTemplateService.loaded) await this.projectTemplateService.load();
     let current = folder;
     while (current) {
       const selected = this.folderTemplates[current];
-      if (selected && projectTemplateService.get(selected.templateId)) {
+      if (selected && this.projectTemplateService.get(selected.templateId)) {
         return { ...selected, folder: current };
       }
       const slash = current.lastIndexOf('/');
@@ -146,7 +155,7 @@ export class TemplateService extends DebouncedJsonStore {
   }
 
   setFolderTemplate(folder: string, templateId: string): void {
-    if (!projectTemplateService.get(templateId)) {
+    if (!this.projectTemplateService.get(templateId)) {
       throw new Error('템플릿을 찾을 수 없습니다.');
     }
     this.folderTemplates = {
@@ -296,14 +305,14 @@ export class TemplateService extends DebouncedJsonStore {
     const previous = this.getApplication(session.name, templateId);
     const protectedSet = new Set(options.protectAreas || previous?.protectAreas || []);
     if (options.replaceExisting && previous) {
-      projectTemplateService.removeRecordedInstances(session, previous, {
+      this.projectTemplateService.removeRecordedInstances(session, previous, {
         presets: true,
         characters: !protectedSet.has('characterPresets'),
         vibes: true,
         references: true,
       });
     }
-    const result = await projectTemplateService.instantiateIntoSession(
+    const result = await this.projectTemplateService.instantiateIntoSession(
       session,
       templateId,
       { skipCharacterPresets: protectedSet.has('characterPresets') },
@@ -331,9 +340,9 @@ export class TemplateService extends DebouncedJsonStore {
       };
     },
   ): Promise<Session> {
-    await sessionService.add(name);
-    if (folder) await sessionService.moveToFolder(name, folder);
-    const session = await sessionService.get(name);
+    await this.sessionService.add(name);
+    if (folder) await this.sessionService.moveToFolder(name, folder);
+    const session = await this.sessionService.get(name);
     if (!session) throw new Error('프로젝트를 불러올 수 없습니다.');
     const inherited = templateId
       ? undefined
@@ -352,7 +361,7 @@ export class TemplateService extends DebouncedJsonStore {
           presetName: result.presetInstance.name,
         };
       }
-      const template = projectTemplateService.get(resolvedTemplateId);
+      const template = this.projectTemplateService.get(resolvedTemplateId);
       if (!batch && template?.scenes.length) {
         session.scenes.clear();
         for (const source of template.scenes) {
@@ -361,8 +370,8 @@ export class TemplateService extends DebouncedJsonStore {
         }
       }
       if (batch?.sceneTemplateName) {
-        const source = await sessionService.get(batch.sceneTemplateName);
-        if (!source || sessionService.getHiddenProjectRole(batch.sceneTemplateName) !== 'scene-template') {
+        const source = await this.sessionService.get(batch.sceneTemplateName);
+        if (!source || this.sessionService.getHiddenProjectRole(batch.sceneTemplateName) !== 'scene-template') {
           throw new Error(`씬 템플릿을 찾을 수 없습니다: ${batch.sceneTemplateName}`);
         }
         const sourceScenes = source.getScenes('scene');
@@ -376,7 +385,7 @@ export class TemplateService extends DebouncedJsonStore {
         }
       }
       if (batch?.charPresetId) {
-        const character = await globalCharacterPresetService.instantiateIntoSession(
+        const character = await this.globalCharacterPresetService.instantiateIntoSession(
           session,
           batch.charPresetId,
         );
@@ -406,7 +415,7 @@ export class TemplateService extends DebouncedJsonStore {
   }> {
     const created: string[] = [];
     const failed: { name: string; error: string }[] = [];
-    const taken = new Set(sessionService.list());
+    const taken = new Set(this.sessionService.list());
     let cancelled = false;
     let done = 0;
     for (const item of plan.items) {
@@ -420,8 +429,8 @@ export class TemplateService extends DebouncedJsonStore {
         const target = item.subfolder
           ? [plan.folder, item.subfolder].filter(Boolean).join('/')
           : plan.folder;
-        if (target && !sessionService.folderList.includes(target)) {
-          await sessionService.createFolder(target);
+        if (target && !this.sessionService.folderList.includes(target)) {
+          await this.sessionService.createFolder(target);
         }
         await this.createProject(name, target || null, plan.templateId, {
           inherited: true,
@@ -441,8 +450,8 @@ export class TemplateService extends DebouncedJsonStore {
   }
 
   async pickForCreate(): Promise<string | null | undefined> {
-    if (!projectTemplateService.loaded) await projectTemplateService.load();
-    const templates = projectTemplateService.listGlobal();
+    if (!this.projectTemplateService.loaded) await this.projectTemplateService.load();
+    const templates = this.projectTemplateService.listGlobal();
     if (!templates.length) return null;
     const value = await getAppState().pushDialogAsync({
       type: 'select',
@@ -460,43 +469,43 @@ export class TemplateService extends DebouncedJsonStore {
   }
 
   listSceneTemplates(): string[] {
-    return sessionService.listByRole('scene-template');
+    return this.sessionService.listByRole('scene-template');
   }
 
   async designateSceneTemplate(name: string): Promise<void> {
-    await sessionService.setHiddenProjectRole(name, 'scene-template');
+    await this.sessionService.setHiddenProjectRole(name, 'scene-template');
   }
 
   async createSceneTemplateFrom(session: Session, name: string): Promise<Session> {
     if (!name.trim()) throw new Error('이름을 입력해 주세요.');
-    if (sessionService.list().includes(name)) {
+    if (this.sessionService.list().includes(name)) {
       throw new Error('같은 이름의 프로젝트가 있습니다.');
     }
-    const json = await sessionService.exportSessionShallow(session);
-    await sessionService.importSessionShallow(json, name);
+    const json = await this.sessionService.exportSessionShallow(session);
+    await this.sessionService.importSessionShallow(json, name);
     await this.designateSceneTemplate(name);
-    return (await sessionService.get(name))!;
+    return (await this.sessionService.get(name))!;
   }
 
   async createEmptySceneTemplate(name: string): Promise<Session> {
-    if (sessionService.list().includes(name)) {
+    if (this.sessionService.list().includes(name)) {
       throw new Error('같은 이름의 프로젝트가 있습니다.');
     }
-    await sessionService.add(name);
+    await this.sessionService.add(name);
     await this.designateSceneTemplate(name);
-    return (await sessionService.get(name))!;
+    return (await this.sessionService.get(name))!;
   }
 
   async exportSceneTemplateFile(name: string): Promise<string> {
-    const session = await sessionService.get(name);
-    if (!session || sessionService.getHiddenProjectRole(name) !== 'scene-template') {
+    const session = await this.sessionService.get(name);
+    if (!session || this.sessionService.getHiddenProjectRole(name) !== 'scene-template') {
       throw new Error('씬 템플릿을 찾을 수 없습니다.');
     }
     return JSON.stringify({
       version: 1,
       type: 'sdstudio-scene-template',
       name,
-      session: await sessionService.exportSessionShallow(session),
+      session: await this.sessionService.exportSessionShallow(session),
     });
   }
 
@@ -510,8 +519,8 @@ export class TemplateService extends DebouncedJsonStore {
       .trim() || '가져온 씬 템플릿';
     let name = base;
     let index = 2;
-    while (sessionService.list().includes(name)) name = `${base} (${index++})`;
-    await sessionService.importSessionShallow(data.session, name);
+    while (this.sessionService.list().includes(name)) name = `${base} (${index++})`;
+    await this.sessionService.importSessionShallow(data.session, name);
     await this.designateSceneTemplate(name);
     return name;
   }
@@ -521,8 +530,8 @@ export class TemplateService extends DebouncedJsonStore {
     templateName: string,
     policy: 'number' | 'overwrite' | 'skip',
   ): Promise<string[]> {
-    const source = await sessionService.get(templateName);
-    if (!source || sessionService.getHiddenProjectRole(templateName) !== 'scene-template') {
+    const source = await this.sessionService.get(templateName);
+    if (!source || this.sessionService.getHiddenProjectRole(templateName) !== 'scene-template') {
       throw new Error('씬 템플릿을 찾을 수 없습니다.');
     }
     const imported: string[] = [];
@@ -537,7 +546,7 @@ export class TemplateService extends DebouncedJsonStore {
         if (policy === 'skip') continue;
         if (policy === 'overwrite') {
           const old = target.getScene('scene', scene.name);
-          if (old) await trashService.moveSceneToTrash(target, old);
+          if (old) await this.trashService.moveSceneToTrash(target, old);
         } else {
           const base = scene.name;
           let index = 1;
@@ -564,7 +573,7 @@ export class TemplateService extends DebouncedJsonStore {
       items: names.map((name) => ({ text: name, value: name })),
     });
     if (!templateName) return [];
-    const source = await sessionService.get(templateName);
+    const source = await this.sessionService.get(templateName);
     const conflicts = source
       ? source.getScenes('scene').filter((scene) => target.hasScene('scene', scene.name))
       : [];

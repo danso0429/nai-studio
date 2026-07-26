@@ -169,7 +169,9 @@ export type WFFieldType = 'preset' | 'shared' | 'meta';
 
 export type WFIFlex = 'flex-1' | 'flex-2' | 'flex-none';
 
-export interface WFIAbstract {}
+export interface WFIAbstract {
+  id?: string;
+}
 
 export interface WFIPresetSelect extends WFIAbstract {
   type: 'presetSelect';
@@ -245,6 +247,18 @@ export type WFIElement =
   | WFIIfIn
   | WFISceneOnly
   | WFIShowImage;
+
+// 사용자 프리셋 배치의 저장 키. 명시 id와 inline field는 배포 후 바꾸지 않는다.
+// wrapper는 별도 id가 없을 때 내부 요소의 안정 키를 그대로 사용한다.
+export function wfiElementKey(element: WFIElement): string | undefined {
+  if (element.id) return element.id;
+  switch (element.type) {
+    case 'inline': return element.field;
+    case 'ifIn': return wfiElementKey(element.element);
+    case 'sceneOnly': return wfiElementKey(element.element);
+    default: return undefined;
+  }
+}
 
 function createDefaultValue(varObj: WFVar) {
   switch (varObj.type) {
@@ -540,16 +554,16 @@ export class WFWorkFlow {
   }
 }
 
-export function wfiPresetSelect(): WFIPresetSelect {
-  return { type: 'presetSelect' };
+export function wfiPresetSelect(id?: string): WFIPresetSelect {
+  return { type: 'presetSelect', id };
 }
 
-export function wfiProfilePresetSelect(): WFIProfilePresetSelect {
-  return { type: 'profilePresetSelect' };
+export function wfiProfilePresetSelect(id?: string): WFIProfilePresetSelect {
+  return { type: 'profilePresetSelect', id };
 }
 
-export function wfiStack(inputs: WFIElement[]): WFIStack {
-  return { type: 'stack', inputs };
+export function wfiStack(inputs: WFIElement[], id?: string): WFIStack {
+  return { type: 'stack', inputs, id };
 }
 
 export function wfiInlineInput(
@@ -569,24 +583,26 @@ export function wfiInlineInput(
   };
 }
 
-export function wfiGroup(label: string, inputs: WFIElement[]): WFIGroup {
-  return { type: 'group', label, inputs };
+export function wfiGroup(label: string, inputs: WFIElement[], id?: string): WFIGroup {
+  return { type: 'group', label, inputs, id };
 }
 
 export function wfiMiddlePlaceholderInput(
   label: string,
+  id?: string,
 ): WFIMiddlePlaceholderInput {
-  return { type: 'middlePlaceholder', label };
+  return { type: 'middlePlaceholder', label, id };
 }
 
-export function wfiExtraPromptInput(label: string): WFIExtraPromptInput {
-  return { type: 'extraPrompt', label };
+export function wfiExtraPromptInput(label: string, id?: string): WFIExtraPromptInput {
+  return { type: 'extraPrompt', label, id };
 }
 
 export function wfiPush(
   direction: 'top' | 'bottom' | 'left' | 'right',
+  id?: string,
 ): WFIPush {
-  return { type: 'push', direction };
+  return { type: 'push', direction, id };
 }
 
 export function wfiIfIn(
@@ -594,19 +610,21 @@ export function wfiIfIn(
   fieldType: WFFieldType,
   values: string[],
   element: WFIElement,
+  id?: string,
 ): WFIIfIn {
-  return { type: 'ifIn', field, fieldType, values, element };
+  return { type: 'ifIn', field, fieldType, values, element, id };
 }
 
-export function wfiSceneOnly(element: WFIElement): WFISceneOnly {
-  return { type: 'sceneOnly', element };
+export function wfiSceneOnly(element: WFIElement, id?: string): WFISceneOnly {
+  return { type: 'sceneOnly', element, id };
 }
 
 export function wfiShowImage(
   field: string,
   fieldType: WFFieldType,
+  id?: string,
 ): WFIShowImage {
-  return { type: 'showImage', field, fieldType };
+  return { type: 'showImage', field, fieldType, id };
 }
 
 export class WFDefBuilder {

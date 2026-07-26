@@ -5,7 +5,7 @@ import { appState } from '../models/AppService';
 interface ModalOverlayProps {
   isOpen: boolean;
   onClose: () => void;
-  title: string;
+  title: ReactNode;
   children: ReactNode;
   width?: string;
   hidden?: boolean;

@@ -1,4 +1,5 @@
 import React, {
+  ComponentType,
   useState,
   useEffect,
   useCallback,
@@ -37,7 +38,6 @@ import {
   FaTrashRestore,
 } from 'react-icons/fa';
 import { PromptHighlighter } from './SceneEditor';
-import QueueControl from './SceneQueueControl';
 import { FloatView } from './FloatView';
 import BatchItemSelector, { BatchAction } from './BatchItemSelector';
 import { useLongPress } from './useLongPress';
@@ -73,8 +73,9 @@ import {
   imageDownloadService,
   trashService,
   getInitialThumbSize,
+  imageActions,
 } from '../models';
-import { dataUriToBase64, deleteImageFiles } from '../models/ImageService';
+import { dataUriToBase64 } from '../models/ImageService';
 import { getThumbURL } from '../backends/serverBackend';
 import { getResultDirectory, renameScene, mergeScene } from '../models/SessionService';
 import { getSceneKey, queueI2IWorkflow, queueWorkflow } from '../models/TaskQueueService';
@@ -920,7 +921,7 @@ const ResultDetailView = observer(
             type: 'confirm',
             text: '정말로 파일을 삭제하시겠습니까?',
             callback: async () => {
-              await deleteImageFiles(
+              await imageActions.deleteImageFiles(
                 curSession!,
                 [paths[selectedIndex]],
                 scene,
@@ -940,7 +941,7 @@ const ResultDetailView = observer(
             type: 'confirm',
             text: '정말로 파일을 삭제하시겠습니까?',
             callback: async () => {
-              await deleteImageFiles(curSession!, [paths[selectedIndex]], scene);
+              await imageActions.deleteImageFiles(curSession!, [paths[selectedIndex]], scene);
             },
           });
         } else if (action === 'toggle-favorite') {
@@ -1079,7 +1080,7 @@ const ResultDetailView = observer(
                   type: 'confirm',
                   text: '정말로 파일을 삭제하시겠습니까?',
                   callback: async () => {
-                    await deleteImageFiles(curSession!, [paths[selectedIndex]], scene);
+                    await imageActions.deleteImageFiles(curSession!, [paths[selectedIndex]], scene);
                   },
                 });
               }}
@@ -1345,6 +1346,7 @@ interface ResultViewerProps {
     hasNext: boolean;
     go: (delta: -1 | 1) => void;
   };
+  QueueControl: ComponentType<any>;
 }
 
 const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
@@ -1360,6 +1362,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
       onClose,
       focusFilename,
       sceneNav,
+      QueueControl,
     }: ResultViewerProps,
     ref,
   ) => {
@@ -1547,7 +1550,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
               type: 'confirm',
               text: '정말로 모든 이미지를 삭제하시겠습니까?',
               callback: async () => {
-                await deleteImageFiles(curSession!, paths, scene);
+                await imageActions.deleteImageFiles(curSession!, paths, scene);
               },
             });
           } else if (value === 'n') {
@@ -1557,7 +1560,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
               callback: async (value) => {
                 if (value) {
                   const n = parseInt(value);
-                  await deleteImageFiles(
+                  await imageActions.deleteImageFiles(
                     curSession!,
                     paths
                       .slice(n)
@@ -1572,7 +1575,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
               type: 'confirm',
               text: '정말로 즐겨찾기 외 모든 이미지를 삭제하시겠습니까?',
               callback: async () => {
-                await deleteImageFiles(
+                await imageActions.deleteImageFiles(
                   curSession!,
                   paths.filter((x) => !isMainImage || !isMainImage(x)),
                   scene,
@@ -1721,7 +1724,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
             type: 'confirm',
             text: '정말로 파일을 삭제하시겠습니까?',
             callback: async () => {
-              await deleteImageFiles(curSession!, [activePaths[i]], scene);
+              await imageActions.deleteImageFiles(curSession!, [activePaths[i]], scene);
               const newCount = count - 1;
               if (newCount === 0) setFocusedImageIndex(null);
               else setFocusedImageIndex(Math.min(i, newCount - 1));
@@ -1795,7 +1798,7 @@ const ResultViewer = forwardRef<ResultVieweRef, ResultViewerProps>(
             type: 'confirm',
             text: sel.length + '장의 이미지를 삭제하시겠습니까?',
             callback: async () => {
-              await deleteImageFiles(curSession!, sel, scene);
+              await imageActions.deleteImageFiles(curSession!, sel, scene);
               setImageBatchOpen(false);
             },
           });

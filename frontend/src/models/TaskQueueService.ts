@@ -1,5 +1,5 @@
 import { v4 } from 'uuid';
-import { appState } from './AppService';
+import { getAppState } from './appStateRef';
 import {
   CharacterReference,
   convertResolution,
@@ -12,17 +12,8 @@ import {
   Sampling,
 } from '../backends/imageGen';
 import { CircularQueue } from '../circularQueue';
-import {
-  backend,
-  imageService,
-  isMobile,
-  localAIService,
-  promptService,
-  sessionService,
-  taskQueueService,
-  workFlowService,
-} from '.';
 import { startVisibleInterval } from '../visibleInterval';
+import type { ServerBackend } from '../backends/serverBackend';
 import {
   AbstractJob,
   AugmentJob,
@@ -39,10 +30,33 @@ import {
 } from './types';
 import { sleep } from './util';
 import { expandPieces, lowerPromptNode, toPARR } from './PromptService';
-import { dataUriToBase64 } from './ImageService';
+import { dataUriToBase64, type ImageService } from './ImageService';
+import type { WorkFlowService } from './workflows/WorkFlowService';
 import { prepareMirrorCanvas } from './workflows/SDWorkFlow';
 import { getImageDimensions } from '../components/BrushTool';
 import { QueueJobMeta } from '../backend';
+
+interface TaskQueueRuntime {
+  backend: ServerBackend;
+  imageService: ImageService;
+  localAIService: { removeBg(image: string, outputPath: string): Promise<void> };
+  taskQueueService: TaskQueueService;
+  workFlowService: WorkFlowService;
+}
+
+let taskQueueRuntime: TaskQueueRuntime | undefined;
+
+export function installTaskQueueRuntime(runtime: TaskQueueRuntime): void {
+  if (taskQueueRuntime && taskQueueRuntime !== runtime) {
+    throw new Error('Task queue runtime is already installed');
+  }
+  taskQueueRuntime = runtime;
+}
+
+function requireTaskQueueRuntime(): TaskQueueRuntime {
+  if (!taskQueueRuntime) throw new Error('Task queue runtime is not installed');
+  return taskQueueRuntime;
+}
 
 const FAST_TASK_TIME_ESTIMATOR_SAMPLE_COUNT = 16;
 const TASK_TIME_ESTIMATOR_SAMPLE_COUNT = 128;
@@ -266,7 +280,7 @@ class GenerateImageTaskHandler implements TaskHandler {
   ): Promise<{ arg: ImageGenInput; outputFilePath: string }> {
     const job: SDAbstractJob<PromptNode> = task.params
       .job as SDAbstractJob<PromptNode>;
-    if (!run.cachedConfig) run.cachedConfig = await backend.getConfig();
+    if (!run.cachedConfig) run.cachedConfig = await requireTaskQueueRuntime().backend.getConfig();
     const config = run.cachedConfig;
     let prompt = lowerPromptNode(job.prompt!);
     console.log('lowered prompt: ' + prompt);
@@ -304,27 +318,27 @@ class GenerateImageTaskHandler implements TaskHandler {
           }
 
           // 캐시에 없으면 로딩
-          const isEncoded = await imageService.checkEncodedVibeImage(
+          const isEncoded = await requireTaskQueueRuntime().imageService.checkEncodedVibeImage(
             task.params.session,
             vibe.path,
             vibe.info,
           );
           if (!isEncoded) {
-            await imageService.encodeVibeImage(
+            await requireTaskQueueRuntime().imageService.encodeVibeImage(
               task.params.session,
               vibe.path,
               vibe.info,
             );
           }
           let encoded =
-            (await imageService.fetchEncodedVibeImage(
+            (await requireTaskQueueRuntime().imageService.fetchEncodedVibeImage(
               task.params.session,
               vibe.path,
               vibe.info,
             )) || '';
           if (!encoded) {
             console.warn('[prepGenInput] 바이브 이미지 인코딩 실패 (파일 손상 가능):', vibe.path);
-            appState.pushMessage(`바이브 이미지를 불러올 수 없습니다 (${vibe.path}). 이미지를 다시 첨부해주세요.`);
+            getAppState().pushMessage(`바이브 이미지를 불러올 수 없습니다 (${vibe.path}). 이미지를 다시 첨부해주세요.`);
             return null;
           }
           encoded = dataUriToBase64(encoded);
@@ -376,7 +390,7 @@ class GenerateImageTaskHandler implements TaskHandler {
           }
 
           try {
-            const imageData = await imageService.fetchReferenceImage(
+            const imageData = await requireTaskQueueRuntime().imageService.fetchReferenceImage(
               task.params.session,
               ref.path,
             );
@@ -393,7 +407,7 @@ class GenerateImageTaskHandler implements TaskHandler {
             // 이미 저장 시점에 JPEG로 저장된 경우 재인코딩해도 사실상 무손실에 가깝고,
             // 기존에 RGBA PNG로 저장된 레거시 레퍼런스도 이 단계에서 변환되어 호환됨.
             // 참고: sunanakgo/NAIS2 processCharacterImage, DNT-LAB/NAIA _letterbox
-            const base64Image = await imageService.reencodeReferenceForApi(
+            const base64Image = await requireTaskQueueRuntime().imageService.reencodeReferenceForApi(
               rawBase64,
             );
 
@@ -442,7 +456,7 @@ class GenerateImageTaskHandler implements TaskHandler {
     const finalVibes = (isV4_5 && finalReferences.length > 0) ? [] : vibes;
     // Phase 7A: vibe가 실제로 비활성화될 때만 알림 이벤트 발행
     if (isV4_5 && finalReferences.length > 0 && vibes.length > 0) {
-      taskQueueService.dispatchEvent(new CustomEvent('vibe-locked', {
+      requireTaskQueueRuntime().taskQueueService.dispatchEvent(new CustomEvent('vibe-locked', {
         detail: { reason: 'v4.5_with_character_reference' }
       }));
     }
@@ -519,13 +533,13 @@ class GenerateImageTaskHandler implements TaskHandler {
     }
     if (task.params.scene != null) {
       if (task.params.scene.type === 'inpaint') {
-        imageService.onAddInPaint(
+        requireTaskQueueRuntime().imageService.onAddInPaint(
           task.params.session,
           task.params.scene.name,
           outputFilePath,
         );
       } else {
-        imageService.onAddImage(
+        requireTaskQueueRuntime().imageService.onAddImage(
           task.params.session,
           task.params.scene.name,
           outputFilePath,
@@ -536,7 +550,7 @@ class GenerateImageTaskHandler implements TaskHandler {
 
   async handleTask(task: Task, run: TaskQueueRun) {
     const { arg, outputFilePath } = await this.prepGenInput(task, run);
-    await backend.generateImage(arg);
+    await requireTaskQueueRuntime().backend.generateImage(arg);
     this.afterGenComplete(task, outputFilePath);
     return true;
   }
@@ -618,9 +632,9 @@ class RemoveBgTaskHandler implements TaskHandler {
     const outputFilePath =
       task.params.outputPath + '/' + Date.now().toString() + '.png';
     const job = task.params.job as AugmentJob;
-    await localAIService.removeBg(job.image!, outputFilePath);
+    await requireTaskQueueRuntime().localAIService.removeBg(job.image!, outputFilePath);
     if (task.params.onComplete) task.params.onComplete(outputFilePath);
-    imageService.onAddImage(
+    requireTaskQueueRuntime().imageService.onAddImage(
       task.params.session,
       task.params.scene!.name,
       outputFilePath,
@@ -682,16 +696,16 @@ class AugmentTaskHandler implements TaskHandler {
       weaken: job.weaken,
       image: job.image,
     };
-    await backend.augmentImage(params);
+    await requireTaskQueueRuntime().backend.augmentImage(params);
     if (task.params.onComplete) task.params.onComplete(outputFilePath);
     if (task.params.scene.type === 'inpaint') {
-      imageService.onAddInPaint(
+      requireTaskQueueRuntime().imageService.onAddInPaint(
         task.params.session,
         task.params.scene.name,
         outputFilePath,
       );
     } else {
-      imageService.onAddImage(
+      requireTaskQueueRuntime().imageService.onAddImage(
         task.params.session,
         task.params.scene.name,
         outputFilePath,
@@ -749,6 +763,8 @@ export interface TaskLog {
 const MAX_TASK_LOGS = 500;
 
 export class TaskQueueService extends EventTarget {
+  // 레이아웃 전환으로 진행 위젯이 재마운트돼도 현재 사이클 애니메이션을 이어 그린다.
+  progressCycleStartedAt = 0;
   queue: CircularQueue<Task>;
   handlers: TaskHandler[];
   timeEstimators: TaskTimeEstimator[];
@@ -794,7 +810,7 @@ export class TaskQueueService extends EventTarget {
   // taskId 기준 — 취소(removeAllTasks/removeTasksFromScene/Project)가 taskId로 정리하므로 leak 0
   // (L2.5: reservationId-keyed면 cancel-mid-prep 시 entry가 안 지워져 영구 no-op heartbeat 발생).
   private outstandingReservations: Set<string> = new Set();
-  constructor(handlers: TaskHandler[]) {
+  constructor(handlers: TaskHandler[], private readonly backend: ServerBackend) {
     super();
     this.handlers = handlers;
     this.sceneStats = {};
@@ -808,8 +824,8 @@ export class TaskQueueService extends EventTarget {
     this.taskSet = {};
 
     // WS subscribe: server-mirror 진행 동기화
-    backend.onQueueJobComplete((data) => this.handleMirroredComplete(data));
-    backend.onQueueJobError((data) => this.handleMirroredError(data));
+    this.backend.onQueueJobComplete((data) => this.handleMirroredComplete(data));
+    this.backend.onQueueJobError((data) => this.handleMirroredError(data));
 
     // 페이지 로드 시 서버 큐 → mirror 복원 (다른 탭 또는 이전 세션의 작업)
     this.restoreMirroredState().catch((e) => {
@@ -820,7 +836,7 @@ export class TaskQueueService extends EventTarget {
     // WS 끊긴 사이 놓친 queue-job-complete 회복.
     // visibility 게이트 — 백그라운드 시 timer 정지 (모바일 발열·배터리 누수 차단).
     // 포그라운드 복귀 시 ws-reconnect 또는 자연 tick으로 회복.
-    backend.onWsReconnect(() => {
+    this.backend.onWsReconnect(() => {
       this.restoreMirroredState().catch((e) => {
         console.warn('[TaskQueue] restoreMirroredState (ws-reconnect) failed:', e);
       });
@@ -840,7 +856,7 @@ export class TaskQueueService extends EventTarget {
     // 백그라운드 정지(모바일 누수 차단). 미fill 예약 0이면 skip(idle 시 네트워크 0).
     startVisibleInterval(() => {
       if (this.outstandingReservations.size === 0) return;
-      backend.reservationHeartbeat(this.ownerId).catch((e) =>
+      this.backend.reservationHeartbeat(this.ownerId).catch((e) =>
         console.warn('[TaskQueue] reservationHeartbeat failed:', e));
     }, 30000);
   }
@@ -871,7 +887,7 @@ export class TaskQueueService extends EventTarget {
     }
     this.dispatchProgress();
     try {
-      await backend.queuePrioritize(taskIds, priority);
+      await this.backend.queuePrioritize(taskIds, priority);
     } catch (e) {
       console.warn('[TaskQueue] prioritize failed:', e);
       // 실패 시 서버 상태로 되돌리기 위해 재동기화. dispatchProgress로 UI도 보정됨.
@@ -890,7 +906,7 @@ export class TaskQueueService extends EventTarget {
     }
     // mirror task: 서버 큐 cancel + 클라 측 mirror state 비우기 + stats 완전 unwind
     if (this.mirroredTasks.size > 0) {
-      backend.cancelQueue().catch((e) => console.warn('[TaskQueue] cancelQueue failed:', e));
+      this.backend.cancelQueue().catch((e) => console.warn('[TaskQueue] cancelQueue failed:', e));
       for (const [taskId, task] of this.mirroredTasks) {
         // groupStats 완전 unwind (total + done 둘 다 — mirror 기여분 제거)
         this.groupStats[task.cls].total -= task.total;
@@ -928,7 +944,7 @@ export class TaskQueueService extends EventTarget {
       afterConfirm?.();
       return;
     }
-    appState.pushDialog({
+    getAppState().pushDialog({
       type: 'confirm',
       text: '대기 중인 큐 전체를 취소할까요? 복구할 수 없어요.',
       callback: () => {
@@ -960,7 +976,7 @@ export class TaskQueueService extends EventTarget {
       }
     }
     const serverCancel = matchedTaskIds.length > 0
-      ? backend.cancelQueueByTaskIds(matchedTaskIds).then(
+      ? this.backend.cancelQueueByTaskIds(matchedTaskIds).then(
           () => true,
           (e) => {
             console.warn('[TaskQueue] cancelQueueByTaskIds failed:', e);
@@ -1027,7 +1043,7 @@ export class TaskQueueService extends EventTarget {
       }
     }
     if (matchedTaskIds.length > 0) {
-      backend.cancelQueueByTaskIds(matchedTaskIds).catch((e) =>
+      this.backend.cancelQueueByTaskIds(matchedTaskIds).catch((e) =>
         console.warn('[TaskQueue] cancelQueueByTaskIds failed:', e),
       );
       for (const taskId of matchedTaskIds) {
@@ -1144,7 +1160,7 @@ export class TaskQueueService extends EventTarget {
     this.mirrorTaskSceneKeys.set(taskId, sceneKey);
     if (wasEmpty) {
       this.mirrorPaused = true;
-      backend.pauseQueue().catch((e) => console.warn('[TaskQueue] pauseQueue (initial) failed:', e));
+      this.backend.pauseQueue().catch((e) => console.warn('[TaskQueue] pauseQueue (initial) failed:', e));
     }
     this.dispatchProgress();
     return sceneKey;
@@ -1237,7 +1253,7 @@ export class TaskQueueService extends EventTarget {
     }
     if (vibeKey.size > 0) {
       try {
-        const { missing } = await backend.vibeCachePrecheck(
+        const { missing } = await this.backend.vibeCachePrecheck(
           sessionName,
           Array.from(vibeKey.values()),
         );
@@ -1264,7 +1280,7 @@ export class TaskQueueService extends EventTarget {
       rejected: number;
     }>;
     try {
-      ({ reservations } = await backend.batchEnqueue(specs, this.ownerId));
+      ({ reservations } = await this.backend.batchEnqueue(specs, this.ownerId));
     } catch (e) {
       for (const b of buffered)
         this.unwindMirrorTaskIfPresent(b.task.id!, b.task, b.spec.sceneKey);
@@ -1332,7 +1348,7 @@ export class TaskQueueService extends EventTarget {
           } : {}),
         });
       }
-      const reservation = await backend.queueReserve(metas, this.ownerId);
+      const reservation = await this.backend.queueReserve(metas, this.ownerId);
       reservationId = reservation.reservationId;
       if (reservationId) this.outstandingReservations.add(taskId);
       if (reservation.rejected > 0) {
@@ -1367,7 +1383,7 @@ export class TaskQueueService extends EventTarget {
 
       // 4단계: fill — 예약에 실제 params를 채워 genQueue로 이동.
       try {
-        await backend.queueFill(reservationId, items);
+        await this.backend.queueFill(reservationId, items);
         this.outstandingReservations.delete(taskId);
         reservationId = null; // fill 성공
         this.dispatchProgress();
@@ -1420,7 +1436,7 @@ export class TaskQueueService extends EventTarget {
   // reserved + genQueue 양쪽에서 taskId 잡 제거. fill 전이라 genQueue엔 이 task 잡이 없어
   // reserved만 정리됨. mirroredJobs의 stale 매핑도 같이 청소.
   private closeReservation(taskId: string) {
-    backend.cancelQueueByTaskIds([taskId]).catch((e) =>
+    this.backend.cancelQueueByTaskIds([taskId]).catch((e) =>
       console.warn('[TaskQueue] closeReservation failed:', e?.message || e));
     for (const [jobId, j] of this.mirroredJobs) {
       if (j.taskId === taskId) this.mirroredJobs.delete(jobId);
@@ -1461,7 +1477,7 @@ export class TaskQueueService extends EventTarget {
     for (let i = 0; i < backoffs.length; i++) {
       await new Promise((r) => setTimeout(r, backoffs[i]));
       try {
-        await backend.queueFill(reservationId, items);
+        await this.backend.queueFill(reservationId, items);
         this.outstandingReservations.delete(taskId);
         this.dispatchProgress();
         return; // 성공 → 대기로 이동 완료
@@ -1481,7 +1497,7 @@ export class TaskQueueService extends EventTarget {
     this.outstandingReservations.delete(taskId);
     if (this.mirroredTasks.has(taskId)) {
       this.unwindMirrorTask(taskId, task, sceneKey);
-      appState.pushMessage('큐 등록이 지연돼 자동 복구 대기 중이에요 (곧 다시 시도).');
+      getAppState().pushMessage('큐 등록이 지연돼 자동 복구 대기 중이에요 (곧 다시 시도).');
       this.dispatchProgress();
     }
   }
@@ -1528,6 +1544,7 @@ export class TaskQueueService extends EventTarget {
       );
     }
     this.mirroredJobs.delete(data.jobId);
+    this.progressCycleStartedAt = Date.now();
     this.dispatchEvent(new CustomEvent('complete', {}));
     this.dispatchProgress();
     if (task.done >= task.total) {
@@ -1591,7 +1608,7 @@ export class TaskQueueService extends EventTarget {
   }
 
   private async _doRestoreMirroredState() {
-    const full = await backend.queueGetFullState();
+    const full = await this.backend.queueGetFullState();
 
     // 옛 mirror state snapshot — taskId → {done, total}. 폴링/reconnect 시점에 옛 mirror
     // task가 server jobs에도 남아있으면 done + total 보존. 본인 페인 (P21 F2): "씬 숫자
@@ -1704,6 +1721,7 @@ export class TaskQueueService extends EventTarget {
       this.mirrorTaskSceneKeys.set(taskId, meta.sceneKey || '');
     }
     this.dispatchProgress();
+    this.progressCycleStartedAt = Date.now();
     this.dispatchEvent(new CustomEvent('start', {}));
   }
 
@@ -1755,7 +1773,7 @@ export class TaskQueueService extends EventTarget {
     }
     // mirror task 진행 중이면 server 큐 pause (in-flight 완료 후 다음 job 안 시작)
     if (this.mirroredTasks.size > 0) {
-      backend.pauseQueue().catch((e) => console.warn('[TaskQueue] pauseQueue failed:', e));
+      this.backend.pauseQueue().catch((e) => console.warn('[TaskQueue] pauseQueue failed:', e));
       this.mirrorPaused = true;
       didStop = true;
     }
@@ -1773,7 +1791,7 @@ export class TaskQueueService extends EventTarget {
   run() {
     // mirror task 일시정지 상태 → resume
     if (this.mirroredTasks.size > 0) {
-      backend.resumeQueue().catch((e) => console.warn('[TaskQueue] resumeQueue failed:', e));
+      this.backend.resumeQueue().catch((e) => console.warn('[TaskQueue] resumeQueue failed:', e));
       this.mirrorPaused = false;
     }
     if (!this.currentRun && !this.queue.isEmpty()) {
@@ -1784,6 +1802,7 @@ export class TaskQueueService extends EventTarget {
       this.runInternal(this.currentRun);
     }
     if (this.currentRun || this.mirroredTasks.size > 0) {
+      this.progressCycleStartedAt = Date.now();
       this.dispatchEvent(new CustomEvent('start', {}));
     }
   }
@@ -1885,7 +1904,7 @@ export class TaskQueueService extends EventTarget {
 
   async runInternal(cur: TaskQueueRun) {
     this.dispatchProgress();
-    const config = await backend.getConfig();
+    const config = await this.backend.getConfig();
     const delayTime = config.delayTime ?? 0;
     while (!this.queue.isEmpty()) {
       const task = this.queue.peek();
@@ -1928,6 +1947,7 @@ export class TaskQueueService extends EventTarget {
               this.sceneStats[sceneKey].done++;
             }
           }
+          this.progressCycleStartedAt = Date.now();
           this.dispatchEvent(new CustomEvent('complete', {}));
           this.dispatchProgress();
         } catch (e: any) {
@@ -2044,6 +2064,7 @@ export const queueWorkflow = async (
 };
 
 const copyQuickAssetIfMissing = async (src: string, dest: string) => {
+  const { backend } = requireTaskQueueRuntime();
   try {
     if (await backend.existFile(dest)) return;
     if (!(await backend.existFile(src))) return;
@@ -2054,6 +2075,7 @@ const copyQuickAssetIfMissing = async (src: string, dest: string) => {
 };
 
 async function copyQuickPresetAssets(from: Session, to: Session, shared: any) {
+  const { imageService } = requireTaskQueueRuntime();
   for (const vibe of shared?.vibes ?? []) {
     if (!vibe?.path) continue;
     await copyQuickAssetIfMissing(
@@ -2121,6 +2143,7 @@ export const queueI2IWorkflow = async (
   samples: number,
   onComplete?: (path: string) => void,
 ) => {
+  const { workFlowService } = requireTaskQueueRuntime();
   const def = workFlowService.getDef(type);
   // 1차 가드: 마스크 필수 워크플로우(인페인트)인데 마스크가 비어있으면 큐 등록 차단.
   // 빈 마스크면 nai-client가 mask 필드를 빼고 NAI에 보내 NAI가 500을 돌려주고,
@@ -2128,7 +2151,7 @@ export const queueI2IWorkflow = async (
   // 등록 경로(queueScene / InPaintEditor / ResultViewer / SceneQueueControl)가
   // 이 함수를 공통 통로로 거치므로 여기 한 곳에 두면 우회 경로가 없음.
   if (def?.hasMask && !preset.mask) {
-    appState.pushMessage('마스크를 먼저 그려주세요. 인페인트는 마스크 없이 생성할 수 없어요.');
+    getAppState().pushMessage('마스크를 먼저 그려주세요. 인페인트는 마스크 없이 생성할 수 없어요.');
     throw new Error('인페인트 마스크가 없어 큐에 등록하지 않았어요.');
   }
   await def.handler(
@@ -2152,6 +2175,7 @@ export const queueMirrorWorkflow = async (
   samples: number,
   onComplete?: (path: string) => void,
 ) => {
+  const { imageService, workFlowService } = requireTaskQueueRuntime();
   const def = workFlowService.getDef(type);
 
   // 미러 이미지가 씬에 아직 설정되지 않았으면 세션 미러 이미지로 자동 생성

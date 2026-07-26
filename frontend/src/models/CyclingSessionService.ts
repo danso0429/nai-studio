@@ -7,9 +7,10 @@ import {
   VibeItem,
   ReferenceItem,
 } from './types';
-import { taskQueueService, workFlowService } from '.';
 import { queueWorkflow } from './TaskQueueService';
-import { appState } from './AppService';
+import type { TaskQueueService } from './TaskQueueService';
+import type { WorkFlowService } from './workflows/WorkFlowService';
+import { getAppState } from './appStateRef';
 
 export type CyclingState = 'idle' | 'running' | 'paused' | 'completed';
 
@@ -28,7 +29,10 @@ export class CyclingSessionService {
   private stopHandler: (() => void) | null = null;
   private disposers: (() => void)[] = [];
 
-  constructor() {
+  constructor(
+    private readonly taskQueueService: TaskQueueService,
+    private readonly workFlowService: WorkFlowService,
+  ) {
     makeObservable(this);
   }
 
@@ -46,8 +50,8 @@ export class CyclingSessionService {
     if (!workflowType) return;
 
     // 기존 큐가 비어있지 않으면 경고
-    if (!taskQueueService.isEmpty()) {
-      appState.pushMessage('기존 예약을 먼저 완료하거나 제거해주세요');
+    if (!this.taskQueueService.isEmpty()) {
+      getAppState().pushMessage('기존 예약을 먼저 완료하거나 제거해주세요');
       return;
     }
 
@@ -63,11 +67,11 @@ export class CyclingSessionService {
 
     // 'stop' 이벤트 리스너 등록
     this.stopHandler = this.onQueueStop.bind(this);
-    taskQueueService.addEventListener('stop', this.stopHandler);
+    this.taskQueueService.addEventListener('stop', this.stopHandler);
 
     // 안전장치: 세션 변경 감시
     const sessionDisposer = reaction(
-      () => appState.curSession,
+      () => getAppState().curSession,
       (newSession) => {
         if (newSession !== this.session && this.state !== 'idle') {
           this.cancel();
@@ -87,7 +91,7 @@ export class CyclingSessionService {
     if (this.currentPresetIndex >= this.presetQueue.length) {
       // 모든 프리셋 완료
       this.state = 'completed';
-      appState.pushMessage(
+      getAppState().pushMessage(
         `순차 생성 완료: ${this.completedPresets}개 프리셋 처리됨`,
       );
       this.cleanup();
@@ -103,7 +107,7 @@ export class CyclingSessionService {
 
     // 프리셋 전환 쿨다운 (첫 프리셋 제외 — API 레이트 리밋 방지)
     if (this.currentPresetIndex > 0) {
-      appState.pushMessage(`다음 프리셋 "${preset.name}" 준비 중 (5초 대기)...`);
+      getAppState().pushMessage(`다음 프리셋 "${preset.name}" 준비 중 (5초 대기)...`);
       await new Promise((resolve) => setTimeout(resolve, 5000));
       if (this.state !== 'running') return;
     }
@@ -117,7 +121,7 @@ export class CyclingSessionService {
 
     let shared = this.session.presetShareds.get(this.workflowType);
     if (!shared) {
-      shared = workFlowService.buildShared(this.workflowType);
+      shared = this.workFlowService.buildShared(this.workflowType);
       this.session.presetShareds.set(this.workflowType, shared);
     }
 
@@ -173,13 +177,13 @@ export class CyclingSessionService {
       );
     }
 
-    taskQueueService.run();
+    this.taskQueueService.run();
   }
 
   private onQueueStop() {
     if (this.state !== 'running') return;
 
-    if (taskQueueService.isEmpty()) {
+    if (this.taskQueueService.isEmpty()) {
       // 자연 완료 → 다음 프리셋으로 진행
       this.completedPresets++;
       this.advanceToNextPreset();
@@ -195,13 +199,13 @@ export class CyclingSessionService {
 
     this.state = 'running';
 
-    if (taskQueueService.isEmpty()) {
+    if (this.taskQueueService.isEmpty()) {
       // 큐가 비었으면 (수동 중지 후 사용자가 태스크 삭제한 경우)
       this.completedPresets++;
       this.advanceToNextPreset();
     } else {
       // 큐에 태스크가 남아있으면 이어서 실행
-      taskQueueService.run();
+      this.taskQueueService.run();
     }
   }
 
@@ -211,13 +215,13 @@ export class CyclingSessionService {
 
     this.state = 'idle';
     this.cleanup();
-    appState.pushMessage('순차 생성이 취소되었습니다');
+    getAppState().pushMessage('순차 생성이 취소되었습니다');
   }
 
   private cleanup() {
     // 이벤트 리스너 제거
     if (this.stopHandler) {
-      taskQueueService.removeEventListener('stop', this.stopHandler);
+      this.taskQueueService.removeEventListener('stop', this.stopHandler);
       this.stopHandler = null;
     }
 

@@ -4,6 +4,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "start": "node server.js",
+    "audit:cycles": "node scripts/audit-cycles.mjs --summary",
     "build-frontend": "cd frontend && npm install && npx vite build"
   },
   "dependencies": {

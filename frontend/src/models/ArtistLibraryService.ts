@@ -1,6 +1,6 @@
 import { observable, action } from 'mobx';
 import { v4 as uuidv4 } from 'uuid';
-import { backend } from '.';
+import type { Backend } from '../backend';
 import { isBackendNotFoundError } from '../backends/apiError';
 
 // 작가 라이브러리 전역 데이터.
@@ -37,7 +37,7 @@ export class ArtistLibraryService extends EventTarget {
   @observable accessor loadError: string | null = null;
   private saveTimeout: any = null;
 
-  constructor() {
+  constructor(private readonly backend: Backend) {
     super();
     // debounce(scheduleSave) 중 탭을 닫으면 마지막 변경이 디스크에 안 닿을 수 있다.
     // upstream은 index.ts cleanup에서 flushSave를 부르지만 우리 index.ts엔 그 모음이
@@ -57,7 +57,7 @@ export class ArtistLibraryService extends EventTarget {
     this.loaded = false;
     this.loadError = null;
     try {
-      const str = await backend.readFile(ARTIST_LIBRARY_FILE);
+      const str = await this.backend.readFile(ARTIST_LIBRARY_FILE);
       try {
         const json = JSON.parse(str) as IArtistLibraryStore;
         this.artists = Array.isArray(json?.artists)
@@ -76,7 +76,7 @@ export class ArtistLibraryService extends EventTarget {
       } catch (parseErr) {
         const corruptName = `${ARTIST_LIBRARY_FILE}.corrupt-${Date.now()}`;
         try {
-          await backend.renameFile(ARTIST_LIBRARY_FILE, corruptName);
+          await this.backend.renameFile(ARTIST_LIBRARY_FILE, corruptName);
         } catch (e) {}
         this.artists = [];
         this.tagPresets = [];
@@ -113,11 +113,11 @@ export class ArtistLibraryService extends EventTarget {
     const data = JSON.stringify(store);
     const tmp = ARTIST_LIBRARY_FILE + '.tmp';
     try {
-      await backend.writeFile(tmp, data);
-      await backend.renameFile(tmp, ARTIST_LIBRARY_FILE);
+      await this.backend.writeFile(tmp, data);
+      await this.backend.renameFile(tmp, ARTIST_LIBRARY_FILE);
     } catch (e) {
       try {
-        await backend.writeFile(ARTIST_LIBRARY_FILE, data);
+        await this.backend.writeFile(ARTIST_LIBRARY_FILE, data);
       } catch (e2) {
         console.error('Failed to save artist library:', e2);
         throw e2;
@@ -195,7 +195,7 @@ export class ArtistLibraryService extends EventTarget {
     this.artists = this.artists.filter((x) => x.id !== id);
     this.scheduleSave();
     try {
-      await backend.deleteDir(ARTIST_LIBRARY_DIR + '/' + id);
+      await this.backend.deleteDir(ARTIST_LIBRARY_DIR + '/' + id);
     } catch (e) {}
   }
 
@@ -219,7 +219,7 @@ export class ArtistLibraryService extends EventTarget {
     const imageId = uuidv4();
     const path = ARTIST_LIBRARY_DIR + '/' + id + '/' + imageId + '.png';
     try {
-      await backend.writeDataFile(path, base64);
+      await this.backend.writeDataFile(path, base64);
     } catch (e) {
       console.error('Failed to store artist image:', e);
       return;
@@ -241,7 +241,7 @@ export class ArtistLibraryService extends EventTarget {
     this.scheduleSave();
     if (img) {
       try {
-        await backend.deleteFile(img.path);
+        await this.backend.deleteFile(img.path);
       } catch (e) {}
     }
   }
@@ -317,7 +317,7 @@ export class ArtistLibraryService extends EventTarget {
     for (const a of this.artists) {
       for (const img of a.images) {
         try {
-          if (await backend.existFile(img.path)) {
+          if (await this.backend.existFile(img.path)) {
             // img.path = 'artist_library/<id>/<imgId>.png' — 그대로 보존
             entries.push({ path: img.path, name: img.path });
           }
@@ -335,7 +335,7 @@ export class ArtistLibraryService extends EventTarget {
   ): Promise<{ added: number; skipped: number; overwritten: number }> {
     let store: any;
     try {
-      store = JSON.parse(await backend.readFile(root + '/artist_library.json'));
+      store = JSON.parse(await this.backend.readFile(root + '/artist_library.json'));
     } catch (e) {
       throw new Error('백업에 작가 라이브러리 데이터가 없습니다');
     }
@@ -379,10 +379,10 @@ export class ArtistLibraryService extends EventTarget {
         if (!img || !img.path) continue;
         const srcPath = root + '/' + img.path;
         try {
-          if (await backend.existFile(srcPath)) {
+          if (await this.backend.existFile(srcPath)) {
             const imgId = uuidv4();
             const dest = ARTIST_LIBRARY_DIR + '/' + newId + '/' + imgId + '.png';
-            await backend.copyFile(srcPath, dest);
+            await this.backend.copyFile(srcPath, dest);
             newImages.push({ id: imgId, path: dest });
           }
         } catch (e) {}

@@ -1,23 +1,17 @@
 import {
-  backend,
-  imageService,
-  localAIService,
-  taskQueueService,
-  workFlowService,
-} from '..';
-import {
   AugmentMethod,
   Resolution,
   upscaleReoslution,
 } from '../../backends/imageGen';
 import { getImageDimensions } from '../../components/BrushTool';
-import { appState } from '../AppService';
+import { getAppState } from '../appStateRef';
 import { dataUriToBase64 } from '../ImageService';
 import { extractApiError } from '../util';
-import { queueI2IWorkflow, TaskParam } from '../TaskQueueService';
+import type { TaskParam } from '../TaskQueueService';
 import { AugmentJob, GenericScene, SDAbstractJob, Session } from '../types';
 import { emotions } from './AugmentWorkFlow';
 import { createI2IPreset } from './SDWorkFlow';
+import { requireWorkflowRuntime } from './workflowRuntime';
 
 export const queueRemoveBg = async (
   session: Session,
@@ -26,9 +20,10 @@ export const queueRemoveBg = async (
   onComplete?: (path: string) => void,
   imgJob?: SDAbstractJob<string>,
 ) => {
+  const { backend, imageService, localAIService, taskQueueService } = requireWorkflowRuntime();
   const config = await backend.getConfig();
   if (config.useLocalBgRemoval && !localAIService.ready) {
-    appState.pushMessage('환경설정에서 배경 제거 기능을 활성화해주세요');
+    getAppState().pushMessage('환경설정에서 배경 제거 기능을 활성화해주세요');
     return;
   }
   const job: AugmentJob = {
@@ -52,7 +47,7 @@ export const queueRemoveBg = async (
   try {
     await taskQueueService.addTask(params, 1);
   } catch (e: any) {
-    appState.pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
+    getAppState().pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
   }
 };
 
@@ -66,6 +61,7 @@ const queueAugment = async (
   prompt?: string,
   weaken?: number,
 ) => {
+  const { imageService, taskQueueService } = requireWorkflowRuntime();
   const { width, height } = await getImageDimensions(image);
   const job: AugmentJob = {
     type: 'augment',
@@ -87,11 +83,11 @@ const queueAugment = async (
     scene,
     onComplete,
   };
-  const samples = appState.samples;
+  const samples = getAppState().samples;
   try {
     await taskQueueService.addTask(params, samples);
   } catch (e: any) {
-    appState.pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
+    getAppState().pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
   }
 };
 
@@ -112,7 +108,7 @@ export const queueSketch = createQueueAugment('sketch');
 export const queueLineart = createQueueAugment('lineart');
 
 const getColorizeInput = async (session: Session) => {
-  const defry = await appState.pushDialogAsync({
+  const defry = await getAppState().pushDialogAsync({
     text: 'defry를 선택해주세요',
     type: 'dropdown',
     items: [0, 1, 2, 3, 4, 5].map((x) => ({
@@ -122,7 +118,7 @@ const getColorizeInput = async (session: Session) => {
   });
   if (defry == null) return null;
 
-  const prompt = await appState.pushDialogAsync({
+  const prompt = await getAppState().pushDialogAsync({
     text: '프롬프트를 입력해주세요',
     type: 'input-confirm',
   });
@@ -152,14 +148,14 @@ const queueColorize = async (
 };
 
 const getEmotionInput = async (session: Session) => {
-  const emotion = await appState.pushDialogAsync({
+  const emotion = await getAppState().pushDialogAsync({
     text: '감정을 선택해주세요',
     type: 'dropdown',
     items: emotions.map((x) => ({ text: x, value: x })),
   });
   if (!emotion) return null;
 
-  const defry = await appState.pushDialogAsync({
+  const defry = await getAppState().pushDialogAsync({
     text: 'defry를 선택해주세요',
     type: 'dropdown',
     items: [0, 1, 2, 3, 4, 5].map((x) => ({
@@ -169,7 +165,7 @@ const getEmotionInput = async (session: Session) => {
   });
   if (defry == null) return null;
 
-  const prompt = await appState.pushDialogAsync({
+  const prompt = await getAppState().pushDialogAsync({
     text: '프롬프트를 입력해주세요',
     type: 'input-confirm',
   });
@@ -207,7 +203,7 @@ const noiseTable = [
 ];
 
 const getStrengthInput = async (session: Session) => {
-  const menu = await appState.pushDialogAsync({
+  const menu = await getAppState().pushDialogAsync({
     text: '강도를 선택해주세요',
     type: 'select',
     items: [
@@ -232,7 +228,8 @@ export const queueI2I = async (
   input?: any,
 ) => {
   if (!input) return;
-  const samples = appState.samples;
+  const { queueI2IWorkflow, workFlowService } = requireWorkflowRuntime();
+  const samples = getAppState().samples;
   const preset = imgJob
     ? createI2IPreset(imgJob, image)
     : workFlowService.buildPreset('SDI2I');
@@ -252,7 +249,8 @@ export const queueEnhance = async (
   input?: any,
 ) => {
   if (!input) return;
-  const samples = appState.samples;
+  const { queueI2IWorkflow, workFlowService } = requireWorkflowRuntime();
+  const samples = getAppState().samples;
   const preset = imgJob
     ? createI2IPreset(imgJob, image)
     : workFlowService.buildPreset('SDI2I');

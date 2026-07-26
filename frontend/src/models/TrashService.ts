@@ -1,6 +1,5 @@
-import { backend } from '.';
+import type { Backend } from '../backend';
 import { GenericScene, IInpaintScene, IScene, Session, genericSceneFromJSON } from './types';
-import { imageService } from '.';
 
 // --- Type definitions ---
 
@@ -31,11 +30,15 @@ export class TrashService extends EventTarget {
   private data: TrashData = { scenes: {} };
   private loaded: boolean = false;
 
+  constructor(private readonly backend: Backend) {
+    super();
+  }
+
   // ===== Core persistence =====
 
   async loadTrash(): Promise<void> {
     try {
-      const str = await backend.readFile(TRASH_FILE);
+      const str = await this.backend.readFile(TRASH_FILE);
       const parsed = JSON.parse(str);
       // legacy: 이전 버전의 trash.json에 projects 필드가 남아있을 수 있음 — 무시.
       this.data = {
@@ -53,7 +56,7 @@ export class TrashService extends EventTarget {
   }
 
   async saveTrash(): Promise<void> {
-    await backend.writeFile(TRASH_FILE, JSON.stringify(this.data));
+    await this.backend.writeFile(TRASH_FILE, JSON.stringify(this.data));
     this.dispatchEvent(new CustomEvent('trash-updated'));
   }
 
@@ -95,7 +98,7 @@ export class TrashService extends EventTarget {
 
   private async loadImageTrashMeta(session: Session, scene: GenericScene): Promise<TrashImageMeta> {
     try {
-      const str = await backend.readFile(this.getImageTrashMetaPath(session, scene));
+      const str = await this.backend.readFile(this.getImageTrashMetaPath(session, scene));
       return JSON.parse(str);
     } catch (e) {
       return {};
@@ -104,13 +107,13 @@ export class TrashService extends EventTarget {
 
   private async saveImageTrashMeta(session: Session, scene: GenericScene, meta: TrashImageMeta): Promise<void> {
     // writeFile auto-creates parent directories
-    await backend.writeFile(this.getImageTrashMetaPath(session, scene), JSON.stringify(meta));
+    await this.backend.writeFile(this.getImageTrashMetaPath(session, scene), JSON.stringify(meta));
   }
 
   async moveImagesToTrash(session: Session, scene: GenericScene, fullPaths: string[]): Promise<void> {
     const outputDir = this.getSceneOutputDir(session, scene);
     const filenames = fullPaths.map((fullPath) => fullPath.split('/').pop()!);
-    await backend.trashImages(outputDir, filenames);
+    await this.backend.trashImages(outputDir, filenames);
     this.dispatchEvent(new CustomEvent('trash-updated'));
   }
 
@@ -119,7 +122,7 @@ export class TrashService extends EventTarget {
     const trashDir = this.getImageTrashDir(session, scene);
     let files: string[];
     try {
-      files = await backend.listFiles(trashDir);
+      files = await this.backend.listFiles(trashDir);
     } catch (e) {
       return [];
     }
@@ -141,7 +144,7 @@ export class TrashService extends EventTarget {
 
     for (const filename of filenames) {
       try {
-        await backend.renameFile(trashDir + '/' + filename, outputDir + '/' + filename);
+        await this.backend.renameFile(trashDir + '/' + filename, outputDir + '/' + filename);
         delete meta[filename];
       } catch (e) {
         console.error('이미지 복원 실패:', filename, e);
@@ -158,7 +161,7 @@ export class TrashService extends EventTarget {
 
     for (const filename of filenames) {
       try {
-        await backend.deleteFile(trashDir + '/' + filename);
+        await this.backend.deleteFile(trashDir + '/' + filename);
       } catch (e) {
         console.error('이미지 영구 삭제 실패:', filename, e);
       }
@@ -264,11 +267,11 @@ export class TrashService extends EventTarget {
 
     // Ensure .trash directory exists by writing a placeholder
     try {
-      await backend.writeFile(imgDir + '/' + session.name + '/' + IMAGE_TRASH_DIR + '/.gitkeep', '');
+      await this.backend.writeFile(imgDir + '/' + session.name + '/' + IMAGE_TRASH_DIR + '/.gitkeep', '');
     } catch (e) {}
 
     try {
-      await backend.renameDir(srcDir, dstDir);
+      await this.backend.renameDir(srcDir, dstDir);
     } catch (e) {
       console.error('씬 디렉토리 휴지통 이동 실패:', e);
     }
@@ -279,10 +282,10 @@ export class TrashService extends EventTarget {
         const maskSrc = dir + '/' + session.name + '/' + scene.name + '.png';
         const maskDst = dir + '/' + session.name + '/' + IMAGE_TRASH_DIR + '/' + scene.name + '.png';
         try {
-          await backend.writeFile(dir + '/' + session.name + '/' + IMAGE_TRASH_DIR + '/.gitkeep', '');
+          await this.backend.writeFile(dir + '/' + session.name + '/' + IMAGE_TRASH_DIR + '/.gitkeep', '');
         } catch (e) {}
         try {
-          await backend.renameFile(maskSrc, maskDst);
+          await this.backend.renameFile(maskSrc, maskDst);
         } catch (e) {}
       }
     }
@@ -330,7 +333,7 @@ export class TrashService extends EventTarget {
     const srcDir = imgDir + '/' + session.name + '/' + IMAGE_TRASH_DIR + '/' + sceneName;
     const dstDir = imgDir + '/' + session.name + '/' + sceneName;
     try {
-      await backend.renameDir(srcDir, dstDir);
+      await this.backend.renameDir(srcDir, dstDir);
     } catch (e) {
       console.error('씬 디렉토리 복원 실패:', e);
     }
@@ -341,7 +344,7 @@ export class TrashService extends EventTarget {
         const maskSrc = dir + '/' + session.name + '/' + IMAGE_TRASH_DIR + '/' + sceneName + '.png';
         const maskDst = dir + '/' + session.name + '/' + sceneName + '.png';
         try {
-          await backend.renameFile(maskSrc, maskDst);
+          await this.backend.renameFile(maskSrc, maskDst);
         } catch (e) {}
       }
     }
@@ -363,14 +366,14 @@ export class TrashService extends EventTarget {
     const imgDir = sceneType === 'scene' ? 'outs' : 'inpaints';
     const dir = imgDir + '/' + projectName + '/' + IMAGE_TRASH_DIR + '/' + sceneName;
     try {
-      await backend.deleteDir(dir);
+      await this.backend.deleteDir(dir);
     } catch (e) {}
 
     // Delete mask/org for inpaint
     if (sceneType === 'inpaint') {
       for (const maskDir of ['inpaint_masks', 'inpaint_orgs']) {
         try {
-          await backend.deleteFile(maskDir + '/' + projectName + '/' + IMAGE_TRASH_DIR + '/' + sceneName + '.png');
+          await this.backend.deleteFile(maskDir + '/' + projectName + '/' + IMAGE_TRASH_DIR + '/' + sceneName + '.png');
         } catch (e) {}
       }
     }

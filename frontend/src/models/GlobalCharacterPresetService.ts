@@ -1,6 +1,7 @@
 import { observable, action } from 'mobx';
 import { v4 as uuidv4 } from 'uuid';
-import { backend, imageService } from '.';
+import type { Backend } from '../backend';
+import type { ImageService } from './ImageService';
 import { Session, CharacterPreset, ICharacterPreset } from './types';
 import { dataUriToBase64 } from './ImageService';
 import { DebouncedJsonStore } from './DebouncedJsonStore';
@@ -30,6 +31,10 @@ export interface IGlobalCharacterPresetStore {
 export class GlobalCharacterPresetService extends DebouncedJsonStore {
   @observable accessor presets: IGlobalCharacterPresetEntry[] = [];
   @observable accessor folders: string[] = [];
+
+  constructor(backend: Backend, private readonly imageService: ImageService) {
+    super(backend);
+  }
 
   // ---------- lifecycle ----------
 
@@ -177,9 +182,9 @@ export class GlobalCharacterPresetService extends DebouncedJsonStore {
     if (!filename) return null;
     try {
       const path = this.getImagePath(filename);
-      const exists = await backend.existFile(path);
+      const exists = await this.backend.existFile(path);
       if (!exists) return null;
-      return await backend.readDataFile(path);
+      return await this.backend.readDataFile(path);
     } catch (e) {
       return null;
     }
@@ -189,14 +194,14 @@ export class GlobalCharacterPresetService extends DebouncedJsonStore {
     // read-data-file은 data URI를 주지만 write-data-file은 raw base64를 기대한다.
     const base64 = dataUri.includes(',') ? dataUri.split(',')[1] : dataUri;
     const filename = uuidv4() + '.png';
-    await backend.writeDataFile(GLOBAL_CHAR_IMAGES_DIR + '/' + filename, base64);
+    await this.backend.writeDataFile(GLOBAL_CHAR_IMAGES_DIR + '/' + filename, base64);
     return filename;
   }
 
   private async deleteImageData(filename: string) {
     if (!filename) return;
     try {
-      await backend.deleteFile(this.getImagePath(filename));
+      await this.backend.deleteFile(this.getImagePath(filename));
     } catch (e) {}
   }
 
@@ -217,24 +222,24 @@ export class GlobalCharacterPresetService extends DebouncedJsonStore {
 
     for (const vibe of json.vibes || []) {
       try {
-        const data = await backend.readDataFile(
-          imageService.getVibeImagePath(session, vibe.path),
+        const data = await this.backend.readDataFile(
+          this.imageService.getVibeImagePath(session, vibe.path),
         );
         if (data) vibe.path = await this.storeImageData(data);
       } catch (e) {}
     }
     for (const ref of json.characterReferences || []) {
       try {
-        const data = await backend.readDataFile(
-          imageService.getReferenceImagePath(session, ref.path),
+        const data = await this.backend.readDataFile(
+          this.imageService.getReferenceImagePath(session, ref.path),
         );
         if (data) ref.path = await this.storeImageData(data);
       } catch (e) {}
     }
     if (json.representativeImage) {
       try {
-        const data = await backend.readDataFile(
-          imageService.getVibeImagePath(session, json.representativeImage),
+        const data = await this.backend.readDataFile(
+          this.imageService.getVibeImagePath(session, json.representativeImage),
         );
         if (data) json.representativeImage = await this.storeImageData(data);
       } catch (e) {}
@@ -270,7 +275,7 @@ export class GlobalCharacterPresetService extends DebouncedJsonStore {
       try {
         const dataUri = await this.fetchImageData(vibe.path);
         if (dataUri) {
-          vibe.path = await imageService.storeVibeImage(
+          vibe.path = await this.imageService.storeVibeImage(
             session,
             dataUriToBase64(dataUri),
           );
@@ -281,7 +286,7 @@ export class GlobalCharacterPresetService extends DebouncedJsonStore {
       try {
         const dataUri = await this.fetchImageData(ref.path);
         if (dataUri) {
-          ref.path = await imageService.storeReferenceImage(
+          ref.path = await this.imageService.storeReferenceImage(
             session,
             dataUriToBase64(dataUri),
           );
@@ -292,7 +297,7 @@ export class GlobalCharacterPresetService extends DebouncedJsonStore {
       try {
         const dataUri = await this.fetchImageData(json.representativeImage);
         if (dataUri) {
-          json.representativeImage = await imageService.storeVibeImage(
+          json.representativeImage = await this.imageService.storeVibeImage(
             session,
             dataUriToBase64(dataUri),
           );
@@ -312,14 +317,14 @@ export class GlobalCharacterPresetService extends DebouncedJsonStore {
   // ---------- 편집기용 이미지 저장 (FileUploadBase64는 raw base64 제공) ----------
   async storeVibeForEditor(base64: string): Promise<string> {
     const filename = uuidv4() + '.png';
-    await backend.writeDataFile(GLOBAL_CHAR_IMAGES_DIR + '/' + filename, base64);
+    await this.backend.writeDataFile(GLOBAL_CHAR_IMAGES_DIR + '/' + filename, base64);
     return filename;
   }
 
   async storeReferenceForEditor(base64: string): Promise<string> {
     // 글로벌 보관은 원본 유지; 실제 정규화/리사이즈는 프로젝트로 불러올 때 수행
     const filename = uuidv4() + '.png';
-    await backend.writeDataFile(GLOBAL_CHAR_IMAGES_DIR + '/' + filename, base64);
+    await this.backend.writeDataFile(GLOBAL_CHAR_IMAGES_DIR + '/' + filename, base64);
     return filename;
   }
 

@@ -5,12 +5,31 @@ import {
   Sampling,
 } from '../backends/imageGen';
 import { action, observable, makeObservable } from 'mobx';
-import { Serealizable } from './ResourceSyncService';
-import { workFlowService } from '.';
-import { WFWorkFlow, WorkFlowDef } from './workflows/WorkFlow';
+import type { Serealizable } from './ResourceSyncService';
+import type { WorkFlowDef } from './workflows/WorkFlow';
 import type { GenerationHistoryEntry } from './imageHistoryTypes';
 
 export type PARR = string[];
+
+export interface WorkflowCodec {
+  presetFromJSON(json: any): any;
+  sharedFromJSON(json: any): any;
+  getDef(type: string): WorkFlowDef | undefined;
+}
+
+let workflowCodec: WorkflowCodec | undefined;
+
+export function installWorkflowCodec(codec: WorkflowCodec): void {
+  if (workflowCodec && workflowCodec !== codec) {
+    throw new Error('Workflow codec is already installed');
+  }
+  workflowCodec = codec;
+}
+
+function requireWorkflowCodec(): WorkflowCodec {
+  if (!workflowCodec) throw new Error('Workflow codec is not installed');
+  return workflowCodec;
+}
 
 // 워크플로우별 preset의 공통 명목 타입. preset 자체는 materializeWFObj()가
 // 동적으로 만든 객체라 워크플로우마다 추가 필드가 다름 — index signature로
@@ -357,7 +376,7 @@ export class InpaintScene extends AbstractScene implements IInpaintScene {
     Object.assign(scene, json);
     scene.type = 'inpaint';
     try {
-      scene.preset = json.preset && workFlowService.presetFromJSON(json.preset);
+      scene.preset = json.preset && requireWorkflowCodec().presetFromJSON(json.preset);
       if (json.preset && !scene.preset) return null;
     } catch (e) {
       console.warn(`Failed to deserialize inpaint scene: ${json.name}`, e);
@@ -537,7 +556,7 @@ export class Session implements Serealizable {
     const type = flow.workflowType;
     const preset = flow.presetName && this.getPreset(type, flow.presetName);
     const shared = this.presetShareds.get(type);
-    const def = workFlowService.getDef(type);
+    const def = requireWorkflowCodec().getDef(type)!;
     return [type, preset, shared, def];
   }
 
@@ -589,7 +608,7 @@ export class Session implements Serealizable {
     session.presets = new Map(
       Object.entries(json.presets).map(([key, value]) => [
         key,
-        value.map((preset) => workFlowService.presetFromJSON(preset)).filter(Boolean),
+        value.map((preset) => requireWorkflowCodec().presetFromJSON(preset)).filter(Boolean),
       ]),
     );
     session.inpaints = new Map(
@@ -625,7 +644,7 @@ export class Session implements Serealizable {
       Object.entries(json.presetShareds)
         .map(([key, value]) => {
           try {
-            return [key, workFlowService.sharedFromJSON(value)] as const;
+            return [key, requireWorkflowCodec().sharedFromJSON(value)] as const;
           } catch (e) {
             console.warn(`[session] 미지의 workflow shared drop: ${key}`, e);
             return null;

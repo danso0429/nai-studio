@@ -1,6 +1,8 @@
 import { observable, action } from 'mobx';
 import { v4 as uuidv4 } from 'uuid';
-import { backend, imageService, workFlowService } from '.';
+import type { Backend } from '../backend';
+import type { ImageService } from './ImageService';
+import type { WorkFlowService } from './workflows/WorkFlowService';
 import { Session } from './types';
 import { dataUriToBase64 } from './ImageService';
 import { DebouncedJsonStore } from './DebouncedJsonStore';
@@ -43,6 +45,14 @@ export class GlobalPresetService extends DebouncedJsonStore {
   @observable accessor presets: IGlobalPresetEntry[] = [];
   // load 시 파일 version < 2면 set — super.load() 후 migrateUnify 1회 트리거(이지/일반 통합).
   private needsUnifyMigration = false;
+
+  constructor(
+    backend: Backend,
+    private readonly imageService: ImageService,
+    private readonly workFlowService: WorkFlowService,
+  ) {
+    super(backend);
+  }
 
   // ---------- lifecycle ----------
 
@@ -104,8 +114,8 @@ export class GlobalPresetService extends DebouncedJsonStore {
     // 하면 save()로 원본을 덮어쓰면 백업 없이 손실되므로, 덮어쓰지 않고 중단한다(version v1 유지 →
     // 다음 로드가 원본에서 재시도 = 멱등). 사용자에게도 'unify-backup-failed'로 알린다.
     try {
-      const cur = await backend.readFile(GLOBAL_PRESETS_FILE);
-      await backend.writeFile(
+      const cur = await this.backend.readFile(GLOBAL_PRESETS_FILE);
+      await this.backend.writeFile(
         GLOBAL_PRESETS_FILE + '.bak-unify-' + Date.now(),
         cur,
       );
@@ -194,9 +204,9 @@ export class GlobalPresetService extends DebouncedJsonStore {
     if (!profile) return null;
     const path = this.getProfilePath(profile);
     try {
-      const exists = await backend.existFile(path);
+      const exists = await this.backend.existFile(path);
       if (!exists) return null;
-      return await backend.readDataFile(path);
+      return await this.backend.readDataFile(path);
     } catch (e) {
       return null;
     }
@@ -205,14 +215,14 @@ export class GlobalPresetService extends DebouncedJsonStore {
   private async storeProfileImage(base64: string): Promise<string> {
     const filename = uuidv4() + '.png';
     const path = GLOBAL_VIBES_DIR + '/' + filename;
-    await backend.writeDataFile(path, base64);
+    await this.backend.writeDataFile(path, base64);
     return filename;
   }
 
   private async deleteProfileImage(profile: string): Promise<void> {
     if (!profile) return;
     try {
-      await backend.deleteFile(this.getProfilePath(profile));
+      await this.backend.deleteFile(this.getProfilePath(profile));
     } catch (e) {
       // ignore — file may already be missing
     }
@@ -255,7 +265,7 @@ export class GlobalPresetService extends DebouncedJsonStore {
     const srcProfile = json.profile || preset.profile;
     if (srcProfile) {
       try {
-        const dataUri = await imageService.fetchVibeImage(session, srcProfile);
+        const dataUri = await this.imageService.fetchVibeImage(session, srcProfile);
         if (dataUri) {
           const base64 = dataUriToBase64(dataUri);
           newProfile = await this.storeProfileImage(base64);
@@ -418,7 +428,7 @@ export class GlobalPresetService extends DebouncedJsonStore {
     const job = await extractPromptDataFromBase64(base64);
     if (!job || !job.prompt) return undefined;
 
-    const preset: any = workFlowService.buildPreset('SDImageGen');
+    const preset: any = this.workFlowService.buildPreset('SDImageGen');
     preset.name = 'external image';
     preset.frontPrompt = job.prompt ?? '';
     preset.backPrompt = '';
@@ -538,7 +548,7 @@ export class GlobalPresetService extends DebouncedJsonStore {
         const dataUri = await this.fetchProfileImage(entry.profile);
         if (dataUri) {
           const base64 = dataUriToBase64(dataUri);
-          const sessionProfile = await imageService.storeVibeImage(
+          const sessionProfile = await this.imageService.storeVibeImage(
             session,
             base64,
           );
@@ -549,7 +559,7 @@ export class GlobalPresetService extends DebouncedJsonStore {
       }
     }
 
-    const preset = workFlowService.presetFromJSON(clone);
+    const preset = this.workFlowService.presetFromJSON(clone);
     if (!preset) throw new Error('프리셋 복원 실패');
     session.addPreset(preset);
     return preset;
@@ -584,6 +594,6 @@ export class GlobalPresetService extends DebouncedJsonStore {
     };
 
     const newPng = embedJSONInPNG(pngBase64, jsonForPng);
-    await backend.writeDataFile(outPath, newPng);
+    await this.backend.writeDataFile(outPath, newPng);
   }
 }

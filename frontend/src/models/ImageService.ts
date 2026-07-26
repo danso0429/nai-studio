@@ -1,4 +1,7 @@
-import { backend, isMobile, gameService, imageService, getInitialThumbSize } from '.';
+import type { Backend } from '../backend';
+import { getInitialThumbSize, isMobile } from './platform';
+import type { GameService } from './GameService';
+import type { TrashService } from './TrashService';
 import { GenericScene, InpaintScene, Scene, Session } from './types';
 import { assert } from './util';
 import { v4 } from 'uuid';
@@ -56,6 +59,15 @@ class LRUCache<K, V> {
 }
 
 export class ImageService extends EventTarget {
+  constructor(private readonly backend: Backend) {
+    super();
+    this.images = {};
+    this.inpaints = {};
+    this.cache = new LRUCache(isMobile ? 24 : IMAGE_CACHE_SIZE);
+    this.mutexes = {};
+    this.encodedVibeExistsCache = new LRUCache(isMobile ? 16 : ENCODED_VIBE_CACHE_SIZE);
+  }
+
   setImageMain(
     session: Session,
     scene: GenericScene,
@@ -67,7 +79,7 @@ export class ImageService extends EventTarget {
     if (value && index < 0) scene.mains.push(filename);
     if (!value && index >= 0) scene.mains.splice(index, 1);
     if (!notify) return;
-    void backend.notifySessionImageMain({
+    void this.backend.notifySessionImageMain({
       projectName: session.name,
       sceneType: scene.type,
       sceneName: scene.name,
@@ -90,15 +102,6 @@ export class ImageService extends EventTarget {
   mutexes: { [key: string]: Promise<void> };
   // 인코딩된 바이브 이미지 존재 여부 캐시 (성능 최적화)
   encodedVibeExistsCache: LRUCache<string, boolean>;
-
-  constructor() {
-    super();
-    this.images = {};
-    this.inpaints = {};
-    this.cache = new LRUCache(isMobile ? 24 : IMAGE_CACHE_SIZE);
-    this.mutexes = {};
-    this.encodedVibeExistsCache = new LRUCache(isMobile ? 16 : ENCODED_VIBE_CACHE_SIZE);
-  }
 
   // FIFO chain — 같은 path에 동시 acquire가 들어와도 set 순서대로 await 사슬이 이어져
   // 정확히 한 caller만 critical section. 옛 acquireMutex는 while loop + 새 Promise를
@@ -126,7 +129,7 @@ export class ImageService extends EventTarget {
     const releaseOld = await this.acquireMutex(oldPath);
     const releaseNew = await this.acquireMutex(newPath);
     try {
-      await backend.renameFile(oldPath, newPath);
+      await this.backend.renameFile(oldPath, newPath);
       await this.onRenameFile(oldPath, newPath);
     } finally {
       releaseNew();
@@ -155,7 +158,7 @@ export class ImageService extends EventTarget {
         const oldPath = oldPaths[i];
         const newPath = newPaths[i];
         try {
-          await backend.renameFile(oldPath, newPath);
+          await this.backend.renameFile(oldPath, newPath);
         } catch (e) {}
       }
       if (this.cache.cache.get(oldPath)) {
@@ -214,13 +217,13 @@ export class ImageService extends EventTarget {
   async fetchVibeImage(session: Session, name: string) {
     if (!name) return null;
     const path =
-      imageService.getVibesDir(session) + '/' + name.split('/').pop()!;
+      this.getVibesDir(session) + '/' + name.split('/').pop()!;
     return await this.fetchImage(path);
   }
 
   async fetchEncodedVibeImage(session: Session, name: string, info: number) {
     const path =
-      imageService.getEncodedVibesDir(session) +
+      this.getEncodedVibesDir(session) +
       '/' +
       name.split('/').pop()! +
       '&info=' +
@@ -230,23 +233,23 @@ export class ImageService extends EventTarget {
 
   async writeVibeImage(session: Session, name: string, data: string) {
     const path =
-      imageService.getVibesDir(session) + '/' + name.split('/').pop()!;
-    await backend.writeDataFile(path, data);
-    await imageService.invalidateCache(path);
+      this.getVibesDir(session) + '/' + name.split('/').pop()!;
+    await this.backend.writeDataFile(path, data);
+    await this.invalidateCache(path);
   }
 
   async fetchReferenceImage(session: Session, name: string) {
     const path =
-      imageService.getReferenceDir(session) + '/' + name.split('/').pop()!;
+      this.getReferenceDir(session) + '/' + name.split('/').pop()!;
     return await this.fetchImage(path);
   }
 
   async writeReferenceImage(session: Session, name: string, data: string) {
     const resized = await this.normalizeReferenceImage(data);
     const path =
-      imageService.getReferenceDir(session) + '/' + name.split('/').pop()!;
-    await backend.writeDataFile(path, resized);
-    await imageService.invalidateCache(path);
+      this.getReferenceDir(session) + '/' + name.split('/').pop()!;
+    await this.backend.writeDataFile(path, resized);
+    await this.invalidateCache(path);
   }
 
   async fetchImage(path: string, holdMutex = true) {
@@ -259,7 +262,7 @@ export class ImageService extends EventTarget {
       // existFile + readDataFile 2 round-trip을 readDataFile 1 round-trip으로 합침.
       // 서버가 404로 응답하면 throw — 파일 없음/네트워크 에러 둘 다 null로 일관 처리.
       try {
-        const data = await backend.readDataFile(path);
+        const data = await this.backend.readDataFile(path);
         this.cache.set(path, data);
         return data;
       } catch {
@@ -283,7 +286,7 @@ export class ImageService extends EventTarget {
         return resizedImageData;
       }
       // 캐시된 작은 이미지가 없음 - 원본 파일 존재 여부 확인 후 리사이즈 시도
-      const originalExists = await backend.existFile(path);
+      const originalExists = await this.backend.existFile(path);
       if (!originalExists) {
         // 원본 파일이 없으면 null 반환 (오류 로그 방지)
         return null;
@@ -326,7 +329,7 @@ export class ImageService extends EventTarget {
     }
     maxWidth = Math.ceil(scale * maxWidth);
     maxHeight = Math.ceil(scale * maxHeight);
-    await backend.resizeImage({
+    await this.backend.resizeImage({
       inputPath,
       outputPath,
       maxWidth,
@@ -357,7 +360,7 @@ export class ImageService extends EventTarget {
       const oldPath = imgDir + '/' + session.name + '/' + oldName;
       const newPath = imgDir + '/' + session.name + '/' + newName;
       try {
-        await backend.renameDir(oldPath, newPath);
+        await this.backend.renameDir(oldPath, newPath);
       } catch (e) {
         console.error('rename scene error:', e);
       }
@@ -366,7 +369,7 @@ export class ImageService extends EventTarget {
       const oldPath = imgDir + '/' + session.name + '/' + oldName + '.png';
       const newPath = imgDir + '/' + session.name + '/' + newName + '.png';
       try {
-        await backend.renameFile(oldPath, newPath);
+        await this.backend.renameFile(oldPath, newPath);
       } catch (e) {
         console.error('rename scene error:', e);
       }
@@ -391,7 +394,7 @@ export class ImageService extends EventTarget {
 
       let files: string[];
       try {
-        files = (await backend.listFiles(srcDir)).filter((x) =>
+        files = (await this.backend.listFiles(srcDir)).filter((x) =>
           x.endsWith('.png'),
         );
       } catch (e) {
@@ -402,7 +405,7 @@ export class ImageService extends EventTarget {
       // 대상 폴더의 기존 파일명(충돌 검사용)
       const taken = new Set<string>();
       try {
-        for (const f of await backend.listFiles(dstDir)) {
+        for (const f of await this.backend.listFiles(dstDir)) {
           if (f.endsWith('.png')) taken.add(f);
         }
       } catch (e) {
@@ -421,12 +424,12 @@ export class ImageService extends EventTarget {
           dstName = `${base}_merged${i}${ext}`;
         }
         try {
-          await backend.copyFile(srcDir + '/' + file, dstDir + '/' + dstName);
+          await this.backend.copyFile(srcDir + '/' + file, dstDir + '/' + dstName);
           taken.add(dstName);
           moved++;
           // 복사 성공한 원본만 삭제 (실패분은 보존)
           try {
-            await backend.deleteFile(srcDir + '/' + file);
+            await this.backend.deleteFile(srcDir + '/' + file);
           } catch (e) {
             /* 원본 삭제 실패는 무시 */
           }
@@ -437,7 +440,7 @@ export class ImageService extends EventTarget {
 
       // 비워진 source 폴더 정리 (남은 파일이 있으면 deleteDir가 실패할 수 있음 → 무시)
       try {
-        await backend.deleteDir(srcDir);
+        await this.backend.deleteDir(srcDir);
       } catch (e) {
         /* 무시 */
       }
@@ -478,15 +481,15 @@ export class ImageService extends EventTarget {
     const moved: string[] = [];
     for (const dir of ['outs', 'inpaints', 'vibes', 'references', 'inpaint_masks', 'inpaint_orgs']) {
       const source = dir + '/' + oldName;
-      if (!(await backend.existFile(source))) continue;
+      if (!(await this.backend.existFile(source))) continue;
       try {
-        await backend.renameDir(source, dir + '/' + newName);
+        await this.backend.renameDir(source, dir + '/' + newName);
         moved.push(dir);
       } catch (error) {
         const rollbackErrors: string[] = [];
         for (const rollbackDir of moved.slice().reverse()) {
           try {
-            await backend.renameDir(
+            await this.backend.renameDir(
               rollbackDir + '/' + newName,
               rollbackDir + '/' + oldName,
             );
@@ -654,14 +657,14 @@ export class ImageService extends EventTarget {
   }
 
   async storeVibeImage(session: Session, data: string) {
-    const path = imageService.getVibesDir(session) + '/' + v4() + '.png';
-    await backend.writeDataFile(path, data);
+    const path = this.getVibesDir(session) + '/' + v4() + '.png';
+    await this.backend.writeDataFile(path, data);
     return path.split('/').pop()!;
   }
 
   async storeGenerationVibeImage(session: Session, data: string) {
-    const path = imageService.getVibesDir(session) + '/' + v4() + '.png';
-    await backend.writeGenerationAsset(path, data);
+    const path = this.getVibesDir(session) + '/' + v4() + '.png';
+    await this.backend.writeGenerationAsset(path, data);
     return path.split('/').pop()!;
   }
 
@@ -672,15 +675,15 @@ export class ImageService extends EventTarget {
     info: number,
   ) {
     const path =
-      imageService.getEncodedVibesDir(session) + '/' + name + '&info=' + info;
-    await backend.writeDataFile(path, data);
+      this.getEncodedVibesDir(session) + '/' + name + '&info=' + info;
+    await this.backend.writeDataFile(path, data);
     return path.split('/').pop()!;
   }
 
   async storeReferenceImage(session: Session, data: string) {
     const resized = await this.normalizeReferenceImage(data);
-    const path = imageService.getReferenceDir(session) + '/' + v4() + '.png';
-    await backend.writeDataFile(path, resized);
+    const path = this.getReferenceDir(session) + '/' + v4() + '.png';
+    await this.backend.writeDataFile(path, resized);
     return path.split('/').pop()!;
   }
 
@@ -689,15 +692,15 @@ export class ImageService extends EventTarget {
   }
 
   getVibeImagePath(session: Session, name: string) {
-    return this._imagePath(imageService.getVibesDir(session), name);
+    return this._imagePath(this.getVibesDir(session), name);
   }
 
   getEncodedVibeImagePath(session: Session, name: string, info: number) {
-    return this._imagePath(imageService.getEncodedVibesDir(session), name, '&info=' + info);
+    return this._imagePath(this.getEncodedVibesDir(session), name, '&info=' + info);
   }
 
   getReferenceImagePath(session: Session, name: string) {
-    return this._imagePath(imageService.getReferenceDir(session), name);
+    return this._imagePath(this.getReferenceDir(session), name);
   }
 
   async refresh(
@@ -716,7 +719,7 @@ export class ImageService extends EventTarget {
     // start stuck 패턴의 일시 throw 안전망.
     let files: string[];
     try {
-      files = await backend.listFiles(this.getOutputDir(session, scene));
+      files = await this.backend.listFiles(this.getOutputDir(session, scene));
     } catch (e) {
       console.warn('[refresh] listFiles failed:', scene.name, e);
       if (guardEmpty && scene.imageMap.length > 0) {
@@ -878,7 +881,7 @@ export class ImageService extends EventTarget {
     const vibePath = this.getVibeImagePath(session, path);
     const data = await this.fetchVibeImage(session, vibePath);
     if (!data) return;
-    const encoded = await backend.encodeVibeImage({
+    const encoded = await this.backend.encodeVibeImage({
       image: dataUriToBase64(data),
       info: info,
     });
@@ -902,7 +905,7 @@ export class ImageService extends EventTarget {
     }
     
     // 캐시에 없으면 파일 시스템 확인
-    const exists = await backend.existFile(vibePath);
+    const exists = await this.backend.existFile(vibePath);
     this.encodedVibeExistsCache.set(vibePath, exists);
     return exists;
   }
@@ -921,76 +924,75 @@ export function dataUriToBase64(dataUri: string) {
   return idx >= 0 ? dataUri.slice(idx + 1) : dataUri;
 }
 
-export function getMainImagePath(session: Session, scene: Scene) {
-  if (scene.mains.length) {
-    return imageService.getImageDir(session, scene) + '/' + scene.mains[0];
-  }
-  const images = gameService.getOutputs(session, scene);
-  if (images.length) {
-    return imageService.getImageDir(session, scene) + '/' + images[0];
-  }
-  return undefined;
-}
+export class ImageActions {
+  constructor(
+    private readonly backend: Backend,
+    private readonly imageService: ImageService,
+    private readonly gameService: GameService,
+    private readonly trashService: TrashService,
+  ) {}
 
-export async function getMainImage(
-  session: Session,
-  scene: GenericScene,
-  size: number,
-) {
-  // 모바일 씬 카드 썸네일: 200_ fastcache 사용 (원본 1.6MB → 121KB, 14배 작음).
-  // 첫 진입 시 N장 다운로드 시간 1~2분 → 수초로 단축.
-  if (isMobile && size > 200) size = 200;
-  if (scene.mains.length) {
-    const path =
-      imageService.getOutputDir(session, scene) + '/' + scene.mains[0];
-    const base64 = await imageService.fetchImageSmall(path, size);
-    return base64;
+  getMainImagePath(session: Session, scene: Scene) {
+    if (scene.mains.length) {
+      return this.imageService.getImageDir(session, scene) + '/' + scene.mains[0];
+    }
+    const images = this.gameService.getOutputs(session, scene);
+    if (images.length) {
+      return this.imageService.getImageDir(session, scene) + '/' + images[0];
+    }
+    return undefined;
   }
-  const images = gameService.getOutputs(session, scene);
-  if (images.length) {
-    const path = imageService.getOutputDir(session, scene) + '/' + images[0];
-    return await imageService.fetchImageSmall(path, size);
-  }
-  return undefined;
-}
 
-export const deleteImageFiles = async (
-  curSession: Session,
-  paths: string[],
-  scene?: GenericScene,
-) => {
-  if (scene) {
-    // 휴지통으로 이동
-    const { trashService } = await import('.');
-    await trashService.moveImagesToTrash(curSession, scene, paths);
-    for (const imagePath of paths) {
-      const filename = imagePath.split('/').pop()!;
-      if (scene.mains.includes(filename)) {
-        imageService.setImageMain(curSession, scene, filename, false);
-      }
+  async getMainImage(session: Session, scene: GenericScene, size: number) {
+    // 모바일 씬 카드 썸네일: 200_ fastcache 사용 (원본 1.6MB → 121KB, 14배 작음).
+    // 첫 진입 시 N장 다운로드 시간 1~2분 → 수초로 단축.
+    if (isMobile && size > 200) size = 200;
+    if (scene.mains.length) {
+      const path =
+        this.imageService.getOutputDir(session, scene) + '/' + scene.mains[0];
+      return await this.imageService.fetchImageSmall(path, size);
     }
-    // 캐시 일괄 무효화 (순차 mutex 대신 batch)
-    for (const path of paths) {
-      imageService.cache.delete(path);
-      // 전 사이즈 무효화 — 옛 [200,400] 하드코딩은 500 캐시 잔존 (진단 축3 동반 정리)
-      for (const sz of supportedImageSizes) {
-        const dir = path.substring(0, path.lastIndexOf('/'));
-        const name = path.substring(path.lastIndexOf('/') + 1);
-        imageService.cache.delete(dir + '/fastcache/' + sz + '_' + name);
-      }
+    const images = this.gameService.getOutputs(session, scene);
+    if (images.length) {
+      const path = this.imageService.getOutputDir(session, scene) + '/' + images[0];
+      return await this.imageService.fetchImageSmall(path, size);
     }
-    await imageService.refresh(curSession, scene);
-  } else {
-    // scene이 없는 경우 기존 동작 유지 (OS 휴지통)
-    for (const path of paths) {
-      try {
-        await backend.trashFile(path);
-      } catch (e) {}
-      await imageService.invalidateCache(path);
-    }
-    await imageService.refreshBatch(curSession);
+    return undefined;
   }
-};
+
+  async deleteImageFiles(
+    curSession: Session,
+    paths: string[],
+    scene?: GenericScene,
+  ) {
+    if (scene) {
+      await this.trashService.moveImagesToTrash(curSession, scene, paths);
+      for (const imagePath of paths) {
+        const filename = imagePath.split('/').pop()!;
+        if (scene.mains.includes(filename)) {
+          this.imageService.setImageMain(curSession, scene, filename, false);
+        }
+      }
+      for (const path of paths) {
+        this.imageService.cache.delete(path);
+        for (const sz of supportedImageSizes) {
+          const dir = path.substring(0, path.lastIndexOf('/'));
+          const name = path.substring(path.lastIndexOf('/') + 1);
+          this.imageService.cache.delete(dir + '/fastcache/' + sz + '_' + name);
+        }
+      }
+      await this.imageService.refresh(curSession, scene);
+    } else {
+      for (const path of paths) {
+        try {
+          await this.backend.trashFile(path);
+        } catch (e) {}
+        await this.imageService.invalidateCache(path);
+      }
+      await this.imageService.refreshBatch(curSession);
+    }
+  }
+}
 
 export function cropMirrorResultFromDataUri(dataUri: string, mirrorCropX?: number): Promise<string> {
   return new Promise((resolve, reject) => {

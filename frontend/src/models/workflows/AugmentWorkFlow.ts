@@ -1,10 +1,9 @@
-import { imageService, taskQueueService, workFlowService } from '..';
 import { getImageDimensions } from '../../components/BrushTool';
 import { dataUriToBase64 } from '../ImageService';
-import { appState } from '../AppService';
+import { getAppState } from '../appStateRef';
 import { extractApiError } from '../util';
 import { createSDPrompts, createSDCharacterPrompts } from '../PromptService';
-import { TaskParam } from '../TaskQueueService';
+import type { TaskParam } from '../TaskQueueService';
 import {
   AugmentJob,
   GenericScene,
@@ -24,6 +23,7 @@ import {
   wfiStack,
   WFVarBuilder,
 } from './WorkFlow';
+import { requireWorkflowRuntime } from './workflowRuntime';
 
 const AugmentGenPreset = new WFVarBuilder()
   .addPromptVar('frontPrompt', '')
@@ -81,8 +81,14 @@ const AugmentGenMeta = new WFVarBuilder().addSelectVar(
 const AugmentGenUI = wfiStack([
   wfiInlineInput('수정방법', 'method', 'shared', 'flex-none'),
   wfiInlineInput('이미지', 'image', 'shared', 'flex-none'),
-  wfiShowImage('image', 'shared'),
-  wfiIfIn('method', 'shared', ['emotion', 'colorize'], wfiPresetSelect()),
+  wfiShowImage('image', 'shared', 'show-image'),
+  wfiIfIn(
+    'method',
+    'shared',
+    ['emotion', 'colorize'],
+    wfiPresetSelect(),
+    'if-preset-select',
+  ),
   wfiIfIn(
     'method',
     'shared',
@@ -94,6 +100,7 @@ const AugmentGenUI = wfiStack([
     'shared',
     ['emotion', 'colorize'],
     wfiMiddlePlaceholderInput('중위 프롬프트 (이 씬에만 적용)'),
+    'if-middle-prompt',
   ),
   wfiIfIn(
     'method',
@@ -128,6 +135,7 @@ const AugmentGenHandler = async (
   nodelay?: boolean,
   _extraUc?: string, // Augment는 negative 없음 — 시그니처만 맞춤
 ) => {
+  const { imageService, taskQueueService, workFlowService } = requireWorkflowRuntime();
   if (!meta) {
     meta = workFlowService.buildMeta('AugmentGen');
   }
@@ -157,7 +165,7 @@ const AugmentGenHandler = async (
   try {
     await taskQueueService.addTask(param, samples);
   } catch (e: any) {
-    appState.pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
+    getAppState().pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
   }
 };
 
@@ -218,6 +226,7 @@ function createAugmentPreset(
   image?: string,
   mask?: string,
 ): any {
+  const { workFlowService } = requireWorkflowRuntime();
   const preset = workFlowService.buildPreset('Augment');
   preset.image = image;
   preset.prompt = job.prompt;
@@ -260,6 +269,7 @@ const AugmentHandler = async (
   nodelay?: boolean,
   _extraUc?: string,
 ) => {
+  const { imageService, taskQueueService } = requireWorkflowRuntime();
   const image = (await imageService.fetchVibeImage(session, preset.image))!;
   const promptNode: PromptNode = {
     type: 'text',
@@ -290,7 +300,7 @@ const AugmentHandler = async (
   try {
     await taskQueueService.addTask(param, samples);
   } catch (e: any) {
-    appState.pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
+    getAppState().pushMessage(`큐 등록 실패: ${extractApiError(e)}`);
   }
 };
 

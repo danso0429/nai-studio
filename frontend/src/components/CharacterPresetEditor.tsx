@@ -42,6 +42,7 @@ import { FileUploadBase64 } from './UtilComponents';
 import PromptEditTextArea from './PromptEditTextArea';
 import ModalOverlay from './ModalOverlay';
 import { getRefDefaults } from './PreSetEditor';
+import HelpIcon from './HelpIcon';
 
 // ─── 바이브 이미지 컴포넌트 ────────────────────────────────────
 const VibeImage = ({
@@ -1397,7 +1398,12 @@ export const CharacterPresetModalEditor = observer(({
     <ModalOverlay
       isOpen={true}
       onClose={onClose}
-      title="캐릭터 프리셋 관리"
+      title={
+        <span className="inline-flex items-center gap-1.5">
+          캐릭터 프리셋 관리
+          <HelpIcon content={'캐릭터 프롬프트·네거티브·바이브·레퍼런스를 한 묶음으로 저장합니다.\n여러 프리셋을 함께 적용할 수 있고 글로벌 항목은 모든 프로젝트에서 공유됩니다.'} />
+        </span>
+      }
       width="max-w-5xl"
     >
       <CharacterPresetEditor

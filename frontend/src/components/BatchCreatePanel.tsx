@@ -67,6 +67,8 @@ const BatchCreatePanel = observer(({ templateId }: { templateId: string }) => {
       appState.pushMessage(
         `일괄 생성 완료 — 성공 ${next.created.length}개${next.failed.length ? ` · 실패 ${next.failed.length}개` : ''}`,
       );
+    } catch (error: any) {
+      appState.pushMessage(`일괄 생성 실패: ${error?.message || String(error)}`);
     } finally {
       setRunning(false);
       setProgress(null);
@@ -116,15 +118,20 @@ const BatchCreatePanel = observer(({ templateId }: { templateId: string }) => {
       type: 'confirm',
       text: `방금 만든 프로젝트 ${result.created.length}개의 모든 씬을 각 ${appState.samples}장씩 예약 등록할까요?`,
       callback: async () => {
-        const queued = await queueProjectsForGeneration(
-          result.created,
-          appState.samples,
-          (done, total, current) => setProgress({ done, total, current }),
-        );
-        setProgress(null);
-        appState.pushMessage(
-          `일괄 예약 등록 완료 — 씬 ${queued.queuedScenes}개${queued.failedProjects.length ? ` · 문제 프로젝트 ${queued.failedProjects.length}개` : ''}`,
-        );
+        try {
+          const queued = await queueProjectsForGeneration(
+            result.created,
+            appState.samples,
+            (done, total, current) => setProgress({ done, total, current }),
+          );
+          appState.pushMessage(
+            `일괄 예약 등록 완료 — 씬 ${queued.queuedScenes}개${queued.failedProjects.length ? ` · 문제 프로젝트 ${queued.failedProjects.length}개` : ''}`,
+          );
+        } catch (error: any) {
+          appState.pushMessage(`일괄 예약 등록 실패: ${error?.message || String(error)}`);
+        } finally {
+          setProgress(null);
+        }
       },
     });
   };

@@ -1,6 +1,6 @@
 import { v4 } from 'uuid';
-import { backend, imageService, sessionService } from '.';
-import { dataUriToBase64 } from './ImageService';
+import type { Backend } from '../backend';
+import { dataUriToBase64, type ImageService } from './ImageService';
 import ExifReader from 'exifreader';
 import defaultassets from '../defaultassets';
 import extractChunks from 'png-chunks-extract';
@@ -14,7 +14,26 @@ import {
   Round,
 } from './types';
 import { Buffer } from 'buffer';
-import { appState } from './AppService';
+import { getAppState } from './appStateRef';
+
+interface LegacyRuntime {
+  backend: Backend;
+  imageService: ImageService;
+}
+
+let legacyRuntime: LegacyRuntime | undefined;
+
+export function installLegacyRuntime(runtime: LegacyRuntime): void {
+  if (legacyRuntime && legacyRuntime !== runtime) {
+    throw new Error('Legacy runtime is already installed');
+  }
+  legacyRuntime = runtime;
+}
+
+function requireLegacyRuntime(): LegacyRuntime {
+  if (!legacyRuntime) throw new Error('Legacy runtime is not installed');
+  return legacyRuntime;
+}
 
 const defaultUC = `worst quality, bad quality, displeasing, very displeasing, lowres, bad anatomy, bad perspective, bad proportions, bad aspect ratio, bad face, long face, bad teeth, bad neck, long neck, bad arm, bad hands, bad ass, bad leg, bad feet, bad reflection, bad shadow, bad link, bad source, wrong hand, wrong feet, missing limb, missing eye, missing tooth, missing ear, missing finger, extra faces, extra eyes, extra eyebrows, extra mouth, extra tongue, extra teeth, extra ears, extra breasts, extra arms, extra hands, extra legs, extra digits, fewer digits, cropped head, cropped torso, cropped shoulders, cropped arms, cropped legs, mutation, deformed, disfigured, unfinished, chromatic aberration, text, error, jpeg artifacts, watermark, scan, scan artifacts`;
 
@@ -36,6 +55,7 @@ function readJSONFromPNG(base64PNG: string) {
 }
 
 async function importStyle(session: any, base64: string) {
+  const { backend, imageService } = requireLegacyRuntime();
   const json = readJSONFromPNG(base64);
   if (!json.profile) {
     return undefined;
@@ -108,6 +128,7 @@ async function extractPromptDataFromBase64(base64: string) {
 }
 
 async function migrateSessionLegacy(session: any) {
+  const { backend, imageService } = requireLegacyRuntime();
   if (!Array.isArray(session.presets)) {
     for (const preset of Object.values(session.presets)) {
       if ((preset as any).vibe) {
@@ -364,6 +385,7 @@ async function migrateInpaintScene(
   session: any,
   inpaint: any,
 ): Promise<IInpaintScene> {
+  const { imageService } = requireLegacyRuntime();
   const imagePath =
     'inpaint_orgs/' + session.name + '/' + inpaint.name + '.png';
   const maskPath =
@@ -469,7 +491,7 @@ export function recoverSession(session: any) {
   } else {
     session.presets = {};
   }
-  appState.pushDialog({
+  getAppState().pushDialog({
     type: 'yes-only',
     text: '구버전 SD 스튜디오로 프로젝트를 열어서 손상된 부분을 복구했습니다',
   });

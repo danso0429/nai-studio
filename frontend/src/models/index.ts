@@ -1,12 +1,17 @@
 import { ServerBackend } from '../backends/serverBackend';
 import { FileEntry } from '../backend';
 import { GameService } from './GameService';
-import { ImageService } from './ImageService';
+import { ImageActions, ImageService } from './ImageService';
 import { ImageDownloadService } from './ImageDownloadService';
 import { LoginService } from './LoginService';
-import { PromptService } from './PromptService';
-import { SessionService } from './SessionService';
-import { taskHandlers, TaskQueueService } from './TaskQueueService';
+import { installPromptRuntime, PromptService } from './PromptService';
+import { installSessionRuntime, SessionService } from './SessionService';
+import {
+  installTaskQueueRuntime,
+  queueI2IWorkflow,
+  taskHandlers,
+  TaskQueueService,
+} from './TaskQueueService';
 import { WorkFlowService } from './workflows/WorkFlowService';
 import { registerWorkFlows } from './workflows';
 import { TrashService } from './TrashService';
@@ -22,29 +27,18 @@ import { ProjectSizeService } from './ProjectSizeService';
 import { ImageHistoryService } from './ImageHistoryService';
 import { ProjectTemplateService } from './ProjectTemplateService';
 import { TemplateService } from './TemplateService';
+import { installWorkflowCodec } from './types';
+import { installLegacyRuntime } from './legacy';
+import { installWorkflowRuntime } from './workflows/workflowRuntime';
+import {
+  autoDetectInitialThumbSize,
+  getInitialThumbSize,
+  isMobile,
+} from './platform';
+
+export { autoDetectInitialThumbSize, getInitialThumbSize, isMobile };
 
 export const backend = new ServerBackend();
-
-export const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-// 화면 폭에 따른 자동 초기 썸네일 크기. 본인 페인 (P12 #8): 인터넷 느린 환경에서
-// 모바일 200 / 데스크탑 500 하드코딩이 무거움. 작은 화면 폰은 80, 폴드/태블릿
-// 200, 일반 데스크탑 400, 큰 데스크탑 500. 사용자가 Config에서 override 가능.
-// SSR/test env safety: window 없으면 200 default.
-export function autoDetectInitialThumbSize(): number {
-  if (typeof window === 'undefined') return 200;
-  const w = window.innerWidth;
-  if (w < 480) return 80;
-  if (w < 768) return 200;
-  if (w < 1280) return 400;
-  return 500;
-}
-
-// Config.initialThumbSize 우선, 없으면 autoDetect. 명시적 값이면 그대로 사용.
-export function getInitialThumbSize(configValue: number | undefined): number {
-  if (configValue && configValue > 0) return configValue;
-  return autoDetectInitialThumbSize();
-}
 
 export class ZipService extends EventTarget {
   // 진행 중인 outPath 집합. 전역 boolean 1개로 막던 시절엔 폴더 N개 동시 내보내기 불가 →
@@ -70,43 +64,78 @@ export class ZipService extends EventTarget {
 
 export const zipService = new ZipService();
 
-export const sessionService = new SessionService();
-sessionService.run();
+export const workFlowService = new WorkFlowService();
+registerWorkFlows(workFlowService);
+installWorkflowCodec(workFlowService);
 
-export const imageService = new ImageService();
+export const sessionService = new SessionService(backend);
 
-export const trashService = new TrashService();
+export const imageService = new ImageService(backend);
 
-export const imageDownloadService = new ImageDownloadService();
+export const trashService = new TrashService(backend);
 
-export const globalPieceService = new GlobalPieceService();
+export const imageDownloadService = new ImageDownloadService(backend, imageService);
+
+export const globalPieceService = new GlobalPieceService(backend);
 globalPieceService.load();
 
-export const globalPresetService = new GlobalPresetService();
+export const globalPresetService = new GlobalPresetService(
+  backend,
+  imageService,
+  workFlowService,
+);
 globalPresetService.load();
 
-export const globalCharacterPresetService = new GlobalCharacterPresetService();
+export const globalCharacterPresetService = new GlobalCharacterPresetService(backend, imageService);
 globalCharacterPresetService.load();
 
-export const projectTemplateService = new ProjectTemplateService();
+export const projectTemplateService = new ProjectTemplateService(
+  backend,
+  globalCharacterPresetService,
+  globalPresetService,
+  imageService,
+  sessionService,
+  workFlowService,
+);
 projectTemplateService.load();
 
-export const templateService = new TemplateService();
+export const templateService = new TemplateService(
+  backend,
+  globalCharacterPresetService,
+  projectTemplateService,
+  sessionService,
+  trashService,
+);
 templateService.load();
 
-export const artistLibraryService = new ArtistLibraryService();
+export const artistLibraryService = new ArtistLibraryService(backend);
 artistLibraryService.load();
 
-export const promptChunkService = new PromptChunkService();
+export const promptChunkService = new PromptChunkService(backend);
 promptChunkService.load();
 
-export const toggleGroupService = new ToggleGroupService();
+export const toggleGroupService = new ToggleGroupService(backend);
 toggleGroupService.load();
 
-export const samplingPresetService = new SamplingPresetService();
+export const samplingPresetService = new SamplingPresetService(backend);
 
-export const projectSizeService = new ProjectSizeService();
+export const projectSizeService = new ProjectSizeService(backend, sessionService);
 samplingPresetService.load();
+
+installSessionRuntime({
+  sessionService,
+  imageService,
+  projectSizeService,
+  templateService,
+  trashService,
+  workFlowService,
+  globalPieceService,
+  globalPresetService,
+  toggleGroupService,
+  zipService,
+});
+installLegacyRuntime({ backend, imageService });
+sessionService.run();
 
 // 백업 복원처럼 서버가 여러 상태 파일을 직접 교체하기 전의 단일 flush 진입점.
 export async function flushPersistentStores(): Promise<void> {
@@ -125,21 +154,34 @@ export async function flushPersistentStores(): Promise<void> {
   await backend.flushAllFileWrites();
 }
 
-export const promptService = new PromptService();
+export const promptService = new PromptService(globalPieceService);
+installPromptRuntime({
+  backend,
+  promptService,
+  promptChunkService,
+  toggleGroupService,
+});
 
-export const taskQueueService = new TaskQueueService(taskHandlers);
+export const taskQueueService = new TaskQueueService(taskHandlers, backend);
 
-export const loginService = new LoginService();
+export const loginService = new LoginService(backend);
 
-export const gameService = new GameService();
+export const gameService = new GameService(backend, imageService);
+
+export const imageActions = new ImageActions(
+  backend,
+  imageService,
+  gameService,
+  trashService,
+);
 
 // 서버의 최근 30장 전용 ledger + WS 완료 이벤트를 합쳐 새로고침/다른 탭 완료도 복원한다.
 export const imageHistoryService = new ImageHistoryService(backend, imageService, sessionService);
 
-export const workFlowService = new WorkFlowService();
-registerWorkFlows(workFlowService);
-
-export const cyclingSessionService = new CyclingSessionService();
+export const cyclingSessionService = new CyclingSessionService(
+  taskQueueService,
+  workFlowService,
+);
 
 // 내보내기 프리셋을 localStorage → exportPresets.json(서버 파일)로 이관 + 로드.
 // (시작 후 비동기 — 파일 없으면 localStorage에서 1회 비파괴 이관. SDStudio 4.12)
@@ -177,4 +219,23 @@ export const localAIService = Object.assign(_localAITarget, {
   modelChanged: () => {},
   notifyDownloadProgress: (_p: number) => {},
   removeBg: async (_image: string, _outputPath: string) => {},
+});
+
+installTaskQueueRuntime({
+  backend,
+  imageService,
+  localAIService,
+  taskQueueService,
+  workFlowService,
+});
+
+installWorkflowRuntime({
+  backend,
+  imageService,
+  localAIService,
+  promptService,
+  queueI2IWorkflow,
+  samplingPresetService,
+  taskQueueService,
+  workFlowService,
 });

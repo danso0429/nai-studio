@@ -1,8 +1,8 @@
 import { observer } from 'mobx-react-lite';
 import { Item, Menu, Separator } from 'react-contexify';
-import { sessionService, backend, imageService, isMobile, imageDownloadService, imageHistoryService } from '../models';
+import { sessionService, backend, imageService, imageActions, isMobile, imageDownloadService, imageHistoryService } from '../models';
 import { appState } from '../models/AppService';
-import { dataUriToBase64, deleteImageFiles } from '../models/ImageService';
+import { dataUriToBase64 } from '../models/ImageService';
 import { getUniqueFilename } from '../models/ImageDownloadService';
 import {
   SceneContextAlt,
@@ -180,7 +180,7 @@ export const AppContextMenu = observer(() => {
           const base = dot >= 0 ? fn.slice(0, dot) : fn;
           const ext = dot >= 0 ? fn.slice(dot + 1) : 'png';
           const wasFav = !!srcScene?.mains.includes(fn);
-          const newName = await getUniqueFilename(targetDir, base, ext);
+          const newName = await getUniqueFilename(targetDir, base, ext, false, backend);
           await backend.renameFile(path, targetDir + '/' + newName);
           // 즐겨찾기 이전: 원본 씬 mains에서 제거 + (즐겨찾기였으면) 대상 씬 mains에 추가.
           if (srcScene) {
@@ -217,7 +217,7 @@ export const AppContextMenu = observer(() => {
       type: 'confirm',
       text: '정말로 삭제하시겠습니까?',
       callback: async () => {
-        await deleteImageFiles(appState.curSession!, ctx.path, ctx.scene);
+        await imageActions.deleteImageFiles(appState.curSession!, ctx.path, ctx.scene);
       },
     });
   };
@@ -337,7 +337,7 @@ export const AppContextMenu = observer(() => {
       type: 'confirm',
       text: '정말로 삭제하시겠습니까?',
       callback: async () => {
-        await deleteImageFiles(session, [ctx.entry.path], scene);
+        await imageActions.deleteImageFiles(session, [ctx.entry.path], scene);
         imageHistoryService.remove(ctx.entry.id);
       },
     });

@@ -1,4 +1,5 @@
-import { backend, imageService } from '.';
+import type { Backend } from '../backend';
+import type { ImageService } from './ImageService';
 import { Game, GenericScene, Round, Session } from './types';
 
 export const sortGame = (game: Game) => {
@@ -17,13 +18,16 @@ export class GameService extends EventTarget {
   outputList: {
     [type: string]: { [key: string]: { [key2: string]: string[] } };
   };
-  constructor() {
+  constructor(
+    private readonly backend: Backend,
+    private readonly imageService: ImageService,
+  ) {
     super();
     this.outputList = {
       scene: {},
       inpaint: {},
     };
-    imageService.addEventListener('updated', (e) => {
+    this.imageService.addEventListener('updated', (e) => {
       this.onImageUpdated(e);
     });
   }
@@ -66,7 +70,7 @@ export class GameService extends EventTarget {
     if (!(session.name in list)) {
       list[session.name] = {};
     }
-    let images = imageService.getOutputs(session, scene);
+    let images = this.imageService.getOutputs(session, scene);
     const invImageMap: any = {};
     for (let i = 0; i < scene.imageMap.length; i++) {
       invImageMap[scene.imageMap[i]] = i;
@@ -124,7 +128,7 @@ export class GameService extends EventTarget {
     // 옛 동작 호환 (옛 wrap silent fallback이 [] 반환했던 것과 같음).
     let files: string[];
     try {
-      files = await backend.listFiles(path);
+      files = await this.backend.listFiles(path);
     } catch (e) {
       console.warn('[createGame] listFiles failed:', path, e);
       return [];

@@ -82,7 +82,7 @@ const TobBar = () => {
           <>
             <BuildInfoBadge variant="desktop" />
             <span className="text-sub">Anlas: </span>{' '}
-            <span className={`round-tag back-yellow`}>{credits}</span>
+            <span className="round-tag back-yellow tabular-nums">{credits}</span>
           </>
         )}
       </p>

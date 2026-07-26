@@ -1,14 +1,12 @@
 import { action, observable, runInAction } from 'mobx';
 import { v4 as uuidv4 } from 'uuid';
 import { DebouncedJsonStore } from './DebouncedJsonStore';
-import {
-  backend,
-  globalCharacterPresetService,
-  globalPresetService,
-  imageService,
-  sessionService,
-  workFlowService,
-} from '.';
+import type { Backend } from '../backend';
+import type { GlobalCharacterPresetService } from './GlobalCharacterPresetService';
+import type { GlobalPresetService } from './GlobalPresetService';
+import type { ImageService } from './ImageService';
+import type { SessionService } from './SessionService';
+import type { WorkFlowService } from './workflows/WorkFlowService';
 import { dataUriToBase64 } from './ImageService';
 import {
   CharacterPreset,
@@ -71,6 +69,17 @@ function imageExtension(base64: string): string {
 
 export class ProjectTemplateService extends DebouncedJsonStore {
   @observable accessor templates: IProjectTemplateEntry[] = [];
+
+  constructor(
+    backend: Backend,
+    private readonly globalCharacterPresetService: GlobalCharacterPresetService,
+    private readonly globalPresetService: GlobalPresetService,
+    private readonly imageService: ImageService,
+    private readonly sessionService: SessionService,
+    private readonly workFlowService: WorkFlowService,
+  ) {
+    super(backend);
+  }
 
   protected getFileName(): string {
     return FILE;
@@ -208,7 +217,7 @@ export class ProjectTemplateService extends DebouncedJsonStore {
     if (!token) return null;
     try {
       const path = this.getImagePath(token);
-      return (await backend.existFile(path)) ? await backend.readDataFile(path) : null;
+      return (await this.backend.existFile(path)) ? await this.backend.readDataFile(path) : null;
     } catch {
       return null;
     }
@@ -219,13 +228,18 @@ export class ProjectTemplateService extends DebouncedJsonStore {
       ? base64OrDataUri.split(',')[1]
       : base64OrDataUri;
     const token = `${uuidv4()}.${imageExtension(base64)}`;
-    await backend.writeDataFile(`${IMAGE_DIR}/${token}`, base64);
+    await this.backend.writeDataFile(`${IMAGE_DIR}/${token}`, base64);
     return token;
   }
 
-  private async copyImage(token: string): Promise<string> {
+  private async copyImage(token: string, createdTokens: string[]): Promise<string> {
     const data = await this.fetchImageData(token);
-    return data ? this.storeImage(data) : token;
+    if (!data) {
+      throw new Error(`템플릿 이미지 복사에 실패했습니다: ${token.split('/').pop()}`);
+    }
+    const copied = await this.storeImage(data);
+    createdTokens.push(copied);
+    return copied;
   }
 
   private imageTokens(entry: IProjectTemplateEntry): string[] {
@@ -243,17 +257,38 @@ export class ProjectTemplateService extends DebouncedJsonStore {
 
   private async cloneContent(source: IProjectTemplateEntry) {
     const clone = JSON.parse(JSON.stringify(source)) as IProjectTemplateEntry;
-    if (clone.preset?.profile) clone.preset.profile = await this.copyImage(clone.preset.profile);
-    for (const character of clone.characterPresets) {
-      for (const vibe of character.vibes || []) vibe.path = await this.copyImage(vibe.path);
-      for (const ref of character.characterReferences || []) ref.path = await this.copyImage(ref.path);
-      if (character.representativeImage) {
-        character.representativeImage = await this.copyImage(character.representativeImage);
+    const createdTokens: string[] = [];
+    try {
+      if (clone.preset?.profile) {
+        clone.preset.profile = await this.copyImage(clone.preset.profile, createdTokens);
       }
+      for (const character of clone.characterPresets) {
+        for (const vibe of character.vibes || []) {
+          vibe.path = await this.copyImage(vibe.path, createdTokens);
+        }
+        for (const ref of character.characterReferences || []) {
+          ref.path = await this.copyImage(ref.path, createdTokens);
+        }
+        if (character.representativeImage) {
+          character.representativeImage = await this.copyImage(
+            character.representativeImage,
+            createdTokens,
+          );
+        }
+      }
+      for (const vibe of clone.vibes) {
+        vibe.path = await this.copyImage(vibe.path, createdTokens);
+      }
+      for (const ref of clone.characterReferences) {
+        ref.path = await this.copyImage(ref.path, createdTokens);
+      }
+      return clone;
+    } catch (error) {
+      await Promise.allSettled(
+        createdTokens.map((token) => this.backend.deleteFile(this.getImagePath(token))),
+      );
+      throw error;
     }
-    for (const vibe of clone.vibes) vibe.path = await this.copyImage(vibe.path);
-    for (const ref of clone.characterReferences) ref.path = await this.copyImage(ref.path);
-    return clone;
   }
 
   @action
@@ -288,7 +323,7 @@ export class ProjectTemplateService extends DebouncedJsonStore {
     for (const token of previousTokens) {
       if (currentTokens.has(token)) continue;
       try {
-        await backend.deleteFile(this.getImagePath(token));
+        await this.backend.deleteFile(this.getImagePath(token));
       } catch {}
     }
   }
@@ -299,7 +334,7 @@ export class ProjectTemplateService extends DebouncedJsonStore {
     if (!entry) return;
     for (const token of this.imageTokens(entry)) {
       try {
-        await backend.deleteFile(this.getImagePath(token));
+        await this.backend.deleteFile(this.getImagePath(token));
       } catch {}
     }
     this.templates = this.templates.filter((candidate) => candidate.id !== id);
@@ -320,7 +355,7 @@ export class ProjectTemplateService extends DebouncedJsonStore {
   }
 
   async importGlobalPreset(id: string, globalId: string): Promise<void> {
-    const source = globalPresetService.get(globalId);
+    const source = this.globalPresetService.get(globalId);
     if (!source) throw new Error('글로벌 프리셋을 찾을 수 없습니다.');
     const json = JSON.parse(JSON.stringify(source.preset));
     json.type = source.workflowType;
@@ -346,19 +381,19 @@ export class ProjectTemplateService extends DebouncedJsonStore {
 
   async importGlobalCharacterPreset(id: string, globalId: string): Promise<void> {
     const entry = this.get(id);
-    const source = globalCharacterPresetService.get(globalId);
+    const source = this.globalCharacterPresetService.get(globalId);
     if (!entry || !source) throw new Error('캐릭터 프리셋을 찾을 수 없습니다.');
     const json: ICharacterPreset = JSON.parse(JSON.stringify(source.preset));
     for (const vibe of json.vibes || []) {
-      const data = await globalCharacterPresetService.fetchImageData(vibe.path);
+      const data = await this.globalCharacterPresetService.fetchImageData(vibe.path);
       if (data) vibe.path = await this.storeImage(data);
     }
     for (const ref of json.characterReferences || []) {
-      const data = await globalCharacterPresetService.fetchImageData(ref.path);
+      const data = await this.globalCharacterPresetService.fetchImageData(ref.path);
       if (data) ref.path = await this.storeImage(data);
     }
     if (json.representativeImage) {
-      const data = await globalCharacterPresetService.fetchImageData(json.representativeImage);
+      const data = await this.globalCharacterPresetService.fetchImageData(json.representativeImage);
       if (data) json.representativeImage = await this.storeImage(data);
     }
     json.name = this.uniqueCharacterName(entry, source.name);
@@ -375,16 +410,16 @@ export class ProjectTemplateService extends DebouncedJsonStore {
     if (!entry) throw new Error('템플릿을 찾을 수 없습니다.');
     const json = preset.toJSON();
     for (const vibe of json.vibes || []) {
-      const data = await backend.readDataFile(imageService.getVibeImagePath(session, vibe.path));
+      const data = await this.backend.readDataFile(this.imageService.getVibeImagePath(session, vibe.path));
       if (data) vibe.path = await this.storeImage(data);
     }
     for (const ref of json.characterReferences || []) {
-      const data = await backend.readDataFile(imageService.getReferenceImagePath(session, ref.path));
+      const data = await this.backend.readDataFile(this.imageService.getReferenceImagePath(session, ref.path));
       if (data) ref.path = await this.storeImage(data);
     }
     if (json.representativeImage) {
-      const data = await backend.readDataFile(
-        imageService.getVibeImagePath(session, json.representativeImage),
+      const data = await this.backend.readDataFile(
+        this.imageService.getVibeImagePath(session, json.representativeImage),
       );
       if (data) json.representativeImage = await this.storeImage(data);
     }
@@ -428,14 +463,14 @@ export class ProjectTemplateService extends DebouncedJsonStore {
     for (const token of removedTokens) {
       if (retainedTokens.has(token)) continue;
       try {
-        await backend.deleteFile(this.getImagePath(token));
+        await this.backend.deleteFile(this.getImagePath(token));
       } catch {}
     }
   }
 
   async importScenesFromProject(id: string, projectName: string): Promise<number> {
     const entry = this.get(id);
-    const session = await sessionService.get(projectName);
+    const session = await this.sessionService.get(projectName);
     if (!entry || !session) throw new Error('프로젝트를 불러올 수 없습니다.');
     entry.scenes = session.getScenes('scene').map((scene) => {
       const json: any = JSON.parse(JSON.stringify(scene.toJSON()));
@@ -521,10 +556,10 @@ export class ProjectTemplateService extends DebouncedJsonStore {
       if (json.profile) {
         const data = await this.fetchImageData(json.profile);
         json.profile = data
-          ? await imageService.storeVibeImage(session, dataUriToBase64(data))
+          ? await this.imageService.storeVibeImage(session, dataUriToBase64(data))
           : undefined;
       }
-      const preset = workFlowService.presetFromJSON(json);
+      const preset = this.workFlowService.presetFromJSON(json);
       if (preset) {
         session.addPreset(preset);
         result.presetInstance = preset;
@@ -536,11 +571,11 @@ export class ProjectTemplateService extends DebouncedJsonStore {
         const json: ICharacterPreset = JSON.parse(JSON.stringify(source));
         for (const vibe of json.vibes || []) {
           const data = await this.fetchImageData(vibe.path);
-          if (data) vibe.path = await imageService.storeVibeImage(session, dataUriToBase64(data));
+          if (data) vibe.path = await this.imageService.storeVibeImage(session, dataUriToBase64(data));
         }
         for (const ref of json.characterReferences || []) {
           const data = await this.fetchImageData(ref.path);
-          if (data) ref.path = await imageService.storeReferenceImage(session, dataUriToBase64(data));
+          if (data) ref.path = await this.imageService.storeReferenceImage(session, dataUriToBase64(data));
         }
         const preset = CharacterPreset.fromJSON(json);
         while (session.hasCharacterPreset(preset.name)) preset.name += ' (템플릿)';
@@ -552,14 +587,14 @@ export class ProjectTemplateService extends DebouncedJsonStore {
     if (entry.vibes.length || entry.characterReferences.length) {
       let shared = session.presetShareds.get(type);
       if (!shared) {
-        shared = workFlowService.buildShared(type);
+        shared = this.workFlowService.buildShared(type);
         session.presetShareds.set(type, shared);
       }
       const vibes: VibeItem[] = [];
       for (const source of entry.vibes) {
         const data = await this.fetchImageData(source.path);
         const path = data
-          ? await imageService.storeVibeImage(session, dataUriToBase64(data))
+          ? await this.imageService.storeVibeImage(session, dataUriToBase64(data))
           : source.path;
         vibes.push(VibeItem.fromJSON({ ...source, path }));
         result.vibePaths.push(path);
@@ -568,7 +603,7 @@ export class ProjectTemplateService extends DebouncedJsonStore {
       for (const source of entry.characterReferences) {
         const data = await this.fetchImageData(source.path);
         const path = data
-          ? await imageService.storeReferenceImage(session, dataUriToBase64(data))
+          ? await this.imageService.storeReferenceImage(session, dataUriToBase64(data))
           : source.path;
         refs.push(ReferenceItem.fromJSON({ ...source, path }));
         result.referencePaths.push(path);

@@ -1,23 +1,23 @@
-import { backend } from '.';
+import type { Backend } from '../backend';
 
 export class LoginService extends EventTarget {
   loggedIn: boolean;
   // constructor의 async refresh()가 끝나기 전에 consumer가 loggedIn 읽으면
   // false (옛 값)로 잠시 UI flash. ResourceSyncService.dummyReady와 동일 패턴.
   refreshReady: Promise<void>;
-  constructor() {
+  constructor(private readonly backend: Backend) {
     super();
     this.loggedIn = false;
     this.refreshReady = this.refresh();
   }
 
   async login(email: string, password: string) {
-    await backend.login(email, password);
+    await this.backend.login(email, password);
     await this.refresh(true);
   }
 
   async loginWithToken(token: string) {
-    await backend.loginWithToken(token);
+    await this.backend.loginWithToken(token);
     await this.refresh(true);
   }
 
@@ -29,7 +29,7 @@ export class LoginService extends EventTarget {
   async refresh(force = false) {
     let next = this.loggedIn;
     try {
-      const validity = await backend.validateLogin();
+      const validity = await this.backend.validateLogin();
       if (validity === 'valid') next = true;
       else if (validity === 'invalid') next = false;
       else {
@@ -37,7 +37,7 @@ export class LoginService extends EventTarget {
         // 초기값 false에 갇히지 않도록 *토큰 존재 여부로 폴백*(⑧ 이전 동작): 토큰이 있으면
         // 로그인 유지. NAI가 일시적으로 막아도(예: 400 "Please refresh NovelAI.net")
         // 명시 로그인/저장한 토큰으로 계속 쓸 수 있게 — 만료(401/403)만 로그아웃.
-        next = await backend.authStatus();
+        next = await this.backend.authStatus();
       }
     } catch (e: any) {
       // 예기치 못한 오류 → 상태 유지

@@ -1,11 +1,8 @@
-import {
-  backend,
-  isMobile,
-  promptService,
-  globalPieceService,
-  promptChunkService,
-  toggleGroupService,
-} from '.';
+import type { Backend } from '../backend';
+import type { GlobalPieceService } from './GlobalPieceService';
+import type { PromptChunkService } from './PromptChunkService';
+import { isMobile } from './platform';
+import type { ToggleGroupService } from './ToggleGroupService';
 import {
   InpaintScene,
   PARR,
@@ -16,6 +13,27 @@ import {
   Scene,
   Session,
 } from './types';
+
+interface PromptRuntime {
+  backend: Backend;
+  promptService: PromptService;
+  promptChunkService: PromptChunkService;
+  toggleGroupService: ToggleGroupService;
+}
+
+let promptRuntime: PromptRuntime | undefined;
+
+export function installPromptRuntime(runtime: PromptRuntime): void {
+  if (promptRuntime && promptRuntime !== runtime) {
+    throw new Error('Prompt runtime is already installed');
+  }
+  promptRuntime = runtime;
+}
+
+function requirePromptRuntime(): PromptRuntime {
+  if (!promptRuntime) throw new Error('Prompt runtime is not installed');
+  return promptRuntime;
+}
 
 function cleanPARR(parr: PARR): PARR {
   return parr.map((p) => p.trim());
@@ -35,7 +53,7 @@ export function makeChunkToken(id: string): string {
 export function expandChunkTokens(text: string): string {
   if (!text || text.indexOf('⟦c:') === -1) return text;
   return text.replace(CHUNK_TOKEN_RE, (_m, id) => {
-    const chunk = promptChunkService.get(id);
+    const chunk = requirePromptRuntime().promptChunkService.get(id);
     return chunk ? chunk.content : '';
   });
 }
@@ -48,7 +66,7 @@ export function stripDeadChunkTokens(text: string): string {
   let changed = false;
   // 토큰 + 바로 앞 쉼표/공백을 함께 매칭 → 죽은 것만 통째 제거.
   let out = text.replace(/[ \t]*,?[ \t]*⟦c:([0-9a-fA-F-]+)⟧/g, (m, id) => {
-    if (promptChunkService.get(id)) return m; // 살아있음 — 보존
+    if (requirePromptRuntime().promptChunkService.get(id)) return m; // 살아있음 — 보존
     changed = true;
     return '';
   });
@@ -107,13 +125,13 @@ export function expandPieces(
   if (tokens.length === 0) return '';
   const node: PromptNode = {
     type: 'group',
-    children: tokens.map((w) => promptService.parseWord(w, session, scene)),
+    children: tokens.map((w) => requirePromptRuntime().promptService.parseWord(w, session, scene)),
   };
   return lowerPromptNode(node);
 }
 
 export class PromptService extends EventTarget {
-  constructor() {
+  constructor(private readonly globalPieceService: GlobalPieceService) {
     super();
   }
 
@@ -139,7 +157,7 @@ export class PromptService extends EventTarget {
         );
       }
       const localLib = session.library.get(parts[0]);
-      const globalLib = globalPieceService.library.get(parts[0]);
+      const globalLib = this.globalPieceService.library.get(parts[0]);
       // 로컬 우선, 로컬에 조각이 없으면 전역 폴백
       const piece = localLib?.pieces.find((x) => x.name === parts[1])
         ?? globalLib?.pieces.find((x) => x.name === parts[1]);
@@ -189,7 +207,7 @@ export class PromptService extends EventTarget {
         seen.add(key);
 
         const localLib = session.library.get(parts[0]);
-        const globalLib = globalPieceService.library.get(parts[0]);
+        const globalLib = this.globalPieceService.library.get(parts[0]);
         const piece = localLib?.pieces.find((x) => x.name === parts[1])
           ?? globalLib?.pieces.find((x) => x.name === parts[1]);
         if (!localLib && !globalLib) {
@@ -213,7 +231,7 @@ export class PromptService extends EventTarget {
     // 로컬 라이브러리에 해당 조각이 있으면 로컬 → global 아님
     if (localLib?.pieces.find((x) => x.name === parts[1])) return false;
     // 전역에 해당 조각이 있으면 global
-    const globalLib = globalPieceService.library.get(parts[0]);
+    const globalLib = this.globalPieceService.library.get(parts[0]);
     return !!globalLib?.pieces.find((x) => x.name === parts[1]);
   }
 
@@ -227,7 +245,7 @@ export class PromptService extends EventTarget {
       return false;
     }
     const localLib = session.library.get(parts[0]);
-    const globalLib = globalPieceService.library.get(parts[0]);
+    const globalLib = this.globalPieceService.library.get(parts[0]);
     const piece = localLib?.pieces.find((x) => x.name === parts[1])
       ?? globalLib?.pieces.find((x) => x.name === parts[1]);
     return piece?.multi ?? false;
@@ -457,6 +475,7 @@ export const createSDPrompts = async (
   // 토글 그룹 OFF 태그 — 그룹 정의는 씬 이름 키로 전역 공유(toggleGroupService),
   // on/off는 씬별(scene.toggleGroupStates). 명시적 OFF(false)인 그룹의 태그만 제거 대상.
   // scene 레벨이라 조합마다 동일 → 조합 루프 밖에서 1회 계산해 클로저로 공유.
+  const { backend, promptService, toggleGroupService } = requirePromptRuntime();
   const sharedToggleGroups = toggleGroupService.list(scene.name);
   const toggleStates = scene.toggleGroupStates ?? {};
   const disabledToggleTags = new Set(
@@ -576,6 +595,7 @@ export const createSDCharacterPrompts = async (
   shared: any,
   scene: Scene,
 ) => {
+  const { promptService } = requirePromptRuntime();
   // 씬 전용 캐릭터 프롬프트가 활성화된 경우 씬 전용 + shared 병합
   const useSceneCP = scene.useSceneCharacterPrompts &&
     scene.sceneCharacterPrompts &&
@@ -728,6 +748,7 @@ export const highlightPrompt = (
   lineHighlight: boolean = false,
   searchQuery: string = '',
 ) => {
+  const { promptChunkService, promptService } = requirePromptRuntime();
   const searchLower = searchQuery.trim().toLowerCase();
   const escapeHtmlText = (s: string): string =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

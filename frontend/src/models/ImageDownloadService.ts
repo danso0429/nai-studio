@@ -1,9 +1,10 @@
 import { observable, action, makeObservable } from 'mobx';
-import { backend, imageService } from '.';
+import type { Backend } from '../backend';
+import type { ImageService } from './ImageService';
 import { GenericScene, InpaintScene, Session, CharacterPreset } from './types';
 
 import { apiUrl, extractApiError } from './util';
-import { appState } from './AppService';
+import { getAppState } from './appStateRef';
 import { cropMirrorResultFromDataUri, dataUriToBase64 } from './ImageService';
 import { DownloadSettings } from '../main/config';
 
@@ -54,7 +55,8 @@ export async function getUniqueFilename(
   directory: string,
   baseFilename: string,
   extension: string,
-  useAbsolutePath: boolean = false,
+  useAbsolutePath: boolean,
+  backend: Pick<Backend, 'existFile' | 'existFileAbsolute'>,
 ): Promise<string> {
   let filename = `${baseFilename}.${extension}`;
   let counter = 1;
@@ -145,7 +147,10 @@ export class ImageDownloadService {
 
   @observable accessor downloadProgress: number = 0;
 
-  constructor() {
+  constructor(
+    private readonly backend: Backend,
+    private readonly imageService: ImageService,
+  ) {
     makeObservable(this);
     this.loadSettings();
   }
@@ -156,7 +161,7 @@ export class ImageDownloadService {
   @action
   async loadSettings() {
     try {
-      const config = await backend.getConfig();
+      const config = await this.backend.getConfig();
       if (config.downloadSettings) {
         this.settings = { ...this.settings, ...config.downloadSettings };
       }
@@ -171,9 +176,9 @@ export class ImageDownloadService {
   @action
   async saveSettings() {
     try {
-      const config = await backend.getConfig();
+      const config = await this.backend.getConfig();
       config.downloadSettings = this.settings;
-      await backend.setConfig(config);
+      await this.backend.setConfig(config);
     } catch (e) {
       console.error('Failed to save download settings:', e);
     }
@@ -226,8 +231,8 @@ export class ImageDownloadService {
             includeTimestamp: this.settings.includeTimestamp,
           });
 
-      await appState.refreshDriveRetryStatus();
-      const driveAvailable = appState.driveRetryStatus?.driveAvailable !== false;
+      await getAppState().refreshDriveRetryStatus();
+      const driveAvailable = getAppState().driveRetryStatus?.driveAvailable !== false;
 
       if (driveAvailable) {
         // 같은 씬의 N장을 연속 다운로드해도 Drive에 모두 남도록 exports/ 내 unique 이름 부여.
@@ -237,15 +242,17 @@ export class ImageDownloadService {
           'exports',
           baseFilename,
           'png',
+          false,
+          this.backend,
         );
         // exports/{filename}.png에 쓰고 sync-exports 큐 등록 (Drive backup 폴더로 업로드).
         const exportPath = 'exports/' + downloadName;
-        const imageData = await imageService.fetchImage(imagePath);
+        const imageData = await this.imageService.fetchImage(imagePath);
         if (!imageData) throw new Error('이미지를 읽을 수 없습니다');
         const base64 = isMirrorScene(scene)
           ? await cropMirrorResultFromDataUri(imageData, getMirrorCropX(scene))
           : dataUriToBase64(imageData);
-        await backend.writeDataFile(exportPath, base64);
+        await this.backend.writeDataFile(exportPath, base64);
 
         try {
           const r = await fetch(apiUrl('/api/fs/sync-exports'), {
@@ -255,7 +262,7 @@ export class ImageDownloadService {
           });
           const data = await r.json();
           if (data.ok && data.queued) {
-            appState.pushMessage(`✓ Drive 업로드 큐 등록: ${downloadName}`);
+            getAppState().pushMessage(`✓ Drive 업로드 큐 등록: ${downloadName}`);
             return true;
           }
           // 큐 등록 실패 — fallback에 위임
@@ -268,12 +275,12 @@ export class ImageDownloadService {
       // Drive 미가용 → 브라우저 직접 다운로드. customFilename 살리려 a.download 활용.
       // 브라우저는 OS가 동일 이름 충돌을 `(1).png` 형태로 알아서 처리.
       const fallbackName = `${baseFilename}.png`;
-      await backend.copyToDownloads(imagePath, fallbackName);
-      appState.pushMessage(`다운로드 시작: ${fallbackName}`);
+      await this.backend.copyToDownloads(imagePath, fallbackName);
+      getAppState().pushMessage(`다운로드 시작: ${fallbackName}`);
       return true;
     } catch (e: any) {
       console.error('Failed to download image:', e);
-      appState.pushMessage(`이미지 저장 실패: ${extractApiError(e)}`);
+      getAppState().pushMessage(`이미지 저장 실패: ${extractApiError(e)}`);
       return false;
     }
   }
@@ -298,7 +305,7 @@ export class ImageDownloadService {
       // undefined → 브라우저 다운로드로 N번 fallback.
       // 진단 F2-5: settings.lastSavePath(옛 데스크탑 설정 이관 잔재)를 신뢰하면 웹 미지원
       // writeDataFileAbsolute 경로로 빠져 다운로드 전량 실패 — 저장값은 참조하지 않음.
-      let savePath = await backend.selectDir();
+      let savePath = await this.backend.selectDir();
       if (savePath) await this.updateLastSavePath(savePath);
 
       this.isDownloading = true;
@@ -319,7 +326,7 @@ export class ImageDownloadService {
             index: i + 1,
           });
           try {
-            await backend.copyToDownloads(imagePaths[i], `${baseFilename}.png`);
+            await this.backend.copyToDownloads(imagePaths[i], `${baseFilename}.png`);
             result.success += 1;
           } catch (e) {
             console.error(`Failed to download image ${imagePaths[i]}:`, e);
@@ -327,8 +334,8 @@ export class ImageDownloadService {
           }
           this.downloadProgress = ((i + 1) / imagePaths.length) * 100;
         }
-        if (result.success > 0) appState.pushMessage(`${result.success}개 다운로드 시작`);
-        if (result.failed > 0) appState.pushMessage(`${result.failed}개 다운로드 실패`);
+        if (result.success > 0) getAppState().pushMessage(`${result.success}개 다운로드 시작`);
+        if (result.failed > 0) getAppState().pushMessage(`${result.failed}개 다운로드 실패`);
         this.isDownloading = false;
         this.downloadProgress = 0;
         return result;
@@ -361,13 +368,14 @@ export class ImageDownloadService {
               baseFilename,
               'png',
               true,
+              this.backend,
             );
           } else {
             finalFilename = `${baseFilename}.png`;
           }
 
           // 이미지 데이터 읽기
-          const imageData = await imageService.fetchImage(imagePath);
+          const imageData = await this.imageService.fetchImage(imagePath);
           if (!imageData) {
             throw new Error('이미지를 읽을 수 없습니다');
           }
@@ -379,7 +387,7 @@ export class ImageDownloadService {
 
           // 파일 저장 (절대 경로 사용)
           const fullPath = `${savePath}/${finalFilename}`;
-          await backend.writeDataFileAbsolute(fullPath, base64);
+          await this.backend.writeDataFileAbsolute(fullPath, base64);
 
           result.success += 1;
         } catch (e) {
@@ -396,14 +404,14 @@ export class ImageDownloadService {
       await downloadImage(0);
 
       if (result.success > 0) {
-        appState.pushMessage(`${result.success}개의 이미지가 저장되었습니다`);
+        getAppState().pushMessage(`${result.success}개의 이미지가 저장되었습니다`);
       }
       if (result.failed > 0) {
-        appState.pushMessage(`${result.failed}개의 이미지 저장에 실패했습니다`);
+        getAppState().pushMessage(`${result.failed}개의 이미지 저장에 실패했습니다`);
       }
     } catch (e: any) {
       console.error('Failed to download images:', e);
-      appState.pushMessage(`이미지 저장 실패: ${extractApiError(e)}`);
+      getAppState().pushMessage(`이미지 저장 실패: ${extractApiError(e)}`);
     } finally {
       this.isDownloading = false;
       this.downloadProgress = 0;
@@ -416,7 +424,7 @@ export class ImageDownloadService {
    * 저장 경로 변경
    */
   async changeSavePath(): Promise<string | undefined> {
-    const newPath = await backend.selectDir();
+    const newPath = await this.backend.selectDir();
     if (newPath) {
       await this.updateLastSavePath(newPath);
     }

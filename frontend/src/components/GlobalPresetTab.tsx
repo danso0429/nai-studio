@@ -541,6 +541,7 @@ export const GlobalPresetTab = observer(() => {
   // 적용 시 변환 대상 모드: 현재 활성 워크플로우가 일반(SDImageGen)이면 일반,
   // 그 외(이지/미선택/기타)는 이지. (출처 타입이 아니라 "현재 활성 모드"를 따른다)
   const targetMode = (): GlobalPresetType =>
+    !appState.legacyWorkflowMode ||
     appState.curSession?.selectedWorkflow?.workflowType === 'SDImageGen'
       ? 'SDImageGen'
       : 'SDImageGenEasy';

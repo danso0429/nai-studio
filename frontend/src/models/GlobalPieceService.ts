@@ -1,6 +1,6 @@
 import { observable, action } from 'mobx';
 import { PieceLibrary, IPieceLibrary } from './types';
-import { backend } from '.';
+import type { Backend } from '../backend';
 import { isBackendNotFoundError } from '../backends/apiError';
 
 const GLOBAL_PIECES_FILE = 'global_pieces.json';
@@ -11,7 +11,7 @@ export class GlobalPieceService extends EventTarget {
   @observable accessor loadError: string | null = null;
   private saveTimeout: any = null;
 
-  constructor() {
+  constructor(private readonly backend: Backend) {
     super();
     // scheduleSave()의 2초 debounce가 fire 전에 사용자가 탭 닫으면 손실. keepalive fetch로
     // visibility hidden 시점 강제 flush. saveTimeout 있을 때만 (실제 pending인 경우만).
@@ -26,7 +26,7 @@ export class GlobalPieceService extends EventTarget {
         for (const [key, value] of this.library.entries()) {
           json[key] = value.toJSON();
         }
-        void backend.writeFileKeepalive(GLOBAL_PIECES_FILE, JSON.stringify(json)).catch((e) => {
+        void this.backend.writeFileKeepalive(GLOBAL_PIECES_FILE, JSON.stringify(json)).catch((e) => {
           console.warn('[global-pieces] keepalive write failed:', e);
         });
       };
@@ -43,7 +43,7 @@ export class GlobalPieceService extends EventTarget {
     this.loadError = null;
     let str: string;
     try {
-      str = await backend.readFile(GLOBAL_PIECES_FILE);
+      str = await this.backend.readFile(GLOBAL_PIECES_FILE);
     } catch (e: any) {
       if (isBackendNotFoundError(e)) {
         this.library = new Map();
@@ -71,7 +71,7 @@ export class GlobalPieceService extends EventTarget {
     } catch (e) {
       const corruptName = `${GLOBAL_PIECES_FILE}.corrupt-${Date.now()}`;
       try {
-        await backend.renameFile(GLOBAL_PIECES_FILE, corruptName);
+        await this.backend.renameFile(GLOBAL_PIECES_FILE, corruptName);
         console.error(`[global-pieces] 손상 감지 — 원본을 ${corruptName}에 보존`);
       } catch {}
       this.library = new Map();
@@ -88,7 +88,7 @@ export class GlobalPieceService extends EventTarget {
     for (const [key, value] of this.library.entries()) {
       json[key] = value.toJSON();
     }
-    await backend.writeFile(GLOBAL_PIECES_FILE, JSON.stringify(json));
+    await this.backend.writeFile(GLOBAL_PIECES_FILE, JSON.stringify(json));
   }
 
   scheduleSave() {

@@ -1,4 +1,4 @@
-import { backend } from '.';
+import type { Backend } from '../backend';
 import { sleep } from './util';
 import { reaction } from 'mobx';
 
@@ -55,7 +55,11 @@ export abstract class ResourceSyncService<
   // sync 메소드로 분리, race fix(dummyReady)도 자연 해소.
   dummy: T;
   #lockChains: Map<string, Promise<void>> = new Map();
-  constructor(resourceDir: string, interval: number) {
+  constructor(
+    protected readonly backend: Backend,
+    resourceDir: string,
+    interval: number,
+  ) {
     super();
     this.resourceDir = resourceDir;
     this.resourceList = [];
@@ -81,7 +85,7 @@ export abstract class ResourceSyncService<
           if (!entry.dirty || entry.state !== 'ready' || !entry.instance) continue;
           if (!this.canWriteResource(name)) continue;
           try {
-            void backend.writeFileKeepalive(
+            void this.backend.writeFileKeepalive(
               this.getPath(name),
               JSON.stringify(entry.instance.toJSON()),
             ).catch((e) => {
@@ -232,7 +236,7 @@ export abstract class ResourceSyncService<
           entry.state = 'busy';
         }
       }
-      await Promise.all(uniqueNames.map((name) => backend.flushFileWrites(this.getPath(name))));
+      await Promise.all(uniqueNames.map((name) => this.backend.flushFileWrites(this.getPath(name))));
     } catch (error) {
       for (const name of uniqueNames) {
         const entry = this.entries.get(name);
@@ -304,7 +308,7 @@ export abstract class ResourceSyncService<
         }
       }
       await Promise.all([...snapshots.entries()].map(([name, snapshot]) =>
-        backend.writeFile(this.getPath(name), snapshot.payload)));
+        this.backend.writeFile(this.getPath(name), snapshot.payload)));
 
       let changed = false;
       for (const [name, snapshot] of snapshots) {
@@ -389,7 +393,7 @@ export abstract class ResourceSyncService<
     const deletedPath = srcPath.replace(/\.json$/, '.deleted');
     await this.withResourceMutation([name], async () => {
       // 파일 이동이 실패하면 메모리·reaction·dirty를 그대로 보존한다.
-      await backend.renameFile(srcPath, deletedPath);
+      await this.backend.renameFile(srcPath, deletedPath);
       this.detachResource(name);
       await this.refreshAfterCommittedMutation('delete');
     });
@@ -414,7 +418,7 @@ export abstract class ResourceSyncService<
         throw new Error('Resource already exists');
       }
       // 파일 이동이 성공한 뒤에만 메모리 이름과 메타를 바꾼다.
-      await backend.renameFile(srcPath, destPath);
+      await this.backend.renameFile(srcPath, destPath);
       this.entries.delete(oldName);
       this.entries.set(newName, entry);
       await this.getHook(entry.instance, newName);
@@ -497,7 +501,7 @@ export abstract class ResourceSyncService<
     for (let attempt = 0; attempt <= READ_RETRY_DELAYS_MS.length; attempt++) {
       if (attempt > 0) await sleep(READ_RETRY_DELAYS_MS[attempt - 1]);
       try {
-        return await backend.readFile(path);
+        return await this.backend.readFile(path);
       } catch (e: any) {
         lastErr = e;
         if (!isTransientReadError(e)) throw e;
@@ -580,7 +584,7 @@ export abstract class ResourceSyncService<
     const current = this.entries.get(name);
     if (current !== entry || current.instance !== instance) return 'done';
     if (current.state !== 'ready') return 'retry';
-    await backend.writeFile(this.getPath(name), payload);
+    await this.backend.writeFile(this.getPath(name), payload);
     return 'done';
   }
 
@@ -607,7 +611,7 @@ export abstract class ResourceSyncService<
     // 다depth(중첩) recursive: 깊이 MAX_FOLDER_DEPTH 까지 하위 폴더 파일 포함.
     // 정책: resource name은 basename(파일명, 슬래시 없음). 폴더는 folderMap에 *path*로
     // 매핑(중첩: 'f1/f2'). 동명 충돌 시 첫 발견 우선 (이름은 전역 unique).
-    const result = await backend.listFilesRecursive(this.resourceDir, MAX_FOLDER_DEPTH);
+    const result = await this.backend.listFilesRecursive(this.resourceDir, MAX_FOLDER_DEPTH);
     this.folderList = result.dirs.slice();
     const newMap: { [name: string]: string | null } = {};
     const names: string[] = [];

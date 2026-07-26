@@ -11,6 +11,7 @@ import { appState } from '../models/AppService';
 import ModalOverlay from './ModalOverlay';
 import PromptEditTextArea from './PromptEditTextArea';
 import BatchCreatePanel from './BatchCreatePanel';
+import HelpIcon from './HelpIcon';
 
 type Tab = 'project' | 'scene' | 'batch';
 
@@ -258,7 +259,12 @@ const TemplateManagerModal = observer(
       <ModalOverlay
         isOpen={isOpen}
         onClose={onClose}
-        title="템플릿 관리"
+        title={
+          <span className="inline-flex items-center gap-1.5">
+            템플릿 관리
+            <HelpIcon content={'프로젝트 시작 구성과 씬 묶음을 저장해 다른 프로젝트에 적용합니다.\n폴더 기본 템플릿은 하위 프로젝트가 상속할 수 있습니다.'} />
+          </span>
+        }
         width="max-w-6xl"
       >
         <div className="flex gap-2 mb-3">

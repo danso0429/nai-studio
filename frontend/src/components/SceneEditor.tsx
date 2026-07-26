@@ -1,4 +1,5 @@
 import {
+  ComponentType,
   useEffect,
   useRef,
   useState,
@@ -25,7 +26,6 @@ import {
   FaEdit,
 } from 'react-icons/fa';
 import PromptEditTextArea from './PromptEditTextArea';
-import { UnionPreSetEditor } from './PreSetEditor';
 import { TaskProgressBar } from './TaskQueueControl';
 import { Resolution, resolutionMap } from '../backends/imageGen';
 import { FloatView } from './FloatView';
@@ -38,9 +38,9 @@ import {
   isMobile,
   workFlowService,
   toggleGroupService,
+  imageActions,
 } from '../models';
 import { ISharedToggleGroup } from '../models/ToggleGroupService';
-import { getMainImagePath } from '../models/ImageService';
 import { highlightPrompt, lowerPromptNode } from '../models/PromptService';
 import { renameScene, mergeScene } from '../models/SessionService';
 import {
@@ -59,6 +59,7 @@ interface Props {
   scene: Scene;
   onClosed: () => void;
   onDeleted?: () => void;
+  PresetEditor: ComponentType<any>;
 }
 interface PromptHighlighterProps {
   text: string;
@@ -99,6 +100,8 @@ interface BigPromptEditorProps {
   initialImagePath?: string;
   sceneUc?: string;
   onSceneUcChange?: (v: string) => void;
+  simplified?: boolean;
+  PresetEditor: ComponentType<any>;
 }
 
 export const BigPromptEditor = observer(
@@ -117,6 +120,8 @@ export const BigPromptEditor = observer(
     setMainImage,
     sceneUc,
     onSceneUcChange,
+    simplified,
+    PresetEditor,
   }: BigPromptEditorProps) => {
     const [image, setImage] = useState<string | undefined>(undefined);
     const [path, setPath] = useState<string | undefined>(initialImagePath);
@@ -166,7 +171,7 @@ export const BigPromptEditor = observer(
               setPromptOpen(false);
             }}
           >
-            <UnionPreSetEditor
+            <PresetEditor
               general={general}
               type={type}
               preset={preset}
@@ -185,9 +190,31 @@ export const BigPromptEditor = observer(
             'overflow-auto flex-none h-1/3 md:h-auto md:w-1/3 md:h-full'
           }
         >
+          {simplified && (
+            <div className="h-full flex flex-col p-2 gap-2 overflow-hidden">
+              <div className="flex-none font-bold text-sub">중간 프롬프트 (이 씬에만 적용됨)</div>
+              <div className="flex-[2] min-h-0 overflow-hidden">
+                <PromptEditTextArea
+                  disabled={editDisabled}
+                  onChange={setMiddlePrompt}
+                  value={getMiddlePrompt()}
+                />
+              </div>
+              <div className="flex-none font-bold text-sub">씬 전용 네거티브 프롬프트</div>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <PromptEditTextArea
+                  disabled={editDisabled}
+                  whiteBg
+                  value={sceneUc || ''}
+                  onChange={(value) => onSceneUcChange?.(value)}
+                />
+              </div>
+            </div>
+          )}
+          {!simplified && <>
           <div className={'hidden md:flex md:flex-col h-full'}>
             <div className="flex-1 min-h-0 overflow-auto">
-              <UnionPreSetEditor
+              <PresetEditor
                 general={general}
                 type={type}
                 preset={preset}
@@ -253,6 +280,7 @@ export const BigPromptEditor = observer(
               </button>
             </div>
           </div>
+          </>}
         </div>
         <div className="flex-none h-2/3 md:h-auto md:w-2/3 overflow-hidden">
           <div className="flex flex-col h-full">
@@ -1259,7 +1287,7 @@ export const SlotEditor = observer(({ scene }: SlotEditorProps) => {
   );
 });
 
-const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
+const SceneEditor = observer(({ scene, onClosed, onDeleted, PresetEditor }: Props) => {
   const { curSession } = appState;
   const [_, rerender] = useState<{}>({});
   const [curName, setCurName] = useState('');
@@ -1306,6 +1334,19 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
     }
     scene.slots[0][0].characterPrompts[index] = txt;
   };
+
+  useEffect(() => {
+    if (
+      !appState.legacySceneEditor &&
+      (scene.slots.length === 0 || scene.slots[0].length === 0)
+    ) {
+      scene.slots = [[PromptPiece.fromJSON({
+        prompt: '',
+        characterPrompts: [],
+        id: uuidv4(),
+      })]];
+    }
+  }, [scene, appState.legacySceneEditor]);
 
   const queuePrompt = async (
     middle: string,
@@ -1378,6 +1419,7 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
 
   const BigEditor = (
     <BigPromptEditor
+      PresetEditor={PresetEditor}
       general={true}
       meta={type && scene.meta.get(type)}
       getMiddlePrompt={getMiddlePrompt}
@@ -1386,9 +1428,10 @@ const SceneEditor = observer(({ scene, onClosed, onDeleted }: Props) => {
       setCharacterMiddlePrompt={onCharacterMiddlePromptChange}
       queuePrompt={queuePrompt}
       setMainImage={setMainImage}
-      initialImagePath={getMainImagePath(curSession!, scene)}
+      initialImagePath={imageActions.getMainImagePath(curSession!, scene)}
       sceneUc={scene.uc}
       onSceneUcChange={(v) => { scene.uc = v; }}
+      simplified={!appState.legacySceneEditor}
     />
   );
 

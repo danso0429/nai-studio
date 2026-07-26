@@ -3,7 +3,16 @@
 // 의존성 leaf로 유지한다.
 export interface AppStateRefValue {
   curSession?: { name: string };
+  samples: number;
+  globalSamplingPresetId: string;
+  driveRetryStatus: { driveAvailable?: boolean } | null;
   pushMessage(message: string): void;
+  refreshDriveRetryStatus(): Promise<void>;
+  pushDialog(dialog: {
+    type: string;
+    text: string;
+    callback?: () => void;
+  }): void;
   selectSession(name: string): Promise<unknown>;
   pushDialogAsync(dialog: {
     type: string;

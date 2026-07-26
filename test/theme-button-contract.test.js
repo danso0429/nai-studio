@@ -30,3 +30,21 @@ test('shared button language includes focus, disabled, solid, ghost, and link st
     assert.ok(css.includes(selector), selector);
   }
 });
+
+test('appearance roles support strong controls, input rings, font choice, and classic rollback', () => {
+  const config = fs.readFileSync(
+    path.resolve(__dirname, '../frontend/src/main/config.ts'),
+    'utf8',
+  );
+  const app = fs.readFileSync(
+    path.resolve(__dirname, '../frontend/src/components/App.tsx'),
+    'utf8',
+  );
+  assert.match(css, /--c-line-strong:/);
+  assert.match(css, /--c-input-ring:/);
+  assert.match(css, /html\.finish-classic/);
+  assert.match(css, /html\.font-system body/);
+  assert.match(config, /uiFont\?: 'noto' \| 'system'/);
+  assert.match(config, /uiClassicFinish\?: boolean/);
+  assert.match(app, /classList\.toggle\('finish-classic'/);
+});
