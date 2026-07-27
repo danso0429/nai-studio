@@ -13,6 +13,12 @@ minor(`v1.X`)별로 묶고, 그 아래 patch(`v1.X.Y`)를 둡니다. sdstudioBas
 
 ## v1.13
 
+### v1.13.1 — patch (2026-07-27) — 저장소 v2 PWA 콜드 시작 소유권 복구
+
+- 저장소 v2 전환 완료 상태를 `sessionStorage`에 기록해 새 PWA 세션마다 다시 reload하던 경로 제거. 이미 v2로 부팅한 화면은 그대로 마지막 프로젝트를 복원하고, 실제 migration 시작·진행을 관측한 화면만 저장과 lease 해제 뒤 한 번 reload.
+- 프로젝트 lease acquire 실패와 읽기 전용 mirror 등록 사이에 기존 owner가 사라지면 `active project owner required` 409가 나던 경쟁을 서버의 원자적 mirror-or-owner 판정으로 변경. 기존 owner가 남아 있으면 읽기 전용 mirror 계약을 유지하고, 사라졌으면 요청 화면을 owner로 승격.
+- TypeScript 오류 0, source test 32/32, production build·API health·실제 project JSON parse·runtime-static SCC 0을 확인하고, 실제 iPhone에서 PWA 완전 종료·재실행 뒤 마지막 프로젝트 자동 복원과 409 미발생을 확인.
+
 ### v1.13.0 — minor (2026-07-26) — SDStudio 5.0.0 전수 해소 통합
 
 upstream `v4.14.0..v5.0.0`의 134개 commit을 `PORT`·`ADAPT`·`ALREADY`·플랫폼 `N/A`로 빠짐없이 분류하고, Remote의 서버 큐·PWA 복원·Drive·프로젝트 폴더·보존 삭제·백업/복원 계약을 유지한 채 통합.

@@ -1,6 +1,6 @@
 {
-  "version": "1.13.0",
+  "version": "1.13.1",
   "sdstudioBase": "5.0.0",
-  "released": "2026-07-26",
-  "notes": "v1.12.0 → v1.13.0 — minor (SDStudio 5.0.0 전수 해소 통합). 템플릿·일괄 생성, 화면 배치·Quick menu, 추가/퀵 프롬프트, 결과 스와이프, 최근 30장 서버 히스토리, WebP, 다중 화면 lease·읽기 전용 mirror, 명시 선택 저장소 v2를 Remote 구조에 맞게 추가. runtime-static 순환 의존을 SCC·내부 edge·직접 pair 모두 0으로 해소하고 production 자동 gate와 실제 iPhone L3를 통과."
+  "released": "2026-07-27",
+  "notes": "v1.13.0 → v1.13.1 — patch. 저장소 v2 전환 뒤 iOS PWA를 완전히 닫았다 열 때 완료 reload와 마지막 프로젝트 자동 복원이 충돌해 project-owner 409와 수동 재선택이 반복되던 문제 수정. 실제 전환을 관측한 페이지만 lease 저장·해제 뒤 한 번 reload하고, acquire→mirror 사이 owner 소멸은 서버에서 원자적으로 owner 승격. production 자동 gate와 실제 iPhone 콜드 시작 L3 통과."
 }
