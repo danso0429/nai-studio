@@ -1,6 +1,6 @@
 # Runtime Audit — v2 (discovery → external anchor → triage)
 
-> **상태:** 실험 중. 기존 `runtime-audit-instructions.md`는 그대로 두고, 이 v2는 *fresh 케이스*(결과를 미리 모르는 변경)에서 따로 검증한 뒤 교체 여부를 정한다. CLAUDE.md의 L2.5 포인터는 검증 전까지 기존 doc을 가리킨다.
+> **상태:** 현재 정본. `AGENTS.md`의 L2.5 gate는 이 문서의 discovery → external anchor → triage 절차를 가리킨다.
 >
 > **왜 v2:** 기존 방식은 멈춤점("언제 다 봤다고 하나")을 LLM의 *독단 판단*에 맡겨서, 환각·laziness·결과집중(보여주기식)·loop·배분왜곡(사소한 데 과하게/필요한 데 대충)이 전부 그 판단을 공격했다. 실제 사고: cleanup 한 줄을 *조건부 실행*인데 *무조건*으로 오독하고, "내 예상과 일치하는 줄을 찾으면 멈춤"으로 닫은 뒤 진짜 file:line까지 인용해 *검증처럼 보이게* 함(인용이 검증이 아니라 장식). v2는 멈춤점을 **외부에 고정**한다.
 

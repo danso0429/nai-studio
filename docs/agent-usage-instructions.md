@@ -1,7 +1,7 @@
-# 🤖 Agent Usage Instructions (for Claude sessions in this repo)
+# Agent Usage Instructions
 
-When you (Claude, the primary session) consider delegating work to subagents
-(`Agent` tool / Explore / Plan / general-purpose), follow these rules. They
+When the primary agent considers delegating work through `spawn_agent`,
+follow these rules. They
 exist because past agent usage in this repo produced **~75% stale results
 on the P15 catalog** (메모리 [[feedback_catalog_readthrough_hallucination]])
 and missed file locations entirely (memory [[feedback_search_paths_before_asking]]).
@@ -9,7 +9,7 @@ and missed file locations entirely (memory [[feedback_search_paths_before_asking
 This document is the agent counterpart of `runtime-audit-instructions.md`.
 
 ────────────────────────
-# 0. Pre-spawn Protocol (run BEFORE invoking any Agent tool)
+# 0. Pre-spawn Protocol (run BEFORE spawning a collaborator)
 
 Spawning without these checks is the #1 cause of garbage agent output.
 
@@ -24,16 +24,14 @@ Spawning without these checks is the #1 cause of garbage agent output.
 - [ ] **Can you spot-check the result in <30 seconds?** A claim like "this
       symbol has 0 callers" is spot-checkable (re-run grep). A claim like
       "the code is clean" is not. Don't accept un-checkable answers.
-- [ ] **Are you assigning the right subagent_type?** Use Explore for read-only
-      lookup, Plan for design analysis, general-purpose only when neither
-      fits. NEVER hand `Edit`/`Write`/`Bash` (write side) to an agent for a
-      fix task — fix bugs subtly and silently. Agents apply fixes only when
-      you've explicitly verified the change set is mechanical (rename, single
-      pattern replacement) and the user OK'd it.
+- [ ] **Is the delegated task bounded and read-only?** Use collaborators for
+      lookup, verification, or design analysis with an exact scope. Do not
+      delegate code generation, modification, or deletion; the primary agent
+      applies changes after reviewing the evidence.
 - [ ] **Did you read enough context to write a self-contained prompt?** The
       agent has zero context from this conversation. The prompt must include
       file paths, line numbers, exact claim text, expected output schema.
-      Terse prompts produce shallow output (per Claude Code prompt guide).
+      Terse prompts produce shallow output.
 
 If any checkbox unticked: do the task yourself OR narrow the task until all
 five tick.
@@ -45,16 +43,15 @@ five tick.
 - N independent lookups that can run in parallel (e.g. verify 10 audit
   claims, grep 5 different symbols across the repo)
 - Bounded read-only research where the answer fits a strict schema
-- Architecture inference for a subsystem you haven't touched (Plan agent)
-- One-shot greps with hard-to-write regex (general-purpose with explicit
-  command in prompt)
+- Architecture inference for a subsystem you haven't touched
+- One-shot searches with an explicit command and output schema
 
 **Do NOT use agents for**:
 - Open-ended "review this code" / "find bugs" / "is this safe" — agents
   generate plausible-sounding critique with low precision. Do this yourself
-  or use a dedicated tool (e.g. `code-reviewer` agent if available).
-- Fix application (Edit/Write) — even seemingly mechanical changes hide
-  edge cases. Apply fixes yourself; let agent only verify/locate.
+  or use a dedicated review workflow when available.
+- Fix application — even seemingly mechanical changes hide edge cases.
+  Apply fixes yourself; let collaborators only verify or locate evidence.
 - Anything where you don't know the expected answer shape — you can't
   spot-check what you can't describe.
 - Questions you can answer directly with Read/Grep in <2 tool calls.
@@ -188,31 +185,22 @@ If three or more spot-checks fail in one agent batch: discard the whole
 batch and either redo manually or narrow the scope and retry.
 
 ────────────────────────
-# 4. Tool Permission Matrix
+# 4. Tool and Scope Boundary
 
-| Subagent type    | Read | Grep/Glob | Bash (read-only) | Bash (write) | Edit/Write |
-|------------------|------|-----------|------------------|--------------|------------|
-| Explore          | ✓    | ✓         | ✓                | ✗            | ✗          |
-| Plan             | ✓    | ✓         | ✓                | ✗            | ✗          |
-| general-purpose  | ✓    | ✓         | ✓ default        | only if asked| ✗ default  |
-| claude (catch-all)| ✓   | ✓         | ✓                | only if asked| only if asked |
+| Role | Read/search | Read-only commands | Code changes |
+|------|-------------|--------------------|--------------|
+| Primary agent | ✓ | ✓ | ✓, within user-authorized scope |
+| Collaborating agent | ✓, bounded scope | ✓, bounded scope | ✗ |
 
 Rules:
-- For audit/verify/lookup tasks: **always** prefer Explore. It can't break
-  anything.
-- Plan agent: for "how should I approach X" only. NOT for fix application.
-- general-purpose: when scope spans tool categories AND prior types don't
-  fit. Tighten the prompt extra carefully — broader tool access = wider
-  hallucination surface.
-- claude (catch-all): default in FleetView when no name typed; in this repo
-  prefer Explore unless agent must apply changes. If you do give Edit/Write,
-  state the exact files + change pattern in the prompt + require the agent
-  to output `git diff` of its changes for review BEFORE accepting.
-
-NEVER:
-- Hand Edit/Write to general-purpose for "find and fix all X" — that's
-  exactly the case where mechanical-looking changes break things subtly.
-- Skip the "output the diff" requirement when an agent applies any change.
+- The primary agent reads the relevant instructions and code before
+  delegating, then supplies the collaborator with a self-contained prompt.
+- Collaborators may locate, classify, compare, or verify evidence. They do
+  not generate, modify, or delete project files.
+- Each collaborator receives a distinct non-overlapping scope and a strict
+  output schema.
+- The primary agent independently spot-checks returned evidence and applies
+  any resulting change.
 
 ────────────────────────
 # 5. Result Processing Protocol (S1–S5)
@@ -308,9 +296,10 @@ These have actually happened — listed to prevent recurrence.
 When considering an agent:
 
 1. Read what you have. Can you answer directly? → don't spawn.
-2. Is the question N parallel lookups with strict schema? → spawn Explore.
+2. Is the question N parallel lookups with strict schema? → use
+   `spawn_agent` with distinct bounded tasks.
 3. Is it open-ended analysis? → narrow it first OR do yourself.
-4. Will the agent need to write? → 99% don't spawn. If yes, require diff.
+4. Will the agent need to write? → don't spawn; apply the change yourself.
 5. Is the answer un-spot-checkable? → don't spawn.
 
 If you spawn, prompt template:
@@ -326,7 +315,7 @@ If you spawn, prompt template:
 - `runtime-audit-instructions.md` Section 0 (Architecture Pass) is the
   per-claim equivalent — verify premise before per-pattern detection. Same
   spirit applied to subsystem-level analysis.
-- `CLAUDE.md` L1/L2/L2.5/L3/L4 gates apply regardless of whether agents
+- `AGENTS.md` L1/L2/L2.5/L3/L4 gates apply regardless of whether agents
   were used. Agent output is just one input to L2.5 self-audit.
 - Memory references: [[feedback_catalog_readthrough_hallucination]] for
   classification accuracy + [[feedback_search_paths_before_asking]] for
