@@ -390,12 +390,13 @@ export class ServerBackend extends Backend {
     return result;
   }
 
-  async useProjectMirror(name: string): Promise<void> {
-    await api('/projects/lease/mirror', {
+  async useProjectMirror(name: string): Promise<ProjectLeaseResult> {
+    const result = await apiJSON('/projects/lease/mirror', {
       method: 'POST',
       body: JSON.stringify({ name }),
-    });
-    this.projectAccess.set(name, 'mirror');
+    }) as ProjectLeaseResult;
+    this.projectAccess.set(name, result.acquired ? 'owner' : 'mirror');
+    return result;
   }
 
   async releaseProjectLease(name: string): Promise<void> {
@@ -419,10 +420,10 @@ export class ServerBackend extends Backend {
       const renamedTo = result.renamedTo;
       result = await this.acquireProjectLease(renamedTo);
       this.projectAccess.delete(oldName);
-      if (!result.acquired) await this.useProjectMirror(renamedTo);
+      if (!result.acquired) result = await this.useProjectMirror(renamedTo);
       return { ...result, renamedTo };
     }
-    if (!result.acquired) await this.useProjectMirror(name);
+    if (!result.acquired) result = await this.useProjectMirror(name);
     return result;
   }
 

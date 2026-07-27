@@ -1179,11 +1179,13 @@ export class AppState {
           ],
         });
         if (choice !== 'mirror') return;
-        await backend.useProjectMirror(name);
+        const mirrorAccess = await backend.useProjectMirror(name);
         registeredNewAccess = true;
-        mode = 'mirror';
-        // 이전에 이 탭이 캐시한 객체가 있으면 소유자의 최신 디스크 상태로 교체한다.
-        await sessionService.invalidate(name);
+        mode = mirrorAccess.acquired ? 'owner' : 'mirror';
+        if (mode === 'mirror') {
+          // 이전에 이 탭이 캐시한 객체가 있으면 소유자의 최신 디스크 상태로 교체한다.
+          await sessionService.invalidate(name);
+        }
       }
       const session = await sessionService.get(name, { throwOnError: true });
       if (this.pendingSelection !== name) {
@@ -1294,9 +1296,11 @@ export class AppState {
     await backend.releaseProjectLease(name);
     const lease = await backend.acquireProjectLease(name);
     if (!lease.acquired) {
-      await backend.useProjectMirror(name);
-      this.pushMessage('다른 화면이 아직 이 프로젝트를 편집 중입니다.');
-      return;
+      const mirrorAccess = await backend.useProjectMirror(name);
+      if (!mirrorAccess.acquired) {
+        this.pushMessage('다른 화면이 아직 이 프로젝트를 편집 중입니다.');
+        return;
+      }
     }
     const fresh = await sessionService.reloadExternal(name);
     if (this.curSession?.name === name && fresh) this.curSession = fresh;

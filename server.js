@@ -2524,10 +2524,15 @@ app.post('/api/projects/lease/mirror', (req, res) => {
       return res.status(400).json({ error: 'client identity required' });
     }
     const projectName = validateLeaseProjectName(req.body?.name);
-    if (!projectLeaseRegistry.registerMirror(projectName, identity)) {
+    const mode = projectLeaseRegistry.mirrorOrAcquire(projectName, identity);
+    if (!mode) {
       return res.status(409).json({ error: 'active project owner required' });
     }
-    res.json({ ok: true });
+    res.json({
+      acquired: mode === 'owner',
+      projectName,
+      ownerConnected: true,
+    });
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message });
   }

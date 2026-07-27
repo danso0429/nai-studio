@@ -30,6 +30,55 @@ test('storage v2 pure naming and detection rules are deterministic', () => {
   assert.equal(resolveRecoveryName('A', taken), 'A_복구3');
 });
 
+test('storage migration reload tracker ignores later cold starts and reloads only transition pages', async () => {
+  const {
+    createStorageMigrationReloadTracker,
+    noteStorageMigrationStarted,
+    observeStorageMigrationStatus,
+  } = await import('../frontend/src/models/storageMigrationReload.mjs');
+  const done = {
+    active: true,
+    legacyProjects: 0,
+    runtime: { running: false, phase: 'done' },
+  };
+
+  const coldStart = createStorageMigrationReloadTracker();
+  assert.equal(observeStorageMigrationStatus(coldStart, done), false);
+  assert.equal(observeStorageMigrationStatus(coldStart, done), false);
+
+  const coldStartAfterServerRestart = createStorageMigrationReloadTracker();
+  assert.equal(observeStorageMigrationStatus(coldStartAfterServerRestart, {
+    ...done,
+    runtime: { running: false, phase: 'idle' },
+  }), false);
+
+  const legacyPage = createStorageMigrationReloadTracker();
+  assert.equal(observeStorageMigrationStatus(legacyPage, {
+    active: false,
+    legacyProjects: 2,
+    runtime: { running: false, phase: 'idle' },
+  }), false);
+  assert.equal(observeStorageMigrationStatus(legacyPage, done), true);
+  assert.equal(observeStorageMigrationStatus(legacyPage, done), false);
+
+  const activePage = createStorageMigrationReloadTracker();
+  assert.equal(observeStorageMigrationStatus(activePage, {
+    active: true,
+    legacyProjects: 1,
+    runtime: { running: false, phase: 'idle' },
+  }), false);
+  noteStorageMigrationStarted(activePage);
+  assert.equal(observeStorageMigrationStatus(activePage, done), true);
+
+  const resumedPage = createStorageMigrationReloadTracker();
+  assert.equal(observeStorageMigrationStatus(resumedPage, {
+    active: true,
+    legacyProjects: 1,
+    runtime: { running: true, phase: 'migrating' },
+  }), false);
+  assert.equal(observeStorageMigrationStatus(resumedPage, done), true);
+});
+
 test('virtual project paths preserve logical folder and map project suffixes', () => {
   assert.deepEqual(parseVirtualProjectPath('projects/a/b/P.json'), {
     normalized: 'projects/a/b/P.json', root: 'projects', name: 'P', folder: 'a/b',
@@ -448,6 +497,9 @@ test('server and UI wire migration consent, logical backup, copy promotion, and 
   assert.match(backend, /setStorageMigrationOptOut/);
   assert.match(backend, /cleanupLegacyStorageRemnants/);
   assert.match(gate, /다시 알리지 않음/);
+  assert.doesNotMatch(gate, /sessionStorage/);
+  assert.match(gate, /observeStorageMigrationStatus/);
+  assert.match(gate, /await appState\.closeCurrentSession\(\)/);
   assert.match(config, /구 저장소 고아 잔재 검사/);
   assert.match(config, /scan\.fingerprint/);
   assert.match(session, /async renameProject\(oldName: string, newName: string\)/);

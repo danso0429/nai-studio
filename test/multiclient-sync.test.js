@@ -34,6 +34,21 @@ test('a disconnected page can hand its lease to a reloaded page on the same devi
   assert.equal(leases.get('project').clientId, 'new-page');
 });
 
+test('mirror registration atomically becomes owner when the previous owner disappears', () => {
+  const leases = new ProjectLeaseRegistry();
+  const owner = leases.touch('owner', 'desktop');
+  const contender = leases.touch('contender', 'phone');
+  assert.equal(leases.acquire('project', owner), true);
+  assert.equal(leases.acquire('project', contender), false);
+  assert.equal(leases.mirrorOrAcquire('project', contender), 'mirror');
+  assert.equal(leases.get('project').clientId, owner.clientId);
+  assert.equal(leases.mirrors.get('project').has(contender.clientId), true);
+  leases.release('project', owner.clientId);
+  assert.equal(leases.mirrorOrAcquire('project', contender), 'owner');
+  assert.equal(leases.get('project').clientId, contender.clientId);
+  assert.equal(leases.mirrors.get('project')?.has(contender.clientId) ?? false, false);
+});
+
 test('expired leases recover on another device and project rename rekeys ownership', () => {
   let now = 0;
   const leases = new ProjectLeaseRegistry({ ttlMs: 50, now: () => now });
@@ -95,6 +110,7 @@ test('server and client wire lease, revision broadcast, mirror reload, and Quick
   assert.match(server, /\/api\/projects\/lease\/acquire/);
   assert.match(server, /assertProjectDelegateForPath\(req, params\.outputFilePath\)/);
   assert.match(server, /\/api\/projects\/lease\/mirror/);
+  assert.match(server, /projectLeaseRegistry\.mirrorOrAcquire/);
   assert.match(server, /\/api\/projects\/generation-asset/);
   assert.match(server, /\/api\/images\/trash/);
   assert.match(server, /broadcastProjectLifecycle\('project-renamed'/);
@@ -110,6 +126,7 @@ test('server and client wire lease, revision broadcast, mirror reload, and Quick
   assert.match(backend, /X-NAI-Client-ID/);
   assert.match(backend, /deferred: true/);
   assert.match(backend, /useProjectMirror/);
+  assert.match(backend, /result\.acquired \? 'owner' : 'mirror'/);
   assert.match(backend, /writeGenerationAsset/);
   assert.match(backend, /trashImages/);
   assert.match(backend, /importScenes/);

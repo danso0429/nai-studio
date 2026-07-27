@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { backend } from '../models';
 import { appState } from '../models/AppService';
 import { StorageStatus } from '../backend';
 import { extractApiError } from '../models/util';
+import {
+  createStorageMigrationReloadTracker,
+  noteStorageMigrationStarted,
+  observeStorageMigrationStatus,
+  resetStorageMigrationReload,
+} from '../models/storageMigrationReload.mjs';
 
 function formatBytes(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return '확인 불가';
@@ -28,10 +34,27 @@ export default function StorageMigrationGate() {
   const [dismissed, setDismissed] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState('');
+  const reloadTracker = useRef(createStorageMigrationReloadTracker());
+
+  const reloadAfterMigration = async () => {
+    try {
+      // 마지막 프로젝트 자동 복원과 reload가 겹치더라도 기존 client lease를
+      // 먼저 저장·해제해 새 client가 읽기 전용 미러로 떨어지지 않게 한다.
+      await appState.closeCurrentSession();
+      await backend.flushAllFileWrites();
+      window.location.reload();
+    } catch (cause) {
+      resetStorageMigrationReload(reloadTracker.current);
+      setError(`저장소 전환 후 새로고침 준비 실패: ${extractApiError(cause)}`);
+    }
+  };
 
   const refresh = async () => {
     try {
-      setStatus(await backend.getStorageStatus());
+      const next = await backend.getStorageStatus();
+      const shouldReload = observeStorageMigrationStatus(reloadTracker.current, next);
+      setStatus(next);
+      if (shouldReload) await reloadAfterMigration();
     } catch (cause) {
       setError(extractApiError(cause));
     }
@@ -42,19 +65,25 @@ export default function StorageMigrationGate() {
   }, []);
 
   useEffect(() => {
-    if (!status?.runtime.running) return;
+    if (!status) return;
+    const needsPolling =
+      status.runtime.running ||
+      status.runtime.phase === 'failed' ||
+      status.migration?.state === 'partial' ||
+      !!status.migrationLedgerError ||
+      (!status.optedOut &&
+        (status.detection === 'legacy' || status.detection === 'recovery-required'));
+    if (!needsPolling) return;
     const timer = window.setInterval(() => void refresh(), 1500);
     return () => window.clearInterval(timer);
-  }, [status?.runtime.running]);
-
-  useEffect(() => {
-    if (!status?.active || status.runtime.phase !== 'done' || status.legacyProjects > 0) return;
-    const key = 'nai:storage-v2-reloaded';
-    const migrationId = String(status.migration?.authorizedAt || 'active');
-    if (sessionStorage.getItem(key) === migrationId) return;
-    sessionStorage.setItem(key, migrationId);
-    window.location.reload();
-  }, [status]);
+  }, [
+    status?.runtime.running,
+    status?.runtime.phase,
+    status?.migration?.state,
+    status?.migrationLedgerError,
+    status?.optedOut,
+    status?.detection,
+  ]);
 
   const failures = useMemo(
     () => status?.migration?.projects.filter((project) => project.state === 'failed') ?? [],
@@ -82,6 +111,7 @@ export default function StorageMigrationGate() {
     setStarting(true);
     setError('');
     try {
+      noteStorageMigrationStarted(reloadTracker.current);
       await appState.closeCurrentSession();
       await backend.flushAllFileWrites();
       await backend.startStorageMigration(backup);

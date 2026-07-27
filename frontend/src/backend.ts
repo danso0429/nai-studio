@@ -313,7 +313,7 @@ export abstract class Backend {
   abstract rollbackStorageV2(): Promise<{ restored: string[] }>;
   abstract restoreFullBackup(file: File, policy: 'rename' | 'skip' | 'overwrite'): Promise<any>;
   abstract acquireProjectLease(name: string): Promise<ProjectLeaseResult>;
-  abstract useProjectMirror(name: string): Promise<void>;
+  abstract useProjectMirror(name: string): Promise<ProjectLeaseResult>;
   abstract releaseProjectLease(name: string): Promise<void>;
   abstract revalidateProjectLease(name: string): Promise<ProjectLeaseResult>;
   abstract isProjectReadOnly(name: string): boolean;
