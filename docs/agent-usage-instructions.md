@@ -315,8 +315,8 @@ If you spawn, prompt template:
 - `runtime-audit-instructions.md` Section 0 (Architecture Pass) is the
   per-claim equivalent — verify premise before per-pattern detection. Same
   spirit applied to subsystem-level analysis.
-- `AGENTS.md` L1/L2/L2.5/L3/L4 gates apply regardless of whether agents
-  were used. Agent output is just one input to L2.5 self-audit.
+- `AGENTS.md` L1–L6 gates apply regardless of whether agents
+  were used. Agent output is just one input to L4 self-audit.
 - Memory references: [[feedback_catalog_readthrough_hallucination]] for
   classification accuracy + [[feedback_search_paths_before_asking]] for
   file location + [[feedback_no_guess_from_partial_output]] for output
