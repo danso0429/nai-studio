@@ -223,6 +223,8 @@ preset, module binding, MARP가 켜진 요청을 보내면 서버가 조립 시�
 
 **G1.11 진행 기록 (2026-09-27 KST):** 후보 `0.2.4-experimental.7` (`cf4eaea`)에서 Personal settings의 외부 요청 규칙 UI/API와 공용 HMAC 처리부, `/proxy2`·기존 로컬 HTTPS/WebSocket·BG 프록시 연결을 구현·push·live 적용했다. 규칙은 자동 생성/활성화하지 않았다. Patcher 51/51, 서버 387/12 skip, 프런트엔드 1,920/2 skip, 호환성 74/5 skip, 타입 0/0, frontend/BG build, 42-pack 조합 re-plan 0·exact revert를 확인했다. Live HTTP/asset/420 managed files/DB 5개 무결성도 확인했다. 실제 공급자에 저장된 자격증명으로 보내는 검증 요청은 자동 승인 검토의 명시 승인 요구로 보류했으며 기기 UI 확인도 대기다. G1.6 nativeFetch caller는 아직 없고 공용 처리부 연결은 그 단계에서 수행한다. 상세는 patcher `docs/POCKETRISU-G1-11-EXTERNAL-HEADERS-VALIDATION.md`다.
 
+**후속 확인:** 사용자가 설정 화면 진입과 사용을 승인한 뒤, 저장된 공급자에 없는 모델·빈 메시지로 격리 처리부 OFF/ON 요청 두 건을 실행했다. OFF는 HTTP 400/MissingSessionID, ON은 HTTP 400/해당 오류 없음이었다. ON 잔여 오류의 정확한 원인이나 과금 여부는 확인하지 않았다. live 규칙 영구 저장·활성화와 배포 프록시 검증 1건은 자동 승인 검토가 별도의 구체 승인을 요구해 거절했으며 실행하지 않았다. 해당 승인 질문이 대기 중이고 live 설정 row는 여전히 0이다. 실제 MARP 분석·G1.6 연결은 미검증이다.
+
 ### 완료 조건
 
 1. 실제 브라우저 프로세스 종료 뒤, 다시 열기 전에 서버 일반 채팅 API에서 저장 본문과 revision을 확인한다.
