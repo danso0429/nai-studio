@@ -151,6 +151,8 @@ G1 후보 적용 전처럼 기존 서버 전체 위임 경로가 preset 설정�
 1. 격리 환경에서 거절됐던 채팅 형태가 수락되고, 실제 변경이 있는 채팅은 여전히 거절된다.
 2. live 적용 뒤 preset 설정의 전송이 서버 전체 위임으로 완료되고 거절 0건이 관측된다. live 적용과 재시작은 사용자 확인 뒤 수행한다.
 
+> G1.0 진행 기록 (2026-09-27 KST): patcher 후보 `0.2.4-experimental.6`, adapter `0.7.13`, 구현 commit `d405404`로 JSON 접수 비교·거절 사유 관측·신규 복귀 metadata 수정을 구현하고 live에 적용했다. Patcher 51/51, 서버 358 pass/12 skip, 프런트엔드 1,920 pass/2 skip, 호환성 74 pass/5 skip, 타입 0/0, frontend/BG build, 42-pack 조합 re-plan 0 및 exact revert를 확인했다. Live HTTP·제공 JS hash·416 managed files·5개 DB 무결성을 확인했다. 실제 preset 전송의 서버 완주와 iPhone 확인은 대기이며, §7 완료 조건을 충족한 것으로 계산하지 않는다. 상세는 patcher `docs/POCKETRISU-G1-0-ADMISSION-RECOVERY-2026-09-27.md`다.
+
 ## 8. G1 — 서버 요청 터널과 첫 사례(MARP)
 
 ### 사용자 결과
