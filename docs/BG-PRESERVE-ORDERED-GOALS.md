@@ -153,6 +153,8 @@ G1 후보 적용 전처럼 기존 서버 전체 위임 경로가 preset 설정�
 
 > G1.0 진행 기록 (2026-09-27 KST): patcher 후보 `0.2.4-experimental.6`, adapter `0.7.13`, 구현 commit `d405404`로 JSON 접수 비교·거절 사유 관측·신규 복귀 metadata 수정을 구현하고 live에 적용했다. Patcher 51/51, 서버 358 pass/12 skip, 프런트엔드 1,920 pass/2 skip, 호환성 74 pass/5 skip, 타입 0/0, frontend/BG build, 42-pack 조합 re-plan 0 및 exact revert를 확인했다. Live HTTP·제공 JS hash·416 managed files·5개 DB 무결성을 확인했다. 실제 preset 전송의 서버 완주와 iPhone 확인은 대기이며, §7 완료 조건을 충족한 것으로 계산하지 않는다. 상세는 patcher `docs/POCKETRISU-G1-0-ADMISSION-RECOVERY-2026-09-27.md`다.
 
+> G1.0 완료 기록 (2026-09-27 KST): 위 대기 상태 이후 실제 전송에서 terminal-success·원래 채팅 commit과 durable journal 본문/receipt revision 일치를 사용자 복귀 전에 확인했다. 새 native model job·pending send·관측 구간 시작 거절/fallback anchor는 0건이며, 사용자가 복귀 후 답변 정상 도착을 확인했다. G1.0 복구 단위를 종료하고 다음 구현은 G1.11이다. 직접 normal-chat HTTP 조회, 브라우저 process 종료 계측, 별도 중복 개수 확인은 미실행으로 유지하며 G1 전체 qualification을 통과 처리하지 않는다. 별도 홈 화면 채팅 진입 실패는 patcher `docs/POCKETRISU-HOME-CHAT-NAVIGATION-BUG.md`에 기록했다.
+
 ## 8. G1 — 서버 요청 터널과 첫 사례(MARP)
 
 ### 사용자 결과
