@@ -177,6 +177,8 @@ preset, module binding, MARP가 켜진 요청을 보내면 서버가 조립 시�
 | G1.10 | qualification과 전달 | 자동검증, 구조 검수, runtime audit, patcher 조합 검증을 수행한다. 실제 브라우저 종료 뒤 재접속 전 일반 채팅 API로 저장 본문을 확인하고, iPhone에서 preset·module binding·MARP 요청의 앱 종료·대기 중 편집·복귀·알림 시나리오를 확인한다. |
 | G1.11 | 외부 요청 헤더 규칙 | 아래 상세 명세대로 사용자가 켜는 목적지별 헤더 규칙을 PocketRisu 서버의 외부 요청 경로에 구현한다. 서버 플러그인 호스트와 독립적으로 먼저 전달할 수 있으며, 먼저 전달하면 현재 브라우저 실행의 MARP도 동작한다. |
 
+> G1.2 선행 전달 (2026-09-27 KST): 서버의 anchor 추가 저장 전에 앱의 오래된 사본이 새 답변을 지우지 않도록 client save rebase를 `0.2.4-experimental.8` (`99bb589`)로 구현·push·live 적용했다. 서버 답변 저장 후 앱 편집 저장의 순서를 실제 NodeStorage/codec/HTTP/SQLite로 검증했다. 단순 조회와 실제 화면 채택을 분리하고, 화면 채택·DB 교체 시 기존 대기 저장을 무효화하며 불명확한 충돌은 덮어쓰지 않는다. 집중 77/77, frontend 1,943/3 conditional skip, server 388/12 skip, compatibility 74/5 skip, patcher 51/51, 타입 0/0, build/BG load, full graph re-plan 0·exact revert와 live 423파일·DB 5개 무결성을 확인했다. 실제 iPhone 관측은 미완료이며, 편집이 먼저 저장되는 반대 순서는 여전히 G1.1 서버 anchor commit이 필요하다. 상세는 patcher `docs/POCKETRISU-G1-2-CHAT-SAVE-REBASE-VALIDATION.md`다.
+
 ### G1.11 외부 요청 헤더 규칙 상세
 
 **목적:** 플러그인이 헤더 설정을 제공하지 않고 공급자가 헤더를 요구할 때, 플러그인을 수정하지 않고 PocketRisu가 사용자 규칙으로 헤더를 붙인다. 첫 용도는 MARP 분석 요청의 `x-opencode-session`이다.
