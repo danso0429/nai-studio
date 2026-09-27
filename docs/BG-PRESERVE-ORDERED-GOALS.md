@@ -221,6 +221,8 @@ preset, module binding, MARP가 켜진 요청을 보내면 서버가 조립 시�
 
 **위험:** 공급자는 이 endpoint를 코딩 에이전트용으로 안내한다. 헤더 요구를 충족해도 용도 조건은 별개이며, 사용자가 이 위험을 판단해 선택했다.
 
+**G1.11 진행 기록 (2026-09-27 KST):** 후보 `0.2.4-experimental.7` (`cf4eaea`)에서 Personal settings의 외부 요청 규칙 UI/API와 공용 HMAC 처리부, `/proxy2`·기존 로컬 HTTPS/WebSocket·BG 프록시 연결을 구현·push·live 적용했다. 규칙은 자동 생성/활성화하지 않았다. Patcher 51/51, 서버 387/12 skip, 프런트엔드 1,920/2 skip, 호환성 74/5 skip, 타입 0/0, frontend/BG build, 42-pack 조합 re-plan 0·exact revert를 확인했다. Live HTTP/asset/420 managed files/DB 5개 무결성도 확인했다. 실제 공급자에 저장된 자격증명으로 보내는 검증 요청은 자동 승인 검토의 명시 승인 요구로 보류했으며 기기 UI 확인도 대기다. G1.6 nativeFetch caller는 아직 없고 공용 처리부 연결은 그 단계에서 수행한다. 상세는 patcher `docs/POCKETRISU-G1-11-EXTERNAL-HEADERS-VALIDATION.md`다.
+
 ### 완료 조건
 
 1. 실제 브라우저 프로세스 종료 뒤, 다시 열기 전에 서버 일반 채팅 API에서 저장 본문과 revision을 확인한다.
