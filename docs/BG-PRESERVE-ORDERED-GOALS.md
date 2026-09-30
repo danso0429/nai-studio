@@ -187,6 +187,8 @@ preset, module binding, MARP가 켜진 요청을 보내면 서버가 조립 시�
 
 > G1.1 전달 기록 (2026-09-30 KST): 최신 G1.12 `c9c4c9c` 위에서 기존 WIP와 홈 진입 작업을 보존하고, 유지 소스의 적용 충돌이 없음을 확인한 뒤 `0.2.4-experimental.12` / `852da4a`를 구현·push·live 적용했다. 저장 큐 안에서 최신 채팅의 입력 ID 뒤에 답변을 넣고, 사용자 선택대로 겹친 사용자 편집은 보존하며 미반영 서버 변경을 알린다. 과거 메시지 ID 보충과 ID 없는 스크립트 추가 메시지, 서버/화면 지문 차이, G1.12 종료 판정을 함께 보강했다. 전체 frontend 2,044/4 conditional skip, server 415/12 skip(마지막 결과 ID 보충 전), 최종 영향 범위 95/95·client 64/64·추가 route 15/15, 타입 0/0·frontend/BG build/load·42-pack/1,180-unit graph·re-plan 0·1,022파일 exact revert를 확인했다. Opus 최종 검수 뒤 앱 코드는 바꾸지 않았고, live 433파일 일치·DB 5개 무결성·제공 asset 일치·헤더 설정 보존을 확인했다. 2026-09-30 사용자가 생성 중 앞쪽 메시지 수정·저장, 앱 종료·복귀 후 편집과 답변 보존 및 재저장을 정상으로 보고해 이번 단위의 L5를 종료했다. 개별 측정·화면 증거는 받지 않았으며 G1.3 이후 및 전체 qualification은 남아 있다. G1.12의 일반 메시지 ID 병합 채택 전체를 완료한 것으로 계산하지 않는다. 상세는 patcher `docs/POCKETRISU-G1-1-ANCHOR-COMMIT-VALIDATION.md`다.
 
+> G1.3 후보 기록 (2026-09-30 KST): `0.2.4-experimental.13` / `c3fc075`를 독립 브랜치에 구현·push했다. 실행 차례의 최신 저장 채팅·설정을 두 입력 경로에 적용하고, 입력 효과는 재실행 없이 병합하며, 조립 뒤 채팅 수정은 답변 저장과 함께 알린다. 입력 저장 뒤 준비 거절로 작업이 남는 경로도 최종 검수에서 보강했다. 전체 frontend 2,050/4 skip, server 444/12 skip(구버전 판독기 4건 포함), 최종 영향 client 76/76·server 73/73·process 28/28, compatibility 74/5 skip, patcher 51/51, 타입 0/0·build/BG load·42-pack/1,191-unit·re-plan 0·1,022파일 exact revert를 확인했다. Opus 최종 검수와 후속 확인을 마쳤다. 라이브 기존 관리 파일 drift는 0이지만 새 백업 공간이 부족해 앱 중지·적용 전에 배포를 보류했다. 기존 백업 삭제 승인과 live 전달·긍정/부정 iPhone 확인은 남아 있으며 G1.3 제품 완료로 계산하지 않는다. 상세는 patcher `docs/POCKETRISU-G1-3-ASSEMBLY-CONTEXT-VALIDATION.md`다.
+
 ### G1.11 외부 요청 헤더 규칙 상세
 
 **목적:** 플러그인이 헤더 설정을 제공하지 않고 공급자가 헤더를 요구할 때, 플러그인을 수정하지 않고 PocketRisu가 사용자 규칙으로 헤더를 붙인다. 첫 용도는 MARP 분석 요청의 `x-opencode-session`이다.
