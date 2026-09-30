@@ -7,6 +7,7 @@
 개정일: 2026-09-27 KST — 서버 요청 터널(서버 플러그인 호스트) 방향, 사용자 결정, 실측 결과를 반영해 목표·순서·완료 조건을 재구성
 개정일: 2026-09-28 KST — 끝난 서버 작업을 앱이 닫지 못하는 문제의 조사 결과와 수정 계획(G1.12)을 추가
 진행 기록: 2026-09-29 KST — G1.12 수정 계획 1번과 3번의 앱 쪽 핫픽스를 전달하고 기기 확인을 기록
+진행 기록: 2026-09-30 KST — G1.12를 보존한 G1.1 anchor 저장 후보를 검증·검수·live 전달; 기기 관측 대기
 
 상태: 목표·세부 과제·완료 조건의 정본 계획이다. §6의 실측은 격리 재현과 읽기 전용 조사이며 G1 완료나 stable release를 뜻하지 않는다.
 
@@ -183,6 +184,8 @@ preset, module binding, MARP가 켜진 요청을 보내면 서버가 조립 시�
 > G1.2 선행 전달 (2026-09-27 KST): 서버의 anchor 추가 저장 전에 앱의 오래된 사본이 새 답변을 지우지 않도록 client save rebase를 `0.2.4-experimental.8` (`99bb589`)로 구현·push·live 적용했다. 서버 답변 저장 후 앱 편집 저장의 순서를 실제 NodeStorage/codec/HTTP/SQLite로 검증했다. 단순 조회와 실제 화면 채택을 분리하고, 화면 채택·DB 교체 시 기존 대기 저장을 무효화하며 불명확한 충돌은 덮어쓰지 않는다. 집중 77/77, frontend 1,943/3 conditional skip, server 388/12 skip, compatibility 74/5 skip, patcher 51/51, 타입 0/0, build/BG load, full graph re-plan 0·exact revert와 live 423파일·DB 5개 무결성을 확인했다. 실제 iPhone 관측은 미완료이며, 편집이 먼저 저장되는 반대 순서는 여전히 G1.1 서버 anchor commit이 필요하다. 상세는 patcher `docs/POCKETRISU-G1-2-CHAT-SAVE-REBASE-VALIDATION.md`다.
 
 > G1.2 가용성 후속 전달 (2026-09-28 KST): Opus 자문과 직접 재현으로 확인한 두 사본 캐시의 영구 저장 차단을 `0.2.4-experimental.9` (`aa2f1c4`)에서 수선·push·live 적용했다. 재시도 전 실제 화면에 병합 결과를 반영하고, 늦은 편집·중간 script 저장·삭제 확인 대상·실패한 생성 owner·미리보기와 첫 저장 전 대화의 식별자 경계를 보강했다. 기존 변수/CBS 즉시 실행 계약은 유지하며, 입력 충돌로 이미 실행된 script 효과가 되돌려지거나 재전송 때 중복 실행되지 않는다고 주장하지 않는다. 최종 집중 133/133, 전체 frontend 1,990/3 skip(마지막 ID 호환 분기 전), server 388/12 skip, compatibility 74/5 skip, patcher 51/51, 타입 0/0, build/BG load, 42-pack·1,175-unit 조합·re-plan 0·1,021파일 exact revert, live 428파일 일치·DB 5개 무결성·헤더 규칙 보존을 확인했다. 2026-09-28 사용자가 안내된 대화 왕복 후 재저장·전송 준비 중 초안 유지·삭제 확인을 정상으로 보고해 이번 복구의 L5를 종료했다. 개별 시간·화면 증거는 받지 않았고 G1.1 이후 목표와 전체 qualification은 남아 있다. 상세는 patcher `docs/POCKETRISU-G1-2-SAVE-AVAILABILITY-REPAIR.md`다.
+
+> G1.1 전달 기록 (2026-09-30 KST): 최신 G1.12 `c9c4c9c` 위에서 기존 WIP와 홈 진입 작업을 보존하고, 유지 소스의 적용 충돌이 없음을 확인한 뒤 `0.2.4-experimental.12` / `852da4a`를 구현·push·live 적용했다. 저장 큐 안에서 최신 채팅의 입력 ID 뒤에 답변을 넣고, 사용자 선택대로 겹친 사용자 편집은 보존하며 미반영 서버 변경을 알린다. 과거 메시지 ID 보충과 ID 없는 스크립트 추가 메시지, 서버/화면 지문 차이, G1.12 종료 판정을 함께 보강했다. 전체 frontend 2,044/4 conditional skip, server 415/12 skip(마지막 결과 ID 보충 전), 최종 영향 범위 95/95·client 64/64·추가 route 15/15, 타입 0/0·frontend/BG build/load·42-pack/1,180-unit graph·re-plan 0·1,022파일 exact revert를 확인했다. Opus 최종 검수 뒤 앱 코드는 바꾸지 않았고, live 433파일 일치·DB 5개 무결성·제공 asset 일치·헤더 설정 보존을 확인했다. 실제 iPhone 관측, G1.3 이후 및 전체 qualification은 남아 있다. G1.12의 일반 메시지 ID 병합 채택 전체를 완료한 것으로 계산하지 않는다. 상세는 patcher `docs/POCKETRISU-G1-1-ANCHOR-COMMIT-VALIDATION.md`다.
 
 ### G1.11 외부 요청 헤더 규칙 상세
 
