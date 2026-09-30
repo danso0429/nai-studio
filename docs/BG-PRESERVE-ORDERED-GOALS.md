@@ -210,6 +210,8 @@ G1.5a의 첫 구현 단위는 실제 dispatcher와 사전 판정의 명시 DB �
 
 > G1.5a 기반 전달 (2026-09-30 KST): `0.2.4-experimental.15` / `2848750`을 구현·push·live 적용했다. 기존 모델 해석을 명시 DB 기반의 공용 함수로 추출해 실제 dispatcher와 사전 판정에 연결하고, custom/plugin/reverse-proxy fallback 누락 및 입력 저장 뒤·재개 시 최신 설정 재검사를 보강했다. 기존 preset/module/custom 준비 경로는 유지한다. 최종 집중 70/70, 전체 frontend 2,090/4 skip, server 444/12 skip, compatibility 74/5 skip, patcher 51/51, 타입 0/0, frontend/BG build/load, 42-pack·1,200-unit 조합·re-plan 0·1,022파일 byte/mode exact revert를 확인했다. 최종 자문의 테스트 비교 지적을 명시 기대값 검증으로 보강했고 runtime 소스는 이후 바꾸지 않았다. 새 stopped 백업 1,605파일을 전수 대조한 뒤 live 관리440파일·제공 JS17개·DB5 무결성·헤더 설정 보존·PM2 online/unstable0을 확인했다. 기기 확인, endpoint/입력 단계 qualification, 동적 호출 실패의 결과 보존 및 raw-input 허용 확대는 남아 있다. 상세는 patcher `docs/POCKETRISU-G1-5-REQUEST-POLICY-VALIDATION.md`다.
 
+> G1.5a 입력 실행 기반 보강 (2026-09-30 KST): `0.2.4-experimental.16` / `7581aee`를 구현·push·live 적용했다. 입력 trigger/editinput도 main과 같은 작업 취소 신호·대화별 외부 헤더 문맥·Node 실행 환경을 사용하며, 취소를 스크립트가 정상 반환으로 처리해도 새 입력을 attach하지 않는다. 기존 600초 작업 예산을 입력과 main이 공유한다. 이전 코드에서 신호 누락·취소/시간 초과 미상속을 재현했고, cold Lua의 `Invalid URL`과 환경 교정 후 변수 반영도 별도 합성 실행으로 확인했다. 최종 server 451/12 skip, compatibility 74/5 skip, patcher 51/51, 타입 0/0·frontend/BG build/load·42-pack/1,204-unit·re-plan 0·1,022파일 exact revert를 확인했다. frontend 유지 소스353경로는 .15와 같아 기존 검증을 재사용했다. live441파일·JS17개·DB5 무결성·헤더 보존·PM2 online/unstable0을 확인했다. 이 단위는 raw-input 허용 확대나 r3 수정이 아니며, UI 대기 등 취소 신호에 협조하지 않는 script의 종료까지 보장하지 않는다. 상세는 patcher `docs/POCKETRISU-G1-NATIVE-INPUT-CONTEXT-VALIDATION.md`다.
+
 ### G1.11 외부 요청 헤더 규칙 상세
 
 **목적:** 플러그인이 헤더 설정을 제공하지 않고 공급자가 헤더를 요구할 때, 플러그인을 수정하지 않고 PocketRisu가 사용자 규칙으로 헤더를 붙인다. 첫 용도는 MARP 분석 요청의 `x-opencode-session`이다.
