@@ -12,7 +12,7 @@
 
 개정일: 2026-10-03 KST — G1.5a 구현·자동 검증·라이브 전달 및 수동 앱 입력 복구 결과 반영, 다음 구현은 G1.4
 진행 기록: 2026-10-03 KST — G1.4 대기열·생성 버튼과 G1.12 종료 취소 응답을 검증·라이브 전달, 다음 구현은 G1.8 최소 알림 기반
-진행 기록: 2026-10-07 KST — G1.6 범용 서버 플러그인 호스트 기반을 기본 OFF로 검증·라이브 전달, 다음 구현은 G1.12a
+진행 기록: 2026-10-07 KST — G1.12a 선행 계측 후보를 라이브 전달, iPhone 측정 및 종료 결과 판정 수정은 진행 중
 
 상태: 목표·세부 과제·완료 조건의 정본 계획이다. §6의 실측은 격리 재현과 읽기 전용 조사이며 G1 완료나 stable release를 뜻하지 않는다.
 
@@ -202,6 +202,8 @@ preset, module binding, MARP가 켜진 요청을 보내면 서버가 조립 시�
 > G1.8 최소 기반 전달 기록 (2026-10-03 KST): `0.2.4-experimental.19` / `fcbed6a`를 구현·push·live 적용했다. 새 raw 입력의 `server_host_unsupported` 중단을 기존 원문·수동 복구와 별개인 서버 알림으로 보관하고 홈/다른 채팅 복귀 시 기존 상단 토스트로 전달한다. 원래 중단 기록이 먼저 보존되며, 알림 발행·source receipt는 별도 transaction으로 묶고 실패 시 기존 시작/10분 sweep에서 재시도한다. 48시간 만료·최대 1,024행·8개 단위/30초 lease·정확한 token ACK·local receipt로 일반 중복을 억제한다. 손상된 알림은 삭제하지 않고 건너뛰되 용량에는 포함한다. ACK는 읽음이 아닌 화면 enqueue이며, crash/lease 경합·렌더 실패·이미 발행된 과거 알림·수동 손상 복구의 한계는 문서에 남겼다. 권한/훅/provider 알림은 G1.6용 내부 계약만 있고 live plugin writer는 없다. 전체 frontend 2,116/4 skip·server 482/12 skip·compat 74/5 skip, 최종 집중 server62/client6·patcher51·타입0/0·build/BG load, 42 packs/1,298 units·re-plan0·원본1,022파일 exact revert를 확인했다. 실제 Chromium에서 앱 종료 후 중단·서버 재시작·새 context 홈 수신·첫 ACK 유실에도 log1회/ACK2회·후속 새 창 재표시0, native UUID 부재 조건을 검증했다. 기존 full backup1,618파일을 재검증하고 새 앱/상태1,610파일·빈 알림 영역 백업 후 live455파일·JS17개·DB5·헤더 보존·PM2online/unstable0을 확인했다. 상세는 patcher `docs/POCKETRISU-G1-8-NOTIFICATION-FOUNDATION-VALIDATION.md`다. iPhone/aggregate와 나머지 G1.8은 별도다.
 
 > G1.6 기반 전달 기록 (2026-10-07 KST): `0.2.4-experimental.20` / `76bf8a2`를 구현·push·live 적용했다. 플러그인별 요청 수명의 격리 프로세스, invocation 문맥 RPC, native 훅/provider/fetch, per-key 저장소와 저장 권한, v2 알림을 연결했다. 서버 환경 opt-in은 기본 OFF이며 원본 MARP 자격 검증·G1.5b 접수 확대는 하지 않았다. 입력 저장 뒤 실행 문맥 상실·실패 기록 저장 오류·재시작에서도 초기화 외부 작업을 재실행하지 않는 합성 검증을 추가했다. Opus 지적을 직접 재현해 알림 receipt 손상 격리·식별자 충돌·복구 대기 안내를 보강했다. 동일 실패의 48시간 대표 알림, 손상 receipt 수동 복구, 브라우저 저장소 캐시, 미소비 스트림·자원 한도는 별도 한계다. 최신 main의 폰트 기능을 통합·보존했고 frontend2,128/4skip·server490/12skip·compat74/5skip·patcher51·타입0/0·build/BG load, 42packs/1,332units·replan0·1,022파일 exact revert를 확인했다. Chromium v1/v2 알림4·log4·첫 ACK 유실 후 ACK2·새 창 재표시0·pageError0, 실제 provider0을 확인했다. 검증된 기존 full backup과 새 앱/상태1,615파일 백업 후 live462파일·JS17개·DB5·헤더 보존·PM2online/unstable0·hostOFF를 확인했다. 상세는 patcher `docs/POCKETRISU-G1-6-PLUGIN-HOST-WIP.md`다. 실제 MARP/provider·iPhone/aggregate·stable gate는 남으며 다음 구현은 2026-10-06 결정에 따른 G1.12a다.
+
+> G1.12a 선행 계측 전달 (2026-10-07 KST): 폰트 포함 rebased BG `0ce1086`에서 `0.2.4-experimental.21` / `67cdfe1` 측정 후보를 구현·push·live 적용했다. 원본 응답을 복제하지 않고 headers/본문 소비·BG snapshot·숨김/복귀·기존 timer 발동 여부를 제한된 로그에 기록한다. 계측은 ON, G1.6 호스트는 OFF다. 기존 판정·3회 대기·15분 안내·ACK·busy는 이 후보에서 바꾸지 않았으며 G1.12a 완료가 아니다. Opus 검수와 직접 재현으로 로거10KiB 절단, 긴 생성의 마지막 요청 누락, 작업별 ACK 주소와 readiness 계측 수명 문제를 보강했다. 최종 focused84·frontend2177/4skip·server490/12skip·compat74/5skip·patcher51·타입0/0·build/BG load,42packs/1366units·replan0·1022파일 exact revert를 확인했다. 실제 Chromium boot 복구는 log1/요청11/전송구간10/provider replay0/pageError0이었다. 검증된 앱/상태1622파일 백업 후 live464파일·JS17·DB5·헤더 보존·PM2online/unstable0을 확인했다. 실제 iPhone watch/숨김·복귀 관측과 그에 따른 본문 읽기 한도·R1/R2 구현이 남는다. 기존 시간 초과 안내가 떠도 측정을 위해 재전송하지 않고 채팅을 먼저 확인한다. 상세·제거 목록·로그 유실 한계는 patcher `docs/POCKETRISU-G1-12A-TERMINAL-RESULTS-PLAN.md`에 기록했다.
 
 과제 ID는 추적을 위해 유지하고 실행 순서는 다음과 같이 정한다. G1.3은 구현·자동검증·live 전달 상태이며, 저장 안내 알림의 기기 확인을 G1.3 전체 긍정/부정 시나리오 확인으로 확대하지 않는다. 남은 기기 확인은 추적하되 뒤 과제의 조사·구현을 막는 새 승인 게이트로 만들지 않는다.
 
