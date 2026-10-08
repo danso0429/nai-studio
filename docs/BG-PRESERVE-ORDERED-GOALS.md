@@ -334,6 +334,8 @@ G1.12a와 G1.12b를 합치면 r 계획 전체이며, 계획 내용을 두 번에
 
 ### G1.12a 보완 — capability 반환과 접수 전 응답 대기
 
+**작업 자료 보관 위치 (2026-10-08):** 운영 저장소의 gitignored `.code-review/workspaces/bg/` 아래 `candidates/`, `dependencies/`, `investigations/`, `runtimes/`로 관련 자료를 이동했다. CAP 비교 환경은 `investigations/capability-audit`, 생성된 통합 검증 환경은 `candidates/g112a-candidate`다. 정확한 절대 경로·이동 목록은 비공개 인계 기록에 둔다. 옛 `/tmp` 경로는 기존 스크립트 호환용 링크만 남겼으며 새 실행은 고정 경로를 사용한다. 완료된 roundtrip 사본15개만 원본 대조 후 삭제하고 다른 intent 기록13개와 검증 로그는 보존했다. 자료 정리는 구현 재개나 배포가 아니다.
+
 **정본:** patcher `docs/POCKETRISU-BG-CAPABILITY-ADMISSION-REPAIR-PLAN.md`. 아래 계획은 검증되지 않은 G1.12b 구현을 함께 배포하라는 뜻이 아니다.
 
 **확인된 근거:** 실제 배포 백업의 capability 함수를 같은 조건으로 실행했을 때 계측 전 버전은 본문을 1회 읽었으나 계측 후보 .21과 현재 .22는 읽지 않고 `undefined`를 반환했다. 패처가 `return` 뒤 await 표현식만 여러 줄 주석으로 감싸 자동 세미콜론 삽입이 발생했다. 소스는 문법적으로 유효하므로 빌드 통과만으로 발견되지 않는다. 현재 소스와 반환문만 가상 교정한 비교본에서 각각 14개 격리 시험을 실행해 정상 접수·대기열 제한·접수 응답 유실 복구와 실패 분류를 확인했다. 실제 저장 계층의 동시 채택 3개 및 서버 선행 작업/접수 3개 시험도 확인했다. 이는 기기 qualification이나 전체 경합 검증이 아니다.
