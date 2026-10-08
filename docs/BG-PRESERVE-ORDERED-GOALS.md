@@ -14,6 +14,7 @@
 진행 기록: 2026-10-03 KST — G1.4 대기열·생성 버튼과 G1.12 종료 취소 응답을 검증·라이브 전달, 다음 구현은 G1.8 최소 알림 기반
 진행 기록: 2026-10-07 KST — G1.12a 선행 계측 후보를 라이브 전달, iPhone 측정 및 종료 결과 판정 수정은 진행 중
 진행 기록: 2026-10-08 KST — G1.12a 종료 결과 수정은 experimental.22로 전달. 사용자 지시로 BG 구현을 일시 중지하고 capability 반환 회귀와 접수 전 대기를 실측 조사한 뒤 아래 보완 계획을 추가. 구현·배포 재개 승인은 아님
+진행 기록: 2026-10-09 KST — 후속 사용자 요청으로 세부 계획 검토 뒤 CAP 전체를 구현·자동 검증·검수·push·live 전달했다. 전용 CAP 브랜치의 experimental.23/adapter0.7.30이며 G1.12b WIP는 분리·보존했다. 기기/aggregate/stable gate는 유지한다.
 
 상태: 목표·세부 과제·완료 조건의 정본 계획이다. §6의 실측은 격리 재현과 읽기 전용 조사이며 G1 완료나 stable release를 뜻하지 않는다.
 
@@ -337,6 +338,10 @@ G1.12a와 G1.12b를 합치면 r 계획 전체이며, 계획 내용을 두 번에
 **작업 자료 보관 위치 (2026-10-08):** 운영 저장소의 gitignored `.code-review/workspaces/bg/` 아래 `candidates/`, `dependencies/`, `investigations/`, `runtimes/`로 관련 자료를 이동했다. CAP 비교 환경은 `investigations/capability-audit`, 생성된 통합 검증 환경은 `candidates/g112a-candidate`다. 정확한 절대 경로·이동 목록은 비공개 인계 기록에 둔다. 옛 `/tmp` 경로는 기존 스크립트 호환용 링크만 남겼으며 새 실행은 고정 경로를 사용한다. 완료된 roundtrip 사본15개만 원본 대조 후 삭제하고 다른 intent 기록13개와 검증 로그는 보존했다. 자료 정리는 구현 재개나 배포가 아니다.
 
 **정본:** patcher `docs/POCKETRISU-BG-CAPABILITY-ADMISSION-REPAIR-PLAN.md`. 아래 계획은 검증되지 않은 G1.12b 구현을 함께 배포하라는 뜻이 아니다.
+
+**세부 실행 계획 검토 (2026-10-08):** CAP 정본 §8에 소유 unit·회귀 시나리오·commit 경계·.22 적용 상태에서의 upgrade/re-plan/revert gate를 추가했다. 기존 marker 상태 조회가 capability보다 먼저 자체 header 제한 없이 기다리는 코드 경계도 확인했으며, 실제 caller 재현 뒤 prior-marker 관찰 지점만 제한하는 조건부 CAP-2c로 분리했다. POST 이후 기존 10초 attempt/60초 raw 재조정은 그대로 보존한다. 서버는 저장 큐·SQLite transaction 안에서 두 건 한도를 검사하므로 동시 client 진입만으로 초과 접수가 발생한다고 단정하거나 새 전역 lock을 추가하지 않는다. 이번 요청은 방향 검토와 세부 계획이며 런타임 구현·배포 재개가 아니다.
+
+**CAP 전달 (2026-10-09):** 후속 사용자 승인으로 전용 `codex/pocketrisu-cap-admission`에서 전체 반환문·raw import/body/decode·prepared Stop·재현된 prior-marker 관찰 제한을 구현했다. experimental.23/adapter0.7.30, 구현/검증 commit6개와 packaging `dff28c5`를 push·live 전달했다. 전체 client2251/4skip·server490/12skip·compat74/5skip·patcher331, 마지막 보강3 및 타입0/0·build/load/help,42packs1395units7collisions/replan0·1022파일 exact revert·.22 upgrade466경로 fresh 일치를 확인했다. 실제 Chromium의 본문 timeout/Stop, 대기열, claim/attach 저장 경합은 합성 공급자로 검증했다. 앱/패처 상태1625파일 백업 뒤 live466경로·JS175개·DB5·헤더 보존·operation16→16/removed0·PM2online/unstable0·새 오류0을 확인했다. plugin hostOFF와 font0.5.13을 유지했고 원래 WIP11개 hash도 같았다. 유료 호출·생성 취소·사용자 데이터 삭제·stable tag는 없으며 iPhone/CAP·기존 G1.12a 기기 gate는 통과로 계산하지 않는다. 정본은 patcher `docs/POCKETRISU-BG-CAP-ADMISSION-VALIDATION.md`다.
 
 **확인된 근거:** 실제 배포 백업의 capability 함수를 같은 조건으로 실행했을 때 계측 전 버전은 본문을 1회 읽었으나 계측 후보 .21과 현재 .22는 읽지 않고 `undefined`를 반환했다. 패처가 `return` 뒤 await 표현식만 여러 줄 주석으로 감싸 자동 세미콜론 삽입이 발생했다. 소스는 문법적으로 유효하므로 빌드 통과만으로 발견되지 않는다. 현재 소스와 반환문만 가상 교정한 비교본에서 각각 14개 격리 시험을 실행해 정상 접수·대기열 제한·접수 응답 유실 복구와 실패 분류를 확인했다. 실제 저장 계층의 동시 채택 3개 및 서버 선행 작업/접수 3개 시험도 확인했다. 이는 기기 qualification이나 전체 경합 검증이 아니다.
 
