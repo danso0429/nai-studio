@@ -14,7 +14,7 @@
 진행 기록: 2026-10-03 KST — G1.4 대기열·생성 버튼과 G1.12 종료 취소 응답을 검증·라이브 전달, 다음 구현은 G1.8 최소 알림 기반
 진행 기록: 2026-10-07 KST — G1.12a 선행 계측 후보를 라이브 전달, iPhone 측정 및 종료 결과 판정 수정은 진행 중
 진행 기록: 2026-10-08 KST — G1.12a 종료 결과 수정은 experimental.22로 전달. 사용자 지시로 BG 구현을 일시 중지하고 capability 반환 회귀와 접수 전 대기를 실측 조사한 뒤 아래 보완 계획을 추가. 구현·배포 재개 승인은 아님
-진행 기록: 2026-10-09 KST — 후속 사용자 요청으로 세부 계획 검토 뒤 CAP 전체를 구현·자동 검증·검수·push·live 전달했다. 전용 CAP 브랜치의 experimental.23/adapter0.7.30이며 G1.12b WIP는 분리·보존했다. 기기/aggregate/stable gate는 유지한다.
+진행 기록: 2026-10-09 KST — 후속 사용자 요청으로 세부 계획 검토 뒤 CAP 전체를 구현·자동 검증·검수·push·live 전달했다. 전용 CAP 브랜치의 experimental.23/adapter0.7.30이며 G1.12b WIP는 분리·보존했다. 이후 일반 사용 기기 확인의 정상 보고로 해당 CAP gate를 종료했다. 준비 Stop/raw 등 route별 기기·aggregate/stable gate는 유지한다.
 
 상태: 목표·세부 과제·완료 조건의 정본 계획이다. §6의 실측은 격리 재현과 읽기 전용 조사이며 G1 완료나 stable release를 뜻하지 않는다.
 
@@ -344,6 +344,8 @@ G1.12a와 G1.12b를 합치면 r 계획 전체이며, 계획 내용을 두 번에
 **CAP 전달 (2026-10-09):** 후속 사용자 승인으로 전용 `codex/pocketrisu-cap-admission`에서 전체 반환문·raw import/body/decode·prepared Stop·재현된 prior-marker 관찰 제한을 구현했다. experimental.23/adapter0.7.30, 구현/검증 commit6개와 packaging `dff28c5`를 push·live 전달했다. 전체 client2251/4skip·server490/12skip·compat74/5skip·patcher331, 마지막 보강3 및 타입0/0·build/load/help,42packs1395units7collisions/replan0·1022파일 exact revert·.22 upgrade466경로 fresh 일치를 확인했다. 실제 Chromium의 본문 timeout/Stop, 대기열, claim/attach 저장 경합은 합성 공급자로 검증했다. 앱/패처 상태1625파일 백업 뒤 live466경로·JS175개·DB5·헤더 보존·operation16→16/removed0·PM2online/unstable0·새 오류0을 확인했다. plugin hostOFF와 font0.5.13을 유지했고 원래 WIP11개 hash도 같았다. 유료 호출·생성 취소·사용자 데이터 삭제·stable tag는 없으며 iPhone/CAP·기존 G1.12a 기기 gate는 통과로 계산하지 않는다. 정본은 patcher `docs/POCKETRISU-BG-CAP-ADMISSION-VALIDATION.md`다.
 
 **확인된 근거:** 실제 배포 백업의 capability 함수를 같은 조건으로 실행했을 때 계측 전 버전은 본문을 1회 읽었으나 계측 후보 .21과 현재 .22는 읽지 않고 `undefined`를 반환했다. 패처가 `return` 뒤 await 표현식만 여러 줄 주석으로 감싸 자동 세미콜론 삽입이 발생했다. 소스는 문법적으로 유효하므로 빌드 통과만으로 발견되지 않는다. 현재 소스와 반환문만 가상 교정한 비교본에서 각각 14개 격리 시험을 실행해 정상 접수·대기열 제한·접수 응답 유실 복구와 실패 분류를 확인했다. 실제 저장 계층의 동시 채택 3개 및 서버 선행 작업/접수 3개 시험도 확인했다. 이는 기기 qualification이나 전체 경합 검증이 아니다.
+
+**CAP 기기 후속 확인:** 준비 단계 Stop을 화면만으로 식별하도록 요구했던 안내는 철회하고 일반 전송·답변·잔류 진행 표시·다음 전송으로 구체화했다. 사용자가 전체적으로 정상으로 보인다고 보고해 비계측 일반 사용 보존 확인을 종료했다. 실제 loaded build·준비 Stop·raw·cold/background/삭제 route의 증거는 받지 않았으므로 해당 항목이나 G1 종합/stable을 통과로 계산하지 않는다. 이번 CAP의 문서·commit/push와 L3 report 정리는 L6에서 닫는다.
 
 **별도로 재현된 대기 경계:** raw 입력 기준 채팅의 본문과 strict save를 멈추면 가상 시간 120초 뒤에도 접수 함수가 끝나지 않았다. 준비 후 위임 경로의 capability 본문도 기존 중단 신호를 관찰하지 않아, 실제 native 중단 신호 뒤 같은 시간 동안 생성 소유권을 유지하다 본문 도착 뒤에야 해제했다. 사용자 과거 증상의 발생 원인·빈도를 이 실험만으로 확정하지 않는다. raw 접수 중에는 이미 disabled spinner가 있으므로 무표시가 아니라 무기한 대기가 문제다.
 
