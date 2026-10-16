@@ -1,0 +1,276 @@
+{
+  "schemaVersion": 1,
+  "status": "preregistered-not-executed",
+  "dataOrigin": "synthetic",
+  "language": "en",
+  "rules": [
+    "Use original product ingestion/extraction; do not preseed expected memory records.",
+    "Pin source message IDs, product settings, model routes, budgets, retries and call caps before execution.",
+    "Observe raw source storage, derived memory, final model payload and final answer independently.",
+    "Place recall targets outside each configured source-protection window; record any deterministic neutral gap turns.",
+    "Exclude target source messages from the final main-model context and record exactly which source IDs remain.",
+    "A correct answer without evidence of memory delivery does not count as retrieval success.",
+    "Evaluate each edit/reroll/branch variant from a fresh independent baseline.",
+    "Keep failures and unexecuted cases; do not convert synthetic transport success to model-quality evidence.",
+    "Use the pinned official browser host for quality and mutation cases; never label direct BG registry callback invocation as actual browser Send."
+  ],
+  "cases": [
+    {
+      "id": "F1-explicit-fact",
+      "source": [
+        {
+          "id": "f1-u1",
+          "role": "user",
+          "content": "Ada put the brass key in the blue drawer."
+        },
+        {
+          "id": "f1-a1",
+          "role": "assistant",
+          "content": "Bo saw Ada close the blue drawer. Neither person moved the key afterward."
+        }
+      ],
+      "query": "Where did Ada leave the brass key?",
+      "mustRecall": [
+        "brass key",
+        "blue drawer"
+      ],
+      "mustNotAssert": [
+        "red drawer",
+        "key was moved later"
+      ]
+    },
+    {
+      "id": "F2-history-and-relationship",
+      "source": [
+        {
+          "id": "f2-u1",
+          "role": "user",
+          "content": "At the broken bridge, Bo refused Ada's request for help."
+        },
+        {
+          "id": "f2-a1",
+          "role": "assistant",
+          "content": "Three days later, Bo returned with rope and helped Ada cross. Ada thanked Bo and agreed to travel together."
+        }
+      ],
+      "query": "What changed between Ada and Bo after the bridge incident?",
+      "mustRecall": [
+        "Bo first refused help",
+        "Bo later returned with rope and helped",
+        "Ada agreed to travel together"
+      ],
+      "mustNotAssert": [
+        "Bo never helped",
+        "they were always allies",
+        "their future feelings are certain"
+      ]
+    },
+    {
+      "id": "F3-promise-and-current-state",
+      "source": [
+        {
+          "id": "f3-u1",
+          "role": "user",
+          "content": "Ada promised to deliver three sealed letters to Bo."
+        },
+        {
+          "id": "f3-a1",
+          "role": "assistant",
+          "content": "Ada delivered all three letters. Bo counted them and confirmed that the delivery promise was fulfilled."
+        }
+      ],
+      "query": "Does Ada still owe Bo any of the three letters?",
+      "mustRecall": [
+        "three letters delivered",
+        "delivery promise fulfilled"
+      ],
+      "mustNotAssert": [
+        "three letters remain pending",
+        "only one letter delivered",
+        "delivery must be repeated"
+      ]
+    },
+    {
+      "id": "F4-correction",
+      "source": [
+        {
+          "id": "f4-u1",
+          "role": "user",
+          "content": "Bo said the copper box held nine coins."
+        },
+        {
+          "id": "f4-a1",
+          "role": "assistant",
+          "content": "Bo recounted the same box and corrected the earlier count: it held six coins, not nine. No coins were added or removed."
+        }
+      ],
+      "query": "What is the corrected coin count, and why is the earlier number different?",
+      "mustRecall": [
+        "six coins",
+        "nine was an earlier counting error"
+      ],
+      "mustNotAssert": [
+        "nine is the current count",
+        "three coins were stolen",
+        "the box contains both six and nine coins now"
+      ]
+    },
+    {
+      "id": "F5-knowledge-boundary",
+      "source": [
+        {
+          "id": "f5-u1",
+          "role": "user",
+          "content": "Ada privately told Bo that the green door opens with the word river. Cy was absent and was never told."
+        },
+        {
+          "id": "f5-a1",
+          "role": "assistant",
+          "content": "Cy later arrived and asked what lay beyond the green door. Ada and Bo did not reveal the password."
+        }
+      ],
+      "perspective": "Cy",
+      "query": "As Cy, describe what you know about opening the green door.",
+      "mustRecall": [
+        "Cy has not learned how to open the door"
+      ],
+      "mustNotAssert": [
+        "Cy knows the password river",
+        "Cy heard the private conversation"
+      ],
+      "checks": [
+        "Inspect perspective-scoped injection, not only the final model's restraint.",
+        "Do not confuse narrator knowledge with Cy's knowledge."
+      ],
+      "measurement": "knowledge-boundary-preservation",
+      "featurePrerequisite": "Confirm original perspective-scoped memory support and its configuration from source and runtime first. If absent, record unsupported/not-applicable separately from recall quality."
+    },
+    {
+      "id": "F6-edit-reroll-branch",
+      "source": [
+        {
+          "id": "f6-u1",
+          "role": "user",
+          "content": "Where did Ada store the map?"
+        },
+        {
+          "id": "f6-a1",
+          "role": "assistant",
+          "generationId": "map-A",
+          "content": "Ada stored the map in the oak chest."
+        }
+      ],
+      "variants": [
+        {
+          "id": "edit",
+          "action": "Edit f6-a1 through the pinned official browser host to say pine cabinet. Wait for the original memory reconciliation path.",
+          "mustRecall": [
+            "pine cabinet"
+          ],
+          "mustNotAssert": [
+            "oak chest is current"
+          ]
+        },
+        {
+          "id": "reroll",
+          "action": "Replace f6-a1 with a canonical reroll generation map-B saying stone alcove.",
+          "mustRecall": [
+            "stone alcove"
+          ],
+          "mustNotAssert": [
+            "the inactive map-A answer is current"
+          ]
+        },
+        {
+          "id": "branch",
+          "action": "Fork before f6-a1. Commit a different branch answer generation map-C saying reed basket.",
+          "mustRecall": [
+            "reed basket in map-C branch"
+          ],
+          "mustNotAssert": [
+            "oak chest or stone alcove is the current location in map-C branch"
+          ]
+        }
+      ],
+      "query": "Where is the map in this branch's current record?",
+      "checks": [
+        "Keep canonical message/generation IDs and parent/branch relationships.",
+        "A host read failure or unsupported original reconciliation path is a recorded limitation, not a passing case."
+      ]
+    }
+  ],
+  "executionHost": {
+    "product": "official PocketRisu",
+    "version": "1.10.0",
+    "commit": "98e968339d1b3f91b9dac85bb3f2ebb5f90f9d14",
+    "mode": "isolated browser runtime with an unmodified official candidate plugin and its isolated official backend",
+    "distinction": "Not the existing-BG-host smoke. Use actual browser edit/reroll/branch controls and canonical persisted messages.",
+    "beforeContract": [
+      "Verify the official 1.10.0 browser's actual chat-listener, lorebook, MCP/channel capabilities and each candidate's original missing-capability handling.",
+      "Verify the actual native edit/reroll/branch UI and canonical identity semantics for F6.",
+      "Use fake model/embedding responses to resolve these compatibility and context-trimming preconditions before proposing paid calls."
+    ]
+  },
+  "languageAssessment": {
+    "scope": "English-only fixture. Configure product memory/output language to English and record any unsupported setting.",
+    "limitation": "No inference about Korean-language RP quality. A Korean fixture or bilingual comparison requires a separately frozen dataset before execution."
+  },
+  "adjudication": {
+    "method": "Manual semantic adjudication by the implementation reviewer against the frozen source propositions. No substring pass/fail and no paid model judge.",
+    "freeze": "Record the fully expanded fixture hash, settings, model routes and this rubric before any model call. Preserve original failures if a later dataset/rubric version is needed.",
+    "perAssertionRecord": [
+      "case/variant/arm",
+      "artifact kind and immutable hash",
+      "source message IDs",
+      "verbatim supporting or contradicting artifact excerpt",
+      "supported/partial/contradicted/unobservable",
+      "reason"
+    ],
+    "artifactChecks": {
+      "sourceStorage": "Compare canonical source message IDs and text deterministically, applying only the explicitly recorded edit/reroll/branch action.",
+      "derivedMemory": "For each mustRecall proposition, record whether the derived record supports it with the correct source/time/current-state scope. Absence before ingestion completion is not a quality result.",
+      "finalPayload": "Check memory delivered to the actual main request, including original tool expansions if enabled. Record mustRecall support and every mustNotAssert violation separately.",
+      "finalAnswer": "Assess the same propositions separately from payload delivery. A correct guessed answer or successful no-memory arm does not establish memory contribution.",
+      "knowledgeBoundary": "Assess disclosure scope and forbidden factual attribution, not a lexical demand that the memory explicitly says 'unknown'. Absence of a leak is a preservation result, not evidence of useful recall."
+    },
+    "baselines": [
+      {
+        "id": "memory-on",
+        "context": "Target evidence absent from recent main context; original memory mechanism enabled."
+      },
+      {
+        "id": "memory-off",
+        "context": "Same recent main context and model settings; use the original product/host controls to disable memory injection/tools. Record any residual marker or other unavoidable payload difference."
+      },
+      {
+        "id": "target-in-context",
+        "context": "Memory disabled; the original target evidence is deliberately present in main context as a model comprehension ceiling, never as proof of retrieval."
+      }
+    ],
+    "interpretation": "Report absolute per-arm facts, including null results. If memory-off already answers correctly, do not claim improvement from that assertion. If the target-in-context control fails, record the model/fixture comprehension limitation before blaming retrieval. No weighted score.",
+    "anonymization": "Assign random product/arm labels before inspecting artifacts and preserve their mapping separately. Record any residual identifiability from schemas or content; anonymized labels alone do not prove effective blinding.",
+    "sampling": {
+      "replicatesPerArm": 1,
+      "scope": "Initial descriptive single-sample observations only, no aggregate quality ranking.",
+      "beforeExecution": "Freeze temperature, top-p, seed where supported, sampling/stream settings and retry/fallback for all arms. Record unsupported controls. Any larger sample plan needs its own frozen N and bounded call/cost contract."
+    },
+    "rankingPolicy": "No product quality ranking from one sample or unblinded evaluation. Report source-grounded per-artifact observations and uncertainty."
+  },
+  "fillerProtocol": {
+    "purpose": "Make source targets eligible for original extraction cadence without ad hoc content or preseeded memories.",
+    "parameters": "Before execution record both products' extraction cadence in completed exchanges and protection-window values/units. Event-driven cadence is 1; unknown cadence blocks execution.",
+    "count": "Use the same filler count for both products: G = P + 2 * LCM(C_AC, C_RCM), where P is the largest configured protection window and each C is the confirmed cadence.",
+    "ids": "For each case, filler exchange i uses CASE-gap-i-u and CASE-gap-i-a, in ascending i=1..G.",
+    "userContent": "The sky above an empty courtyard is pale grey during interval {i}.",
+    "assistantContent": "A soft breeze passes through the courtyard during interval {i}.",
+    "freeze": "Materialize all G exchanges and final-context source IDs, then hash the complete per-case input before model execution.",
+    "completion": "Require original backend evidence that the target source IDs have been processed. If the original cadence/backfill/ingestion never reaches them within the agreed execution bound, report an unsettled/unsupported ingestion case, not a memory-quality score.",
+    "protectionConversion": "P must be in completed exchanges. For token/character protection, use each product's own counter/eligibility rule on the expanded source and find the minimum whole-exchange gap that excludes the target; record raw units, counts and conversion. Do not guess token/character ratios. If the original eligibility cannot be observed, this precondition is unresolved.",
+    "duplicateHandling": "Replace {i} with the actual interval ordinal before freezing. Record source IDs, original dedupe/loop handling and any collapsed exchanges; do not infer ingestion coverage from sent-message count."
+  },
+  "contextExclusion": {
+    "mechanism": "Use the pinned official browser host's native context-budget trimming, identically configured across arms, while keeping canonical source chat records intact. Do not delete source messages or replace the candidate's source snapshot.",
+    "beforeExecution": "Confirm from source and a fake-response runtime case that target originals are absent from the actual main payload while still present in the candidate's original ingestion/lookup context. Freeze settings and final source-ID lists before model calls.",
+    "unavailable": "If this mechanism cannot preserve ingestion while excluding target evidence, stop that quality case as an unresolved test precondition; do not improvise a replacement after reading outputs."
+  }
+}

@@ -1,5 +1,21 @@
 # BG Preserve 순차 목표 계획
 
+현재 선택과 다음 작업 (2026-10-15): 사용자가 **RCM 설치·BG 연동을 현재 G2 방향으로 선택**했고, AC는 **미래 후보(DEFERRED)**로 남기기로 했다. G2.1 backend 격리 설치 뒤 원본 PocketRisu 1.10의 API 노출 오류를 확인했다.
+[호스트 호환성 검토](BG-G2-HOST-COMPATIBILITY-REVIEW.md)에 G1 잔여 의존 표와 확정한 capability 수정안·격리 검증을 기록했고, 현재 다음 구현 단위는 §9.3의 G2.2a sub plan이다. 2026-10-16 사용자 진행 결정으로 §9.1의 진입 근거를 **G2.2a 한 단위에 한해** 기록했다(§9.1 「진입 근거 기록」). 진단본에서 원본 RCM 설정/보호 API 연결을 확인했으나 정식 호스트/운영 적용과 BG 기억 완주는 미완료다. G2.2~G2.5는 G2.2a 결과를 본 뒤 별도 진행 결정이 필요하다.
+자체 점수표나 유료 AC·RCM 품질 비교를 선택/설치의 선행 조건으로 두지 않는다. 아래 ‘G2.0 조사 checkpoint’·‘최신 계획 개정’·‘최신 제한 범위 L6 정리’ 문단의 당시 선택 대기·G2.0 시작점·G2 공식 AC 표현은 역사 기록이다. 이 문단들과 그 안의 이전 우선순위 선언보다 **현재 이 문단과 §9**를 우선한다. 제품 선택과 격리 시험은 운영 활성화·BG 완주·G1 잔여 면제·stable 완료를 뜻하지 않는다.
+
+G2.0 기능 노출 검증 (2026-10-15): 사용자 검증 요청에 따라 원래 호스트 A와 시험 복사본 B(listener 한 개 비노출)·C(미구현 최상위 이름 비노출)를 동일 새 fixture로 2회씩 비교했다. 각 run 10개 사례·총60개에서 반복 signature와 정리를 확인했다. B에서 AC는 input/before/after 설치와 fixture 503 요청까지 진행했고 RCM은 registerMCP 미지원으로 이동했다. C에서 RCM도 훅을 설치했으나 before_request의 API 이름 없는 hook 오류가 남았다. 첫 기능 탐지 장벽의 기여는 확인했지만 RCM의 1500ms fallback 실행이나 어느 제품의 기억 완주도 입증하지 않았다. 수정은 격리 worker 복사본의 guard 한 줄에 한정했고 원본/운영에는 적용하지 않았다. 상세는 [후보 비교 보고서 §7](BG-G2-0-CANDIDATE-COMPARISON.md#7-기능-노출을-바꾼-격리-인과-검증)이다.
+
+G2.0 조사 checkpoint (2026-10-15): [후보 비교 보고서](BG-G2-0-CANDIDATE-COMPARISON.md)에 공식 AC 4.9.0·RCM 1.0.12의 배포 무결성, 실행 배치와 초기 격리 실험을 기록했다. 현재 정본과 같은 호스트의 대조군 5개·후보별 초기화 중단 4회 재현를 실행했고, 제품 양쪽의 listener 부재 fallback은 현재 Proxy의 함수 노출 때문에 선택되지 못했고 load 중 `addRisuChatListener` 미지원으로 비활성화돼 요청 훅·backend 호출에는 도달하지 못했다. 호스트/원본을 확장하지 않았고 운영 변경·실제 모델/임베딩 호출은 없다. 0-B는 초기화 경계 확인까지이며 기억 저장/다음 턴 반영은 미실행이다. 공통 품질 사례 6개는 사전 작성만 했고 0-C 실측·0-D 사용자 선택·G2 본 구현은 미완료다. 보고서의 관측 범위와 선택 후 의존 조건을 따른다.
+
+최신 계획 개정 (2026-10-15): G2는 AC 채택을 전제로 한 구현에서 **AC·RCM 비교 → 사용자 선택 → 선택한 공식 기억 플러그인의 서버 완주**로 변경한다. 현재 다음 계획 단위는 §9의 G2.0이다. 두 제품 동시 지원, RCM 채택, 유료 비교 시험, 운영 설치·설정 변경을 확정한 것이 아니다. G1.10의 아래 제한 범위 종결과 미확인 항목은 유지한다. 날짜별 checkpoint의 당시 다음 작업·host OFF 상태·AC 확정 표현보다 이 개정과 §9를 우선한다.
+
+최신 제한 범위 L6 정리 (2026-10-15): 사용자가 MARP 전체 분석 미확인·지연 원인과 남은 실제 기기 시나리오를 별도 한계로 기록한 뒤 현재 checkpoint를 정리하도록 결정했다. 격리 실제 제공자 분석/main·실패 뒤 정상 후속·복귀 전 canonical 저장과 실제 iPhone 앱 종료 뒤 저장/정상 복귀를 각각의 관측 범위로 남긴다. 앱 전환·잠금·설정 저장·편집/대기열·중지/복구·실패·모듈 선택의 추가 기기 확인은 보류/미기록이며 스트리밍도 기존 결정대로 미기록이다. 코드8adb75f/experimental.48/adapter0.7.55·host1/commit1을 유지하고 문서/기록만 정리한다. 전체 시나리오 통과나 stable 발행을 뜻하지 않으며 G2 공식 AC는 후속 별도 목표다. 이전 OFF/기기 대기 문단은 당시 checkpoint의 기록이다.
+
+최신 UI 후속 상태 (2026-10-14): 사용자 비스트리밍 L5에서 기존 `요청 중` 카드가 대기용 표시보다 우선하는 경로를 확인했다. `2aa7ba2`/experimental.44/adapter0.7.51은 서버 중계 connecting 카드도 주문구를 `서버 처리 중`으로 표시하고, 입력창 위 일시적인 상태 조회 실패 문구를 제거했다. 서버/native/status-store는 변경하지 않고 busy unknown·기존 충돌/복구 입력을 보존했다. 준비 전송의 실제 서버 상태 중계·조회503·원형 중지·재진입/후속저장과 scoped L1~L4·source-only push·hostOFF client 전달/독립 readback을 완료했다. 이전 비스트리밍 제목 L5는 통과가 아니며 새 후보 재확인이 대기다. 사용자가 쓰지 않는 스트리밍 기기 항목은 명시적으로 미기록으로 남겼고, 자동 stream 증거를 기기 통과로 바꾸지 않는다. Whole G1.10/provider/hostON/stable은 별도다.
+
+최신 UI 전달 상태 (2026-10-13): `49522f6`/experimental.43/adapter0.7.50은 상단 `서버 처리 중`을 실제 주문구로 표시하고 중복 모델 상세를 제거했다. 준비/nonstream 카드·별도 text Stop 제거, 일반 원형 중지, 실제 streaming preview의 text Stop과 상단 대기 표시 takeover를 유지한다. L1~L4·Opus 자문·세 가지 실제 브라우저 합성 경로·graph/re-plan/exact revert·source-only push·hostOFF live build/restart와 독립 readback을 완료했다. 앞선 로컬 `73beb80` 미전달 상태는 해소됐으며 새 UI iPhone L5와 scoped L6는 대기다. Actual-provider/MARP·hostON·G1.10 aggregate/stable은 이 UI 전달로 종료하지 않는다. 상세 검증은 local private UI validation에 보존한다.
+
 작성일: 2026-09-20 KST
 개정일: 2026-09-21 KST — 별도 연결 패치와 기존 패치의 좁은 수정을 기본 접근으로 명시
 진행 기록: 2026-09-24 KST — G1 root 효과 경합 재현과 구현 순서를 반영
@@ -22,6 +38,18 @@
 
 상태: 목표·세부 과제·완료 조건의 정본 계획이다. §6의 실측은 격리 재현과 읽기 전용 조사이며 G1 완료나 stable release를 뜻하지 않는다.
 
+최신 실행 상태 (2026-10-12): G1.9의 구현·자동 검증·hostOFF 전달과 안내한 네 가지 합성 iPhone L5를 종결했다. 사용자 정상 보고와 normal-chat API200/중복행ID 없음·terminal input/operation·inactive preview를 별도 연결하고 scoped L6 기록·문서·push·완료L3 정리를 닫았다. 현재 다음 목표는 G1.10 실제 공급자/MARP·최종 조합 검증이며 hostON/stable은 미실행이다. 앞선 G1.9 자동 checkpoint의 L5 대기는 이 최신 상태로 대체한다.
+
+2026-10-13 UI 계약 개정: 사용자 요청으로 준비/nonstream의 입력창 위 이름·서버 처리 중·별도 생성 중지 표시를 제거했다. 대기 상태는 기존 상단 요청 표시를 사용하고 일반 중지는 원형 버튼을 사용한다. 명시적 텍스트 Stop은 실제 streaming 미리보기에만 남긴다. Queue 입력 초안의 Send와 원 Stop을 함께 보존하고, 기존 native/orchestrating 경로와 설정 override를 유지한다. Experimental.42/adapter0.7.49/00e5f8a 자동검증·소스 후보 전달을 완료했으며 hostOFF 라이브 build/restart/readback은 private UI 전달 기록으로 연결한다. 상단 placeholder는 native 진행 표시로 교체되고 고유 presentation id·관측 시계·작업별 중지 guard·cleanup을 사용한다. 이전 S2/S3의 별도 분석/nonstream Stop UI는 이 사용자 지침으로 대체되며 취소·원문·결과 보존 계약을 폐기하지 않는다. 실제 공급자·ON·새 UI iPhone·전체 G1.10·stable은 별도 gate다.
+
+G1.10 S2/S3 checkpoint (2026-10-12): 실제 UI와 원본 MARP를 연결한 편집/N+1, 분석·stream/nonstream 중지, A의 중지 응답을 B main 이후까지 지연한 경합을 검증했다. 준비 단계 중지 버튼 누락을 experimental.41/adapter0.7.48로 수정하고 hostOFF live apply/build/restart·독립 readback까지 전달했다. Source505/servedJS175/DB5·online/unstable0/active0/newerror0·기존operation132보존, 인증host0/commit1을 확인했다. 원격에는 내부 계획·원시 기록을 제외한 소스 전용 후보 branch만 발행했다. ModuleId가 연결된 v2 input helper→독립preset→MARP/main·canonical scriptstate와 부재/복귀/후속 전송을 연결했고, 격리 분석/main restart는 원문·before_result 알림/ACK·재실행0과 unknown fence 유지/같은채팅재전송 차단을 확인했다. 원본 PageFold CAS·settlement는 별도 사례에서 경쟁 통계2/정확답변·부재 중 경고·복귀 표시/ACK·재표시0·후속 통계3과 PDF의 모든 분석 tuple을 검증했다. 초기 fixture/결합oracle/PDF공백 실패는 제외해 보존하며 최종 증명 단언 보강과 자문을 해당 validation에 연결한다. 실제provider·운영ready·hostON·iPhone aggregate·stable은 미완료다. 최신 실행 정본은 로컬 patcher G1.10 PLAN/VALIDATION의 S2/S3이며 내부 문서는 공개하지 않는다.
+
+G1.10 착수 기록 (2026-10-12): G1.9 `3740c66`과 원격 일치를 확인하고 별도 `codex/pocketrisu-g110-qualification` worktree를 분리했다. Runtime/installer는 앞선 자동 gate `afc5346`과 같고 문서4경로만 달라 기존수치는 같은소스의 이전관찰로 연결한다. 현재 패처52/0, candidate/live504파일 byte/mode 일치, 원본플러그인 합성 조합10프로필·종료tasks0, fullgraph42packs/1636units/8collisions/506paths·replan0·1022파일 byte/mode/link/path exactrevert를 확인했다. Opus 계획자문과 현재owner 판독으로 M7의 옛pendingbaseline을 G1.8 이후 applied-target-absent 분류로 대체해야 함을 확인했다. Read-only commit진단은 durable쓰기0이나 inputowner대체·현재hydration한계가 있어 ON 준비완료로 계산하지 않는다. 다음실행은 원본MARP+nativepreset stream의 실제Send→browser종료→복귀전normalAPI저장 통합사례이며 module/queue/edit/Stop·원본provider경고·실제공급자조건·단계적ON·D1~D8/L6은 미검증이다. 정본은 patcher `docs/POCKETRISU-G1-10-QUALIFICATION-PLAN.md`·`...-VALIDATION.md`다.
+
+G1.10 S1 종결 (2026-10-12): 원본MARP+nativepreset stream의 실제UI Send를 격리합성 환경에서 실행했다. 분석보류·main미리보기 중 ownedChromium SIGKILL을 각각확인하고 복귀전 normal-chat API의 입력1/정확답변1·행ID/revision, 복귀뒤 값/행/revision·호출수보존과 다음Send를 연결했다. 저장된설정의 모델multiset과 operation별분석ID가 main주입까지 일치하며 다음Send뒤 기존두행도정확히같다. 두종료사례는각6analysis/2main, agent하나OFF4/2·MARP OFF0/2, classic closed1main/healthy-next2main·pageerror0/취소0, 패처52/0·syntax/diffcheck·최종slice task0을확인했다. Opus 계획/최종/delta자문과 L3/L4를 닫고 진단코드 `8b072b5`를로컬commit했다. Product/installer/version/live/actual-provider/ON은변경하지않았고 raw기록은local private에보존한다. 앞선public문서push거절은재시도하지않는다. 다음은step3 edit/queue·분석/main Stop·module·격리restart·원본provider경고통합이며 실제공급자/운영ready/iPhone/전체G1.10/stable은미검증이다. 정본은같은G1.10 PLAN/VALIDATION의최신S1절이다.
+
+G1.9 구현·자동 검증·hostOFF 전달 checkpoint (2026-10-12): experimental.40/adapter0.7.47에서 현재 서버 답변의 읽기 전용 서식 미리보기와 명시적 현재 작업 중지를 구현했다. 미리보기에는 공통 Markdown/HTML/생각 접기만 적용하고 editdisplay regex/Lua/plugin은 실행하지 않기로 사용자 결정했다. Native frame/OpenAI·Google stream promise, 첫 다음 전송의 확정 저장 retry, 취소 입력의 canonical proof 정산을 별도 수정했다. Frontend2396/기존skip4·server643/기존skip12·patcher52·Svelte0/0, native Gemini/Vertex 합성 실패/중지/다음전송, replan0/1022파일 byte·mode exact revert와 HTTPS 진행/종료복귀 전 저장을 확인했다. Source504/served JS175/DB5/auth200/host0·online/unstable0/active0/newerror0, 기존journal203·operation103 보존으로 실제 전달·독립 readback을 종결했다. G1.9 iPhone L5는 대기이며 실제provider/MARP·G1.10 aggregate·hostON/stable은 별도다. 상세 정본: patcher `docs/POCKETRISU-G1-9-STREAM-RELAY-PLAN.md`, `docs/POCKETRISU-G1-9-STREAM-RELAY-VALIDATION.md`.
+
 ## 1. 목표
 
 사용자가 PocketRisu에서 요청을 한 번 보내면, 서버가 **전처리 → ax·main 등 필요한 모델 요청을 정해진 순서대로 → 후처리 → 해당 채팅에 결과 저장**까지 브라우저 없이 수행한다. 앱이 열려 있든, 백그라운드에 있든, 종료됐든 같은 경로로 실행한다.
@@ -32,9 +60,11 @@
 
 1. **G1.0 — 기존 전체 위임 회귀 복구:** G1 후보 적용 뒤 거절되기 시작한 기존 서버 전체 위임 경로를 복구한다. 다른 목표보다 먼저 수행한다.
 2. **G1 — 서버 요청 터널과 첫 사례(MARP):** 서버 플러그인 호스트로 BG preserve가 받을 수 있는 요청의 종류를 넓힌다. preset, module binding, 브라우저 플러그인 훅(MARP)이 있는 요청을 서버가 끝까지 처리한다. 채팅 저장 방식을 anchor 추가 저장으로 바꿔 대기 중 편집과 공존한다.
-3. **G2 — Archive Center를 터널의 두 번째 사례로:** 공식 AC 원본을 수정하지 않고 같은 서버 플러그인 호스트에서 실행해, AC를 설치해도 BG preserve가 유지되고 AC의 기억 준비·출력 처리·기억 저장까지 서버에서 이어지게 한다.
+3. **G2 — 공식 RCM 설치와 서버 완주:** 사용자가 선택한 Risu Cognitive Memory(RCM)의 공식 backend와 JS를 도입하고, 원본 수정 없이 BG 서버에서 기억 준비·주입·출력 처리·기억 저장·다음 턴 반영까지 이어지게 한다. 설치 확인과 BG 지원 검증은 별도 결과다. Archive Center(AC)는 §9.6의 미래 후보로 보존하며 현재 G2의 동시 구현·설치 대상은 아니다.
 
 다음 목표의 본 구현은 앞 목표의 완료 조건을 충족한 뒤 시작한다. 현재 목표의 설계 판단에 필요한 후속 목표의 읽기 전용 조사와 격리 실측은 금지하지 않는다. 후속 목표의 실패나 보류가 이미 완료된 앞 목표를 미완료로 되돌리지 않는다. 단, 후속 검증에서 앞 목표의 실제 결함이 발견되면 해당 결함과 영향 범위를 별도로 수정·재검증한다.
+
+G1.10은 전체 기기 시나리오 통과가 아닌 제한 범위 checkpoint 종결이다. RCM 선택 뒤에는 §9.1의 예비 조사로 G2.1의 데이터 없는 격리 설치·기동 확인과 실행 계획 작성을 진행할 수 있다. 이는 G1 잔여의 완료나 통합 본 구현의 선행 조건 해제를 뜻하지 않는다. G2.2 이후 통합 본 구현 진입 전에 G1 잔여와 RCM 경로의 의존 관계를 표로 남기고, 기존 완료 조건 충족 또는 남은 항목을 명시한 사용자의 진행 결정으로 진입 근거를 기록한다. 예비 조사를 위해 보류 항목 전부를 먼저 재시험하지 않으며, 보류를 통과로 바꾸지도 않는다.
 
 ## 2. 확정된 사용자 결정
 
@@ -56,13 +86,13 @@
 | 스트리밍 | 스트리밍을 사용하는 설정이면 서버가 받는 스트림을 앱이 실시간으로 볼 수 있게 한다. 스트리밍을 쓰지 않으면 완료 후 표시한다. |
 | 외부 요청 헤더 규칙 | 플러그인을 수정하지 않고, 사용자가 명시적으로 켠 목적지별 헤더 규칙을 PocketRisu 서버의 외부 요청 경로에 둔다(G1.11). 첫 용도는 MARP 분석 공급자가 요구하는 대화별 세션 헤더다. 공급자 이용 조건 적합성은 사용자가 판단해 이 방식을 선택했다. |
 | 제외 범위 | TTS, 감정 이미지, 이미지 생성은 이번 범위에서 제외하고 필요할 때 설계한다. |
-| AC | 같은 터널의 두 번째 사례로 둔다. 방식은 §9의 격리 실측 뒤 확정한다. |
+| 기억 플러그인 선택 | 2026-10-15 현재 결정: RCM 설치·BG 연동을 진행 방향으로 선택했다. 1:1 또는 1:2~3 소규모 세계관 대화의 기능·운영 적합성을 근거로 선택하며 인원수에 따른 정확도 우위나 미검증 경로의 수용을 선언하지 않는다. 재선택을 요구하지 않고 G2.1로 이어간다. AC는 §9.6의 미래 후보로 보존한다. |
 
 ## 3. 요청 터널 모델
 
 ### 정의
 
-서버 실행은 PocketRisu의 `sendChat`을 서버 번들로 실행한다. 브라우저가 부팅 시 등록한 `beforeRequest`/`afterRequest` 훅, 입력 처리 훅, body 가로채기, plugin provider는 서버 번들에 자동으로 전달되지 않는다. 기존 경로는 이 차이를 검사하지 않아 플러그인 효과가 조용히 빠질 수 있었다. G1.6은 이를 담당할 공통 서버 호스트 기반을 구현·전달했지만 기본 OFF이며, 원본 MARP와 실제 요청 경로의 qualification은 G1.7/G1.5b에 남아 있다.
+서버 실행은 PocketRisu의 `sendChat`을 서버 번들로 실행한다. 브라우저가 부팅 시 등록한 `beforeRequest`/`afterRequest` 훅, 입력 처리 훅, body 가로채기, plugin provider는 서버 번들에 자동으로 전달되지 않는다. 기존 경로는 이 차이를 검사하지 않아 플러그인 효과가 조용히 빠질 수 있었다. G1.6은 이를 담당할 공통 서버 호스트 기반을 구현·전달했다. 최초 전달은 기본 OFF였으며, 2026-10-15 G1.10 종결 기록에서는 host ON·server chat commit ON이다. 이 운영 관찰을 임의 플러그인 지원이나 G1 전체 검증 통과로 해석하지 않는다.
 
 **터널**은 서버가 브라우저와 같은 의미로 처리할 수 있는 요청의 범위다. 터널의 폭은 다음 두 가지로 정해진다.
 
@@ -106,17 +136,17 @@
    | UI (`showContainer`, `registerButton`, `registerSetting`, `getRootDocument` 등) | 서버에서 효과 없음 |
 
 4. **결과 영향 판정:** 결과는 ① 모델에 보내는 요청 내용, ② 채팅에 저장되는 본문·metadata·변수, ③ 플러그인이나 외부가 보관하는 상태다. 같은 입력을 브라우저와 서버 호스트에서 실행해 훅 출력과 ③의 변화를 비교한다. 차이가 있으면 원인 API의 의미를 고치거나, 그 조합을 알림 대상 실패로 분류한다.
-5. **실패 규칙 적용:** 호스트가 확인한 로드·권한·API·자원·훅 실패는 알림으로 남기고 기존 변환 체인의 값을 보존한다. 모델 자체를 제공하는 provider 실패는 모델 요청 실패와 native 재시도/fallback 경로로 처리하며 모델 효과만 빼고 성공을 꾸미지 않는다. 이미 수행한 외부 요청·저장소 변경은 rollback됐다고 간주하지 않고 client 재실행으로 중복하지 않는다. 플러그인 내부에서 흡수한 의미적 실패와 관찰 가능한 transport 오류는 분리해 지원표에 한계를 적는다.
+5. **실패 규칙 적용:** 호스트가 확인한 로드·권한·API·자원·훅 실패는 알림으로 남기고 기존 변환 체인의 값을 보존한다. 모델 자체를 제공하는 provider 실패는 모델 요청 실패와 native 재시도/fallback 경로로 처리하며 모델 효과만 빼고 성공을 꾸미지 않는다. 이미 수행한 외부 요청·저장소 변경은 rollback됐다고 간주하지 않고 client 재실행으로 중복하지 않는다. 플러그인 내부에서 흡수한 의미적 실패와 관찰 가능한 transport 오류는 분리해 지원표에 한계를 적는다. 기억 플러그인의 의도적인 요청 차단은 일반 훅 고장과 구분해 G2.2에서 신호·호출자 처리를 정의한다. 구분하지 못하는 경우 알림 후 진행이나 전체 차단을 임의로 고르지 않고, G2.4의 사용자 결과 결정 전까지 해당 조합을 미지원으로 기록한다. 이 문장은 현재 runtime 동작을 변경했다는 뜻이 아니다.
 6. **보안 검토:** 격리 권한, 비밀값의 전달 범위, 로그에 남는 내용을 확인한다. 비밀값과 프롬프트 본문은 공개 검증 자료에 싣지 않는다.
 7. **기록:** 지원표에 플러그인·버전·참여 방식·사용 API·결과 영향 판정·실패 규칙·검증 증거를 추가한다.
 
 ## 5. 공통 경계
 
 - BG의 작업·입력·채팅·효과 저장 소유자는 PocketRisu다. 플러그인의 내부 정책과 외부 저장소 소유자는 각 플러그인이다.
-- 공식 AC와 MARP 원본은 수정하지 않는다. 실행 시 스크립트 재작성, 이름을 바꾼 수정본, 검사 우회를 원본 호환으로 계산하지 않는다.
+- 공식 MARP 및 G2 비교·선택 대상인 AC·RCM 원본은 수정하지 않는다. 실행 시 스크립트 재작성, 이름을 바꾼 수정본, 검사 우회를 원본 호환으로 계산하지 않는다.
 - 임의 플러그인을 서버에서 실행하는 것은 격리 프로세스와 §4 절차를 통과한 범위에서만 허용한다. 격리 없는 동일 프로세스 실행이나 일반 권한 우회로 대체하지 않는다.
 - 실제 요청의 ax·main·후처리마다 최종 binding·provider·플러그인 훅과 실행 위치를 판정한다. DB에 저장된 전역 모델 ID나 기능 토글만으로 판정하지 않는다.
-- 서버에서 처리할 수 없는 요청의 확인된 제약은 유료 실행 전에 알린다. 플러그인 로드 중에도 외부 효과가 생길 수 있으므로 로드가 main보다 앞이라는 사실만으로 무과금 preflight라고 간주하지 않는다. 서버가 인수한 뒤 조용한 client fallback·후처리 생략·호스트가 추가한 중복 실행을 허용하지 않는다. 호스트가 확인한 플러그인 비활성화·실패는 알림으로 드러내며, 내부에서 흡수한 분석 실패·빈 결과를 모두 감지한다는 보장은 하지 않는다. 실제 누락 관찰과 진단 결정은 §8에 따른다.
+- 서버에서 처리할 수 없는 요청의 확인된 제약은 유료 실행 전에 알린다. 플러그인 로드 중에도 외부 효과가 생길 수 있으므로 로드가 main보다 앞이라는 사실만으로 무과금 preflight라고 간주하지 않는다. 서버가 인수한 뒤 조용한 client fallback·후처리 생략·호스트가 추가한 중복 실행을 허용하지 않는다. 호스트가 확인한 플러그인 비활성화·실패는 알림으로 드러내며, 내부에서 흡수한 분석 실패·빈 결과를 모두 감지한다는 보장은 하지 않는다. MARP의 실제 누락 관찰과 진단 결정은 §8, 기억 플러그인은 §9의 G2.2·G2.4에 따른다.
 - native `requestRetrys`와 fallback이 원래 호출하는 플러그인 분석은 보존한다. 재시도 때 원본 MARP가 분석을 다시 수행하거나 이전 주입을 제거하는 동작을 호스트 추가 중복과 구분하고, 분석 모델·main 모델·OAuth 등의 네트워크 호출을 별도로 센다.
 - 호스트는 플러그인이 만든 요청의 URL·본문·헤더를 바꾸지 않는다. 예외는 사용자가 목적지를 지정해 명시적으로 켠 외부 요청 헤더 규칙(G1.11)뿐이며, 이미 있는 같은 이름의 헤더는 덮어쓰지 않는다.
 - 기존 정상 기능·사용자 설정·custom endpoint·로컬 모델 경로를 보존한다.
@@ -297,8 +327,8 @@ G1.5a의 첫 구현 단위는 실제 dispatcher와 사전 판정의 명시 DB �
 | 하위 계획 | L1~L4에서 연결할 검증 | L5~L6에서 닫을 결과 |
 |---|---|---|
 | M7/G1.5b 설치 조합·접수·활성화 조건 | 현재 원본/순서/권한과 실제 등록 역할, UI-only와 초기화 효과, 브라우저·서버 중복 참여, raw/prepared/명시적 입력 복구, main/sub/aux/fallback의 실제 선택, identity 변경·provider 누락/충돌·재실행 방지·원문 보존·알림을 격리 ON과 OFF에서 확인한다. 구형 bundle, 재시작을 통한 OFF 복귀와 대기 작업, 여러 채팅의 동시 자원/정리도 지원할 조합에 연결한다. | 안전 전달 뒤 실제 기기에서 바뀐 접수·누락 안내·입력 보존을 확인한다. 이미 확인된 일반 사용을 MARP 서버 실행으로 확대하지 않는다. 활성화 조건과 실제 ON·공급자 확인은 구분해 기록하며 stable은 해당 L5 뒤 L6에서만 판단한다. 세부 실행은 patcher MARP qualification plan의 M7 하위 계획을 따른다. |
-| G1.8 실패·재시도·알림 | experimental.35/adapter0.7.42에서 자동 검증·Opus 검토·push·OFF 전달을 완료했다. native retry/fallback/failure→healthy, input/분석/main/queued loss, durable v3 알림과 source/ACK/TTL·result eviction·partial/commit/state-write fault, absent-target과 새49h journal retirement를 연결했다. Source555/12기존skip·patcher331·client9·types0/0·graph/re-plan/exact revert·live486/175JS/DB5를 확인했고 기존152journal 바이트·동일13absent receipt를 보호했다. 정본은 patcher `docs/POCKETRISU-G1-8-FAILURE-LIFECYCLE-VALIDATION.md`다. | 2026-10-11 사용자가 공개된 시험용 v3 알림의 iPhone 첫 표시와 종료·재실행 뒤 재표시 없음을 확인했고 동일 행의 서버 ACK를 대조했다. 카드 입력 창은 잘못된 시험 경로라 통과에서 제외했다. 구현·자동 검증·OFF 전달과 기기 알림 전달 범위를 종결한다. 실제 실패 producer·원문 보존·다음 정상 전송·생성 중 OS suspend는 이 시험으로 확인하지 않았으며 G1.10 종합 경계에 남긴다. 실제 provider·G1.9 스트림·ON/stable도 별도다. |
-| G1.9 스트리밍 | 서버 스트림→앱 중계→취소/끊김→완료 저장→재접속의 소유권을 확인한다. 실제 Lua caller의 늦은 stream 실패와 input latch, 정리 뒤 다음 정상 호출을 함께 검증한다. M7의 지원 조합에서 필요한 기본 stream 실패·효과 보존은 활성화 조건에 포함한다. | 전면 표시, 숨김/잠금/종료와 복귀, 비스트리밍 설정 보존을 확인하고 관찰된 경로를 L6에 기록한다. |
+| G1.8 실패·재시도·알림 | experimental.39/adapter0.7.46, 구현 `1df5fe1`·전달 `572606d` 기준으로 실패/재시도/v3 알림·복구·R1통계/R2exactACK/R3수정안내/R4publication보존과 완료답변 뒤 uncertain 표식 정산을 검증·push·OFF 전달했다. Fullclient2365/기존skip4·type0/0·patcher332·build/BGload·graph/replan/exactrevert, 서버108파일동일에 한정한 기존630/12skip 재사용, live493/JS175/DB5·작업70보존/제거0·hostOFF/새error0을 확인했다. 정본은 patcher lifecycle validation과 verification record §§13–18이다. | 2026-10-12 scoped 잔여 기기 확인을 종결했다. 알림 실제 표시·차단편집 유지/복구·다른채팅 정상저장·다음Send를 확인했고, 자연접수 R7에서 홈 보고 뒤 provider0/commit0→해제→복귀 전 normalAPI 입력1/답변1/기존편집/provider1→사용자 정상복귀·completed/delivered/ACK를 연결했다. 새bg-input오류0이며 Hub오류는 격리외부차단으로 분류했다. 인위접수지연/초기fixture/표시미확인 등 옛제한은 해당관찰에 유지한다. 별도stage1·서버도달전전송·내부OS suspension·noncommitted unknown·실제provider/MARP·G1.9 stream·G1.10 aggregate/ON/stable은 이 scope의 통과로 확대하지 않는다. |
+| G1.9 스트리밍 | experimental.40/adapter0.7.47에서 read-only 서식 미리보기·명시적 현재 작업 중지·canonical 저장/복귀 소유권을 구현·검증·hostOFF 전달했다. Native frame/OpenAI·Google promise, 확정 저장 retry와 cancelled-input proof를 보강했다. Frontend2396/기존skip4·server643/기존skip12·patcher52·Svelte0/0, Lua 늦은 stream/input latch·Gemini/Vertex 합성 실패/중지/다음전송, 비스트리밍 보존·1022 exact revert·live504/JS175/DB5/auth200/newerror0이 정본 validation에 연결된다. | 2026-10-12 안내한 공통 서식/생각 접기·중지 후 한번 전송·합성 실패 후 한번 전송·부재/복귀 네 항목의 iPhone 정상 보고로 scoped L5를 닫았다. Normal-chat API200/행ID중복0·terminal operation/input·inactive preview를 읽기 전용 대조했다. Aggregate 행수는 이전 자동시험 포함이며 조작별 시간이나 내부OS suspension으로 확대하지 않는다. L6 문서·JOURNAL·sweep·push와 완료L3 정리를 닫으며 실제provider/MARP·G1.10 최종조합/hostON/stable은 별도다. |
 | G1.10 실제 공급자·기기·종합 | 앞 단계의 자동 증거와 미검증 항목을 최종 source/installer 조합에 연결한다. 합성 검증 뒤 승인된 조건·횟수의 실제 공급자 분석과 주입·저장을 확인한다. 실제 브라우저 종료 뒤 복귀 전 normal-chat API의 본문/revision을 확인한다. | MARP D1~D8, preset/module, 편집·대기열·취소·cold return·알림의 실제 기기 결과를 연결한다. 단계적 ON의 적용/복귀 상태와 한계를 기록한다. 기능별 L5 결과가 남아 있으면 aggregate/stable 완료로 계산하지 않는다. L6에서 문서·버전·sweep·발행 뒤 readback을 닫는다. |
 
 **G1.8 현재 재검증 gate (2026-10-11):** 위 G1.8 행의 종결은 기존 자동/전달 및 시험용 알림의 표시 범위다. 사용자 요청에 따라 실제 실패 lifecycle의 기기 재검증은 이번 G1.8 L5에서 미완료 gate로 관리한다. 정본은 patcher `docs/POCKETRISU-G1-8-FAILURE-LIFECYCLE-PLAN.md`의 「G1.8 재검증 계획」이다. 자동으로 실제 UI Send 실패→부재→복귀 알림→같은 채팅 UI Send 정상 답변을 먼저 연결한 뒤, iPhone 전면·홈 이동/잠금 복귀·앱 종료/재실행을 각각 확인한다. 실제 설치 접수 판정·server 인수 화면 신호·fallback 목적지·예상 알림 목록을 준비하며 아직 실행/통과/기기 준비 완료를 뜻하지 않는다. 생성 중 수정 미반영 알림은 별도 D/G1.3 결과로 연결한다. G1.10에는 이 결과와 남은 실제 공급자/최종 조합 항목을 명시적으로 연결하고 재확인한다. 이번 기기 미실행 항목을 G1.10으로 단순 이월하거나 시험용 알림으로 통과 처리하지 않는다. 내부 OS suspension은 관찰 채널 없이 단정하지 않는다.
@@ -310,6 +340,12 @@ G1.5a의 첫 구현 단위는 실제 dispatcher와 사전 판정의 명시 DB �
 **G1.8 최신 잔여 구현 상태 (2026-10-11):** 위 문단은 .36 당시 기록이다. 이후 A/B/C 기기 관찰을 verification record §§11–12에 연결했다. B/C의 실패 입력 정산·다음 정상 답변/통계 저장과 C 초록 단계 종료·복귀·추가 재접속의 동일 알림 재표시 부재를 확인했다. A의 초기 통계 fixture와 C 추가 요청 출처 제한은 유지한다. 사용자 지시로 .37/adapter0.7.44에서 통계 precondition·client model fallback 차단, exact 실패 ACK의 V4/V5 보존과 의도적 원문 삭제 뒤 다음 입력, anchored 수정 미반영 알림 producer를 구현했다. 서버612pass/기존skip12·frontend2325pass/기존skip4·type0/0·패처52entries, 실제 UI 편집/무편집·재접속·다음 Send와 ACK 유실/원문 삭제, graph42packs/1569units/490paths/8collisions/replan0/1022byte-mode revert를 확인했다. 즉시 수정 안내와 서버 보관 안내는 전면에서 각각1회, 재접속에서 둘 다0회로 별도 계수한다. OFF 전달/readback과 D/G1.3 기기 결과는 별도 경계다. committed publication 대기 중 target-chat 쓰기 보호는 설계 대안 승인 대기이며 아직 구현하지 않았다. 전체 G1.8·파란/초록 단계 정상 부재 완주·실제 provider/MARP·stream·hostON/stable은 미완료다. 상세 정본은 verification record §13과 lifecycle PLAN의 remaining implementation units다. 다음 목표 순서는 G1.8 잔여·G1.9 → G1.10 → G2를 유지한다.
 
 **G1.8 D 종결·복구 잔여 갱신 (2026-10-11):** scoped iPhone D/G1.3은 조립 후 편집·두 수정 안내·재접속 재표시 없음·편집/답변 보존·다음 Send와 무편집 안내 부재까지 사용자 관찰·서버 기록을 연결했다. 결과/README/CHANGELOG·문서 push와 해당 L3 정리로 scoped L6을 닫았다. 이후 남은 publication 질문은 실제 생성 서버의 유효 build header·HTTP 저장·DB 영속·재시작으로 검증했다. 이미 기록된 답변의 canonical 반영이 실패한 동안 정상200 저장한 늦은 편집이 재시작 후 덮였고, 같은 상태에서 정상200 삭제한 합성 채팅도 재시작 후 복원됐다. 이미 반영한 대조는 편집/삭제를 보존했다. 답변1·통계11·영수증 byte·합성provider1은 동일하므로 모델 재실행 문제가 아니다. 실제 운영 고장 빈도와 stalled-startup은 미측정이며, 일반 crash는 listen 전에 복구하므로 같은 노출로 주장하지 않는다. 수정안은 영향을 받는 저장 접수 전에 기존 답변 publication·input 정산을 먼저 복구하고, 성공하면 기존 CAS/rebase로 편집을 보존하며, 실패하면 기기 미저장 편집을 유지하는 명확한 저장 차단 상태를 반환하는 방식이다. Target/parent 삭제·metadata·root CAS·관련 effects와 다른 채팅/무관 설정/유효 통계 복구 보존을 함께 검증한다. 앞선 비교 guard 실패 뒤의 구조 대안이므로 사용자 승인 전 구현하지 않는다. 전체 G1.8은 이 잔여가 열려 있고, G1.9→G1.10→G2 순서는 유지한다. 정본: patcher verification record §§14–15; 별도 저장소 main의 문서 게시 승인도 대기다.
+
+**G1.8 R4 전달·기기 결과 갱신 (2026-10-11):** 사용자의 1번 선택으로 앞 절의 recover-before-write 대안을 승인받아 experimental.38/adapter0.7.45/lazy-sync0.5.8에 구현하고 후보 브랜치에 push·OFF 전달했다. 실제 HTTP/restart22개와 lookup 장애4route, 같은 캐릭터의 차단 채팅 편집·다른 채팅 생성/ACK·복구 후 저장, hydration 중 편집 누락과 현재 배열 교체를 재현·수정했다. 최종 frontend2341/기존skip4·focused82/기존skip4·type0/0·server630/기존skip12의 source 동일성·patcher332·graph/re-plan/exact revert와 live493/JS175/DB5·journal167보존·hostOFF를 기록했다. iPhone에서는 저장 차단 중 수정이 화면 전환 뒤 유지되고, 다른 채팅 답변이 저장되며, 차단 해제 후 수정3과 각 답변1개가 서버 저장·새로고침 뒤 보존되는 것을 사용자 보고와 서버 기록으로 연결했다. 차단 안내 호출 기록은1회지만 실제 화면 표시를 사용자가 놓쳤을 수 있어 물리적 표시 항목은 미확인으로 남긴다. scoped R4 유지/복구 L5와 L6을 닫되 정상 생성의 파란/초록 단계 부재 기기 경로, 실제 provider/MARP·G1.9 stream·전체G1·hostON/stable은 통과로 확대하지 않는다. 앞 절의 설계 승인 대기·미구현 상태는 이 기록으로 대체하며 정본은 patcher 검증 과정·결과 §16이다. 이 별도 저장소 main의 문서 게시 승인 경계는 유지한다.
+
+**G1.8 접수 미확인 후 정산 수정 (2026-10-11):** 후속 iPhone에서 저장 차단 알림 실제 표시·복구 저장·새로고침을 확인했다. 홈 이동 뒤에도 provider0/commit0으로 대기한 실제 요청을 그다음 해제하고 복귀 전 normal-chat API에서 입력1/답변1/기존편집/provider1을 확인했다. 고의 접수 응답 지연은60s 재조정/10s attempt 조건에서 제출69s 뒤 unknown 안내를 만들었으며 오류 없는 자연 응답 대조로 계산하지 않는다. 이후 다음 Send가 거절돼, 이미 저장된 답변의 uncertain 표식이 기존 accepted-only 정산에서 빠진 결함을 source/실제UI/실패 회귀2개로 재현했다. `1df5fe1` / experimental.39 / adapter0.7.46에서 exact chat-committed receipt·좌표·60+10s grace/current/idle/재독으로 상태만accepted에 넘기고 기존 채팅 확인·ACK가 정산하도록 수정·push했다. Full client2365/기존skip4·type0/0·frontend/BG build/load·patcher332·graph/replan/exactrevert, 실제 새 Send와 ACK 뒤 same-input409/추가provider0을 확인했다. 최종 Opus 검수 뒤 safe OFF 전달과 자연 응답 기기 확인을 이어간다. Unknown/진행중 요청의 무조건 삭제·모델 재실행·새 tombstone은 추가하지 않았고 broader stage1/pre-admission/OS suspension·provider/MARP/stream/ON/stable은 별도다. 상세 정본은 patcher 검증 과정·결과 §18이다.
+
+**G1.8 잔여 기기 종결 (2026-10-12):** 수정된 시험 앱에서 사용자가 R7 정상 입력을 한 번 접수하고 입력창이 비워진 뒤 홈 이동을 보고했다. 그 보고 후 exact operation provider0/commit0·접수응답보류0을 확인하고 그다음 공급자를 해제했다. 복귀 전 정상 채팅 API200으로 입력1/답변1/기존편집/provider1을 확인했다. 사용자는 복귀정상을 보고했고 inputcompleted·operationdelivered·resultACK완료, 새bg-input오류0을 대조했다. 표시된 Hub Proxy 기록은 명시적 synthetic outbound denial이며 원문/로그를 지우지 않고 부수 시험오류로 분류했다. Scoped G1.8 잔여의 L5·L6을 닫고 기존 성공/실패/단계 한계는 각각 보존한다. 다음 계획 항목은 G1.9 스트리밍이며 G1.10 실제 공급자/MARP·종합 조합·ON/stable은 별도다. 상세 정본은 patcher 검증 과정·결과 §18 및 lifecycle validation의 최신종결이다.
 
 ### G1.11 외부 요청 헤더 규칙 상세
 
@@ -456,48 +492,180 @@ CAP-2의 raw binary와 prepared capability/중단 연결은 별도 commit으로 
 2. preset 주 모델, 적용된 module binding, MARP가 켜진 조합에서 서버가 순서대로 완료한다. classic 모델의 격리 통과만으로 완료하지 않는다.
 3. 대기 중 앞쪽 메시지·캐릭터·로어북 수정이 conflict 사본을 만들지 않고, 조립 전 수정은 결과에 반영되며 조립 후 수정은 알림으로 드러난다.
 4. 서버에서 처리할 수 없는 확인된 조합, 호스트가 관찰한 플러그인 실패·비활성화와 최종 실패가 알림으로 드러나고, 호스트가 추가한 조용한 누락·중복 유료 실행이 없다. 플러그인 내부의 의미적 실패와 진단 이력 차이는 M5에서 관찰·지원 범위 및 필요한 결정을 기록한다. native retry/fallback의 원래 분석 호출을 중복 결함으로 잘못 제거하지 않는다.
-5. 기존 지원 기능의 회귀 검증과 실제 기기 확인을 마치고, AC 없이 독립적으로 전달할 수 있다.
+5. 기존 지원 기능의 회귀 검증과 실제 기기 확인을 마치고, G2의 기억 플러그인 없이 독립적으로 전달할 수 있다.
 
 H1과 이전 G1 격리 후보는 재사용 증거다. 이들의 통과나 capability 값 변경만으로 G1 완료를 선언하지 않는다.
 
-## 9. G2 — Archive Center를 터널의 두 번째 사례로
+## 9. G2 — 공식 RCM 설치와 서버 완주
 
-### 사용자 결과
+### 9.1 배경·용어·현재 진입점
 
-G1을 적용한 PocketRisu에 공식 AC를 설치해도 BG preserve가 유지된다. 보낸 요청은 서버에서 AC의 입력 처리, 기억 준비, 요청 반영, 출력 처리, 기억 저장까지 이어진다. AC 원본은 수정하지 않는다.
+**2026-10-15 G2.1 실행 상태:** 공식 RCM 1.0.13 backend를 ARM64/Node 25.9.0에 격리 설치해 native SQLite/vec·인증/API revision·재시작·빈 DB 백업/복원을 확인했다. 공식 PocketRisu 1.10.0의 정상 UI로 원본 JS를 설치했으나 `addRisuChatListener`의 기능 탐지와 실제 API 지원 불일치로 초기화가 중단됐다. G2.1은 부분 완료이며 브라우저 연결·G2 통합은 미완료다. 기준선, 재현 원인, 증거, 남은 순서는 [G2.1 검증 기록](BG-G2-1-RCM-INSTALL-VALIDATION.md)을 따른다. 앞선 1.0.12 비교 결과는 당시 버전의 기록으로 보존한다.
 
-실패 관찰 범위는 §4·§5를 따른다. backend ledger 등으로 확인 가능한 원문·기억 저장 누락과 실행 실패의 검증·알림 계약은 유지하고, AC 내부에서 흡수한 의미적 실패나 기억 품질을 일반 transport 성공만으로 판정하지 않는다. 필요한 관찰 방법과 알림 한계는 G2.3/G2.4의 원본 실측에서 정하며 MARP의 소스 평가를 AC qualification으로 확대하지 않는다.
+G2.1의 남은 브라우저 연결 확인은 G2.2급 호스트 호환성 해결에 의존한다. 그 변경에는 아래 G1 선행 조건이 적용되며 원본을 다시 설치하는 것으로 대체하지 않는다. 초기화 실패 뒤 model 요청 gate가 닫힌 채 남을 가능성도 소스로 확인했으나 Send 실측은 하지 않았다. G2.2에서 실패 시 일반 전송 보존까지 검증한다.
 
-### 세부 목표
+**호스트 수정 계획 checkpoint:** [G1 잔여 의존 표와 호스트 검토](BG-G2-HOST-COMPATIBILITY-REVIEW.md)에 기존 자동/실제 기기 근거, 구현 의존과 지원/전달 의존을 구분했다. 첫 수정은 foreground/BG의 실제 capability 노출 정확화(G2.2a)로 확정했다. 격리 진단본의 원본 RCM 메뉴·설정 저장·재접속 보호 API 200은 공식 원본 조합의 성공이나 G2 완료가 아니다. output listener 단독 추가는 현재 host close→canonical commit 순서와 detached 효과를 풀지 못하므로 첫 수정으로 채택하지 않는다. 저장 후 수명·lease·의도적 차단·필수 API/MCP 의미는 기존 G2.2~G2.4에서 확인한다.
 
-| ID | 세부 목표 | 산출물·검증 기준 |
+기존 G2는 Archive Center(이하 AC)를 가정했다가 AC·Risu Cognitive Memory(이하 RCM) 비교 단계로 바뀌었다. 2026-10-15 사용자는 기능·운영 조건 설명을 바탕으로 RCM 설치를 선택하고 AC는 미래 후보로 남기기로 했다. 현재 G2 대상은 공식 RCM 하나다. RCM의 외부 backend가 있다는 사실만으로 PocketRisu BG와 호환되는 것은 아니므로, 브라우저가 맡던 훅·채팅 저장 관찰·후속 기억 작업이 앱 없이 실행되는지 별도로 확인한다.
+
+이 절에서 **공식 기준선**은 상류가 공개한 release의 버전·commit·배포 파일 hash·backend/schema 조합이다. **정상 채팅**은 PocketRisu가 저장한 대화이며, **기억 저장**은 선택 제품의 backend가 원문과 파생 기억을 저장한 상태다. 채팅 저장 성공과 기억 저장 성공은 별도 결과다. **요청별 호스트**는 한 BG 작업에만 존재하는 JS 실행 프로세스이고, 제품 자체의 외부 backend와 다르다. **다음 턴 반영**은 저장된 기억을 다음 요청의 실제 모델 payload에서 확인하는 것이며, UI 카드나 검색 API 성공만으로 대체하지 않는다.
+
+현재 시작점은 **G2.1의 RCM 기준선·격리 설치 확인**이다. G1.10의 제한 범위 L6는 정리됐지만 MARP 전체 분석·지연 원인과 추가 기기 항목은 미확인/보류다. G2.1에서 데이터 없는 별도 backend를 설치·기동하고 기본 API/DB·공식 브라우저 경로를 가짜 모델 응답으로 조사하는 것은 선택 제품의 예비 조사다. 운영 PocketRisu에 JS를 활성화하거나 기존 BG 코드를 바꾸는 통합 본 구현과 구분한다. G2.0의 실험/비교표는 재사용 근거로 남기며, AC까지 통합하거나 자체 품질 평가를 마쳐야 RCM으로 진행할 수 있다는 조건은 두지 않는다.
+
+G2.1 예비 조사는 아래 실행 계획을 구체화하는 단계이며 2·3번을 대신하지 않는다. G2.2~G2.5의 통합 본 구현은 다음 자료가 갖춰진 뒤 RCM에 대해서만 진행한다.
+
+1. **제품 선택은 충족:** 사용자가 RCM 설치를 선택했다. G2.0 비교·인과 검증 기록은 보존하고, 실제 품질/비용 비교 미실행은 그대로 남긴다. 지원할 프로필·선택 기능·실제 모델 설정과 감수할 기능 한계는 제품 선택만으로 확정하지 않는다. 기존 지침·현재 사용 맥락으로 해소되지 않는 사용자 결과의 차이만 구체화해 결정한다.
+2. G1 잔여별 **의존 표**: 항목, 기존 관측/미확인 범위, 선택 제품의 최종 호출 경로와의 교차 여부, 필요한 재검증, 구현/전달을 막는 이유 또는 영향 없음의 근거. 편집·대기열·중지·모듈·설정 저장의 교차를 이름만 보고 제외하지 않는다.
+3. §1의 선행 완료 조건 충족 기록. 미충족 항목을 남긴 채 진행하려면 사용자가 해당 항목과 지원 한계를 명시한 진행 범위를 결정해야 한다. 후보 비교 승인이나 G1 checkpoint 정리를 전체 완료·stable 승인으로 대신하지 않는다.
+4. RCM 예비 조사에 근거한 G2.1~G2.5 구체 실행 계획. 설치 배치·필요한 정상 설치 경로·변경할 호스트/패처 경로·API별 의미·효과 소유자·실패/중지/재시작 처리·검증 명령과 지원/제외 조합을 명시한다. 이는 G2.2~G2.4 완료를 진입 전에 요구한다는 뜻이 아니다. 미확인 항목은 담당 단계·확인 방법·그 결과 전에는 구현하지 않을 경로를 적고, 사용자 결과를 바꾸는 선택은 해당 코드 구현 전에 결정한다.
+
+**진입 근거 기록 (2026-10-16 KST):** 사용자 진행 결정으로 다음 범위의 통합 본 구현 진입 근거를 기록한다.
+
+- **진입 범위:** G2.2a capability 정확화 한 단위만 연다. G2.2(필수 read API·MCP·의도적 차단·저장 후 관찰)~G2.5는 G2.2a 결과를 본 뒤 별도 진행 결정으로 연다.
+- **조건 1:** 충족. 사용자가 RCM을 선택했다(§9.2).
+- **조건 2:** 충족. [호스트 호환성 검토 §2](BG-G2-HOST-COMPATIBILITY-REVIEW.md#2-g1-잔여-의존-표)의 G1 잔여 의존 표를 사용한다.
+- **조건 3:** G1 §8 완료 조건 5번(실제 기기 확인)은 미충족이다. 아래 항목을 통과로 바꾸지 않고 **미확인 지원 한계**로 명시한 사용자 진행 결정으로 G2.2a 진입에 한해 대신한다.
+- **조건 4:** G2.2a는 [호스트 호환성 검토 §6](BG-G2-HOST-COMPATIBILITY-REVIEW.md#6-g22a-실행-sub-plan)의 sub plan으로 구체화돼 있다. G2.2~G2.5는 §9.3과 호환성 검토 §4의 배정을 따르며 G2.2a 결과로 갱신한다.
+- **기준선:** 호환성 검토 §1의 `8adb75f`/experimental.48/adapter 0.7.55는 조사 당시 기준이다. G2.2a 착수 시 현재 patcher main HEAD에서 registry/dispatcher/installer 기준선을 다시 고정한다.
+
+| 미충족 G1 항목 | 현재 상태 | 재검증 배정 |
 |---|---|---|
-| G2.1 | 공식 기준선 고정 | 착수 시 공식 AC 버전·JS·backend·schema·hash를 기록한다. 기존 AC 수정 후보와 섞지 않는다. |
-| G2.2 | AC API와 훅 의미 | AC가 사용하는 요청 처리 훅 전부, 채팅 listener, DB·로어북 조회, 저장소 API의 서버 의미를 §4 절차로 정의한다. 요청 전·후 훅은 같은 서버 인스턴스에서 직렬로 짝지어 실행한다. |
-| G2.3 | 인스턴스 경쟁 실측 | 앱이 열린 상태에서 브라우저 AC와 서버 AC가 공존할 때 ledger·캐시의 오래된 사본, 채팅 listener 작업, 파생 기억 처리의 이중 실행 여부를 격리 AC 환경에서 측정한다. |
-| G2.4 | 실패 규칙 확정 | 서버에서 AC가 실패하면 그 턴은 AC 효과 없이 진행하고 알린다. 빠진 원문 저장은 AC 자체 복구로 채워지는지 실측한다. 기억 주입 없이 생성된 턴의 품질 손실은 알림으로 드러낸다. |
-| G2.5 | 조합 검증과 전달 | AC 미설치·비활성·활성·초기화 실패·백엔드 장애, 대기열, 대기 중 편집, 앱 종료·복귀, AC 업데이트를 검증한다. AC 없이 G1이 성립함을 재확인한다. |
+| MARP 전체 분석의 실제 주입·지연 원인 | 미확인 | G2.2a: 공유 Proxy/worker 변경 후 원본 MARP 자동 회귀. MARP+RCM 실제 분석·주입과 기기는 G2.5 |
+| 앱 전환·잠금 | 기기 보류 | G2.3: 구간별 browser 종료·복귀 전 채팅/기억 확인. G2.5: 실제 기기 |
+| 설정 저장 | 기기 보류 | G2.2/G2.5: 설정 변경 전후·override/custom endpoint/로컬 모델 회귀 |
+| 편집·대기열 N+1 | 기기 보류 | G2.3: RCM 조합의 이전/수정 원문, N+1 실제 payload, 기억 지연/중복 |
+| 중지·복구 | 기기 보류 | G2.2: 의도적 차단 신호. G2.4: 단계별 입력/답변/기억/job 잔존·중복·후속 전송 |
+| 실패 알림 | 기기 보류 | G2.2a: unsupported RPC 거절·알림 정책 회귀. G2.4: 부분 외부 효과 알림 |
+| 모듈 선택 | 기기 보류 | G2.2: module selector·lore parity |
+| 스트리밍 기기 항목 | 미기록(기존 사용자 결정) | G2.2a: 기존 streaming 자동 회귀만. 기기 지원 범위는 G2.5 지원표 |
 
-### 완료 조건
+G2.5의 L5에는 RCM을 끈 G1 단독 시나리오를 별도 행으로 둔다. 이 기록은 위 항목의 통과, G1 완료, 운영 활성화, stable 승인을 뜻하지 않는다.
 
-1. 검증 전후 AC JS·backend·migration이 공식 기준선과 일치하며 숨은 replacement나 검사 우회가 없다.
-2. 앱 종료 중에도 기억 주입·정상 채팅 저장·AC 저장·다음 턴 반영이 이어진다.
-3. 원문·파생 기억·채팅의 이중 처리와 조용한 누락이 없고, 실패는 알림으로 드러난다.
-4. 실제 브라우저·iPhone 확인을 마친다.
+### 9.2 G2.0 — RCM 선택 기록과 비교 자료 보존
 
-### G2 검증 하위 계획과 L1~L6 연결
+**현재 결정:** RCM을 설치·연동 대상으로 선택했다. AC는 §9.6의 DEFERRED 후보이며 운영/정확도 비교의 승패를 선언한 것은 아니다. 자체 합성 품질 시험이나 유료 양자 비교는 사용자가 별도로 원할 때 활용할 선택 자료다. 사전 작성한 6개 품질 사례는 미실행 자료로 보존하며 현재 설치/연동의 필수 gate로 쓰지 않는다.
 
-G2.1~G2.4의 L1~L4에는 공식 JS/backend/schema identity, 실제 API·listener 호출, 브라우저·서버 인스턴스 경쟁, 원문·파생 기억 중복, 기억 저장·backfill·backend 실패와 알림을 연결한다. G2.5에서 AC 미설치/비활성/활성/실패·업데이트·대기열·편집·종료/복귀와 G1 단독 보존을 최종 조합으로 확인한다. 합성 자동 검증을 먼저 수행하고 실제 외부 호출은 승인된 조건으로 구분한다. L5는 공식 AC를 사용한 실제 브라우저/iPhone의 기억 주입·정상 채팅/AC 저장·다음 턴 반영을 확인하고, L6는 지원표·공식 기준선·실패/복귀 절차·문서/발행 결과를 마무리한다. 이 목록은 조사·검증의 상한이 아니며 실제 변경과 발견에 따라 범위를 확장한다.
+아래 기준선·0-A~0-D 절차·공통 비교 조건은 당시 조사와 향후 재비교를 위한 참고다. 현재 실행 순서는 §9.3의 RCM 단계를 따른다. 0-D의 제품 선택은 이번 지시로 종료하며, 0-B 전체·0-C 품질·G2 제품 완료를 소급 통과 처리하지 않는다.
 
-### AC 변경 예외를 검토하는 조건
+#### 조사 출발점과 확인 한계
 
-AC 수정의 불가피성은 입증되지 않았다. 다음 근거를 갖춘 특정 요구에 한해 변경 예외를 검토한다.
+다음은 2026-10-15 공개 소스 조사 기준이다. 시험 통과 기록이나 채택 순위가 아니다. 비교 착수 때 release와 실행 파일을 다시 대조하고, 버전이 바뀌면 바뀐 호출 경로를 갱신한다. 과거 AC 4.3.1 로드 실험과 내부 수정 후보는 현재 공식판의 실행 증거가 아니다.
 
-- 수정하지 않은 AC를 서버 호스트에서 실행한 positive/negative 실측과 실제 실패 경로가 있다.
-- 호스트 API 의미 조정, 실행 순서 조정, 인스턴스 배타 실행으로 같은 효과를 얻을 수 없는 이유를 기록했다.
-- 필요한 AC 변경의 최소 범위, 보존할 기존 기능, 상류 업데이트 대응·배포·되돌리기 책임을 제시한다.
+| 후보·공식 출처 | 조사 기준선 | 구현에서 확인한 출발점 | 새로 확인할 연결 조건 |
+|---|---|---|---|
+| [AC](https://github.com/Flazer31/archive-center) | [v4.9.0](https://github.com/Flazer31/archive-center/releases/tag/v4.9.0), commit `f2c92ebe00382b8ea83e6424314b2cde90074706` | Go backend, MariaDB 정본, ChromaDB 검색 보조 계층. 기억 준비/완료, 평론가, 선택적 다중 담당 전처리와 출판사 구성이 있다. | 원본 JS의 요청 훅·채팅 listener·누락 원문 보충 경로, 저장 시점 설정, browser/server 동시 참여와 파생 기억 작업 중복. |
+| [RCM](https://github.com/Pulproom/rcm) | [v1.0.12](https://github.com/Pulproom/rcm/releases/tag/v1.0.12), commit `8f662b5008afe832b632ea28375c3fe685165da9` | Node backend, SQLite/FTS/sqlite-vec. `beforeRequest` 기억 준비, `afterRequest`/output listener 후 비동기 동기화, 서버/Risu 모델 작업자 경로가 있다. | 요청별 JS 초기화의 DOM/timer 의존, 실제 저장 뒤 listener와 비동기 작업 인계, 작업자 heartbeat/lease, 선택적 기억 도구 호출의 서버 지원. |
 
-근거가 마련돼도 자동으로 AC 변형판 개발로 전환하지 않는다. 사용자 결정 뒤 진행한다.
+근거 경로: AC [구조 설명](https://github.com/Flazer31/archive-center/blob/v4.9.0/README.md), [전처리](https://github.com/Flazer31/archive-center/blob/v4.9.0/go-service/internal/httpapi/prepare_turn_multi_agent.go); RCM [요청/저장 훅](https://github.com/Pulproom/rcm/blob/v1.0.12/packages/plugin/src/runtime.ts), [초기화](https://github.com/Pulproom/rcm/blob/v1.0.12/packages/plugin/src/index.ts), [서버 작업자](https://github.com/Pulproom/rcm/blob/v1.0.12/packages/server/src/server-worker.ts), [기억 선택](https://github.com/Pulproom/rcm/blob/v1.0.12/packages/server/src/retrieval.ts), [설치 범위와 한계](https://github.com/Pulproom/rcm/releases/tag/v1.0.12). RCM의 Linux/ARM 설치 파일 제공과 해당 환경의 실기기 검증은 구분한다.
+
+#### 당시 비교 절차와 산출물 보존 — 현재 실행 순서 아님
+
+| 순서 | 할 일 | 다음 단계로 넘길 산출물 |
+|---|---|---|
+| 0-A 기준선·배치 조사 | 양쪽 release/JS/backend/schema/hash·라이선스·배포 조건을 고정한다. 브라우저 JS, 요청별 격리 JS, 제품 backend, DB, 모델 호출과 작업자의 실행 위치를 그린다. | 제품별 기준선 표, 데이터/제어 흐름, 권한·인증 전달·네이티브 모듈 설치 조건, 기존 호스트 API 지원/미지원 목록. 제품 backend의 네이티브 DB 모듈을 격리 JS 안에 넣는 설계를 가정하지 않는다. |
+| 0-B 무과금 연결 실험 | 사용자 데이터와 분리된 DB·합성 대화·가짜 모델/임베딩 응답으로 원본의 일반 동작과 기존 BG 호스트 동작을 비교한다. 원본 수정·검사 우회·제품별 본 구현 없이 초기화, 준비, 저장 관찰, 작업 인계를 따라간다. | 사례별 통과/부분 확인/실패/미실행, 실제 마지막 caller와 막힌 API/수명 경계, 앱 부재와 재접속 시 중복/누락 관찰. 기존 호스트의 미지원으로 막히면 일반 실행 경로의 품질 비교와 BG 연결 미확인을 분리한다. |
+| 0-C 품질·비용·운영 비교 | 아래 공통 사례와 조건표를 먼저 작성하고, 허용된 조건에서 실제 모델을 이용한 비교를 수행한다. 유료 조건이 없으면 이 부분을 미실행으로 남기고 소스/합성 결과만 보고한다. | 사례별 기대/실제 기억·최종 주입·근거, 호출 내역·지연·운영 표. 합성 응답의 통과를 실제 모델 품질로 계산하지 않는다. |
+| 0-D 선택 | **제품 선택 완료: RCM 설치·BG 연동. AC는 DEFERRED.** 사용자는 자체 점수 비교보다 사용 조건·기능·운영 적합성을 근거로 선택했다. | 조사 기준선은 RCM 1.0.12이며 설치 시 공식판을 다시 고정한다. 실제 품질/비용·지원 조합·프로필/모델 설정은 미확정/미검증 범위대로 남긴다. 이 선택을 G1 면제·임의 기능 축소·새 비용 승인으로 확대하지 않는다. |
+
+0-B의 격리 backend 시작은 운영 서비스와 포트·DB·인증·사용자 데이터를 공유하지 않는 loopback 시험 환경을 뜻한다. 외부 모델/임베딩 호출은 가짜 응답으로 막고 자원 한계를 확인한다. 이는 운영 설치·서비스 시작과 구분하며, 이 문서 개정 자체가 지금 시험 서비스를 시작하라는 지시는 아니다.
+
+0-C는 두 제품의 기억 기능을 원래 실행 경로에서 비교할 수 있다. 그 결과를 BG 호환으로 확대하지 않는다. 한쪽의 연결 실험이 막혀도 양쪽 결과를 억지로 같게 만들거나, 시험을 통과시키려고 원본 정책을 제거하지 않는다. 실제 실행 불가·접근 부재·비용 미승인도 선택 자료에 남긴다. 비교용 fixture와 harness는 검증 자료로 관리하며 패처 runtime에 벤치마크 기능을 추가하지 않는다.
+
+#### 공통 비교 조건
+
+- **입력과 판정:** 같은 합성 대화로 명시적 사실 회상, 오래된 사건·관계 변화, 현재 상태/약속 갱신, 정정, 인물별 비밀 인지 범위, 편집·리롤·분기의 구버전 기억 혼입을 확인한다. 실행 전에 원문 근거·반드시 회상할 사실·주입되면 안 되는 사실을 사례별로 적는다. 원문 저장, 추출된 기억, 실제 모델 payload, 최종 응답을 구분하고, 모델이 우연히 맞힌 답을 기억 주입 성공으로 계산하지 않는다.
+- **설정 동등성:** 같은 주/보조 모델·endpoint·입력 범위·기억 예산·추출 주기·스트리밍·retry/fallback·임베딩 조건을 가능한 범위에서 맞춘다. 제품의 문자/토큰 예산 단위나 지원 모델이 달라 같게 맞출 수 없으면 실제 값과 차이를 공개한다. 기본 구성과 선택 기능을 추가한 구성을 따로 기록한다. AC 전처리/출판사, RCM 기억 도구 등 추가 호출이 있는 구성을 기본 구성과 섞지 않는다.
+- **호출과 비용:** main, 기억 추출, 평론/검사·상태 조정, 전처리, 도구 후속 요청, 임베딩, retry/fallback과 복구 호출을 종류별로 센다. 과금 없는 실험 뒤 실제 endpoint·전송 데이터·모델·최대 호출/토큰/비용·실패 중단 조건을 담은 계약을 만들고, 기존 승인으로 충족하지 않는 비용/데이터 결정만 사용자에게 받는다. 2026-10-15 이번 계획 개정 시점에는 G2.0 실제 호출·실제 대화 전송의 범위와 비용을 확정하지 않았다. G1.10/MARP 등 다른 목표의 호출 승인을 G2.0 비교에 전용하지 않는다. 문서 수정 승인은 유료 시험이나 실제 사용자 대화 전송 승인이 아니다.
+- **지연:** 같은 서버 조건에서 cold start, main 전 기억 준비의 추가 대기, 답변 뒤 기억 저장/인계, 다음 턴이 기다린 시간을 나눠 기록한다. 제품 고유 제한과 호스트 제한도 함께 남긴다. 빠르다/저렴하다/기억이 좋다는 결론을 구조나 파일 수로 대신하지 않는다.
+- **운영:** CPU/RAM·디스크·별도 서비스 수, ARM 실행과 네이티브 의존성, 인증/접속 경로, 백업/복원, 업데이트, 중지/제거 시 데이터 보존을 비교한다. 전체 서버의 실제 가용 자원과 함께 판단하며 free-tier 이름만으로 추가 여유를 가정하지 않는다. 운영 설치와 운영 서비스 시작은 당시 요청의 실행 범위를 확인하며, 0-B의 격리 시험 backend 시작과 혼동하지 않는다.
+- **결론:** 임의 가중치나 합격 점수를 만들지 않는다. 사례별 결과·관측값·한계로 비교하고 사용자가 우선순위를 정한다. 모델/예산 등 결과를 바꾸는 미확정 조건은 실행 전에 결정하며 빈칸을 담당자 추측으로 채우지 않는다.
+
+#### RCM 조사에서 보존한 수명·확인창 경계 — G2.2~G2.4에서 검증
+
+공식 v1.0.12는 플러그인에서 15초 간격 heartbeat를 등록하고 서버 작업자에 45초 제어 lease를 둔다. lease 만료는 **새 작업 시작**을 막는 조건이며, 진행 중 작업 완료 조건과 다르다. 요청별 JS가 종료된 뒤 누가 lease를 갱신하고 누가 남은 작업을 끝내는지, 브라우저 lease와 서버 인스턴스가 경쟁하는지 확인한다. 이 수치를 늘리거나 lease를 우회해 호환을 꾸미지 않는다.
+
+기억 준비는 30초 뒤 기억 없이 전송/전송 중단 선택을 표시하고 180초에 원본의 차단 선택을 실행하는 코드가 있다. 이는 플러그인 API 권한을 묻는 §2의 권한 확인이 아니라, 이미 시작한 요청의 진행 방법을 묻는 선택이다. 서버가 사용자 대신 응답하지 않는 원칙은 동일하게 적용하되, 저장된 권한 답이 없을 때 플러그인을 제외하는 규칙으로 이 진행 선택을 대신 답하지 않는다. 화면 조작이 없을 때 원본이 실제로 종료하는 결과와 오류 신호를 먼저 측정한다. 해당 동작이 요구 결과와 맞지 않거나 원본 신호를 현재 호스트에서 보존할 수 없으면 지원 한계와 대안을 사용자에게 제시한다. 새 자동 선택이나 timeout 정책을 구현자가 임의로 추가하지 않는다.
+
+### 9.3 RCM 설치·BG 연동의 실행 순서
+
+사용자 결과는 공식 RCM backend·JS를 설치하고도 G1이 유지되며, **기억 준비 → 실제 요청 주입 → 생성/출력 처리 → 정상 채팅 저장 → 기억 동기화/저장 → 다음 턴 반영**이 앱 없이 이어지는 것이다. RCM 원본의 실제 훅 순서를 그려 각 결과와 연결하며, 위 순서도를 원본 훅 재배치 지시로 사용하지 않는다. 기본 기동/연결 확인, BG 지원, 실제 기기 결과는 서로 다른 완료 기록이다.
+
+| ID | 진입·작업 | 완료 시 남길 자료 |
+|---|---|---|
+| G2.1 RCM 기준선·격리 설치 확인 | 선택된 RCM의 release·JS·backend·schema·설정/권한을 고정하고 아래 설치 항목을 데이터 없는 환경에서 확인한다. 버전이 바뀌면 소스와 동작을 다시 대조한다. | 공식 파일/설치 영수증, ARM·Node/native 모듈 결과, backend 기본 기동·상태/인증 API·새 DB 확인, 브라우저/서버 주소 배치안, 통합 실행 계획. 이는 §9.1의 G1 의존 표/진행 근거를 대신하지 않는다. |
+| G2.2 API와 호출 의미 | §9.1의 통합 진입 근거를 갖추고 §4를 RCM의 요청 훅·입력/본문 처리·저장 후 관찰·DB/로어북·설정 저장·도구/모델 호출에 적용한다. 요청 전후는 같은 요청 인스턴스로 연결한다. | API별 등록/인자/반환/시점/실패/외부 효과 표, 최종 caller, 필요한 공통 호스트 수정/확장, 의도적 차단과 일반 오류 구분, 종료/인계/다음 턴 정책 및 검증 사례. |
+| G2.2a 공통 capability 정확화 (G2.2 하위 단위) | 같은 진입 조건 아래 foreground guest/BG worker가 실제 등록·지원 API만 함수로 노출하도록 수정한다. 상수/alias/정상 RPC·권한·기존 플러그인 경로를 보존한다. | [실행 sub plan](BG-G2-HOST-COMPATIBILITY-REVIEW.md#6-g22a-실행-sub-plan)의 parity/회귀·실제 원본 JS 연결 결과와 남은 BG 의미 경계. output listener/기억 완주를 이 단위에 끼워 넣지 않는다. |
+| G2.3 경쟁과 수명 | 브라우저 열림/종료, 두 탭·두 채팅·N+1, JS 종료와 backend 작업 지속, lease·캐시·listener·공유 저장소 경합을 시험한다. | 정상 채팅 ID/revision과 제품 원문/기억/job의 대응, 호출 횟수, 중복 억제/불확실 결과, 후속 턴 가시성, 재시작 전후 복구와 유료 재실행 구분. |
+| G2.4 실패·복구 계약 | 미설치/비활성, 권한 없음, 초기화/준비/저장 실패, 의도적 차단, backend 단절, 응답 유실, 중지/timeout/restart, 저장 후 편집·삭제·리롤/분기를 시험한다. | 단계별 채팅/기억/작업의 남은 상태, 진행/차단/알림/복구의 사용자 결과 표. 원본의 자체 누락 보충·retry와 호스트 재실행을 구분하고 결정이 필요한 차이를 해소한다. |
+| G2.5 운영 설치·조합·전달 | 앞 단계 계약과 검증된 설치 절차를 실제 RCM 서비스/JS 및 Send에 연결하고 MARP·preset/module·대기열·편집·stream/nonstream·종료/복귀·업데이트를 지원할 조합에서 검증한다. 기존 플러그인·설정·채팅은 보존한다. | L1~L4·graph/re-plan/exact revert·안전 설치/전달/독립 readback, 실제 브라우저/iPhone L5, L6 지원표/복구/업데이트/버전 문서. RCM 없이 G1 보존도 확인한다. |
+
+#### G2.1의 설치 조사와 인계 항목
+
+기본 배치안은 현재 PocketRisu 서버와 같은 Linux/ARM 서버에 **RCM backend를 별도 프로세스·별도 사용자 데이터 디렉터리**로 두고, PocketRisu에는 공식 JS를 정상 설치 경로로 넣는 방식이다. G2.1의 격리 환경은 운영과 포트·DB·인증·사용자 데이터·로그/저장 경로를 공유하지 않는 별도 loopback 환경이다. 정상 RCM 설치가 BG 호환을 자동으로 만들지는 않으므로 운영 JS 활성화는 해당 지원 경로가 검증된 G2.5에 연결한다.
+
+공식 브라우저 경로 조사는 **데이터 없는 공식 PocketRisu 1.10.0 복사본과 별도 브라우저 세션**에 원본 RCM JS를 정상 설치해 수행한다. 해당 버전/소스를 시작 시 다시 고정하고, 운영 save/인증/설정을 연결하지 않으며 모델·임베딩은 가짜 응답 경로만 허용한다. 기존 격리 worker의 registry callback probe는 이 브라우저 경로를 대신하지 못한다. 서버 쪽 기동/인증과 격리 데스크톱 브라우저 연결을 G2.1에서 확인하고, 실제 iPhone/운영 URL 연결은 G2.5에서 확인한다.
+
+| 항목 | 확인·결정할 내용 | 완료 근거 |
+|---|---|---|
+| 공식 배포와 버전 | 조사 출발점 RCM 1.0.12의 ZIP·JS·server.mjs hash는 [비교 보고서 §1](BG-G2-0-CANDIDATE-COMPARISON.md#1-공식-기준선과-무결성)을 따른다. 실제 설치판을 다시 고정하고 새 버전이면 바뀐 API/동작을 대조한다. | release/commit/hash, 설치한 backend/JS/API revision 조합. 배포본을 임의 재작성하지 않음 |
+| POSIX 파일 배치 | 조사 ZIP의 역슬래시 member 경로를 설치 도구가 어떻게 푸는지 확인한다. 정규화가 필요하면 원본 ZIP을 보존하고 내용 hash를 유지한 채 POSIX 디렉터리로 전개한다. 동봉 Node/POSIX 실행 절차를 읽고 사용한다. | 파일명/내용 전수 대조, 원본과 설치 JS/server hash 일치 |
+| Node·ARM 의존성 | 공식 Node 요구 버전과 현재 실행 버전/ABI, 배포 runtime의 better-sqlite3 12.11.1·sqlite-vec 0.1.9가 linux-arm64에서 실제 설치·로드되는지 확인한다. prebuild 부재 시 필요한 빌드 도구를 조사한다. | 설치/로드 로그와 새 SQLite 무결성. 기존 harness의 better-sqlite3 12.9.0 결과를 대신 사용하지 않음 |
+| 프로세스·데이터·복원 | 설치/RCM DB·필수 설정의 분리 경로, 실제 포트, 기동/중지·자동 시작/로그 관리 방식을 현재 환경에 맞춰 정한다. CPU/RAM·디스크 여유와 backup/restore/update/remove의 데이터 보존 범위도 기록한다. | 격리 backend 기동/중지·인증 health/status·새 DB 확인, 검증된 설치/복원 절차와 운영 배치안 |
+| 브라우저와 BG의 연결 | iPhone 브라우저와 서버의 localhost는 다르다. 원본 JS의 주소/token 설정 저장 방식과 실제 browser/server caller를 확인하고, 기존 접근 경로·HTTPS/CORS·인증을 포함해 양쪽에서 닿는 배치안을 정한다. | G2.1: 양쪽 배치안, 서버 쪽 격리 연결·인증과 별도 데스크톱 브라우저 연결 결과. G2.5: 운영 경로와 iPhone 인증/연결 성공·장애 결과·기존 라우트 보존. 실제 개인 주소/경로·인증값은 private 작업 기록에만 보관 |
+| 초기 사용 설정 | Companion/World Simulation은 인원수가 아닌 대화 목적에 맞춰 정한다. 자동 기억·선택적 기억 도구·추출/보호 주기·모델/임베딩 경로가 사용자 결과와 호출량에 미치는 차이를 제시한다. | 선택 설정과 미해결 사용자 결과, 테스트용 합성 데이터/가짜 모델 조건. 자체 품질 점수 비교를 요구하지 않음 |
+
+운영 서비스 등록·접속 경로 구성·JS 설치/활성화는 설치 실행 범위와 결과를 계획에 명시해 G2.5에서 기존 저장소의 전달 정책에 따라 수행한다. 기존 작업 권한·런타임 승인 경계·데이터 보존·active generation 읽기 전용 확인/안전 대기·해당 자동 검증·sweep/commit/push·안전한 apply/build/restart·독립 readback·L5 stable gate 중 해당하는 규칙은 유지하며, 매 단계 새 승인을 받는 절차를 추가하지 않는다. 공개 노출·보안 경계 변경·데이터 삭제 등 요청 범위를 넘는 변경은 기존 권한 규칙을 따르고, 실제 자동 시험의 모델/임베딩 호출은 경로·데이터·횟수/토큰/비용 상한을 먼저 구체화해 부족한 결정만 받는다. 이번 문서 개정 자체가 실제 설치/외부 호출을 수행한 기록은 아니다.
+
+#### 현재 RCM에서 이어서 확인할 알려진 경계
+
+[인과 실험 §7](BG-G2-0-CANDIDATE-COMPARISON.md#7-기능-노출을-바꾼-격리-인과-검증)은 변경 위치를 찾기 위한 근거다. 시험 worker의 guard를 운영에 복사하는 것만으로 지원 완료 처리하지 않는다.
+
+- 미지원 기능의 typeof 노출과 잡힌 오류의 entry 비활성화를 구분한다. optional MCP/채널의 원본 부재 처리와 기존 MARP/provider 동작을 함께 보존한다. 도구를 강제로 끄거나 없는 API를 전부 새로 만드는 선택으로 대체하지 않는다.
+- 현재 C 시험에서 RCM은 before 2/after 1 설치 뒤 before_request의 이름 없는 hook 오류를 보였다. 정상 backend 계약과 실제 caller에서 원인을 분리한다. getCurrentLorebookEntries·허용 DB projection·DOM/초기화·backend 장애는 조사 경로이며 이번 오류의 확정 원인 목록이 아니다.
+- §9.2에 기록한 원본 15초 heartbeat/45초 lease와 30/180초 진행 선택을 실제 RCM 작업에 연결해 확인한다. 저장 후 관찰은 실제 capability 정책에서 선택되는 listener/fallback 경로를 검증한다. 1500ms fallback을 지원 경로로 유지하면 timer·callback 수명·영속 인계를 확인하고, listener가 선택돼 실행되지 않는 timer를 미통과로 세지 않는다. 프로세스 수명 연장이나 자동 재실행을 임의로 추가하지 않는다.
+
+#### 해당 경로의 코드 구현 전에 닫을 공통 경계
+
+아래 항목은 G2 전체 착수 전에 모두 완료해야 하는 별도 gate가 아니다. §9.1의 4번에 따라 G2.2~G2.4에서 조사·검증할 단계를 배정하고, 그 결과에 의존하는 코드 경로를 구현하기 전에 해당 계약과 필요한 사용자 결정을 확정한다.
+
+1. **종료와 인계:** 요청별 JS의 미완료 효과는 그 프로세스 안에서 완료를 확인하거나 제품 자체의 원래 외부 backend/API에 영속 접수된 사실을 확인한 뒤 종료한다. 단순 RPC 성공·비동기 함수 시작·메모리 내 큐 등록은 영속 인계 증거가 아니다. 원래 backend의 저장/작업 상태로 인계를 입증하고, 인계 뒤 실행 주체와 앱 부재 중 완료를 확인한다. 호스트가 다음 JS 프로세스로 작업을 넘기는 새 큐나 상시 JS 인스턴스는 기존 요청별 수명 결정에 포함되지 않는다. 그런 구조가 필요하면 대안/영향과 사용자 결정을 먼저 남긴다. 제품 원래 backend를 별도 서비스로 운영하는 것과 요청별 JS를 상주시켜 우회하는 것은 구분한다.
+2. **유한 대기:** 기존 호스트/제품의 제한과 실제 caller를 먼저 확인해 기다리는 범위·중단 신호·종료 시점을 계획에 명시한다. 새 제한값이 필요하면 측정/원문 근거와 사용자 결과를 정한 뒤 도입한다. 기한에 완료/인계를 확인하지 못하면 현재 종료 제어에 따라 정리하고 그 효과를 실패 또는 불확실로 남겨 알린다. 외부 효과가 없었다고 간주하거나 유료 작업을 호스트가 재실행하지 않는다.
+3. **저장 identity:** 답변 뒤 동기화는 실제 canonical 채팅에 저장된 메시지 ID·본문·revision과 연결한다. `afterRequest`가 저장보다 먼저면 출력 문자열을 이미 저장된 답변으로 간주하지 않는다. listener를 어느 저장 지점에서 실행하고 비동기 반환을 어디까지 기다릴지 명시한다. 기억 실패가 정상 채팅 저장을 되돌리거나 이미 받은 답변을 다시 생성하게 해서는 안 된다.
+4. **다음 턴:** N의 채팅 저장만으로 N의 기억 완료를 가정하지 않는다. N+1 조립 전 원본이 기다림/누락 보충/이전 기억 사용 중 무엇을 하는지 확인하고, 지원 계약에서 N의 기억을 언제 사용할 수 있는지 명시한다. 기억 완료 대기가 필요한 경우 원본 완료 상태와 유한 실패 처리를 연결한다. 즉시 반영이 성립하지 않으면 지연과 알림을 포함한 결과를 사용자가 결정하며, 조용히 G2 완료로 계산하지 않는다.
+5. **실패와 의도적 차단:** 기존 기본은 플러그인 실패를 알리고 해당 효과 없이 진행하는 것이다. 다만 원본의 명시적 요청 차단을 일반 훅 오류로 삼켜 main을 실행하지 않는다. G2.2에서 구분 가능한 신호와 최종 caller를 검증한다. 불가하면 해당 조합의 지원 여부/결과를 사용자와 결정한다. 부분 저장 가능성이 있으면 ‘기억 효과 없음’ 대신 확인된 저장과 불확실 범위를 알린다. 원본 내부에서 흡수한 의미적 실패/기억 품질까지 transport 성공으로 판정하지 않는다.
+6. **복구와 비용:** PocketRisu BG의 생성 재실행과 제품 backend의 원문 보충/기억 job 재시도는 별도다. 원본 자체 복구를 호스트 중복으로 잘못 제거하지 않으며, 실제 호출과 비용을 기록해 실행 계약 안에서 검증한다. 응답 유실이나 timeout 뒤 접수 여부가 불명확하면 원본 조회/멱등 기능을 먼저 확인한다. 그런 기능이 없으면 그 한계를 기록하고 자동 재요청으로 숨기지 않는다.
+7. **사용자 변경 보존:** 답변 저장 전후 편집·삭제·리롤·분기가 원문과 파생 기억에 미치는 영향을 원본 상태 전이로 확인한다. 옛 답변의 기억이 새 분기에 잘못 붙는지와 정상 채팅의 사용자 수정을 보존하는지 별도로 검사한다. 시험 편의를 위한 운영 데이터 삭제나 기억 수동 조작으로 통과시키지 않는다.
+
+### 9.4 G2 완료 조건과 L1~L6
+
+1. RCM 선택 기록, 공식 JS/backend/schema 기준선, 실제 backend/JS 설치·기본 연결 확인이 있으며 검증 전후 원본 identity가 일치한다. 숨은 replacement·스크립트 재작성·권한/검사 우회가 없다. 격리 설치와 운영 적용 기록을 구분한다.
+2. 같은 작업에서 기억 준비/최종 주입, 정상 채팅 저장, 제품의 원문/파생 기억 저장, 다음 턴 payload 반영을 연결한다. 기억 준비 중, main 중, 답변 저장 뒤 기억 동기화/영속 인계가 끝나기 전을 별도 사례로 나눠 브라우저를 종료하고, 복귀 전에 일반 채팅 API와 제품 backend 상태로 저장을 확인한다. 마지막 구간이 원본에서 분리 관찰되지 않으면 그 이유와 같은 수명 경계를 검증할 방법을 기록하며, 단순히 main 종료 사례로 대신하지 않는다. 그 뒤 재접속/후속 Send에서 중복 효과가 없는지 확인한다.
+3. 브라우저·서버·후속 작업자 공존과 N+1에서 이중 처리/호스트 추가 유료 실행이 없으며, 관측 가능한 누락/실패/불확실 결과가 계약한 알림과 복구로 드러난다. 원본 retry/fallback 호출은 별도 집계한다.
+4. RCM의 미설치/비활성/고장과 업데이트에서도 G1 단독 지원 경로·기존 설정 override/custom endpoint/로컬 모델·사용자 편집을 보존한다. 미지원 경로와 미검증 범위는 지원표에 명시하고 §9.1의 구체 실행 계획 및 필요한 사용자 결과 결정에서 확정한 지원 범위와 대응시킨다. 제품 선택만으로 한계를 수용했다고 간주하거나 2번의 핵심 서버 완주 경로를 미지원으로 돌리고 G2 완료를 선언하지 않는다.
+5. L1~L4와 실제 브라우저/iPhone L5를 해당 지원 조합에서 마치고 L6 기록·문서·발행 후 확인을 수행한다. 보류한 G1 기기 항목은 선택 제품을 켠 결과로 소급 통과 처리하지 않는다. Stable은 기존 사용자 gate를 유지한다.
+
+G2.0의 제품 선택은 RCM으로 종료했지만 G2 제품 완료나 비교 시험 전체 통과가 아니다. 미실행 0-C 품질 비교는 RCM 설치·연동의 선행 조건으로 쓰지 않는다. L1~L4는 변경 소유자와 실제 caller에 적용하고 공통 기반 증거는 source/환경/계약이 같은 범위에서만 재사용한다. G2.5의 L5 안내는 UI 기능 / 이번 변경 / 구체적 조작과 정상·이상 결과 표로 작성한다. L6에는 선택 이유·지원표·공식 버전·실패/복귀/업데이트/되돌리기 절차·미확인 사항과 AC의 DEFERRED 상태를 남긴다. 이 목록은 실제 발견에 필요한 검증을 제한하지 않는다.
+
+### 9.5 원본 변경 예외를 검토하는 조건
+
+현재 대상 RCM의 원본 수정 불가피성은 입증되지 않았다. 다음 근거를 갖춘 특정 요구만 변경 예외로 검토한다. 미래에 AC를 재개하더라도 같은 원칙을 적용한다.
+
+- 수정하지 않은 공식판을 기존 호스트/원래 backend로 시험한 정상/실패 증거와 실제 막힌 호출 경로가 있다.
+- 공통 호스트 API 의미·실행 순서·인스턴스 배타 실행·원래 backend의 영속 인계로 같은 결과를 얻을 수 없는 이유를 기록했다.
+- 최소 변경 범위, 보존할 기능, 상류 업데이트·배포·되돌리기 책임, 미채택/다른 후보 선택 대안을 제시한다.
+
+근거가 마련돼도 자동으로 변형판 개발로 전환하지 않는다. 사용자 결정 뒤 진행한다. 미선택 후보에 대한 통합 구현이나 데이터 이관 기능은 별도 요구가 없으면 범위에 넣지 않는다.
+
+### 9.6 AC — 미래 후보(DEFERRED)
+
+마지막 확인일: 2026-10-15 KST. 현재 G2는 RCM 설치·BG 연동이며 AC는 실행 대기열에 넣지 않는다. AC의 공식 기능·구조·조사 기준선과 [비교/인과 실험 보고서](BG-G2-0-CANDIDATE-COMPARISON.md), [옛 AC 상세 기술 계획](POCKETRISU-1.10-BG-PRESERVE-SERVER-CHAT-SAVE-ARCHIVE-CENTER-PLAN.md)은 미래 판단 자료로 보존한다. AC 4.9.0 조사 및 과거 4.3.1 변형 후보를 현재 설치·BG 호환 증거로 해석하지 않는다.
+
+| 보존할 이유 | 재검토를 시작할 구체 조건 | 그때 확인할 내용 |
+|---|---|---|
+| 원작 DB·로어북 보조 참조, 범주별 예산과 확정 시점 등 AC의 명시적 운용 선택 | 사용자가 이런 기능을 요구하거나 RCM 사용 중 충족되지 않는 요구를 확인한 경우 | RCM의 현재 지원/대안과 AC 공식 기능을 같은 사용자 결과로 대조. 기능 존재를 실제 품질 우위로 승격하지 않음 |
+| RCM에서 실측한 기억/운영/연동의 공백을 해결할 다른 접근 | 실제 공백을 해소하는 AC 변경을 확인하거나 사용자가 AC 재검토를 요청한 경우 | 당시 공식 AC JS/backend/schema 재고정, 원본 API/인스턴스 경쟁·비용·자원·복원/업데이트 검증 |
+
+새 AC release나 소규모/대규모 인원수 자체만으로 자동 재개하지 않는다. 사용자 재개 결정 뒤 요구와 범위를 구체화한다. 현재 RCM 도입 중 AC Go/MariaDB/Chroma를 병행 설치하거나 AC 전용 API 계약을 이식하지 않는다. RCM↔AC 기억 이관·동시 사용·대체 운영은 별도 요구가 생길 때 데이터/호환/되돌리기 범위를 설계하며, 지금 구현하지 않는다. 기존 소스·기록·복구 자료는 삭제하지 않는다.
 
 ## 10. 기존 작업의 재배치
 
@@ -507,8 +675,8 @@ AC 수정의 불가피성은 입증되지 않았다. 다음 근거를 갖춘 특
 | C3 입력·설정·projection·hydration, H1 프로세스 검증 | G1의 기반과 증거. 입력 시점 설정 고정은 G1.3에서 재검토한다. |
 | 2026-09-27 G1 격리 후보와 live 적용 | G1.0 회귀 원인을 포함한다. 효과 ID·N+1·수명 요약 등 검증된 부분은 재사용한다. |
 | 전역 preset/module/plugin 가드 | G1.5 요청별 판정으로 대체한다. |
-| C0·C4/H2·C5/H3의 AC 수정·확장 후보 | 참고 자료로 보존하고 G2 기본 경로에서 제외한다. AC 변경 예외 조건이 충족될 때만 재사용을 검토한다. |
-| C6의 AC claim/change/prepare/complete/retention | 달성할 효과를 G2에 넘긴다. 구현 위치는 서버 호스트 실측 뒤 정한다. |
+| C0·C4/H2·C5/H3의 AC 수정·확장 후보 | 참고 자료로 보존하고 현재 G2에서 제외한다. §9.6에 따라 AC가 재개·선택되고 §9.5 원본 변경 예외 조건이 충족될 때만 재사용을 검토한다. RCM에 이식할 요구가 아니다. |
+| C6의 AC claim/change/prepare/complete/retention | AC가 재개·선택되면 달성할 효과와 당시 공식 API를 대조한다. 현재 RCM에는 이 계약명을 이식하지 않고 중복 방지·저장·복구 등 필요한 사용자 결과만 RCM의 원래 계약으로 검증한다. |
 | C7 및 H6/H7 qualification·문서·release 절차 | 각 목표의 실제 변경과 지원 범위에 맞춰 적용한다. |
 
 기존 commit·dirty 변경·증거·source snapshot은 삭제하지 않는다. 모든 결과를 다시 측정하지 않고 변경·모순·새 최종 호출 경로가 생긴 범위에 검증을 집중한다.
@@ -525,18 +693,20 @@ AC 수정의 불가피성은 입증되지 않았다. 다음 근거를 갖춘 특
 | 플러그인 cold start·혼합 집합·초기화 효과 | M6에서 실제 비용과 효과/replay 경계를 확인하며 hash allowlist나 이름별 임의 제외로 대체하지 않는다. |
 | preset 경로 `requestRetrys`의 실행 검증 | G1.8 자동 테스트 |
 | 조립 시점 최신값과 비밀값 경계 | G1.3 설계·테스트 |
-| AC 인스턴스 경쟁, 파생 기억 이중 처리, 자체 복구 동작 | G2.3·G2.4 격리 AC 환경 |
+| AC·RCM 제품 선택 | **완료: RCM 선택, AC는 DEFERRED.** 0-C 실제 품질/비용 비교는 미실행이며 현재 설치의 선행 조건이 아니다. |
+| RCM 기본 설치·연결 | G2.1 예비 조사에서 공식 파일·Node/ARM native 모듈·새 DB·인증 API·양쪽 접근 배치안을 확인한다. 운영 활성화는 G2.5 전달에 연결한다. |
+| RCM 인스턴스 경쟁, 파생 기억 이중 처리, 자체 복구 동작 | G2.3·G2.4의 격리 환경. AC는 §9.6의 재개 조건이 생기기 전까지 병행 구현하지 않는다. |
 
 ## 12. 목표별 완료 기록
 
 각 목표 종료 시 다음 항목을 한 기록으로 남긴다.
 
 - 사용자에게 제공되는 결과와 지원/비지원 조합, 터널 지원표.
-- 정확한 source·installer·AC 공식 기준선.
+- 정확한 source·installer·선택한 기억 플러그인의 공식 기준선과 선택 기록.
 - 직접 관측한 자동검증·process/browser·실제 기기 결과와 아직 확인하지 못한 경로.
 - 실패·복구·알림·업데이트·되돌리기 절차와 남은 위험.
 - 다음 목표에 넘기는 제약과 필요한 결정.
 
 각 목표의 candidate 구현·검증·전달은 기존 저장소 절차를 따른다. Stable tag/release는 해당 사용자 검증과 문서·버전·민감정보 검사를 마친 뒤에만 수행한다.
 
-이 문서는 [기존 상세 통합 계획](POCKETRISU-1.10-BG-PRESERVE-SERVER-CHAT-SAVE-ARCHIVE-CENTER-PLAN.md)의 기술 자료를 참고하되, 그 문서의 일괄 활성화 순서와 AC 수정 전제를 새 목표의 완료 조건으로 가져오지 않는다.
+이 문서는 [기존 상세 통합 계획](POCKETRISU-1.10-BG-PRESERVE-SERVER-CHAT-SAVE-ARCHIVE-CENTER-PLAN.md)의 AC 기술 자료를 미래 후보의 참고로 보존한다. 그 문서의 일괄 활성화 순서·AC 채택/수정 전제·옛 G2/G3 구분을 현재 실행 순서나 완료 조건으로 가져오지 않는다. 현재 G2는 공식 RCM 설치·서버 완주이며 AC는 §9.6의 DEFERRED 후보다.
