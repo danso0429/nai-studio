@@ -711,3 +711,30 @@ G2.0의 제품 선택은 RCM으로 종료했지만 G2 제품 완료나 비교 �
 각 목표의 candidate 구현·검증·전달은 기존 저장소 절차를 따른다. Stable tag/release는 해당 사용자 검증과 문서·버전·민감정보 검사를 마친 뒤에만 수행한다.
 
 이 문서는 [기존 상세 통합 계획](POCKETRISU-1.10-BG-PRESERVE-SERVER-CHAT-SAVE-ARCHIVE-CENTER-PLAN.md)의 AC 기술 자료를 미래 후보의 참고로 보존한다. 그 문서의 일괄 활성화 순서·AC 채택/수정 전제·옛 G2/G3 구분을 현재 실행 순서나 완료 조건으로 가져오지 않는다. 현재 G2는 공식 RCM 설치·서버 완주이며 AC는 §9.6의 DEFERRED 후보다.
+
+## 13. 후속 step — patcher 정정 계획의 남은 항목 (BG 계획과 별개)
+
+마지막 확인일: 2026-10-19 KST. 이 step은 BG 계획(G1·G2)의 목표가 아니다. 2026-10-18의 patcher 전체 보안·구조 감사와 그 결과를 정리한 정정 계획(Phase A~E)에서 남은 항목을 BG 계획 뒤에 보존하는 자리다. 이 step의 완료는 G1·G2 완료 조건에 포함되지 않으며, 반대로 G1·G2의 진행이 이 항목들을 기다리지 않는다.
+
+진행 상태:
+- Phase A(재시작으로 고아가 된 서버 입력)와 Phase B(저장소 복원·초기화의 원자성, 저장소 epoch, BG 세션 검사, 복원 뒤 이전 탭 무효화, 복원으로 고아가 된 marker 정리)는 구현·자동 검증·브라우저 검증까지 진행했다.
+- 2026-10-19 사용자 결정: Phase C 전체(client-build fence F-1~F-4, 설정 PUT 세션 검사 S-1~S-3), C-21(`fmIndex` 없이 만들어지는 채팅), 브라우저 probe 스크립트의 server-input marker v4 namespace 반영은 G2 재개 전에 한 묶음으로 처리한다. 이어 Phase A·B와 이 묶음을 patcher `main`에 합친 뒤 G2.2 계획 검수(BG-G2-2-EXECUTION-PLAN.md §4)부터 재개한다.
+
+이 step에 남기는 항목(시작 조건이 생기거나 사용자가 지시할 때 진행):
+
+| 묶음 | 항목 | 시작 조건 |
+|---|---|---|
+| Phase D 런타임 | C-03 메타데이터 대기 상태로 남은 journal 기록의 정리, C-07 채팅·캐릭터 삭제 시 `bg-stream-draft:` 키 정리, C-08 detached 턴의 동시 처리 의도 판단, C-09 `extractThoughts` 최적화(측정상 문제일 때만) | journal 용량 또는 orphan 수 증가, draft 키 누적, 처리량 요구 또는 측정된 파서 비용 |
+| Phase D toolchain | C-10, C-11, C-12, C-14, C-15, C-16 | 패처 `src/` 변경 전에는 C-14를 먼저, `supersedes` 첫 사용 전에는 C-16을 먼저 |
+| Phase D CI guard | C-17, C-18, C-19, 업그레이드 경로 비교 guard, root pack 단독 plan guard | CI 도입 또는 release 절차 정비 시 |
+| 결정 필요 | C-13 CSS UI rollback 스크립트의 수리 또는 은퇴(D-7). 현재 스크립트는 CSS가 아닌 `editor-*` unit까지 제거하므로 실행하지 않는다 | rollback 스크립트를 쓰기 전, 또는 사용자 결정 시 |
+| 독립 | C-20 옛 governance 저장소 정리 | 사용자 지시 시 |
+| Phase E(선택) | M-1~M-6 동작 보존 유지보수 | 정확성 작업(Phase D 런타임·toolchain)이 끝난 뒤 |
+
+실제로 시작할 때는 이 표가 아니라 Phase 문서를 정본으로 읽는다. 모두 patcher 저장소(`pocketrisu-personal-patches`)에 있다.
+- 정정 계획 인계: `docs/audits/2026-10-18-final-correction-implementation-handoff.md`(branch `claude/final-correction-handoff-2026-10-18`) — §3 Phase C~E의 항목·근거·최소 합격 기준, §4 교차 회귀 표.
+- Phase B 설계 결정과 C-21 백로그: `docs/audits/2026-10-18-phase-b-design-decisions.md`(Phase B 브랜치, `main` 합병 뒤 `main`).
+- 근거 보고서 R1~R3: `docs/audits/2026-10-18-r2-restore-write-reset-contract.md`, `docs/audits/2026-10-18-r3-client-build-and-session-gates.md`(branch `claude/r1-restart-recovery-investigation-d1r7in`).
+- 작업 기록: `docs/records/2026-10-18-final-handoff-phase-a-and-phase-b-session.md`(branch `claude/session-record-2026-10-18`) §7.
+
+항목을 다시 시작할 때는 당시 patcher `main`과 PocketRisu 기준선에서 근거를 다시 확인한다. 인계 문서의 행 번호와 composed-tree 위치는 2026-10-18 기준이다.
