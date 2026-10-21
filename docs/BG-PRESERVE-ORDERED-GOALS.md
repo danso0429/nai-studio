@@ -719,7 +719,7 @@ G2.0의 제품 선택은 RCM으로 종료했지만 G2 제품 완료나 비교 �
 진행 상태:
 - Phase A(재시작으로 고아가 된 서버 입력)와 Phase B(저장소 복원·초기화의 원자성, 저장소 epoch, BG 세션 검사, 복원 뒤 이전 탭 무효화, 복원으로 고아가 된 marker 정리)는 구현·자동 검증·브라우저 검증까지 진행했다.
 - 2026-10-19 사용자 결정: Phase C 전체(client-build fence F-1~F-4, 설정 PUT 세션 검사 S-1~S-3), C-21(`fmIndex` 없이 만들어지는 채팅), 브라우저 probe 스크립트의 server-input marker v4 namespace 반영은 G2 재개 전에 한 묶음으로 처리한다. 이어 Phase A·B와 이 묶음을 patcher `main`에 합친 뒤 G2.2 계획 검수(BG-G2-2-EXECUTION-PLAN.md §4)부터 재개한다.
-- 2026-10-22 완료: 묶음 C-1~C-5(patcher `0.2.4-experimental.79`~`.82`와 probe 스크립트 갱신)를 구현·자동 검증·브라우저 검증하고, Phase A·B와 함께 patcher `origin/main`에 fast-forward로 합쳤다(`c7945b9..83496a9`). README는 이어서 `902148a`로 갱신했다. 휴대폰 검증과 live 적용은 하지 않았다. 세션 기록은 patcher `docs/records/`에 있다. G2.2 재개 시 참고: 계획 기준 `58af7b2`와 `83496a9` 사이에 `bgPluginHost.cjs`·`bgPluginWorker.cjs`는 바뀌지 않았고, 플러그인·요청·lorebook·MCP·tool 관련 경로 중에서는 `scripts/probe-bg-plugin-process.cjs`의 426 기대값만 바뀌었다. 계획 머리말의 기준선 갱신과 Astra 계획 검수는 아직 하지 않았다.
+- 2026-10-22 완료: 묶음 C-1~C-5(patcher `0.2.4-experimental.79`~`.82`와 probe 스크립트 갱신)를 구현·자동 검증·브라우저 검증하고, Phase A·B와 함께 patcher `origin/main`에 fast-forward로 합쳤다(`c7945b9..83496a9`). README는 이어서 `902148a`로 갱신했다. 휴대폰 검증과 live 적용은 하지 않았다. 세션 기록은 patcher `docs/records/`에 있다. G2.2 재개 시 참고: 계획 기준 `58af7b2`와 `83496a9` 사이에 `bgPluginHost.cjs`·`bgPluginWorker.cjs`는 바뀌지 않았고, 플러그인·요청·lorebook·MCP·tool 관련 경로 중에서는 `scripts/probe-bg-plugin-process.cjs`의 426 기대값만 바뀌었다. 2026-10-22 G2.2 계획을 r2로 갱신했다: 기준을 patcher `2adc8a5`(코드는 `902148a`)와 사용자 결정에 따른 RCM 1.0.21로 다시 고정하고, Astra 계획 검수 1회차의 지적 10건을 모두 반영했다(계획 §7). 다음은 수정된 계약으로 G2.2b 시나리오·구현, 이어서 G2.2c다.
 
 이 step에 남기는 항목(시작 조건이 생기거나 사용자가 지시할 때 진행):
 
