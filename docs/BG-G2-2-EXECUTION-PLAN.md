@@ -50,7 +50,7 @@ G2.2의 산출물은 API별 의미표·최종 caller·필요한 호스트 수정
 - 검증: native와 BG에 같은 합성 DB(globalLore·localLore·모듈 3종·persona module)를 주고 반환 배열 deep-equal. 활성 ID 순서와 `db.modules` 순서가 다른 경우, namespace 활성화, 중복 ID, `db.modules`에 없는 embedded 전용 persona 모듈, 메타데이터 모듈 선택이 저장된 전체 chat과 다른 경우, 활성 ID는 같고 lorebook 내용만 바뀐 연속 작업을 포함한다. 캐릭터 없음(`[]`)·chat 없음(캐릭터·모듈 lore 반환)·모듈 없음·stub chat; 이 API 호출이 다른 chat을 hydrate하지 않음과 RCM의 나머지 context 호출(`getDatabase` characters 등)의 성공/실패를 따로 단언; 기존 probe·MARP/PageFold 회귀; 원본 RCM 1.0.21 BG 실행에서 `getCurrentLorebookEntries`가 absentApis에서 사라지고, beforeRequest가 `/v1/turn/prepare`에 보내는 로어북 항목이 같은 합성 DB의 foreground 결과와 같은지 관측. 그 뒤 before_request에 남는 실패 지점 기록. 판정 근거는 absent 진단·hook 반환값이 아니라 backend 요청 본문과 실제 모델 요청이다. 오래된 build/session으로 거절된 시작은 플러그인·backend 효과 0을 단언하고, hook 중 저장소 초기화 사례를 둔다(초기화 뒤 server-input commit 거절이 있으므로 생성 성공만으로 commit 성공을 판정하지 않는다).
 - 위험 분류: risky(공통 host·projection).
 
-**G2.2c — 실측 조사(구현 없음).** 2026-10-22 실행 결과: [G2.2c 실측](BG-G2-2C-RCM-MEASUREMENTS.md)(1.0.21 `npm install` 관측과 4번의 성공 job·교차 채팅 lease 확인은 미완료). 격리 backend + 가짜 모델/임베딩으로(먼저 RCM 1.0.21 backend·JS의 공식 파일 hash·ARM 설치·기동·인증/API revision 98을 G2.1 방식으로 재확인):
+**G2.2c — 실측 조사(구현 없음).** 2026-10-22 실행 결과: [G2.2c 실측](BG-G2-2C-RCM-MEASUREMENTS.md)(1.0.21 `npm install` 관측은 미완료, 4번은 같은 날 보완 측정 완료). 격리 backend + 가짜 모델/임베딩으로(먼저 RCM 1.0.21 backend·JS의 공식 파일 hash·ARM 설치·기동·인증/API revision 98을 G2.1 방식으로 재확인):
 1. 플러그인 설정 extractionEngine이 backend engine에 반영되는 경로와 실제 기본 동작.
 2. 브라우저 원본 RCM의 30초 선택 표시·180초 차단에서 실제 전송 결과(1.10 foreground).
 3. BG에서 G2.2b 적용 후 RCM beforeRequest의 실제 결과(prepare 성공 시 주입, 실패 시 차단 신호가 BG에서 진행으로 바뀌는지).

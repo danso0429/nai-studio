@@ -65,10 +65,21 @@ prepare 응답 시간은 관측 실행에서 약 47–53ms였다.
   - lease가 살아 있을 때 heartbeat는 대기 job 하나를 즉시 시작했다.
   - health의 worker 상태는 lease 공백 동안 `running`, job 실패 뒤 `standby`와 `lastError`.
 - `PUT /v1/chats/:id/work`(`{enabled}`): `false`는 진행 중 job을 중단해 queued로 되돌리고 worker를 standby로 둔다. `true`는 lease가 살아 있을 때만 job을 다시 시작했고, lease 만료 뒤에는 queued로 남았다.
-- **미관측:** 성공으로 끝나는 추출 job, 다른 채팅에서의 깨끗한 "lease 만료 뒤 새 job 미시작" 확인.
+- 위 실행에서 성공 job과 다른 채팅의 lease 확인이 빠져, 같은 날 보완 측정했다(아래 4b).
+
+### 4b. 보완 측정 (2026-10-22, D4 결정 전)
+
+- **성공 job:** 추출 job 두 개가 queued → leased → done(`complete`)으로 끝났고 기억 1건이 저장됐다. job당 서버 LLM 호출은 2회(추출 1, 조정 1), repair 0. 앞선 실패는 조정 단계 응답에 필수 `decisions` 배열이 없어서였다(prompt에 표시된 schema 끝부분에는 이 필드가 없다).
+- **두 채팅 lease(A·B, 서로 막지 않음):**
+  - heartbeat 1회(lease 45초) 중 시작한 A의 job은 lease가 끝난 뒤(약 46초)에도 계속돼 약 57~60초에 완료됐다. 그 뒤 A의 다음 대기 job은 시작되지 않았다.
+  - lease가 끝난 뒤 B에 job 8개를 만들었으나 heartbeat 없이 125초 동안 하나도 시작되지 않았다(worker `standby`, `activeCalls` 0).
+  - heartbeat 1회를 다시 보내자 즉시 A의 대기 job이 시작됐고, 45초 lease 동안 job 3개가 차례로 시작·완료됐다. lease가 끝나자 진행 중 job만 마치고 새 job은 시작되지 않았다. **heartbeat 1회 ≈ 45초 동안의 job 시작 창**이다.
+  - 동시 실행 상한 2는 도달하지 않았다. 추출 job이 하나라도 실행 중이면 다음 추출 job은 기다린다(소스의 시작 loop). 실제 추출은 한 번에 하나다.
+  - 한계: 첫 기록에서 A의 첫 job이 heartbeat 직전부터 `leased`로 보였다. 별도 채팅 확인에서는 heartbeat 없이 시작되지 않아 기록 시점 문제로 보지만 증명하지 않았다.
+- **새 채팅의 추출 조건:** 새 채팅은 초기 보정 행(`awaiting_setup`, 확인 필요)이 생기며, 이를 건너뛰거나 확인할 때까지 추출 job이 만들어지지 않는다(`POST /v1/chats/:id/initial-calibration/skip` 또는 confirm). 또 첫 prepare에 메시지가 많으면 `ingestion_state`가 `historical_pending`이 되어 job을 만들지 않는다. 즉 새 채팅은 플러그인 화면에서의 초기 보정 처리 전까지 기억이 추출되지 않는다.
 
 ## 결정 항목에 넘기는 사실
 
 - **D3(출력 동기화·다음 턴):** foreground는 응답 약 1.5초 뒤 두 번째 prepare로 출력을 동기화한다(listener 부재 fallback). BG 실행에서는 이 호출이 일어나지 않았다(host가 작업 끝에 닫힘). 다음 턴의 prepare는 채팅 snapshot을 다시 보낸다.
-- **D4(추출 engine·lease):** 새 설치의 engine은 `risu`라 추출을 플러그인 JS가 맡는다. `server` engine은 사용자의 서버 LLM 설정이 필요하고, 새 job 시작은 살아 있는 heartbeat(브라우저 또는 실행 중인 BG host)에 묶인다. 진행 중 job은 lease와 무관하게 계속된다.
+- **D4(추출 engine·lease):** 새 설치의 engine은 `risu`라 추출을 플러그인 JS가 맡는다. `server` engine은 사용자의 서버 LLM 설정이 필요하고, 새 job 시작은 살아 있는 heartbeat(브라우저 또는 실행 중인 BG host)에 묶인다. heartbeat 1회는 약 45초의 시작 창을 열고, 진행 중 job은 lease와 무관하게 끝까지 간다. 추출은 한 번에 하나씩 실행된다. RCM은 출력 동기화(`DA`) 뒤 500ms에 server engine heartbeat를 예약하므로(`gc`), D3 동기화 창 안에서 이 heartbeat가 실행되면 매 BG 턴이 약 45초의 시작 창을 연다(확인 필요). 새 채팅은 초기 보정 처리 전까지 추출하지 않는다.
 - **운영 상태:** BG 플러그인 host가 꺼진 현재 기본값에서는 RCM이 BG 요청에서 실행되지 않는다(알림 후 진행). RCM을 BG에서 쓰려면 host 활성화가 G2.5의 전제다.
