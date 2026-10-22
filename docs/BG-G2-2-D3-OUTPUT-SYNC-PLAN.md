@@ -1,6 +1,6 @@
 # D3 설계 계획 — BG의 RCM 응답 뒤 출력 동기화(유한 대기)
 
-**상태 (2026-10-22 KST):** 설계 분석. Astra 1회차 반영(D + A 권고), 계약 범위 결정·측정·구조 선택 전, 구현 전.
+**상태 (2026-10-22 KST):** 계약 범위(호스트 공통)·구조(D + A) 결정, 시제품 없는 측정 완료, 구현 계획 초안. 구현 계획 Astra 검수 전, 구현 전.
 정본: [G2.2 실행 계획](BG-G2-2-EXECUTION-PLAN.md) §3(B) D3(결정 2026-10-22: 유한 대기로 지원), [ordered goals](BG-PRESERVE-ORDERED-GOALS.md) §9.3 「공통 경계」 1~4, [G2.2c 실측](BG-G2-2C-RCM-MEASUREMENTS.md) §2·§3. 대상: patcher `dd5641a`.
 위험 분류: **risky** (host 수명, commit 순서, 미리보기 lock, 동시 작업).
 
@@ -69,6 +69,39 @@ RCM은 원본 1.0.21 JS(minified 기호), host는 patcher `dd5641a`의 조립 �
 6. 접수 뒤 backend readback·재시작, backend commit 전후 연결 끊김, 느린 응답 본문.
 7. 각 경계에서 취소·초기화·재시작: 저장된 채팅 보존, 미해결 동기화는 재실행 없이 불확실로 보고.
 8. RCM·MARP·PageFold 혼합 실행: 낡은 등록 정리 없음, idle·interval 연장 없음, continuation 때문에 새 유료 작업 없음.
+
+## 결정 전 측정 결과 (2026-10-22, 시제품 없이 잰 항목)
+
+validation-runner, 조립 트리(patcher `d476d60`), 원본 RCM 1.0.21과 실제 backend, 가짜 provider, 합성 데이터. 값은 최소/중앙/최대(ms).
+
+- **M1 답변 뒤 순서**(채팅 10·200·2000 메시지, 각 5회): afterRequest hook 반환 뒤 host close 종료 21/23/36·22/35/43·44/67/104, canonical commit 종료 42/45/57·56/77/94·169/217/261. **15회 중 commit이 afterRequest 뒤 1.5초보다 늦은 경우는 0회**. afterRequest 반환 뒤 API 호출 0회, `plugin_late_call` 0(timer는 소스상 예약되지만 host 종료로 실행되지 않음). BG prepare 왕복 15/16/47·20/32/122·38/53/90.
+- **M2 DA 재읽기 RPC 비용**(DA와 같은 호출 순서를 worker 쪽 합성 플러그인으로 실행, 9개 조합×10회): 합계 10 메시지 15~66, 200 메시지 17~71, 2000 메시지 130~268(캐릭터 1·20·100개). `getDatabase`가 캐릭터 수에 비례(2000 메시지·100 캐릭터 92ms, 1.08MB). 한도 오류 0. RCM 자체 worker CPU(메시지별 hash·정규화)는 재지 못했다 — beforeRequest hook 시간(2000 메시지 약 1.5~2.1초)으로 보아 클 수 있다(추론).
+- **M3 prepare(`deferExtraction:false`)**: 10 메시지 11.1, 200 메시지 18.6, 2000 메시지 14.3(RCM은 256개 초과 시 끝 약 64개만 보냄; 전체를 보낼 때 상한 69.5). 첫 호출은 63~535.
+- **M4 현재 대기 기준**: 첫 작업이 3초 생성하는 동안 보낸 두 번째 작업은 첫 작업 lock 해제까지 약 3.0초 대기, lock 인계 약 48ms.
+- **A안 추정**: RCM 턴마다 lock이 지금보다 약 1.51~1.69초 더 잡힌다(대부분 원본 1500ms timer; commit은 그 안에 끝남) + 재지 못한 RCM DA CPU. 다른 BG 작업의 대기가 그만큼 는다(합산 추론).
+- **미측정**: commit을 1.5초보다 늦춘 경우(측정 2), RCM DA CPU, 2000 메시지 초과, 측정 3·6·7·8(시제품 필요).
+
+**구조 결정(2026-10-22): A(lock 유지) + D(commit 대기 continuation).** 위 측정의 대기 증가(RCM 턴마다 다른 BG 작업 약 1.5~1.8초 + 미측정 RCM CPU)를 감수한다.
+
+## 구현 계획 (D + A, 검수 전 초안)
+
+단위(한 commit 또는 아래 순서의 작은 commit들, 블라인드 테스트는 한 번에 요청):
+
+| ID | 제목 |
+|---|---|
+| D3-1 | Post-commit continuation for afterRequest timers |
+
+변경 지점:
+
+1. **worker timer 출처(`bgPluginWorker.cjs`):** 플러그인 context의 `setTimeout`/`clearTimeout`을 신뢰 wrapper로 바꾼다. afterRequest 호출 scope 안에서 만든 one-shot timer만 "continuation 후보"로 기록(entry, 호출 token, 예정 시각)하고, 그 timer의 callback을 바로 실행하지 않고 host가 continuation을 열 때까지 보류한다. load 시점 timer, interval, 다른 phase의 timer는 지금과 같다(만료된 scope로 실행되고 호출은 거절). 후보 timer는 `clearTimeout`을 존중한다.
+2. **child scope(`bgPluginSession.cjs`):** host가 여는 유한 continuation scope를 추가한다. 절대 만료 시각을 가지며, 그 안의 호출은 기존 identity·권한·예산 검사를 그대로 거친다. 만료 시 scope를 abort하고 이후 호출은 `plugin_invocation_expired`다. continuation 안에서 만든 하위 timer는 실행될 수 있으나 만료를 늘리지 않는다.
+3. **host(`bgPluginHost.cjs`):** `openPostResponse({ deadline })`를 추가한다. 후보 timer가 있는 entry에만 child scope를 열고, 보류된 callback을 `max(원래 예정 시각, 지금)`에 실행한다. 완료 판정은 child scope에서 시작한 RPC(응답 본문 소비 포함)가 모두 정산되고 남은 후보 timer가 없을 때이며, callback 반환이나 worker idle은 증거로 쓰지 않는다. 시한에 끝나지 않으면 진행 중 전송과 본문 읽기를 중단하고 `uncertain` 결과를 돌려준다. continuation이 없는 entry는 commit 뒤 바로 정리한다.
+4. **수명과 lock(`plugin-host-units.cjs`가 넣는 `bgOrchestrator.cjs` 단위):** 지금의 `host-finally`(host close → lock 해제)를 바꿔, full mode S4b에서는 `runServerPreview`가 host와 lock을 닫지 않고 lease로 넘긴다. S4b는 canonical commit이 성공한 뒤 ① 선택 채팅을 commit된 canonical 결과로 전역 DB에 반영하고 ② `openPostResponse`를 시한 안에서 기다린 뒤 ③ host close → lock 해제한다. commit 실패·취소·`BG_ASSEMBLY_CONFLICT`·D1-a 실패·S4a 경로·lease를 받을 수 없는 경로에서는 지금처럼 즉시 close·해제한다. stream preview 표시 해제는 지금 위치(생성 종료 시)를 유지한다.
+5. **상태·재시작:** continuation을 열기 전에 commit receipt에 묶인 동기화 intent를 영속하고, 결과(완료·불확실)를 기록한다. 재시작 시 남은 intent는 불확실로 바꾸고 플러그인·생성을 다시 실행하지 않는다. 같은 채팅의 다음 작업은 동기화가 끝나거나 만료될 때까지 busy다. 불확실은 플러그인 알림(새 코드, 예: `plugin_post_response_uncertain`)으로 남긴다.
+6. **시한:** 절대 상한을 상수로 둔다. 근거: 원본 timer 1500ms + DA 읽기(측정 M2 최대 약 0.27초, RCM CPU 미측정 — 2000 메시지에서 1~2초 추정) + RCM prepare 자체 timeout 5000ms. 상한 후보 값은 검수 뒤 사용자 결정으로 정한다. 남은 작업 600초·sandbox 수명과 host 공유 128회 예산을 넘지 않는다.
+7. **취소:** commit 전 취소는 지금과 같다. continuation 중 사용자 중지는 남은 동기화를 멈추고 불확실로 기록하며, 저장된 채팅을 되돌리지 않는다.
+
+합격 기준(초안): 측정 1~8 항목을 시험으로 바꾼다 — 원본 RCM에서 BG 답변 뒤 두 번째 prepare가 commit 뒤에 실행되고 그 본문의 메시지 id·내용이 저장된 답변과 일치하며 backend 원문 readback으로 확인; commit을 1.5초보다 늦춰도 commit 전 읽기·callback 유실 없음; 시한·취소·재시작에서 불확실 기록·재실행 없음·채팅 보존; 같은 채팅 N+1 busy; 다른 채팅 대기 증가가 측정 범위 안; MARP·PageFold·D1-a·G2.2b·NaN 단위 동작 불변; continuation이 없는 플러그인의 수명 불변.
 
 ## D4와의 연결
 
