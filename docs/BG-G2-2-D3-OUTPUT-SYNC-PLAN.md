@@ -56,7 +56,7 @@ RCM은 원본 1.0.21 JS(minified 기호), host는 patcher `dd5641a`의 조립 �
 
 ## 사용자 결정이 필요한 것
 
-1. **continuation 계약의 적용 범위:** (a) 모든 플러그인의 afterRequest one-shot timer에 같은 유한 계약을 적용하는 호스트 공통 계약, 또는 (b) 사용자가 플러그인별로 켜는 설정. 플러그인 이름·1500ms 지연·endpoint 문자열로 RCM을 골라내는 분기는 선택지에서 제외한다.
+1. **continuation 계약의 적용 범위:** (a) 모든 플러그인의 afterRequest one-shot timer에 같은 유한 계약을 적용하는 호스트 공통 계약, 또는 (b) 사용자가 플러그인별로 켜는 설정. 플러그인 이름·1500ms 지연·endpoint 문자열로 RCM을 골라내는 분기는 선택지에서 제외한다. **결정(2026-10-22): (a) 호스트 공통 계약.** MARP·PageFold timer 의미 보존은 측정 8번의 혼합 실행으로 검증한다.
 2. **구조(A/B):** 아래 측정 5번의 대기 증가를 본 뒤 결정한다.
 
 ## 결정 전 측정
