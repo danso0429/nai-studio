@@ -31,7 +31,7 @@ BG 작업에서 RCM처럼 `registerMCP`로 도구를 등록하는 플러그인�
 
 ## 설계
 
-1. **등록:** host `ROOT_HANDLERS`에 `registerMCP`/`unregisterMCP`를 전용 helper(메타데이터 + callback 핸들 두 개)로 추가한다. load 중에는 staging 후 load 성공 시 설치하고, 허용된 hook 중에는 즉시 설치·교체한다. 식별자는 `plugin:` 규칙을 따르며, 같은 소유자의 교체는 허용하고 다른 소유자의 등록·해제는 거절한다. 실패한 load의 식별자는 그 작업 동안 예약된다. 새 MCP 권한은 만들지 않는다(foreground에도 없음).
+1. **등록(사용자 결정 2026-10-22: load 때만):** host `ROOT_HANDLERS`에 `registerMCP`/`unregisterMCP`를 전용 helper(메타데이터 + callback 핸들 두 개)로 추가한다. `registerMCP`는 load 중에만 받아 staging하고 load 성공 시 설치한다. load가 끝난 뒤의 `registerMCP`는 기존 등록류(`bgPluginHost.cjs:543`, `entry.ready`)와 같이 거절한다. `unregisterMCP`는 자기 식별자에 한해 load·hook 중 허용한다. 식별자는 `plugin:` 규칙을 따르며, load 중 같은 소유자의 재등록은 교체로 처리하고 다른 소유자의 등록·해제는 거절한다. 실패한 load의 식별자는 그 작업 동안 예약된다. 새 MCP 권한은 만들지 않는다(foreground에도 없음).
 2. **호출 계약:** 서버 번들의 `registerMCPModule`에 host 래퍼를 넘기고, 래퍼는 기존 `invoke`가 아닌 별도 phase `mcp_list`·`mcp_call`로 worker callback을 부른다. 실패 시 입력이나 빈 목록으로 대신하지 않고 오류를 그대로 전파한다(foreground의 `getMCPTools`·`callMCPTool`과 같은 전파). 결과는 도구 정의 배열·MCP content 배열로 한도 안에서 검증한다. `mcp_call`은 실행 전 effect/identity 장벽을 거치고, `mcp_list`는 효과로 세지 않는다. 두 알림 검사기가 새 phase를 받는다.
 3. **수명:** client에 작업·entry·등록 세대 소유를 붙인다. 서버 binding이 돌려주는 idempotent cleanup은 `registeredCustomPluginMCPs`와 `MCPs`에서 **자기 client를 가리킬 때만** 지운다. 해제·교체·entry 비활성화·설치 rollback·host close에서 무효화한다. 같은 이름의 도구가 여러 client에 있으면 BG에서 작업 소유 client로 묶거나 거절한다. `_previewLock` 직렬화가 전역 Map을 한 작업만 쓰게 하는 불변식을 지킨다.
 4. **도구 읽기(사용자 결정):** BG 작업에서는 `request.ts:213`의 최초 읽기를 건너뛰고, 실제 시도마다 replacer 블록 직후(`:256` 뒤, `:258` 전)에 한 번 읽어 그 시도의 `tools`로 쓴다. `arg.tools`가 주어지면(`[]` 포함) 그대로 둔다. PageFold route로 source 변환을 건너뛰는 재시도는 이전 목록을 쓴다. 읽기 뒤 `requestChatDataMain` 전에 취소를 확인한다. BG 판별은 작업 범위 표지로 한다. ModelPreset의 세 조건을 유지한다. `runLLMModel` 직접 호출에는 도구가 노출되지 않는다.
@@ -58,6 +58,9 @@ BG 작업에서 RCM처럼 `registerMCP`로 도구를 등록하는 플러그인�
 - 도구 loop가 없는 변형(OpenAI Responses, Anthropic streaming): 미지원으로 기록, 도구 없이 진행, 알림·지원표에 남긴다.
 - 도구 읽기 횟수: BG에서는 최초 읽기 생략, 시도마다 준비 뒤 한 번.
 - 범위: registerMCP 경로만. Provider Manager channel 경로는 D2 밖.
+- 등록 시점: `registerMCP`는 load 때만. load 뒤 호출은 거절. `unregisterMCP`는 자기 식별자에 한해 load·hook 중 허용.
+
+**계약 이름(Argon 시나리오 검토 중 고정, 2026-10-22):** 미지원 변형 알림 코드 `plugin_mcp_unsupported`; classic provider의 상한 표지 `[BG: maximum tool steps (8) reached]`(ModelPreset은 기존 표지 유지); `mcp_list` dispatch는 128회 counter에 들어가지 않고(목록 callback 안의 플러그인 fetch는 기존대로 셈), `mcp_call` dispatch는 1회로 센다.
 - 일반 classic BG 채팅에서 외부 MCP URL에 서버가 연결할 수 있는 기존 동작은 D2에서 바꾸지 않는다(별도 결정 대상으로 남김).
 
 ## 단위
@@ -74,17 +77,19 @@ BG 작업에서 RCM처럼 `registerMCP`로 도구를 등록하는 플러그인�
 
 | 기준 | 단위 | 입력 | 기존 상태 | 기대 결과·오류 | 범위 밖 |
 |---|---|---|---|---|---|
-| C1 등록 | D2-1 | load 중 `registerMCP({identifier:'plugin:x',...}, list, call)`; hook 중 등록·교체; 다른 플러그인의 같은 식별자 등록·해제; `plugin:`이 아닌 식별자 | BG host, 등록 없음 | load 성공 뒤 서버 번들의 등록 Map에 그 작업 client가 있다. load 실패 시 설치되지 않고 식별자는 예약된다. 같은 소유자 교체 허용, 다른 소유자 등록·해제 거절, 잘못된 식별자 거절 | Provider Manager channel |
+| C1 등록 | D2-1 | load 중 `registerMCP({identifier:'plugin:x',...}, list, call)`(같은 식별자 재등록 포함); load 뒤(hook 중) `registerMCP`; hook 중 자기 식별자 `unregisterMCP`; 다른 플러그인의 같은 식별자 등록·해제; `plugin:`이 아닌 식별자 | BG host, 등록 없음 | load 성공 뒤 서버 번들의 등록 Map에 그 작업 client가 있다(load 중 재등록은 교체). load 실패 시 설치되지 않고 식별자는 예약된다. load 뒤 `registerMCP`는 거절. 자기 식별자 해제는 허용. 다른 소유자 등록·해제 거절, 잘못된 식별자 거절 | Provider Manager channel, hook 중 등록 |
 | C2 목록·실행 계약 | D2-1 | 모델 요청 중 도구 목록 조회와 도구 호출; callback의 throw, 잘못된 결과 형식, entry 비활성 상태 | 등록된 client | 목록은 callback 결과(검증된 도구 정의 배열), 실행은 callback 결과(검증된 MCP content 배열). 실패·형식 오류·비활성은 오류로 전파되고 입력·빈 목록으로 대신하지 않는다. 알림은 `mcp_list`·`mcp_call` phase로 남고 두 알림 검사기가 받는다. 목록 조회는 효과로 세지 않는다 | 결과 문자열 형식 변경 |
 | C3 수명 | D2-1 | 작업 종료(성공·실패·취소), `unregisterMCP`, 교체, entry 비활성화, 설치 rollback; 이어지는 다른 작업 | 이전 작업의 등록 | 종료 뒤 등록 Map과 `MCPs`에 이전 작업 client가 없다. cleanup은 자기 client를 가리킬 때만 지운다. 다음 작업은 이전 callback을 부르지 않는다. 닫힌 host의 callback 호출은 거절된다 | foreground 등록 |
 | C4 도구 노출 | D2-2 | 채팅 모듈 `mcp.url = 'plugin:x'`; list callback은 beforeRequest replacer가 상태를 바꾼 뒤에만 도구를 내놓음; `arg.tools` 지정(`[]` 포함) 호출; foreground 호출 | BG 작업 | BG에서 실제 첫 모델 요청 본문의 tools에 그 도구가 있다(beforeRequest 뒤 읽기). 시도마다 준비 뒤 한 번 읽는다. `arg.tools` 지정 호출과 foreground는 지금과 같다. ModelPreset 세 조건 유지. `runLLMModel` 직접 호출에는 도구 없음 | 원본 RCM backend 상태(검증 단계에서 실측) |
 | C5 도구 loop | D2-2 | 모델이 도구 호출을 돌려줌: ModelPreset, OpenAI non-stream, OpenAI Chat Completions stream, Google, Anthropic non-stream | C4 상태 | 플러그인 call callback이 실행되고 결과가 같은 provider의 기존 loop로 다음 요청에 들어간다 | provider 메시지 형식 변경 |
-| C6 미지원 변형 | D2-2 | OpenAI Responses, Anthropic streaming | C4 상태 | 플러그인 MCP 도구를 보내지 않고 생성은 진행한다. 미지원 알림이 남는다 | 두 변형에 도구 loop 추가 |
+| C6 미지원 변형 | D2-2 | OpenAI Responses, Anthropic streaming | C4 상태 | 플러그인 MCP 도구를 보내지 않고 생성은 진행한다. `plugin_mcp_unsupported` 알림이 남는다 | 두 변형에 도구 loop 추가 |
 | C7 효과 뒤 재실행 금지 | D2-2 | 도구 실행 뒤 후속 요청 실패, Google·Anthropic 도구 오류, 바깥 retry·fallback 조건 | C5 상태 | ModelPreset·OpenAI는 실패 문자열·부분 결과, Google·Anthropic은 오류 전파(기존 처리). 어느 경우에도 같은 도구가 다시 실행되지 않고 프롬프트 재시도·fallback으로 재전송되지 않는다 | 효과 전 실패의 기존 retry·fallback |
-| C8 8단계 상한 | D2-2 | 모델이 매 응답마다 도구를 호출 | 모든 provider | 도구 8단계 뒤 더 보내지 않는다(모델 전송 최대 9회). 그때까지의 결과를 성공으로 돌려주고 상한 표지를 남긴다 | ModelPreset의 기존 표지 문구 변경 |
-| C9 시한·예산·취소 | D2-1 | 작업·session 마감 임박, 호출 중 마감 도달, 128회 소진, 사용자 취소 | 도구 실행 중 | 남은 시간이 없으면 목록·실행을 시작하지 않는다. 마감 도달 시 진행 중 callback·전송을 끝내고 대기 RPC를 거절하며, 시한 뒤 성공 결과를 거절하고, 모델 후속 요청이 없다. `mcp_call` dispatch와 그 안의 fetch가 128회에 들어가고 초과 시 거절. 취소도 같다. 기존 600초·128회는 늘지 않는다 | RCM backend 쪽 시한 |
+| C8 8단계 상한 | D2-2 | 모델이 매 응답마다 도구를 호출 | 모든 provider | 도구 8단계 뒤 더 보내지 않는다(모델 전송 최대 9회). 그때까지의 결과를 성공으로 돌려주고 상한 표지를 남긴다(classic provider `[BG: maximum tool steps (8) reached]`, ModelPreset 기존 표지). 7단계 이하에서는 표지가 없다 | ModelPreset의 기존 표지 문구 변경 |
+| C9 시한·예산·취소 | D2-1 | 작업·session 마감 임박, 호출 중 마감 도달, 128회 소진, 사용자 취소 | 도구 실행 중 | 남은 시간이 없으면 목록·실행을 시작하지 않는다. 마감 도달 시 진행 중 callback·전송을 끝내고 대기 RPC를 거절하며, 시한 뒤 성공 결과를 거절하고, 모델 후속 요청이 없다. `mcp_call` dispatch와 그 안의 fetch가 128회에 들어가고 초과 시 거절. `mcp_list` dispatch는 세지 않는다(목록 callback 안의 fetch는 셈). 목록 조회만 하고 첫 송신이 실패하면 기존 retry·fallback이 그대로 동작한다. 취소도 같다. 기존 600초·128회는 늘지 않는다 | RCM backend 쪽 시한 |
 | C10 수용 | D2-3 | `formerlyPrepared` 조합 + MCP URL이 모두 `plugin:`; 외부 URL 섞임; 구 capability(필드 없음); 일반 classic 채팅 + 외부 MCP | 서버 capability `serverPluginMcpVersion: 1` 보고 여부 | 지원 보고 + 모두 `plugin:` → 서버 입력. 외부 URL 섞임·구 capability → 지금처럼 `mcp-unqualified`(클라이언트 준비). 일반 classic 채팅은 지금과 같다. 클라이언트 타입·cache·재확인·서버 정책이 같은 판정을 한다 | 외부 MCP 지원 범위 변경 |
 | C11 기존 동작 | 전체 | 기존 시험 | — | foreground MCP, `arg.tools` 호출, 도구 없는 BG 요청, provider·hook 동작, D1-a·G2.2b·NaN 결과, 기존 테스트 수 유지 | — |
+
+**Argon 시나리오(gemini-4-argon-medium, 2026-10-22, 26개) 검토:** 24개 채택. 제외 2개 — 3번(hook 중 same-owner 교체: 등록 시점 결정으로 범위 밖, 거절은 C1이 다룸), 8번(도구 정의·결과의 비유한 수: NF-1 시험이 다루고 D2 계약에 없음). 계약 표 행 중 시나리오가 직접 다루지 않는 것(C4의 PageFold 재시도·읽기 뒤 취소 확인, C3의 같은 이름 도구, C2의 `mcp_call` effect/identity 장벽)은 시험 작성에서 Spec으로 함께 다룬다.
 
 ## 전제 출처
 
