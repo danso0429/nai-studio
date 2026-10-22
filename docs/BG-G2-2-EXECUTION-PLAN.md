@@ -43,7 +43,7 @@ G2.2의 산출물은 API별 의미표·최종 caller·필요한 호스트 수정
 
 ### (A) 결정 없이 진행 가능한 단위
 
-**G2.2b — BG `getCurrentLorebookEntries` parity.** 구현 계획·검수·블라인드 테스트 상태는 [G2.2b 계획](BG-G2-2B-LOREBOOK-PARITY-PLAN.md)을 정본으로 한다(2026-10-22 블라인드 테스트까지 완료, 구현 전).
+**G2.2b — BG `getCurrentLorebookEntries` parity.** 구현 계획·검수·블라인드 테스트 상태는 [G2.2b 계획](BG-G2-2B-LOREBOOK-PARITY-PLAN.md)을 정본으로 한다(2026-10-22 구현·자동 검증·코드 검수·검증 실행 완료, patcher commit `dd5641a`, push 전).
 - 근거(r2): RCM 1.0.21에서 이 API 부재는 hook 실패가 아니라 로어북 없는 기억 준비다. BG 결과가 foreground와 조용히 달라지므로 parity로 맞춘다.
 - 의미: foreground 패치판과 같은 순서·내용(캐릭터 globalLore → 현재 chat localLore → 활성 모듈 lorebook의 원본 entry, 활성화·필터 없음), 권한 없음. **캐릭터가 없을 때만 `[]`**이고, chat이 없어도 캐릭터·모듈 lore는 반환한다(패치판 accessor 기준). 모듈은 native 해석을 그대로 따른다: 활성 ID를 enabledModules → chat.modules → character.modules → persona.embeddedModule의 **ID** → moduleIntergration에서 모으고, 반환 순서는 그 수집 순서가 아니라 **`db.modules` 배열 순서**이며 `id` 또는 `namespace`로 일치시키고 module ID로 중복 제거한다(`modules.ts` `getModuleByIds`). persona의 embedded 모듈 객체는 `db.modules`에 없으면 이 경로로 lore를 더하지 않는다. 조립 시점에 캡처한 projection(메타데이터 `modules`를 덮어쓴 chat, `serverChatAssemblyContext.cjs`)을 쓰고 별도 전체 chat 조회로 옛 모듈 선택을 되살리지 않는다. 이미 hydrate된 BG projection은 foreground의 비동기 대상 변경 throw를 흉내 낼 필요가 없지만 작업 대상에 묶여야 한다. 패치된 모듈 cache 계약(`db.modules` 배열 교체 반영)을 유지한다. **다른 chat을 hydrate하지 않는다는 조건은 이 API에 한정한다.** RCM이 같은 context에서 부르는 `getDatabase([... "characters"])`는 기존 handler가 전체 캐릭터를 hydrate하므로 별도 판정 대상이다.
 - 위치: `bgPluginHost.cjs` handler 표(노출은 자동), 필요 시 server bundle의 모듈 조회 binding.

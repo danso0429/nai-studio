@@ -1,6 +1,6 @@
 # G2.2b 구현 계획 — BG `getCurrentLorebookEntries` parity
 
-**상태 (2026-10-22 KST):** 계획, Astra 계획 검수 1회차, Argon 시나리오, 블라인드 테스트까지 완료. 구현은 시작하지 않았다.
+**상태 (2026-10-22 KST):** 구현·자동 검증·코드 검수·검증 실행까지 완료했고 patcher branch `claude/g22b-lorebook-parity`에 commit `dd5641a`(0.2.4-experimental.83, lazy-chat-bg-adapter 0.7.78)로 남겼다. push·merge·live 적용·기기 확인은 하지 않았다. 결과는 아래 「구현과 검증 기록」.
 정본: [G2.2 실행 계획](BG-G2-2-EXECUTION-PLAN.md) r2 §3(A) G2.2b·§7. 대상: patcher `origin/main` `2adc8a5`(코드는 `902148a`, experimental.82, lazy-chat-bg-adapter 0.7.77), 작업 branch `claude/g22b-lorebook-parity`(push 전).
 위험 분류: **risky** (공통 BG plugin host, 서버 번들 binding, 여러 파일).
 
@@ -79,9 +79,28 @@ BG 요청별 플러그인 host에 `getCurrentLorebookEntries`를 제공해, 같�
 | `bgInputExecutionContext.test.ts` | `4e25d1d47c02a1e9c0b76687df1405cab4408f5ca848df69fe8552a4445784f0` |
 | `plugin-host-units.cjs`(등록 1줄 포함) | `84d332fadb26da144598469a1dfc389df6c1882f610e7fb9ffbebd79ef7a71ff` |
 
+## 구현과 검증 기록 (2026-10-22 KST)
+
+- **구현(opus-implementer):** `bgPluginHost.cjs`에 `getCurrentLorebookEntries` handler, `bgPluginEligibility.cjs` 필수 binding에 `moduleLorebooks`, `bgPluginBindings.ts`에 `moduleLorebooks: () => getModuleLorebooks()`(`./process/modules`). cold chat 판정은 lazy-chat-sync `server.cjs`의 `isColdStorageChat`과 같은 헤더(`COLDSTORAGE`) 비교, stub·placeholder 판정은 `serverChatAssemblyContext.cjs`와 같은 필드다. 릴리스 식별·CHANGELOG·버전 단언·`dist`를 갱신했다. patcher commit `dd5641a`.
+- **고정 테스트 정정 2건(같은 Codex 테스트 작성 세션 resume, 각 1회):**
+  1. 자격·알림 테스트가 `operationId: 'op'`(2자)를 넘겨 기존 `bgPluginUnavailable.cjs:3`의 8~128자 검사에서 알림 전에 실패했다. 구현 전에는 앞 단언에서 멈춰 드러나지 않았다. 값만 `'op-00000001'`로 바꿨다.
+  2. Codex 코드 검수(gpt-6.1-sol) 지적: 반환값 변경 테스트가 host DB에 넣은 객체와 같은 `original`과 비교해, 참조를 돌려주는 handler에서도 통과했다(합격 기준 4 미보호). 변경 전 `structuredClone(original)` 스냅샷과 비교하도록 3줄을 바꿨다. 조립 트리에서 clone을 뺀 handler로 바꾸면 이 테스트와 값 한도 테스트가 실패하고 원래 구현에서는 14/14 통과함을 확인했다.
+  - 최종 SHA-256: `bgCurrentLorebookEntries.test.ts` `118b57c14600711c4ae021c2b67d18b378907a652f6b39c18a915d9588d9923f`. 나머지 셋(`bgPluginEligibility.test.ts`, `bgInputExecutionContext.test.ts`, `plugin-host-units.cjs`)은 위 표와 같다. 라벨은 `[G2.2b-1]` 블록 하나로 위반 0건.
+- **코드 검수:** 제품 코드 결함 0건, 테스트 지적 1건(위 2번 채택). 테스트만 바뀌어 재검수는 하지 않았다.
+- **후보 gate(commit 직전):** 19/19 PASS. client 2621/4, server 789/12(775 + 새 14), compat 123/5, `pnpm check` 0/0, 저장소 351/348/0/3, `dist` 재현·755·`node --check`, apply→revert 왕복 clean.
+- **검증 실행(validation-runner, 합성 데이터·loopback·가짜 provider/backend):**
+  - 합격 기준 6: 실제 worker에서 capability 발견(`function`), absent 진단 제외(남은 미지원 API는 계속 표시), 권한 상태·network counter 불변, 실제 번들 `moduleLorebooks` binding 결과가 foreground와 deep-equal(`db.modules` 순서·namespace·중복 ID·chat-bound persona embedded 모듈, 전역 persona 모듈 제외), 연속 작업과 host refresh가 각자의 DB를 반환.
+  - 합격 기준 8: 원본 RCM 1.0.21 JS(SHA-256 `08705f3b…` 전후 동일)로 BG 실행 1회. absentApis에서 사라졌고, `getCurrentLorebookEntries` wire 값이 foreground와 deep-equal(10개)이며, `/v1/turn/prepare` 본문의 lore는 `staticProjection.hash`로만 실리는데 그 hash가 foreground 항목으로 재계산한 값과 같고 모듈 lore 제외·빈 목록 hash와는 다르다. 프롬프트에 `[[RCM]]` marker가 있을 때 beforeRequest가 성공하고 prepare·delivery가 backend에 도달했으며 가짜 모델 요청에 주입 packet이 들어갔다. marker가 없으면 `getChatFromIndex` 뒤 `plugin_hook_failed`(worker는 메시지 없는 `plugin_execution_failed`)로 끝나고 이 API·prepare는 호출되지 않았다(marker 원인은 DB 차이에서 추론). marker 실행에서 hook 반환 뒤 RCM 자체 호출로 `plugin_late_call` 알림 1건이 있었다(이 API와 무관, 기존 동작).
+  - 오래된 build(426)·session(423) 시작은 플러그인·backend·provider 효과 0, worker 미기동.
+  - 회귀 probe: capability 11/11, host 128/128, worker 12/12, process(normal·old-client) 통과.
+
+## 남은 한계
+
+- `character.coldstorage`가 남은 선택 캐릭터는 거절하지 않는다(사용자 결정, foreground parity). 서버는 정상 읽기 경로(`decodeDatabaseWithPersistentChatIds`, 저장소 복원)에서 cold 캐릭터를 풀어 두며, `/api/write`로 `database.bin`을 직접 쓴 경우에만 캐시에 남을 수 있다(lazy-chat-sync `server.cjs:4451`, 재현하지 않음). 그 경우 RCM은 이 API보다 먼저 부르는 기존 `getCharacter`·`getDatabase(["characters"])` hydrate에서 `plugin_chat_snapshot_unavailable`로 실패한다.
+- RCM beforeRequest 실패는 RCM 안에서 재시도·대체 없이 `MemoryInjectionBlockedError`로 던져진다. 현재 BG 정책(D1-a 적용 전)은 알림 뒤 기억 없이 진행한다.
+- 실제 RCM backend·브라우저·기기 경로는 확인하지 않았다(G2.2c·G2.5).
+
 ## 다음 단계
 
-1. opus-implementer로 구현한다. 위 파일들을 고정 테스트로 넘긴다.
-2. 후보 gate를 실행하고 Codex 코드 검수를 받는다(`dist` 제외 diff).
-3. 합격 기준 6·8의 검증 실행(validation-runner)을 한다.
-4. commit한다. push·live 적용·기기 확인은 각각 별도 사용자 결정이 필요하다.
+1. push·merge·live 적용·기기 확인은 각각 별도 사용자 결정이 필요하다.
+2. 이어서 G2.2c(RCM 1.0.21 설치 확인부터), 그 뒤 D2 구현 계획과 도구 발견 시점 결정.
