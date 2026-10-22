@@ -1,7 +1,8 @@
 # BG Preserve 순차 목표 계획
 
 현재 선택과 다음 작업 (2026-10-15): 사용자가 **RCM 설치·BG 연동을 현재 G2 방향으로 선택**했고, AC는 **미래 후보(DEFERRED)**로 남기기로 했다. G2.1 backend 격리 설치 뒤 원본 PocketRisu 1.10의 API 노출 오류를 확인했다.
-[호스트 호환성 검토](BG-G2-HOST-COMPATIBILITY-REVIEW.md)에 G1 잔여 의존 표와 확정한 capability 수정안·격리 검증을 기록했고, 현재 다음 구현 단위는 §9.3의 G2.2a sub plan이다. 2026-10-16 사용자 진행 결정으로 §9.1의 진입 근거를 **G2.2a 한 단위에 한해** 기록했다(§9.1 「진입 근거 기록」). 진단본에서 원본 RCM 설정/보호 API 연결을 확인했으나 정식 호스트/운영 적용과 BG 기억 완주는 미완료다. G2.2~G2.5는 G2.2a 결과를 본 뒤 별도 진행 결정이 필요하다. 2026-10-17 G2.2a 후보(experimental.56/adapter 0.7.60)를 patcher branch에 구현·자동 검증했고, 수정하지 않은 원본 RCM의 브라우저 초기화·설정 저장·보호 API 200과 BG 부재 API 진단을 확인했다([G2.2a 검증](BG-G2-2A-CAPABILITY-VALIDATION.md)). push·운영 적용·실기기 확인은 하지 않았다.
+**현재 상태 (2026-10-22):** G2.2a(capability 정확화)와 G2.2b(BG `getCurrentLorebookEntries`, patcher `dd5641a`, `origin/main`)를 마쳤고 G2.2c(RCM 1.0.21 실측, [기록](BG-G2-2C-RCM-MEASUREMENTS.md))도 실행했다. 남은 G2.2 작업은 D1-a 구현([계획](BG-G2-2-D1A-BEFORE-REQUEST-FAILURE-PLAN.md), 구현 전), D3 측정·구조 결정([설계 분석](BG-G2-2-D3-OUTPUT-SYNC-PLAN.md)), D2(MCP) 구현 계획이다. D3·D4 결정은 [G2.2 실행 계획](BG-G2-2-EXECUTION-PLAN.md) §3(B)를 따른다. 아래 이 문단 이전·이후의 날짜별 문단은 당시 상태의 기록이다.
+[호스트 호환성 검토](BG-G2-HOST-COMPATIBILITY-REVIEW.md)에 G1 잔여 의존 표와 확정한 capability 수정안·격리 검증을 기록했고, 당시 다음 구현 단위는 §9.3의 G2.2a sub plan이었다. 2026-10-16 사용자 진행 결정으로 §9.1의 진입 근거를 **G2.2a 한 단위에 한해** 기록했다(§9.1 「진입 근거 기록」). 진단본에서 원본 RCM 설정/보호 API 연결을 확인했으나 정식 호스트/운영 적용과 BG 기억 완주는 미완료다. G2.2~G2.5는 G2.2a 결과를 본 뒤 별도 진행 결정이 필요하다. 2026-10-17 G2.2a 후보(experimental.56/adapter 0.7.60)를 patcher branch에 구현·자동 검증했고, 수정하지 않은 원본 RCM의 브라우저 초기화·설정 저장·보호 API 200과 BG 부재 API 진단을 확인했다([G2.2a 검증](BG-G2-2A-CAPABILITY-VALIDATION.md)). push·운영 적용·실기기 확인은 하지 않았다.
 자체 점수표나 유료 AC·RCM 품질 비교를 선택/설치의 선행 조건으로 두지 않는다. 아래 ‘G2.0 조사 checkpoint’·‘최신 계획 개정’·‘최신 제한 범위 L6 정리’ 문단의 당시 선택 대기·G2.0 시작점·G2 공식 AC 표현은 역사 기록이다. 이 문단들과 그 안의 이전 우선순위 선언보다 **현재 이 문단과 §9**를 우선한다. 제품 선택과 격리 시험은 운영 활성화·BG 완주·G1 잔여 면제·stable 완료를 뜻하지 않는다.
 
 G2.0 기능 노출 검증 (2026-10-15): 사용자 검증 요청에 따라 원래 호스트 A와 시험 복사본 B(listener 한 개 비노출)·C(미구현 최상위 이름 비노출)를 동일 새 fixture로 2회씩 비교했다. 각 run 10개 사례·총60개에서 반복 signature와 정리를 확인했다. B에서 AC는 input/before/after 설치와 fixture 503 요청까지 진행했고 RCM은 registerMCP 미지원으로 이동했다. C에서 RCM도 훅을 설치했으나 before_request의 API 이름 없는 hook 오류가 남았다. 첫 기능 탐지 장벽의 기여는 확인했지만 RCM의 1500ms fallback 실행이나 어느 제품의 기억 완주도 입증하지 않았다. 수정은 격리 worker 복사본의 guard 한 줄에 한정했고 원본/운영에는 적용하지 않았다. 상세는 [후보 비교 보고서 §7](BG-G2-0-CANDIDATE-COMPARISON.md#7-기능-노출을-바꾼-격리-인과-검증)이다.
@@ -502,6 +503,8 @@ H1과 이전 G1 격리 후보는 재사용 증거다. 이들의 통과나 capabi
 
 **2026-10-15 G2.1 실행 상태:** 공식 RCM 1.0.13 backend를 ARM64/Node 25.9.0에 격리 설치해 native SQLite/vec·인증/API revision·재시작·빈 DB 백업/복원을 확인했다. 공식 PocketRisu 1.10.0의 정상 UI로 원본 JS를 설치했으나 `addRisuChatListener`의 기능 탐지와 실제 API 지원 불일치로 초기화가 중단됐다. G2.1은 부분 완료이며 브라우저 연결·G2 통합은 미완료다. 기준선, 재현 원인, 증거, 남은 순서는 [G2.1 검증 기록](BG-G2-1-RCM-INSTALL-VALIDATION.md)을 따른다. 앞선 1.0.12 비교 결과는 당시 버전의 기록으로 보존한다.
 
+**2026-10-22 G2.2c 관측(1.0.21):** 공식 v1.0.21(commit `50c76fe`)의 ZIP·JS hash, ARM64 native 모듈 로드, health·API revision 98·인증·재시작을 확인했다. 다만 1.0.21 의존성의 `npm install`은 실행 환경의 권한 검사로 막혀 관측하지 못했고(같은 버전의 G2.1 설치본 의존성을 재사용), 새 설치 절차는 G2.5에서 확인한다. G2.2a 패치 조립본의 브라우저에서는 원본 RCM의 메뉴 표시 → 주소·token 저장 → backend 연결이 실제로 이루어졌다. 이는 수정하지 않은 공식 PocketRisu 조합의 결과가 아니므로 위 G2.1 잔여(공식판 브라우저 연결)를 해소한 것으로 계산하지 않는다. 상세: [G2.2c 실측](BG-G2-2C-RCM-MEASUREMENTS.md).
+
 G2.1의 남은 브라우저 연결 확인은 G2.2급 호스트 호환성 해결에 의존한다. 그 변경에는 아래 G1 선행 조건이 적용되며 원본을 다시 설치하는 것으로 대체하지 않는다. 초기화 실패 뒤 model 요청 gate가 닫힌 채 남을 가능성도 소스로 확인했으나 Send 실측은 하지 않았다. G2.2에서 실패 시 일반 전송 보존까지 검증한다.
 
 **호스트 수정 계획 checkpoint:** [G1 잔여 의존 표와 호스트 검토](BG-G2-HOST-COMPATIBILITY-REVIEW.md)에 기존 자동/실제 기기 근거, 구현 의존과 지원/전달 의존을 구분했다. 첫 수정은 foreground/BG의 실제 capability 노출 정확화(G2.2a)로 확정했다. 격리 진단본의 원본 RCM 메뉴·설정 저장·재접속 보호 API 200은 공식 원본 조합의 성공이나 G2 완료가 아니다. output listener 단독 추가는 현재 host close→canonical commit 순서와 detached 효과를 풀지 못하므로 첫 수정으로 채택하지 않는다. 저장 후 수명·lease·의도적 차단·필수 API/MCP 의미는 기존 G2.2~G2.4에서 확인한다.
@@ -528,6 +531,7 @@ G2.1 예비 조사는 아래 실행 계획을 구체화하는 단계이며 2·3�
 - **조건 3:** G1 §8 완료 조건 5번(실제 기기 확인)은 미충족이다. 아래 항목을 통과로 바꾸지 않고 **미확인 지원 한계**로 명시한 사용자 진행 결정으로 G2.2a 진입에 한해 대신한다.
 - **조건 4:** G2.2a는 [호스트 호환성 검토 §6](BG-G2-HOST-COMPATIBILITY-REVIEW.md#6-g22a-실행-sub-plan)의 sub plan으로 구체화돼 있다. G2.2~G2.5는 §9.3과 호환성 검토 §4의 배정을 따르며 G2.2a 결과로 갱신한다.
 - **기준선:** 호환성 검토 §1의 `8adb75f`/experimental.48/adapter 0.7.55는 조사 당시 기준이다. G2.2a 착수 시 현재 patcher main HEAD에서 registry/dispatcher/installer 기준선을 다시 고정한다.
+- **추가 (2026-10-22 KST):** 사용자 진행 결정으로 G2.2 안의 다음 범위를 진행했다. G2.2b 구현·검증·`origin/main` 반영(`dd5641a`), G2.2c 실측, D1-a 구현 계획과 보충 결정(같은 작업 앞 단계의 실행 실패로 꺼진 플러그인도 beforeRequest 시점에 요청 실패, identity 변경은 알림 후 진행), D3 결정(유한 대기로 지원, 호스트 공통 계약, 구조는 측정 뒤 결정), D4 결정(server engine 필수 + 턴별 시작 창). D1-a·D3·D2의 코드 구현은 각 계획 검수 뒤 진행한다. G2.3~G2.5와 조건 3의 미확인 지원 한계는 그대로 유지한다.
 
 | 미충족 G1 항목 | 현재 상태 | 재검증 배정 |
 |---|---|---|
@@ -537,7 +541,7 @@ G2.1 예비 조사는 아래 실행 계획을 구체화하는 단계이며 2·3�
 | 편집·대기열 N+1 | 기기 보류 | G2.3: RCM 조합의 이전/수정 원문, N+1 실제 payload, 기억 지연/중복 |
 | 중지·복구 | 기기 보류 | G2.2: 의도적 차단 신호. G2.4: 단계별 입력/답변/기억/job 잔존·중복·후속 전송 |
 | 실패 알림 | 기기 보류 | G2.2a: unsupported RPC 거절·알림 정책 회귀. G2.4: 부분 외부 효과 알림 |
-| 모듈 선택 | 기기 보류 | G2.2: module selector·lore parity |
+| 모듈 선택 | 기기 보류 | G2.2: module selector·lore parity. lore parity는 G2.2b(`dd5641a`)로 닫음, module selector는 남음 |
 | 스트리밍 기기 항목 | 미기록(기존 사용자 결정) | G2.2a: 기존 streaming 자동 회귀만. 기기 지원 범위는 G2.5 지원표 |
 
 G2.5의 L5에는 RCM을 끈 G1 단독 시나리오를 별도 행으로 둔다. 이 기록은 위 항목의 통과, G1 완료, 운영 활성화, stable 승인을 뜻하지 않는다.
@@ -583,9 +587,9 @@ G2.5의 L5에는 RCM을 끈 G1 단독 시나리오를 별도 행으로 둔다. �
 
 #### RCM 조사에서 보존한 수명·확인창 경계 — G2.2~G2.4에서 검증
 
-공식 v1.0.12는 플러그인에서 15초 간격 heartbeat를 등록하고 서버 작업자에 45초 제어 lease를 둔다. lease 만료는 **새 작업 시작**을 막는 조건이며, 진행 중 작업 완료 조건과 다르다. 요청별 JS가 종료된 뒤 누가 lease를 갱신하고 누가 남은 작업을 끝내는지, 브라우저 lease와 서버 인스턴스가 경쟁하는지 확인한다. 이 수치를 늘리거나 lease를 우회해 호환을 꾸미지 않는다.
+공식 v1.0.12는 플러그인에서 15초 간격 heartbeat를 등록하고 서버 작업자에 45초 제어 lease를 둔다. lease 만료는 **새 작업 시작**을 막는 조건이며, 진행 중 작업 완료 조건과 다르다. 요청별 JS가 종료된 뒤 누가 lease를 갱신하고 누가 남은 작업을 끝내는지, 브라우저 lease와 서버 인스턴스가 경쟁하는지 확인한다. 이 수치를 늘리거나 lease를 우회해 호환을 꾸미지 않는다. **1.0.21 관측(G2.2c §4·§4b):** 15초 heartbeat·45초 lease 값은 같다. heartbeat 1회는 약 45초의 job 시작 창을 열고, 그 창에서 시작한 job은 lease가 끝난 뒤에도 완료까지 진행하며, 창이 닫힌 뒤 새 job은 heartbeat 없이 시작되지 않았다. 추출 job은 한 번에 하나씩 실행된다. 새 설치의 실제 추출 engine은 `risu`(플러그인 JS가 추출)이고 `server` engine은 사용자의 서버 LLM 설정 저장 뒤에만 반영된다. 새 채팅은 플러그인 화면의 초기 보정을 처리하기 전까지 추출하지 않는다. 이에 따른 D4 결정은 [G2.2 실행 계획](BG-G2-2-EXECUTION-PLAN.md) §3(B)이다.
 
-기억 준비는 30초 뒤 기억 없이 전송/전송 중단 선택을 표시하고 180초에 원본의 차단 선택을 실행하는 코드가 있다. 이는 플러그인 API 권한을 묻는 §2의 권한 확인이 아니라, 이미 시작한 요청의 진행 방법을 묻는 선택이다. 서버가 사용자 대신 응답하지 않는 원칙은 동일하게 적용하되, 저장된 권한 답이 없을 때 플러그인을 제외하는 규칙으로 이 진행 선택을 대신 답하지 않는다. 화면 조작이 없을 때 원본이 실제로 종료하는 결과와 오류 신호를 먼저 측정한다. 해당 동작이 요구 결과와 맞지 않거나 원본 신호를 현재 호스트에서 보존할 수 없으면 지원 한계와 대안을 사용자에게 제시한다. 새 자동 선택이나 timeout 정책을 구현자가 임의로 추가하지 않는다.
+기억 준비는 30초 뒤 기억 없이 전송/전송 중단 선택을 표시하고 180초에 원본의 차단 선택을 실행하는 코드가 있다. 이는 플러그인 API 권한을 묻는 §2의 권한 확인이 아니라, 이미 시작한 요청의 진행 방법을 묻는 선택이다. 서버가 사용자 대신 응답하지 않는 원칙은 동일하게 적용하되, 저장된 권한 답이 없을 때 플러그인을 제외하는 규칙으로 이 진행 선택을 대신 답하지 않는다. 화면 조작이 없을 때 원본이 실제로 종료하는 결과와 오류 신호를 먼저 측정한다. **1.0.21 foreground 측정(G2.2c §2):** 30초에 "기억 없이 보내기"·"보내지 않기" 선택이 표시되고, 조작 없이 준비가 끝나면 기억을 담아 한 번 보낸다. "기억 없이 보내기"는 즉시 기억 없이 보내고, "보내지 않기"와 180초 경과는 `MemoryInjectionBlockedError("turn/prepare timeout")`로 모델 요청을 차단한다(입력창은 비고 사용자 메시지는 채팅에 남음). BG에는 이 화면이 없으므로 180초 경과 시 원본은 차단 오류를 던지며, 이는 D1-a의 요청 실패 경로로 이어진다. 서버가 30초 선택을 대신 답하지 않는다. 해당 동작이 요구 결과와 맞지 않거나 원본 신호를 현재 호스트에서 보존할 수 없으면 지원 한계와 대안을 사용자에게 제시한다. 새 자동 선택이나 timeout 정책을 구현자가 임의로 추가하지 않는다.
 
 ### 9.3 RCM 설치·BG 연동의 실행 순서
 
@@ -622,8 +626,9 @@ G2.5의 L5에는 RCM을 끈 G1 단독 시나리오를 별도 행으로 둔다. �
 [인과 실험 §7](BG-G2-0-CANDIDATE-COMPARISON.md#7-기능-노출을-바꾼-격리-인과-검증)은 변경 위치를 찾기 위한 근거다. 시험 worker의 guard를 운영에 복사하는 것만으로 지원 완료 처리하지 않는다.
 
 - 미지원 기능의 typeof 노출과 잡힌 오류의 entry 비활성화를 구분한다. optional MCP/채널의 원본 부재 처리와 기존 MARP/provider 동작을 함께 보존한다. 도구를 강제로 끄거나 없는 API를 전부 새로 만드는 선택으로 대체하지 않는다.
-- 현재 C 시험에서 RCM은 before 2/after 1 설치 뒤 before_request의 이름 없는 hook 오류를 보였다. 정상 backend 계약과 실제 caller에서 원인을 분리한다. getCurrentLorebookEntries·허용 DB projection·DOM/초기화·backend 장애는 조사 경로이며 이번 오류의 확정 원인 목록이 아니다.
-- §9.2에 기록한 원본 15초 heartbeat/45초 lease와 30/180초 진행 선택을 실제 RCM 작업에 연결해 확인한다. 저장 후 관찰은 실제 capability 정책에서 선택되는 listener/fallback 경로를 검증한다. 1500ms fallback을 지원 경로로 유지하면 timer·callback 수명·영속 인계를 확인하고, listener가 선택돼 실행되지 않는 timer를 미통과로 세지 않는다. 프로세스 수명 연장이나 자동 재실행을 임의로 추가하지 않는다.
+- 현재 C 시험에서 RCM은 before 2/after 1 설치 뒤 before_request의 이름 없는 hook 오류를 보였다. 정상 backend 계약과 실제 caller에서 원인을 분리한다. getCurrentLorebookEntries·허용 DB projection·DOM/초기화·backend 장애는 조사 경로이며 이번 오류의 확정 원인 목록이 아니다. **2026-10-22(1.0.21, G2.2b·G2.2c):** `getCurrentLorebookEntries`는 G2.2b로 제공했다. BG에서 같은 계열의 이름 없는 hook 실패가 관측된 원인은 두 가지였다. 프롬프트에 `[[RCM]]` marker가 없을 때 RCM이 의도적으로 던지는 차단(`MissingRcmMarkerError`, 소스 확인)과 backend 단절로 인한 prepare 실패다. marker가 있고 backend가 정상이면 beforeRequest가 성공해 기억이 실제 모델 요청에 주입됐다. 옛 C 시험(1.0.12/1.0.13, 격리 worker) 오류의 원인으로 이를 확정하지는 않는다.
+- §9.2에 기록한 원본 15초 heartbeat/45초 lease와 30/180초 진행 선택을 실제 RCM 작업에 연결해 확인한다. 저장 후 관찰은 실제 capability 정책에서 선택되는 listener/fallback 경로를 검증한다. 1500ms fallback을 지원 경로로 유지하면 timer·callback 수명·영속 인계를 확인하고, listener가 선택돼 실행되지 않는 timer를 미통과로 세지 않는다. 프로세스 수명 연장이나 자동 재실행을 임의로 추가하지 않는다. **2026-10-22:** 30/180초와 lease는 G2.2c에서 측정했다(§9.2). 현재 capability 정책에서는 listener가 없어 1500ms fallback이 선택되며, foreground는 응답 약 1.5초 뒤 출력 동기화를 실행하지만 BG는 host가 commit 전에 닫혀 실행하지 않았다. D3 결정에 따라 commit 뒤 유한 continuation으로 지원하며 설계는 [D3 계획](BG-G2-2-D3-OUTPUT-SYNC-PLAN.md)이다.
+- **지원 한계로 남길 관측(2026-10-22, G2.5 지원표에 연결):** BG 플러그인 host가 꺼진 현재 기본 상태에서는 RCM이 BG 요청에서 실행되지 않는다(켜진 플러그인마다 `server_plugin_host_disabled` 알림 후 진행, 소스 확인; 알림 표시는 미관측). BG의 RCM 지원은 host 활성화와 `server` engine을 전제로 한다. 새 채팅은 초기 보정 처리 전까지 기억을 추출하지 않는다.
 
 #### 해당 경로의 코드 구현 전에 닫을 공통 경계
 
@@ -695,7 +700,7 @@ G2.0의 제품 선택은 RCM으로 종료했지만 G2 제품 완료나 비교 �
 | preset 경로 `requestRetrys`의 실행 검증 | G1.8 자동 테스트 |
 | 조립 시점 최신값과 비밀값 경계 | G1.3 설계·테스트 |
 | AC·RCM 제품 선택 | **완료: RCM 선택, AC는 DEFERRED.** 0-C 실제 품질/비용 비교는 미실행이며 현재 설치의 선행 조건이 아니다. |
-| RCM 기본 설치·연결 | G2.1 예비 조사에서 공식 파일·Node/ARM native 모듈·새 DB·인증 API·양쪽 접근 배치안을 확인한다. 운영 활성화는 G2.5 전달에 연결한다. |
+| RCM 기본 설치·연결 | G2.1 예비 조사에서 공식 파일·Node/ARM native 모듈·새 DB·인증 API·양쪽 접근 배치안을 확인한다. 운영 활성화는 G2.5 전달에 연결한다. 1.0.21은 G2.2c에서 공식 파일·native 로드·인증 API를 확인했으나 의존성 `npm install` 관측은 미완료다(G2.5 설치 절차에서 확인). |
 | RCM 인스턴스 경쟁, 파생 기억 이중 처리, 자체 복구 동작 | G2.3·G2.4의 격리 환경. AC는 §9.6의 재개 조건이 생기기 전까지 병행 구현하지 않는다. |
 
 ## 12. 목표별 완료 기록
@@ -719,7 +724,7 @@ G2.0의 제품 선택은 RCM으로 종료했지만 G2 제품 완료나 비교 �
 진행 상태:
 - Phase A(재시작으로 고아가 된 서버 입력)와 Phase B(저장소 복원·초기화의 원자성, 저장소 epoch, BG 세션 검사, 복원 뒤 이전 탭 무효화, 복원으로 고아가 된 marker 정리)는 구현·자동 검증·브라우저 검증까지 진행했다.
 - 2026-10-19 사용자 결정: Phase C 전체(client-build fence F-1~F-4, 설정 PUT 세션 검사 S-1~S-3), C-21(`fmIndex` 없이 만들어지는 채팅), 브라우저 probe 스크립트의 server-input marker v4 namespace 반영은 G2 재개 전에 한 묶음으로 처리한다. 이어 Phase A·B와 이 묶음을 patcher `main`에 합친 뒤 G2.2 계획 검수(BG-G2-2-EXECUTION-PLAN.md §4)부터 재개한다.
-- 2026-10-22 완료: 묶음 C-1~C-5(patcher `0.2.4-experimental.79`~`.82`와 probe 스크립트 갱신)를 구현·자동 검증·브라우저 검증하고, Phase A·B와 함께 patcher `origin/main`에 fast-forward로 합쳤다(`c7945b9..83496a9`). README는 이어서 `902148a`로 갱신했다. 휴대폰 검증과 live 적용은 하지 않았다. 세션 기록은 patcher `docs/records/`에 있다. G2.2 재개 시 참고: 계획 기준 `58af7b2`와 `83496a9` 사이에 `bgPluginHost.cjs`·`bgPluginWorker.cjs`는 바뀌지 않았고, 플러그인·요청·lorebook·MCP·tool 관련 경로 중에서는 `scripts/probe-bg-plugin-process.cjs`의 426 기대값만 바뀌었다. 2026-10-22 G2.2 계획을 r2로 갱신했다: 기준을 patcher `2adc8a5`(코드는 `902148a`)와 사용자 결정에 따른 RCM 1.0.21로 다시 고정하고, Astra 계획 검수 1회차의 지적 10건을 모두 반영했다(계획 §7). 같은 날 G2.2b 구현 계획·Astra 검수·Argon 시나리오·블라인드 테스트를 마쳤고, 이어 구현·자동 검증·코드 검수·검증 실행까지 마쳐 patcher branch `claude/g22b-lorebook-parity`에 commit `dd5641a`(experimental.83)로 남겼다(push 전, [G2.2b 계획](BG-G2-2B-LOREBOOK-PARITY-PLAN.md)). 다음은 G2.2c다.
+- 2026-10-22 완료: 묶음 C-1~C-5(patcher `0.2.4-experimental.79`~`.82`와 probe 스크립트 갱신)를 구현·자동 검증·브라우저 검증하고, Phase A·B와 함께 patcher `origin/main`에 fast-forward로 합쳤다(`c7945b9..83496a9`). README는 이어서 `902148a`로 갱신했다. 휴대폰 검증과 live 적용은 하지 않았다. 세션 기록은 patcher `docs/records/`에 있다. G2.2 재개 시 참고: 계획 기준 `58af7b2`와 `83496a9` 사이에 `bgPluginHost.cjs`·`bgPluginWorker.cjs`는 바뀌지 않았고, 플러그인·요청·lorebook·MCP·tool 관련 경로 중에서는 `scripts/probe-bg-plugin-process.cjs`의 426 기대값만 바뀌었다. 2026-10-22 G2.2 계획을 r2로 갱신했다: 기준을 patcher `2adc8a5`(코드는 `902148a`)와 사용자 결정에 따른 RCM 1.0.21로 다시 고정하고, Astra 계획 검수 1회차의 지적 10건을 모두 반영했다(계획 §7). 같은 날 G2.2b 구현 계획·Astra 검수·Argon 시나리오·블라인드 테스트를 마쳤고, 이어 구현·자동 검증·코드 검수·검증 실행까지 마쳐 patcher commit `dd5641a`(experimental.83)로 `origin/main`에 fast-forward push했다(CI `patch-integrity` 성공, [G2.2b 계획](BG-G2-2B-LOREBOOK-PARITY-PLAN.md)). 같은 날 G2.2c 실측을 마치고 D1-a 구현 계획, D3 설계 분석, D3·D4 결정을 기록했다(BG 진행 상태는 이 문서 머리말 「현재 상태」).
 
 이 step에 남기는 항목(시작 조건이 생기거나 사용자가 지시할 때 진행):
 
