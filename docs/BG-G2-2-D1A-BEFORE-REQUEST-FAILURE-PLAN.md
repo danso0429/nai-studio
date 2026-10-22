@@ -1,6 +1,6 @@
 # D1-a 구현 계획 — BG beforeRequest 실패를 요청 실패로
 
-**상태 (2026-10-22 KST):** 계획. Astra 계획 검수 1회차 반영(아래 「검수 기록」), 구현 전.
+**상태 (2026-10-22 KST):** 구현·자동 검증·코드 검수 완료. patcher branch `claude/d1a-before-request-failure`에 commit `5e3ed85`(0.2.4-experimental.84, lazy-chat-bg-adapter 0.7.79). push·live 적용·기기 확인은 하지 않았다. 결과는 아래 「구현과 검증 기록」.
 정본: [G2.2 실행 계획](BG-G2-2-EXECUTION-PLAN.md) §3(B) D1(결정 2026-10-17: D1-a)와 Astra r2 구현 조건. 대상: patcher `origin/main` `dd5641a`(0.2.4-experimental.83, lazy-chat-bg-adapter 0.7.78).
 위험 분류: **risky** (G1의 플러그인 실패 정책 변경, 공통 BG plugin host, 기존 probe 기대 다수 변경).
 
@@ -47,7 +47,7 @@ BG 작업에서 플러그인의 `beforeRequest` replacer가 실행에 실패하�
 - orchestrator·request 코드는 바꾸지 않는다. 결과는 실패가 일어난 요청에 따라 다음과 같다(Astra 확인, 조립 트리 기준).
   - **본 답변 요청(`model`)과 그 재시도:** throw가 `request.ts:254` → `sendChat`(`index.svelte.ts:1617`) → direct lifecycle → `fullThrew`(`bgOrchestrator.cjs:974`)로 전파된다. 답변이 없으므로 `terminal-error`, `generation_failed`, 입력 기록 `failed` 정산이다. 같은 모델 재시도에서 throw하면 다음 재시도·fallback으로 가지 않는다.
   - **본 답변 전 기억 요약(HypaV3 등):** 요약 실패는 기억 코드가 잡아 오류 객체로 돌려주고(`hypav3.ts:1163,1390`, `:443-455`, `taskRateLimiter.ts:54-57`) `sendChat`이 `false`로 끝난다(`index.svelte.ts:1146-1155`). `fullThrew`는 비지만 답변이 없으므로 `terminal-error`다.
-  - **본 답변 뒤 보조 요청(감정·IGP `index.svelte.ts:1965,2162`, 이미지 prompt `stableDiff.ts:34`):** 이미 답변이 있으므로 `terminal-partial`로 커밋되고(`bgOrchestrator.cjs:1678-1690`), 커밋이 성공하면 `generation_failed`는 나가지 않는다(`:1745-1752`). 플러그인 실패 알림은 남는다. 이미 만들어진 답변을 되돌리지 않으며, foreground에서도 답변 저장 뒤 보조 요청 throw는 답변을 유지한다.
+  - **본 답변 뒤 보조 요청(감정·IGP `index.svelte.ts:1965,2162`, 이미지 prompt `stableDiff.ts:34`):** 이미 답변이 있으므로 `terminal-partial`로 커밋된다(`bgOrchestrator.cjs:1678-1690`). 결과가 throw됐으므로 커밋 뒤에도 `generation_failed`가 게시된다(`serverChatCommitOwner.cjs:892`, `bgOperationNotices.cjs:42`; 계획 초안의 "나가지 않는다"는 구현 중 정정). 플러그인 실패 알림은 남는다. 이미 만들어진 답변을 되돌리지 않으며, foreground에서도 답변 저장 뒤 보조 요청 throw는 답변을 유지한다.
   - **번역:** `translator.ts:573`에서 throw가 그대로 전파된다(호출자 처리는 foreground와 같음).
   - BG는 실행 실패로 꺼진 entry가 작업이 끝날 때까지 꺼져 있으므로, 같은 작업의 이후 beforeRequest 호출도 실패한다. foreground는 같은 hook을 다시 실행할 수 있으므로 한 작업 전체에서의 완전한 foreground parity를 주장하지 않는다.
 
@@ -66,13 +66,14 @@ BG 작업에서 플러그인의 `beforeRequest` replacer가 실행에 실패하�
 ## 합격 기준
 
 1. host 단위: replacer beforeRequest가 throw·reject·배열 아닌 결과·호출 중 실행 실패(권한 없음, 미지원 API, host 한도, worker 실패, worker 자체 timeout, 저장 CAS 충돌)일 때 `plugin_before_request_failed`로 reject하고, 그 플러그인의 최종 실패 알림은 기존 코드·phase·effectsMayHaveOccurred로 한 번 남는다(앞선 경고 알림이 있으면 그것은 그대로 유지).
-2. 같은 작업 앞 단계(입력 스크립트 hook, 앞 beforeRequest 호출, provider 호출)에서 실행 실패로 꺼진 플러그인의 beforeRequest 호출은 reject하고 새 플러그인 알림을 만들지 않는다. 로드 단계에서 빠진 플러그인은 hook이 설치되지 않아 요청이 진행된다(§2 결정 유지).
-3. identity 원인(수정·비활성화·순서 변경·추가·이름 중복·cache 불안정, 각 `code`/`api` 조합)으로 꺼진 플러그인의 beforeRequest는 원래 입력을 반환하고 요청이 진행된다. identity로 먼저 꺼진 뒤 다른 오류가 나도 원인은 identity로 남는다.
+2. 같은 작업 앞 단계(입력 스크립트 hook, 앞 beforeRequest 호출, entry를 비활성화하는 provider 실패)에서 실행 실패로 꺼진 플러그인의 beforeRequest 호출은 reject한다. provider가 `plugin_execution_failed`로 실패하면 기존 provider 처리대로 알림만 남기고 entry를 끄지 않으므로(`bgPluginHost.cjs` provider catch), 그 뒤 beforeRequest는 정상 실행된다(구현 중 확인, provider 실패 처리는 바꾸지 않는다). 앞 단계에서 꺼진 플러그인의 beforeRequest 호출은 reject하고 새 플러그인 알림을 만들지 않는다. 로드 단계에서 빠진 플러그인은 hook이 설치되지 않아 요청이 진행된다(§2 결정 유지).
+3. identity 원인(수정·비활성화·순서 변경·추가·이름 중복·cache 불안정, 각 `code`/`api` 조합)으로 꺼진 플러그인의 beforeRequest는 원래 입력을 반환하고 요청이 진행된다. identity로 먼저 꺼진 뒤 다른 오류가 나도 원인은 identity로 남는다. "먼저"는 host가 비활성화를 기록한 순서다. 플러그인 집합이 바뀌었더라도 host가 그 변경을 감지하기 전에 API 실패로 먼저 비활성화했다면 원인은 실행 실패다(구현 중 확인). 플러그인이 스스로 던진 `plugin_identity_changed` 코드는 identity 원인으로 취급하지 않는다.
 4. 우선순위: notice/identity 저장 실패 > 취소·closed·teardown·작업 timeout(`plugin_operation_closed`) > 실행 실패(`plugin_before_request_failed`) > identity 진행. 알림 정산 대기 중 취소가 일어나는 경우를 실행 실패로 꺼진 entry와 identity로 꺼진 entry 각각에서 시험한다.
 5. body interceptor·afterRequest·input/output script·provider의 실패 처리, entry가 살아 있는 상태에서 플러그인이 잡고 배열을 돌려주는 경우(진단 전용 absent API, 복구 가능한 한도 거절), 다른 handler의 결과·권한·예산은 바뀌지 않는다. local storage CAS 충돌을 잡은 경우(진행)와 잡지 않은 경우(요청 실패)를 각각 시험한다.
 6. 서버 실행(실제 orchestrator, 합성 데이터, 가짜 provider), 본 답변 전 실패: 첫 호출 throw(효과 전), backend/보조 호출 뒤 throw(효과 뒤), 앞선 provider 시도 뒤 같은 모델 재시도에서의 throw(재시도 예산 소진 포함), 입력 스크립트 hook 실패 뒤의 beforeRequest를 각각 실행해 다음을 단언한다: 실패 뒤 provider 호출 없음(앞선 시도는 그 수만큼), terminal 결과 `terminal-error`, `generation_failed`와 플러그인 알림, 정상 채팅의 사용자 메시지 보존, 새 assistant 답변 없음. 서버 입력(inputCommandVersion 1)은 영속 input receipt와 `failed` 정산을, 기존 위임 시작 경로는 그 경로의 결과·입력 소유 기록을 단언한다.
 6a. 자동 재실행 없음: 6의 실패 뒤 서버 재시작, 결과 claim/ACK, 재접속을 거쳐도 provider 호출과 operation 수가 늘지 않고 입력이 다시 시작되지 않는다(두 시작 경로 모두).
-6b. 본 답변 뒤 보조 요청(감정·이미지 prompt 등)의 beforeRequest 실패: 기존 답변이 `terminal-partial`로 커밋되어 남고, 플러그인 실패 알림이 남으며, 그 뒤 provider 호출이 없다.
+6b. 본 답변 뒤 보조 요청(감정·이미지 prompt 등)의 beforeRequest 실패: 기존 답변이 `terminal-partial`로 커밋되어 남고, 플러그인 실패 알림과 `generation_failed` 작업 알림이 남으며, 그 뒤 provider 호출이 없다. (정정: 결과가 throw되면 commit owner가 `notificationGenerationFailed`를 기록해 커밋 성공 뒤에도 `generation_failed`가 게시된다, `serverChatCommitOwner.cjs:892`·`bgOperationNotices.cjs:42`. 이는 기존 동작이며 이 단위에서 바꾸지 않는다.)
+- 시험 주의: 플러그인 실패 알림은 작업이 달라도 같은 플러그인 identity·code·phase·effects이면 보관 기간 안에서 하나로 묶인다(`bgNotifications.cjs` `publishPluginFailure`). 여러 작업에 걸친 사례는 플러그인을 달리하거나 이 묶음을 감안해 단언한다.
 7. 기존 동작 유지: MARP·PageFold·combination·capability·host·worker·process probe(바뀌는 기대 외), G2.2a·G2.2b 테스트, 기존 테스트 수(직전 client 2621/4, server 789/12, compat 123/5, `pnpm check` 0/0, 저장소 351/348/0/3).
 8. D1 적용 전 fail-open 측정 사례를 보존한다: G2.2c 서버 실측의 RCM backend 중단 실행 기록과, 위 probe 사례의 변경 전 기대를 이 문서와 commit diff로 남긴다.
 
@@ -90,6 +91,19 @@ request.ts·sendChat·orchestrator, body interceptor·afterRequest·script·prov
 ## 검수 기록
 
 - **Astra(gpt-6-astra, read-only) 1회차:** 지적 5건을 모두 채택했다. ① identity 분류는 `code`와 `api`를 함께 봐야 한다(ambiguous·set changed·cache unstable은 `plugin_api_unsupported` + `api`), 원인은 최초 전환 때 한 번만 기록. ② 보조 요청 결과는 하나가 아니다: 본 답변 전 기억 요약은 `sendChat` false로 `terminal-error`, 본 답변 뒤 보조 요청은 `terminal-partial` 커밋. ③ 취소 우선순위를 비동기 정산 뒤 재판정, worker 자체 timeout은 실행 실패. ④ 잡고 반환한 경우는 entry가 살아 있을 때만 진행, 알림 수는 최종 실패 알림 기준. ⑤ 자동 재실행 없음은 restart·claim/ACK·재접속으로 확인. 추가로 chain 중단 단언, local CAS 두 사례, 유지 identity 사례 5건을 목록에 넣었다. 오케스트레이터가 직접 확인한 근거: `bgPluginHost.cjs:383,391,660`의 `code`/`api` 조합, `index.svelte.ts:1146-1155`, `bgOrchestrator.cjs:1678-1690,1745-1752`. 변경이 지적 반영 범위라 2회차는 받지 않았다.
+
+## 구현과 검증 기록 (2026-10-22 KST)
+
+- **블라인드 테스트:** Argon(gemini-4-argon-medium) 시나리오 22개(`SUCCESS`, 제외 없음) → Codex gpt-5.6-sol 테스트 작성. 새 파일 `scripts/probe-bg-d1a-before-request.cjs`(실제 서버 실행: 두 시작 경로, 재시작·claim/ACK·재접속 뒤 재실행 없음, 보조 요청 `terminal-partial`)와 보조 파일 두 개, `probe-bg-plugin-host.cjs`·`probe-bg-plugin-capability.cjs` 끝의 `[D1a-1]` 블록. 기존 테스트는 작성자가 건드리지 않았고, 기존 fail-open 기대 14곳은 구현자가 "입력 반환"을 "`plugin_before_request_failed` reject"로만 바꿨다(오케스트레이터가 줄 단위로 확인).
+- **구현(opus-implementer):** `bgPluginHost.cjs`에 `failClosed`(replacer + before_request) 경로와 `settleBeforeRequest`(알림 정산 → notice/identity 저장 실패 → 취소·닫힘 → identity면 입력 반환, 아니면 reject). 비활성화 원인은 `disable(..., cause)`의 명시 인자로만 기록하고, `identity`는 `validateIdentity`와 host가 만든 identity 오류(WeakSet: cache 재로드 거절, `bgPluginStorage.cjs`의 스크립트 불일치 거절)에서만 넘긴다.
+- **구현 중 정정 3건:**
+  1. 테스트 7개가 계획 전제·fixture 문제로 실패: provider `plugin_execution_failed`는 entry를 끄지 않음(기준 2 정정), "먼저"는 host가 기록한 순서(기준 3 정정), 답변 뒤 보조 요청 실패에도 `generation_failed` 게시(6b 정정), 알림의 작업 간 중복 묶음, 재시도 fixture, 경고+최종 알림 두 개, 지원 API를 부른 잘못된 행. 같은 Codex 세션 resume으로 테스트를 고쳤다.
+  2. Codex 코드 검수 1회차 P1: 플러그인이 던진 오류 코드·RPC 이름으로 identity 원인을 위조할 수 있었다(입력 스크립트 catch, API dispatcher catch). 문자열 추론을 없애고 위의 신뢰 인자로 바꿨다. storage가 감지한 스크립트 변경도 같은 표식으로 identity에 넣었다(사용자 결정 「identity 변경은 진행」 적용).
+  3. 검수 2회차 P1: 마지막 알림 정산 대기 중 worker가 실패하면 값을 그대로 반환했다. 정산 뒤 `entry.failed`를 다시 판정하도록 고치고, 이 경합의 회귀 테스트를 추가했다(수정 전 트리에서 실패 확인). 3회차 검수는 새 지적 0건.
+- **최종 확인(commit 직전 후보 gate, 조립 트리):** gate 19/19 PASS. client 2621/4, server 789/12, compat 123/5, `pnpm check` 0/0, 저장소 351/348/0/3. host probe 176/0, capability 12/0, worker 12/0, D1a 서버 실행 probe 15/0. 고정 테스트 SHA-256 일치.
+- **미실행:** `probe-bg-plugin-process.cjs`(fixture 부재), MARP·PageFold·combination probe(외부 플러그인 원본 필요). 실제 RCM과 함께 D1-a 경로를 돌리는 확인은 G2.2c 방식으로 별도 실행한다.
+- **후속 단위(사용자 결정, D1-a 다음):** 캐릭터의 `reloadKeys`는 초기값 없이 선택 필드라, 답변 뒤 native 코드의 `reloadKeys += 1`이 `NaN`을 만든다(`index.svelte.ts:1682` 등). BG RPC는 유한한 숫자만 보내므로(`bgPluginWorker.cjs:238`) 같은 작업의 답변 뒤 요청에서 `getCharacter`가 실패한다. 이전에는 그 플러그인이 꺼진 채 진행했고, D1-a 뒤에는 답변 뒤 보조 요청에서 `terminal-partial`과 `generation_failed`로 드러난다. foreground는 `NaN`을 그대로 전달한다. host의 비유한 숫자 전달 규칙을 정하는 별도 단위로 고친다.
+- **시험 위생:** D1a 서버 실행 probe는 실행마다 `/tmp/pocketrisu-d1a-*` 작업 폴더를 남긴다. 실행한 쪽이 정확한 경로로 지웠다.
 
 ## 미확인
 
