@@ -49,6 +49,40 @@ BG 요청별 플러그인 host와 worker 사이의 값 전달이 foreground와 �
 10. timeout: `nativeFetch`/`risuFetch`의 `requestTimeoutMs`에 `Infinity`를 주면 공용 helper가 Node에서 약 1ms timeout으로 처리하고(`lazy-chat-sync globalApi.svelte.ts:80-89`), `NaN`·`-Infinity`·`-0`은 timeout 없이 진행한다. foreground도 같은 helper를 쓰므로 parity 동작으로 시험에 고정하고 이 단위에서 바꾸지 않는다.
 11. 인과 서버 시험: `reloadKeys`가 처음에 없음을 확인하고, native 답변 처리가 `NaN`을 만들게 둔 뒤, 보조 요청 beforeRequest에서 `Object.is(x, NaN)` 결과를 boolean으로 돌려받아 확인한다(로그는 `NaN`을 `null`로 표시하므로 쓰지 않는다).
 
+## 테스트 계약 표
+
+| 기준 | 입력 | 기존 상태 | 기대 결과 | 범위 밖 |
+|---|---|---|---|---|
+| 1 전송 보존 | `NaN`·`Infinity`·`-Infinity`·`-0`을 최상위·배열·객체·중첩으로, 호출 인자·반환값·callback 결과·stream chunk에 실음(양방향) | JSON 줄 프레임 | 받은 쪽 값이 `Object.is`로 같음 | 영속 결과, foreground 코드 |
+| 1 유한 숫자 | 유한 숫자(`0`, `+0` 포함, `-0` 제외)와 다른 타입 | 같음 | 전송 형태 `['value', n]`와 값이 지금과 같음 | |
+| 2 위조 프레임 | `['number', x]`에서 x가 네 문자열 밖이거나 길이가 2가 아님; `["value",1e400]` | 같음 | `plugin_rpc_value_invalid` | 다른 태그의 검증 규칙 변경 |
+| 2 닮은 값 | `null`, 문자열 `"NaN"`·`"Infinity"`·`"-0"` | 같음 | 그 값 그대로(숫자로 바뀌지 않음) | |
+| 3 한도 | 특수값이 많은 배열·깊은 구조·큰 프레임 | 기존 노드·깊이·바이트 한도 | 기존 오류 코드 그대로 | 한도 값 변경 |
+| 9 host 검증 | index 인자 `NaN`·`±Infinity`; `-0` index; `setArgument`에 숫자; 권한 인자에 숫자 | 기존 handler 검증 | 비정수 index·숫자 setArgument·숫자 권한은 기존 오류와 기존 비활성화 수명; `-0` index는 0번 | handler 검증 변경 |
+| 10 timeout | `nativeFetch`/`risuFetch` `requestTimeoutMs`에 `Infinity`, `NaN`, `-Infinity`, `-0` | 공용 `buildTimeoutSignal` | `Infinity`는 매우 짧은 timeout(Node가 1ms로 바꿈), 나머지는 timeout 없음 | 이 동작의 수정 |
+| 남는 한계(storage) | `setItem(key, NaN 등)` 뒤 `getItem` | JSON 정규화 | `null`(·`-0`은 `0`)로 돌아옴 | 영속·즉시 읽기 parity |
+| 4·11 인과 서버 | `reloadKeys` 없는 캐릭터, 답변 뒤 보조 요청 beforeRequest가 `getCharacter()` | native 답변 처리가 `reloadKeys += 1` | 플러그인이 `Object.is(reloadKeys, NaN) === true`를 boolean으로 돌려받고, 보조 요청이 이 원인으로 실패하지 않음 | 보조 요청의 다른 실패 원인 |
+| 6 회귀 | 기존 probe·테스트 | — | 직전 기준 수 유지 | |
+
+## 전제 출처
+
+확인일 2026-10-22, 기준 commit `d476d60`(측정 항목은 측정 commit 명시).
+
+| 전제 | 출처 |
+|---|---|
+| pack은 유한 숫자만 `['value', n]`, 그 밖은 `plugin_rpc_type_unsupported`; unpack도 유한만 | 코드 줄 `bgPluginWorker.cjs:238`, `:377` |
+| 프레임은 JSON 줄 | 코드 줄 `bgPluginSandbox.cjs:182,230`, `bgPluginWorker.cjs:767` |
+| host 복사는 structuredClone | 코드 줄 `bgPluginValue.cjs:36-39` |
+| foreground는 postMessage(structured clone) | 코드 줄 PocketRisu 1.10.0 `src/ts/plugins/apiV3/factory.ts:251`(guest→host `window.parent.postMessage`), `:597`(host→guest `contentWindow.postMessage`); structured clone의 NaN·±Infinity·-0 보존은 언어 사양 |
+| timeout 처리 | 코드 줄 `lazy-chat-sync/files-1.10/src/ts/globalApi.svelte.ts:80-89` + 실행 측정(이 서버 Node, `setTimeout(Infinity)` → `TimeoutOverflowWarning … set to 1`) — 원래 검수 판독, 확인함 |
+| storage JSON 정규화·root falsy→null·setArgument 문자열만 | 코드 줄 `bgPluginStorage.cjs:22,73,77,126,166` — 원래 검수 판독, 확인함 |
+| storage fingerprint의 비유한 거절 | 코드 줄 `lazy-chat-sync/files-1.10/server/node/serverChatCommit.cjs:38,82` — 원래 검수 판독, 확인함 |
+| 로그 JSON 표시 | 코드 줄 `bgPluginHost.cjs:74` — 원래 검수 판독, 확인함 |
+| index handler 검증 | 코드 줄 `bgPluginHost.cjs:137,142`(`Number.isSafeInteger && >= 0`) — 원래 검수 판독, 확인함 |
+| fetch 옵션 전달 | 코드 줄 `bgPluginHost.cjs:40-47` |
+| 답변 뒤 `reloadKeys` NaN과 `getCharacter` 실패 | 코드 줄 PocketRisu `index.svelte.ts:1682` + 실행 측정(D1-a 구현 검증, patcher `5e3ed85`의 조립 트리). `git diff --name-only 5e3ed85..HEAD -- patches/`는 테스트 요청 직전에 다시 확인 |
+| MessagePack DB 저장이 NaN·±Infinity 보존, `-0`→`0` | 검수 판독(검수자의 codec 실험). 이 단위의 합격 기준과 테스트는 이 사실에 기대지 않으므로(「남는 한계」만) 확인하지 않고 둔다 |
+
 ## 남는 한계 (이 단위에서 바꾸지 않음)
 
 - BG plugin storage(`bgPluginStorage.cjs:22,77,126,138`)는 값을 JSON으로 정규화해 `NaN`·`±Infinity`는 `null`, `-0`은 `0`이 된다. foreground는 root storage에 원래 값을 그대로 두고 local storage도 cache에서 바로 읽으면 원래 값을 돌려준다(디스크 저장은 JSON). 즉 즉시 읽기 결과가 다르다.

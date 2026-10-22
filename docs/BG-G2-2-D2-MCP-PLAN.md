@@ -34,6 +34,23 @@ BG 작업에서 RCM처럼 `registerMCP`로 도구를 등록하는 플러그인�
 5. **오류:** 도구 실행 실패는 각 provider의 기존 처리(ModelPreset·OpenAI는 실패 문자열, Google·Anthropic은 오류 전파)를 따르고, 플러그인 쪽 실패는 기존 알림 규칙으로 남긴다. 취소는 후속 모델 요청을 막는다.
 6. **수용 판정:** capability에 MCP 지원 필드(예: `serverPluginMcpVersion`)를 추가하고, `formerlyPrepared` 조합의 `mcp-unqualified`는 그 필드가 지원을 보고하고 MCP URL이 모두 `plugin:`일 때만 해제한다. 일반 classic 채팅의 기존 수용(외부 MCP URL의 서버 handshake 포함)은 바꾸지 않는다. 다만 이 기존 동작(서버가 외부 MCP에 직접 연결)을 사용자 결과로 확인할지는 검수 뒤 결정 항목에 둔다.
 
+## 검수 기록과 결정 (2026-10-22)
+
+**Astra(gpt-6-astra, read-only) 1회차:** 구현 전 계획 수정 필요. 지적을 모두 채택했다. 오케스트레이터가 직접 확인한 근거: 알림 검사기가 phase를 `load/input/before_request/after_request/provider`로만 받음(`server/node/bgNotifications.cjs:54`, `src/ts/bgNotifications.ts:59`), `callMCPTool`이 도구 이름으로 첫 client를 고름(`mcp.ts:163-168`).
+1. 사실 정정: `getModules`는 `moduleIntergration`도 포함하고 persona는 ID로 `db.modules`를 찾음; `initializeMCPs(additionalMCPs)`는 활성 모듈 밖 URL도 넣을 수 있음; 실행 중 `callMCPTool`이 도구 목록을 다시 읽음(`mcp.ts:162-168`); ModelPreset은 8단계·최대 9회 전송; OpenAI `requests.ts:1323`은 Responses가 아니라 Chat Completions stream이며 Responses(`:934`)는 별도 tools 배열; 128회 counter는 플러그인 `nativeFetch`·`risuFetch`·`runLLMModel`만 셈; 작업 600초 timer는 lock 획득 뒤 시작; 미등록 `plugin:` URL은 `console.error`를 남김.
+2. 별도 호출 계약 `mcp_list`·`mcp_call`이 필요하다(기존 `invoke`는 실패 시 `args[0]`을 돌려주고 반환 변경을 효과로 표시). 두 알림 검사기와 호환 테스트를 함께 바꾼다. 실패 시 입력이나 빈 목록으로 대신하지 않고, 결과는 도구 정의·MCP content의 한도 있는 배열로 검증한다. 새 MCP 권한은 만들지 않는다(foreground에도 없음). 실행 전 effect/identity 장벽을 거치고, 목록 조회 자체는 효과로 세지 않는다. worker의 callback 함수 핸들을 그대로 쓴다.
+3. 등록·정리: 전용 helper(메타데이터 + callback 두 개), load 중에는 staging 후 성공 시 설치, 허용된 hook 중에는 즉시 설치·교체. 같은 소유자 교체 허용, 다른 소유자의 등록·해제 거절, 실패한 load의 식별자 예약. client에 작업·entry·등록 세대 소유를 붙이고, 서버 binding이 돌려주는 idempotent cleanup이 `registeredCustomPluginMCPs`·`MCPs`에서 **자기 client를 가리킬 때만** 지운다. 해제·교체·비활성화·설치 rollback·close에서 무효화. 같은 이름 도구가 여러 client에 있으면 BG에서 거절하거나 작업 소유 client에 묶는다. `_previewLock` 직렬화 불변식을 시험으로 지킨다.
+4. 도구 읽기 위치: BG에서는 최초 읽기(`request.ts:213`)를 건너뛰고(사용자 결정 아래), 실제 시도마다 replacer 블록 직후(`:256` 뒤, request trigger `:258` 전)에 읽어 그 시도의 `tools`로 쓴다. `arg.tools`가 주어지면(`[]` 포함) 그대로 둔다. PageFold route로 source 변환을 건너뛰는 재시도는 이전 목록을 쓴다. 준비·읽기 뒤 `requestChatDataMain` 전에 취소를 확인한다. BG 판별은 작업 범위 표지로 한다. ModelPreset의 세 조건(`:942`)을 유지한다. `runLLMModel`의 직접 호출에는 도구가 노출되지 않는다.
+5. provider별 guard: 모든 도구 실행과 후속 요청 전에 abort 확인, 재귀·stream 전체에 "실행·효과 시작" latch를 두고 효과 뒤 프롬프트 재시도·fallback 재실행을 막는다. 128회는 후속 모델 요청을 세지 않으므로 별도 상한이 필요하다.
+6. 시한: 작업·session 마감을 한 번 잡고, 목록·실행 전 남은 시간이 있어야 하며, callback scope·전송을 `min(작업 남은 시간, session 남은 시간, 더 짧은 호출 시한)`으로 묶는다. 만료 시 전송·scope 중단, 대기 RPC 거절, 새 효과 금지. 도구마다 새 600초를 주거나 RCM 920초를 쓰지 않는다. 시한 뒤의 성공 결과는 거절한다. counter 계산(도구 dispatch와 그 안의 fetch)은 명시한다.
+7. 수용: `serverPluginMcpVersion: 1`은 bundle과 host가 정리까지 포함한 MCP 계약을 갖출 때만 보고하고, 서버 응답·클라이언트 타입·capability cache·클라이언트 재확인·서버 정책 평가까지 연결한다. 구 capability는 새 조합을 허용하지 않는다. `formerlyPrepared` 조합의 설정 URL이 모두 유효한 `plugin:`일 때만 완화한다. 일반 classic 채팅의 외부 MCP 수용은 바꾸지 않는다(외부 URL 지원 확대·축소는 별도 결정). 실제 생성된 bundle 안의 포함 여부는 빌드된 bundle로 확인한다.
+
+**사용자 결정(2026-10-22):**
+- 도구 효과 뒤 실패·후속 실패·상한 도달: **provider별 기존 동작을 따르고, BG에서는 효과 뒤 재시도·fallback으로 도구가 다시 실행되지 않게 막는다.**
+- 비용 상한: **모든 provider에 도구 8단계**(ModelPreset의 기존 상한, 모델 전송 최대 9회). 작업 600초 시한은 별도로 유지.
+- 도구 loop가 없는 변형(OpenAI Responses API, Anthropic streaming): **미지원으로 기록**하고 그 변형에서는 플러그인 MCP 도구를 내놓지 않은 채 진행하며 알림·지원표에 남긴다.
+- 도구 읽기 횟수: **BG에서는 준비 뒤 한 번만**(최초 읽기 생략, 시도마다 준비 뒤). 2026-10-22 "beforeRequest 뒤 다시 읽기" 결정을 이 형태로 구체화한다.
+
 ## 결정이 더 필요한 것 (검수 뒤 사용자에게)
 
 - 재시도·fallback 때 도구 목록을 매번 다시 읽을지.

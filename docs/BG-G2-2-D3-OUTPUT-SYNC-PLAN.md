@@ -1,6 +1,6 @@
 # D3 설계 계획 — BG의 RCM 응답 뒤 출력 동기화(유한 대기)
 
-**상태 (2026-10-22 KST):** 계약 범위(호스트 공통)·구조(D + A) 결정, 시제품 없는 측정 완료, 구현 계획 초안. 구현 계획 Astra 검수 전, 구현 전.
+**상태 (2026-10-22 KST):** 계약 범위(호스트 공통)·구조(D + A)·시한 10초·대상 timer·결과 표시·유료 호출 거절 결정, 시제품 없는 측정 완료, 구현 계획 Astra 검수 반영. 테스트 계약 표·전제 출처 작성 전, 구현 전.
 정본: [G2.2 실행 계획](BG-G2-2-EXECUTION-PLAN.md) §3(B) D3(결정 2026-10-22: 유한 대기로 지원), [ordered goals](BG-PRESERVE-ORDERED-GOALS.md) §9.3 「공통 경계」 1~4, [G2.2c 실측](BG-G2-2C-RCM-MEASUREMENTS.md) §2·§3. 대상: patcher `dd5641a`.
 위험 분류: **risky** (host 수명, commit 순서, 미리보기 lock, 동시 작업).
 
@@ -102,6 +102,29 @@ validation-runner, 조립 트리(patcher `d476d60`), 원본 RCM 1.0.21과 실제
 7. **취소:** commit 전 취소는 지금과 같다. continuation 중 사용자 중지는 남은 동기화를 멈추고 불확실로 기록하며, 저장된 채팅을 되돌리지 않는다.
 
 합격 기준(초안): 측정 1~8 항목을 시험으로 바꾼다 — 원본 RCM에서 BG 답변 뒤 두 번째 prepare가 commit 뒤에 실행되고 그 본문의 메시지 id·내용이 저장된 답변과 일치하며 backend 원문 readback으로 확인; commit을 1.5초보다 늦춰도 commit 전 읽기·callback 유실 없음; 시한·취소·재시작에서 불확실 기록·재실행 없음·채팅 보존; 같은 채팅 N+1 busy; 다른 채팅 대기 증가가 측정 범위 안; MARP·PageFold·D1-a·G2.2b·NaN 단위 동작 불변; continuation이 없는 플러그인의 수명 불변.
+
+## 구현 계획 검수 기록과 결정 (2026-10-22)
+
+**Astra(gpt-6-astra, read-only) 2회차(구현 계획):** D + A는 실현 가능하나 수정 필요. 지적을 모두 채택했다. 오케스트레이터가 직접 확인한 근거: commit된 작업은 취소 route가 `already-committed`로 바로 돌려보냄(`bgOrchestrator.cjs:2311-2319`), `runLLMModel`은 일반 scope와 128회만 확인(`bgPluginHost.cjs:117-127`).
+
+1. **timer 출처:** worker는 지금 호출 token만 가진다(`bgPluginWorker.cjs:733-734`). host가 아는 phase를 parent가 인증한 호출 metadata로 worker에 보내고, 한도 있는 timer registry를 둔다. `entry.lastPhase`로 추정하지 않는다. bare 전역과 `window`가 같은 wrapper를 쓰고, worker 내부 RPC timeout·settlement timer는 후보에 넣지 않는다. `clearTimeout`은 예약된 handle과 commit 관문에서 기다리는 callback 모두를 지우고 완료 판정을 깨운다. 인자·지연 정규화·같은 시각 timer의 순서를 보존한다. 후보 자격은 hook 완료 시점에 봉인한다.
+2. **child scope:** session `find`는 존재·중지·작업 abort만 보고 마감·scope abort를 보지 않으며(`bgPluginSession.cjs:30`), `release`는 참조 0에서 지운다(`:35`). child에는 소유자 유지, 모든 dispatch·재개에서의 마감 확인, 참조와 무관한 종료 취소가 필요하다.
+3. **완료 판정:** 기존 settlement는 network·model RPC와 stream pull을 제외한다(`bgPluginWorker.cjs:504-505`). child 안의 network RPC, 응답 본문 소유(EOF·오류·취소까지), 진행 중 callback과 반환 promise를 추적하고 promise 반응이 다음 호출을 낼 기회를 준 뒤 판정한다. 이는 "전송 정지(drained)" 판정이며 동기화 성공 증명이 아니다(RCM `DA`는 prepare 오류를 잡아 삼키고 `Zo`·`vI`를 기다리지 않음).
+4. **lease:** host·lock에 더해 작업 timeout·abort 전달·refresh·정확히 한 번의 정리 소유를 넘긴다. S4b 바깥 `finally`가 정리하고, 정리는 promise로 memoize한다(`host.close()`는 들어갈 때만 `closed`를 확인, `bgPluginHost.cjs:740-756`). 경로별 처리: preview가 넘길 결과 전에 throw → 기존 finally; 결과 반환 뒤 commit 전 취소 → S4b가 이미 소유; 답변 없음·commit 충돌·실패·취소 결과 → 즉시 정리; 부분 출력은 실제로 commit될 때만 continuation; commit 중 취소·초기화 → commit 결과를 기다린 뒤 receipt로 판단, 재실행 없음; commit 뒤 snapshot 실패·continuation·알림 오류 → 채팅 성공 유지, 불확실, 정리(바깥 catch의 generation 실패 게시로 가지 않게 commit 사실을 바깥으로 끌어올림); S4a는 넘기지 않음(`:1912-1916`); 자격은 host 적격·canonical commit 소유·명시적 lease 수락으로 판단(`inputCommandVersion`이 아님); stream preview 해제는 지금 위치를 지키되 실패가 정리를 막지 않게 한다. 정리를 마치지 않은 host를 두고 lock을 먼저 풀지 않는다.
+5. **commit된 채팅:** 공개 commit 결과에는 채팅이 없다(`serverChatCommit.cjs:910-918`). commit owner가 storage 작업 안에서 만든 내부 snapshot(앵커 해석 뒤 채팅, receipt의 `storedRevision`으로 검증)을 돌려받아 선택 채팅과 hydration snapshot을 함께 갱신한다. `status: 'committed'`여도 게시가 `pending_recovery`일 수 있으므로(`serverChatCommit.cjs:1208-1227`) 검증된 snapshot이 없으면 불확실로 닫는다.
+6. **영속 의무:** 동기화 의무를 commit 거래(`serverChatCommit.cjs:1152-1185`) 안에서 함께 기록한다(작업·storage epoch·receipt·revision·참여 entry). 연결 지점: 작업 저장 필드 목록(`bgOrchestrationOperationStore.cjs:61-108`), 시작 시 복구(`serverChatCommitOwner.recoverAll` 옆), registry `running` 유지(`hasChatRun`), receipt 준비 상태(`readyForNextTurn`), 서버 입력 predecessor 진행, drain은 대기 중 `waiting`(409로 명령을 잃지 않게), 상태·취소 route, 보존·초기화의 epoch fence.
+7. **취소:** commit 뒤에는 취소 route가 지금 바로 돌려보내므로, 저장 receipt를 유지하면서 활성 동기화 창을 취소하는 경로를 추가한다.
+8. **다른 플러그인 수명:** continuation 후보가 없는 entry는 hand-over(생성 종료) 시점에 닫아 수명을 지금과 같게 한다. entry별 close는 등록 정리도 함께 한다.
+
+**사용자 결정(2026-10-22):**
+- 시한 상한: **continuation은 commit된 채팅 반영 시점부터 10초**(`deadline = min(snapshotReady + 10s, 작업 마감, entry sandbox 마감)`, timer·RPC·entry마다 다시 세지 않음). 임시 정책 상한이며 실측으로 다시 조정한다. commit 전 준비와 뒤의 정리 시간은 별도다.
+- 대상 timer: **afterRequest 안에서 걸렸고 hook이 끝날 때 아직 대기 중인 1회성 timer만** commit 뒤로 넘긴다. hook 안에서 기다리는 timer는 지금처럼 바로 실행된다. 동기화 중 새로 걸린 하위 timer는 같은 시한 안에서 실행될 수 있으나 창을 늘리지 않는다.
+- 결과 표시: **불확실일 때만 알림.** 정상 종료는 상태에 "전송 정지"로만 기록하고 "기억 저장됨"을 주장하지 않는다. 시한·취소·오류로 끝나면 "답변 뒤 플러그인 동기화가 확인되지 않음" 알림을 남긴다.
+- 유료 호출: **동기화 창 안에서는 host 모델 API(`runLLMModel`)를 거절**한다. 플러그인 자기 backend로 가는 HTTP는 기존 검사대로 허용한다.
+
+**측정이 더 필요한 것(구현 전 또는 시제품과 함께):** DA의 RCM CPU(비동기 틈 포함), 2000 메시지 초과·cold hydration·혼합 플러그인·CPU 경합, commit·snapshot이 1.5초를 넘는 경우, 느린·분할·읽지 않은 본문과 abort 응답, 알림 영속·worker 종료 시간, 예산이 거의 바닥난 경우.
+
+**구현 순서(검수 권고):** ① timer 자격·하위 timer·완료 용어(위 결정) ② 영속 의무·준비 상태·복구 ③ 정확히 한 번의 lease 이전·정리 ④ commit snapshot 획득·갱신 ⑤ timer 출처·child scope·본문 인식 settlement ⑥ 취소·상태·알림·상한 ⑦ 저장소 조립 시험, worker/session/host/settlement·combination probe, 원본 RCM·backend 수용 측정.
 
 ## D4와의 연결
 
