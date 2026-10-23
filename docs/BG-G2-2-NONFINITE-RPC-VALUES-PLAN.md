@@ -47,7 +47,7 @@ BG 요청별 플러그인 host와 worker 사이의 값 전달이 foreground와 �
 8. 위조·경계 프레임: 잘못된 `['number', …]` 태그, 실제 JSON 넘침 프레임(`["value",1e400]`은 parse 뒤 Infinity)은 거절하고, 숫자 id·response status·largeString 길이 검사는 완화하지 않는다. pack 노드/깊이 한도, unpack 검증 실패, wire 바이트 한도는 각각의 기존 오류 코드로 단언한다.
 9. host 검증 경계: 비유한 숫자가 이제 host dispatch까지 도달하므로, handler 검증 실패가 플러그인을 비활성화하는 기존 수명 결과를 새 session에서 단언한다(index 인자, `setArgument` 숫자 거절, 권한 인자).
 10. timeout: `nativeFetch`/`risuFetch`의 `requestTimeoutMs`에 `Infinity`를 주면 공용 helper가 Node에서 약 1ms timeout으로 처리하고(`lazy-chat-sync globalApi.svelte.ts:80-89`), `NaN`·`-Infinity`·`-0`은 timeout 없이 진행한다. foreground도 같은 helper를 쓰므로 parity 동작으로 시험에 고정하고 이 단위에서 바꾸지 않는다.
-11. 인과 서버 시험: `reloadKeys`가 처음에 없음을 확인하고, native 답변 처리가 `NaN`을 만들게 둔 뒤, 보조 요청 beforeRequest에서 `Object.is(x, NaN)` 결과를 boolean으로 돌려받아 확인한다(로그는 `NaN`을 `null`로 표시하므로 쓰지 않는다).
+11. 인과 서버 시험: `reloadKeys`가 처음에 없음을 확인하고, native 답변 처리가 `NaN`을 만들게 둔 뒤, 보조 요청 beforeRequest에서 `Object.is(x, NaN)` 결과를 boolean으로 돌려받아 확인한다(로그 메시지로 값을 옮길 때는 플러그인이 직접 만든 문자열만 비교한다. 문자열이 아닌 log 인자는 worker가 `util.inspect` 문자열로 바꿔 보낸다).
 
 ## 테스트 계약 표
 
@@ -77,7 +77,7 @@ BG 요청별 플러그인 host와 worker 사이의 값 전달이 foreground와 �
 | timeout 처리 | 코드 줄 `lazy-chat-sync/files-1.10/src/ts/globalApi.svelte.ts:80-89` + 실행 측정(이 서버 Node, `setTimeout(Infinity)` → `TimeoutOverflowWarning … set to 1`) — 원래 검수 판독, 확인함 |
 | storage JSON 정규화·root falsy→null·setArgument 문자열만 | 코드 줄 `bgPluginStorage.cjs:22,73,77,126,166` — 원래 검수 판독, 확인함 |
 | storage fingerprint의 비유한 거절 | 코드 줄 `lazy-chat-sync/files-1.10/server/node/serverChatCommit.cjs:38,82` — 원래 검수 판독, 확인함 |
-| 로그 JSON 표시 | 코드 줄 `bgPluginHost.cjs:74` — 원래 검수 판독, 확인함 |
+| 로그 표시 | 코드 줄 `bgPluginWorker.cjs:689-691`(worker가 `log`·`alert`·`alertError`의 문자열이 아닌 인자를 `util.inspect`로 문자열화해 보냄) + `bgPluginHost.cjs:71-78`(host는 받은 문자열을 그대로 잇고, 문자열이 아닌 값만 JSON화). 2026-10-22에는 host 줄만 확인해 "JSON 표시"로 적었고, NF-1 테스트 수령 검사(실행 관찰)에서 worker 단계를 확인해 정정함 |
 | index handler 검증 | 코드 줄 `bgPluginHost.cjs:137,142`(`Number.isSafeInteger && >= 0`) — 원래 검수 판독, 확인함 |
 | fetch 옵션 전달 | 코드 줄 `bgPluginHost.cjs:40-47` |
 | 답변 뒤 `reloadKeys` NaN과 `getCharacter` 실패 | 코드 줄 PocketRisu `index.svelte.ts:1682` + 실행 측정(D1-a 구현 검증, patcher `5e3ed85`의 조립 트리). `git diff --name-only 5e3ed85..HEAD -- patches/`는 테스트 요청 직전에 다시 확인 |
@@ -88,7 +88,7 @@ BG 요청별 플러그인 host와 worker 사이의 값 전달이 foreground와 �
 - BG plugin storage(`bgPluginStorage.cjs:22,77,126,138`)는 값을 JSON으로 정규화해 `NaN`·`±Infinity`는 `null`, `-0`은 `0`이 된다. foreground는 root storage에 원래 값을 그대로 두고 local storage도 cache에서 바로 읽으면 원래 값을 돌려준다(디스크 저장은 JSON). 즉 즉시 읽기 결과가 다르다.
 - storage fingerprint(`bgPluginStorage.cjs:51` → `serverChatCommit.cjs:38,82` `stableJSON`/`clonePlainValue`)는 비유한 숫자를 거절한다. 다른 경로로 이미 비유한 숫자가 저장된 항목을 읽거나 갱신하면 RPC 전에 실패할 수 있다(일반 `getCharacter` hydrate는 이 경로를 쓰지 않음).
 - DB 영속은 경로마다 다르다(MessagePack `encodeRisuSaveLegacy`는 `NaN`·`±Infinity`를 보존하고 `-0`은 `0`이 됨, 일부 저장 경로는 JSON). 영속 parity는 이 단위의 범위가 아니다.
-- 알림 로그(`bgPluginHost.cjs:74`)는 문자열이 아닌 값을 JSON으로 보여 주므로 `NaN`이 `null`로 표시된다.
+- 알림 로그: 플러그인이 넘긴 문자열이 아닌 값은 worker에서 `util.inspect` 문자열(깊이 2, 배열 16개, 문자열 1024자 제한)로 바뀌어 전달되고(`bgPluginWorker.cjs:689-691`), host는 그 문자열을 그대로 보여 준다(`bgPluginHost.cjs:71-78`). 이 단위는 로그 형식을 바꾸지 않는다.
 
 ## 검수 기록
 
