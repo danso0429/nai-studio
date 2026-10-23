@@ -58,8 +58,8 @@ BG 요청별 플러그인 host와 worker 사이의 값 전달이 foreground와 �
 | 2 위조 프레임 | `['number', x]`에서 x가 네 문자열 밖이거나 길이가 2가 아님; `["value",1e400]` | 같음 | `plugin_rpc_value_invalid` | 다른 태그의 검증 규칙 변경 |
 | 2 닮은 값 | `null`, 문자열 `"NaN"`·`"Infinity"`·`"-0"` | 같음 | 그 값 그대로(숫자로 바뀌지 않음) | |
 | 3 한도 | 특수값이 많은 배열·깊은 구조·큰 프레임 | 기존 노드·깊이·바이트 한도 | 기존 오류 코드 그대로 | 한도 값 변경 |
-| 9 host 검증 | index 인자 `NaN`·`±Infinity`; `-0` index; `setArgument`에 숫자; 권한 인자에 숫자 | 기존 handler 검증 | 비정수 index·숫자 setArgument·숫자 권한은 기존 오류와 기존 비활성화 수명; `-0` index는 0번 | handler 검증 변경 |
-| 10 timeout | `nativeFetch`/`risuFetch` `requestTimeoutMs`에 `Infinity`, `NaN`, `-Infinity`, `-0` | 공용 `buildTimeoutSignal` | `Infinity`는 매우 짧은 timeout(Node가 1ms로 바꿈), 나머지는 timeout 없음 | 이 동작의 수정 |
+| 9 host 검증 | index 인자 `NaN`·`±Infinity`; `-0` index; `setArgument`에 숫자; 권한 인자에 숫자 | 기존 handler 검증 | 비정수 index·숫자 setArgument·숫자 권한은 기존 오류와 기존 비활성화 수명; `-0` index는 0번. 비활성화 수명은 D1-a 계약을 따른다: beforeRequest replacer를 등록한 플러그인이 identity가 아닌 원인으로 비활성화되면 그 호출과 같은 작업의 이후 beforeRequest 호출이 `plugin_before_request_failed`로 실패한다(입력 그대로 진행하지 않음) | handler 검증 변경, D1-a 계약 변경 |
+| 10 timeout | `nativeFetch`/`risuFetch` `requestTimeoutMs`에 `Infinity`, `NaN`, `-Infinity`, `-0` | 공용 `buildTimeoutSignal`; `risuFetch`는 `globalFetch`라 실패·abort를 reject하지 않고 `{ ok: false, data: '<오류 문자열>', status: 400 }`으로 돌려주며, `nativeFetch`는 실패·abort를 reject한다 | `Infinity`는 매우 짧은 timeout(Node가 1ms로 바꿈)으로 abort되고, 나머지는 timeout 없이 진행한다. 이 차이는 응답이 실제로 돌아오는 대상에서만 관찰된다(닿지 않는 주소는 timeout과 무관하게 네트워크 실패) | 이 동작의 수정 |
 | 남는 한계(storage) | `setItem(key, NaN 등)` 뒤 `getItem` | JSON 정규화 | `null`(·`-0`은 `0`)로 돌아옴 | 영속·즉시 읽기 parity |
 | 4·11 인과 서버 | `reloadKeys` 없는 캐릭터, 답변 뒤 보조 요청 beforeRequest가 `getCharacter()` | native 답변 처리가 `reloadKeys += 1` | 플러그인이 `Object.is(reloadKeys, NaN) === true`를 boolean으로 돌려받고, 보조 요청이 이 원인으로 실패하지 않음 | 보조 요청의 다른 실패 원인 |
 | 6 회귀 | 기존 probe·테스트 | — | 직전 기준 수 유지 | |
@@ -74,7 +74,7 @@ BG 요청별 플러그인 host와 worker 사이의 값 전달이 foreground와 �
 | 프레임은 JSON 줄 | 코드 줄 `bgPluginSandbox.cjs:182,230`, `bgPluginWorker.cjs:767` |
 | host 복사는 structuredClone | 코드 줄 `bgPluginValue.cjs:36-39` |
 | foreground는 postMessage(structured clone) | 코드 줄 PocketRisu 1.10.0 `src/ts/plugins/apiV3/factory.ts:251`(guest→host `window.parent.postMessage`), `:597`(host→guest `contentWindow.postMessage`); structured clone의 NaN·±Infinity·-0 보존은 언어 사양 |
-| timeout 처리 | 코드 줄 `lazy-chat-sync/files-1.10/src/ts/globalApi.svelte.ts:80-89` + 실행 측정(이 서버 Node, `setTimeout(Infinity)` → `TimeoutOverflowWarning … set to 1`) — 원래 검수 판독, 확인함 |
+| timeout 처리 | 코드 줄(조립 트리) `src/ts/globalApi.svelte.ts:104-116` `buildTimeoutSignal`(`!timeoutMs || timeoutMs <= 0`이면 timeout 없음), `:1937-1982` `globalFetch`(abort·오류를 `status: 400` 결과로 반환) — 2026-10-23 NF-1 구현 검증에서 `risuFetch` 결과 모양을 확인해 추가. 앞선 인용 `lazy-chat-sync/files-1.10/src/ts/globalApi.svelte.ts:80-89`는 patch 파일 기준 줄 + 실행 측정(이 서버 Node, `setTimeout(Infinity)` → `TimeoutOverflowWarning … set to 1`) — 원래 검수 판독, 확인함 |
 | storage JSON 정규화·root falsy→null·setArgument 문자열만 | 코드 줄 `bgPluginStorage.cjs:22,73,77,126,166` — 원래 검수 판독, 확인함 |
 | storage fingerprint의 비유한 거절 | 코드 줄 `lazy-chat-sync/files-1.10/server/node/serverChatCommit.cjs:38,82` — 원래 검수 판독, 확인함 |
 | 로그 표시 | 코드 줄 `bgPluginWorker.cjs:689-691`(worker가 `log`·`alert`·`alertError`의 문자열이 아닌 인자를 `util.inspect`로 문자열화해 보냄) + `bgPluginHost.cjs:71-78`(host는 받은 문자열을 그대로 잇고, 문자열이 아닌 값만 JSON화). 2026-10-22에는 host 줄만 확인해 "JSON 표시"로 적었고, NF-1 테스트 수령 검사(실행 관찰)에서 worker 단계를 확인해 정정함 |
