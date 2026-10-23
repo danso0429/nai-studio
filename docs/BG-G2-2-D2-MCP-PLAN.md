@@ -1,6 +1,6 @@
 # D2 구현 계획 — BG에서 플러그인 MCP 도구 지원
 
-**상태 (2026-10-22 KST):** Astra 계획 검수 반영, 사용자 결정 반영, 전제 출처 확인 완료, 테스트 계약 표 작성. 블라인드 테스트 요청 전, 구현 전.
+**상태 (2026-10-23 KST):** Astra 계획 검수 반영, 사용자 결정 반영, 전제 출처 확인 완료, 테스트 계약 표 작성, 테스트 요청 전 인터페이스·결과 모양·추가 결정 확정. 구현 전.
 정본: [G2.2 실행 계획](BG-G2-2-EXECUTION-PLAN.md) §3(B) D2(결정 2026-10-17: 지원 구현, 2026-10-22: BG에서 beforeRequest 뒤 도구 다시 읽기)와 Astra r2 구현 조건. 대상: NaN 단위(NF-1) commit 뒤의 patcher `main`.
 위험 분류: **risky** (공통 BG host, request 경로, 오래 사는 서버 번들의 전역 cache, 유료 모델 후속 요청, 시한).
 
@@ -62,6 +62,29 @@ BG 작업에서 RCM처럼 `registerMCP`로 도구를 등록하는 플러그인�
 
 **계약 이름(Argon 시나리오 검토 중 고정, 2026-10-22):** 미지원 변형 알림 코드 `plugin_mcp_unsupported`; classic provider의 상한 표지 `[BG: maximum tool steps (8) reached]`(ModelPreset은 기존 표지 유지); `mcp_list` dispatch는 128회 counter에 들어가지 않고(목록 callback 안의 플러그인 fetch는 기존대로 셈), `mcp_call` dispatch는 1회로 센다.
 - 일반 classic BG 채팅에서 외부 MCP URL에 서버가 연결할 수 있는 기존 동작은 D2에서 바꾸지 않는다(별도 결정 대상으로 남김).
+
+## 테스트 요청 전 확정 (2026-10-23)
+
+기준: patcher `533ca2e`(NF-1 뒤) 조립 트리. `d476d60..533ca2e`에서 아래 「전제 출처」 표의 경로는 바뀌지 않았다(NF-1은 `bgPluginWorker.cjs`만 변경).
+
+**사용자 결정(2026-10-23):**
+- C7 효과 latch와 C8 8단계 상한은 BG 작업에만 적용한다. foreground의 classic provider 도구 loop는 지금처럼 상한 없이 둔다(C11).
+- `plugin_mcp_unsupported`는 작업마다, 그 작업에서 MCP를 등록한 플러그인마다 한 번 남긴다. 도구를 빼고 보낸 첫 요청에서 남기며 phase는 `mcp_list`, `effectsMayHaveOccurred`는 그 entry의 현재 값이다.
+- `mcp_list`·`mcp_call` callback 실패(throw, 결과 형식 오류, 시한 만료, 128회 초과)는 오류를 전파하면서 기존 invoke처럼 entry를 비활성화한다. 알림은 기존 code(`plugin_hook_failed`, 자원 한도는 `plugin_host_limit`/`operation_budget`)에 phase `mcp_list`/`mcp_call`을 붙인다. 같은 작업에서 그 플러그인의 이후 hook·도구 호출은 거절된다.
+
+**시험용 인터페이스 고정(기존 관례를 따름):**
+- 플러그인 API: `Risuai.registerMCP(meta: {identifier, name, version, description}, getToolList, callTool)`, `Risuai.unregisterMCP(identifier)`(foreground `v3.svelte.ts:1344-1345`와 같은 모양).
+- 서버 binding: `bgPluginBindings.installMCP(meta, getToolList, callTool)`는 idempotent cleanup 함수를 돌려준다(`installProvider`와 같은 모양, `src/ts/bgPluginBindings.ts`). 등록 상태는 `pluginmcp.ts`의 export `registeredCustomPluginMCPs`와 `mcp.ts`의 export `MCPs`로 관찰한다.
+- BG 작업 판별: `globalThis.__bgOrchAbortSignal`이 있을 때(`bgOrchestrator.cjs:511`이 작업마다 설정·복원, `request.ts:577`의 기존 BG guard와 같은 표지).
+- 수용: capability 응답에 `serverPluginMcpVersion`(지원 시 1). `evaluateServerInputModels(database, chat, allowServerPlugins, allowServerPluginMcp = false)`와 `requiresClientOwnedInputPreparation`도 같은 넷째 인자를 받는다. 클라이언트 `bgServerInputClient.ts` `Capability` 타입에 필드를 더하고, `bgServerPluginCapability.ts`는 `observeServerPluginCapability`에서 함께 기록해 `isServerPluginMcpSupported()`로 돌려준다(contract가 맞고 `serverPluginHostVersion === 1`이며 `serverPluginMcpVersion === 1`일 때만 true).
+
+**행별 기존 계약과 실제 결과 모양:**
+- C1: load 뒤 등록류 거절은 기존 동기 throw `plugin_registration_invalid`(`bgPluginHost.cjs:543`)이다. 시험은 플러그인 안 try/catch로 거절을 관찰하고, 새 거절의 오류 문구·code는 고정하지 않는다. 잡히지 않은 거절이 load를 실패시키는지는 기존 ROOT handler 의미를 따른다. 대소문자가 다른 `PLUGIN:`은 거절(`pluginmcp.ts:45`의 `startsWith`), 접두사만 있는 `plugin:`은 고정하지 않는다.
+- C2: 도구 정의는 `MCPTool {name, description, inputSchema, annotations?}`(`mcplib.ts:16-21`), 실행 결과는 `RPCToolCallContent[]`(text/image/audio/resource, `mcplib.ts:53-73`). 크기 한도의 숫자는 고정하지 않고 명백한 형식 오류(배열 아님, `name` 없음, 알 수 없는 content type)만 쓴다. `mcp_call` dispatch는 실행 전 기존 효과 장벽(`beforeEffect` 호출, entry effects true, `bgPluginHost.cjs:455`)을 거치고 `mcp_list`는 거치지 않는다. 기존 알림 검사기는 `plugin_` code에 pluginName·pluginVersion·phase를 요구하고 phase를 다섯 값으로만 받는다(`bgNotifications.cjs:14-16,52-54`, `src/ts/bgNotifications.ts:1-4,58-59`).
+- C2·C7 provider별 실패 결과: ModelPreset은 도구 결과 문자열 `Tool call failed: ...`(`request.ts:1537`), OpenAI는 `'Tool call failed with error: ' + error`(`openAI/requests.ts:772`). Google·Anthropic은 callTool 오류가 `requestChatDataMain` dispatch(`request.ts:632-671`, catch 없음)와 `requestChatData`(`:282-288`, try 없음)를 빠져나가 `requestChatData`가 reject한다. 목록 callback 실패도 그 시도의 모델 전송 없이 요청을 실패시킨다(foreground `:213`의 reject와 같은 방향). 실패 뒤 BG 작업 결과의 세부 모양은 고정하지 않는다.
+- C5·C8 결과 모양: ModelPreset 표지는 결과 문자열에 이어 붙는다(`preset/adapter/toolLoop.ts:74-77,107`). OpenAI·Google은 단계별 text를 `\n\n`으로 이어 `{type:'success', result}`를 돌려준다(`openAI/requests.ts:796-808`, `google.ts:971-983`). classic 표지 `[BG: maximum tool steps (8) reached]`는 성공 결과 문자열에 포함되며 위치는 고정하지 않는다.
+- C9: worker RPC 시한은 session `runtimeMs`(기본 600초, load만 15초, `bgPluginWorker.cjs:488,510`)뿐이므로 "더 짧은 호출 시한"은 이것이다. 작업 시한은 `bgOrchestrator.cjs:448`의 600초 timer다. 128회 초과는 기존 동기 throw `plugin_budget_exceeded` → entry 비활성화 → `plugin_host_limit`/`operation_budget` 알림이다(`bgPluginHost.cjs:37,119,360,367`). 시한 시험은 기존 주입점(`probe-bg-plugin-host.cjs`의 sandbox `runtimeMs` override, host `signal`)만 쓰고, 작업 시한 주입점이 필요하면 새로 만들지 않고 질문으로 돌려보낸다.
+- C10: 판정은 채팅이 아니라 DB 스냅샷 전체의 `modules[].mcp.url`과 `personas[].embeddedModule.mcp.url`을 본다(`bgServerInputProviderPolicy.ts:129-135`). "모두 `plugin:`"도 이 집합 기준이다. 결과는 `{kind:'server-input'}` 또는 `{kind:'client-prepared', reason}`(`:14-18,59-65`).
 
 ## 단위
 
