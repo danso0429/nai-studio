@@ -8,11 +8,12 @@
 - G2.2c RCM 1.0.21 실측([기록](BG-G2-2C-RCM-MEASUREMENTS.md)).
 - D1-a beforeRequest 실패 시 요청 실패(patcher `5e3ed85`, [계획](BG-G2-2-D1A-BEFORE-REQUEST-FAILURE-PLAN.md)).
 - NF-1 BG plugin RPC의 비유한 숫자 전달(patcher `605c49c`, experimental.85, [계획](BG-G2-2-NONFINITE-RPC-VALUES-PLAN.md)). 답변 뒤 `reloadKeys`가 `NaN`이 되어 `getCharacter()`가 실패하던 한계를 닫았다.
+- D2 BG 플러그인 MCP 도구(patcher `5ab963b`, experimental.86, adapter 0.7.81, [계획](BG-G2-2-D2-MCP-PLAN.md)). 블라인드 시험·구현·Codex 코드 검수 3회·후보 게이트 19/19·probe 4종 통과까지 마쳤다. 원본 RCM 실측(계획의 검증 단계)과 push·live 적용은 하지 않았다. 세션 기록은 patcher `docs/records/2026-10-23-g22-d2-session.md`(`8a18c1a`).
 
 남은 G2.2 작업은 아래 순서로 진행한다. D3·D4 결정은 [G2.2 실행 계획](BG-G2-2-EXECUTION-PLAN.md) §3(B)를 따른다.
 
-1. **D2 플러그인 MCP 도구**([계획](BG-G2-2-D2-MCP-PLAN.md)). 계획·Astra 검수·사용자 결정·전제 출처·테스트 계약 표(단위 D2-1~3)·Argon 시나리오(24/26 채택)를 마쳤다. 다음은 블라인드 테스트 요청이다.
-2. **D3 답변 뒤 출력 동기화**([계획](BG-G2-2-D3-OUTPUT-SYNC-PLAN.md)). 구조 A+D·시한 10초 등 결정과 계약 표를 마쳤다. 테스트 전에 실측 P1·P2를 D2 commit 뒤 HEAD에서 수행한다.
+1. **D3 답변 뒤 출력 동기화**([계획](BG-G2-2-D3-OUTPUT-SYNC-PLAN.md)). 구조 A+D·시한 10초 등 결정과 계약 표를 마쳤다. 테스트 전에 실측 P1·P2를 D2 commit 뒤 HEAD에서 수행한다.
+2. **D2 원본 RCM 실측**(D2 계획 「검증 단계」).
 3. **G2.2 완료 기록.**
 
 아래 이 문단 이전·이후의 날짜별 문단은 당시 상태의 기록이다.

@@ -1,6 +1,6 @@
 # D2 구현 계획 — BG에서 플러그인 MCP 도구 지원
 
-**상태 (2026-10-23 KST):** Astra 계획 검수 반영, 사용자 결정 반영, 전제 출처 확인 완료, 테스트 계약 표 작성, 테스트 요청 전 인터페이스·결과 모양·추가 결정 확정. 구현 전.
+**상태 (2026-10-23 KST):** 구현 완료(patcher `5ab963b`, 0.2.4-experimental.86 / adapter 0.7.81). 테스트 요청 전 확정·코드 검수 뒤 확정 절의 결정을 반영했다. 원본 RCM 실측(「검증 단계」)과 push는 하지 않았다. 세션 기록: patcher `docs/records/2026-10-23-g22-d2-session.md`.
 정본: [G2.2 실행 계획](BG-G2-2-EXECUTION-PLAN.md) §3(B) D2(결정 2026-10-17: 지원 구현, 2026-10-22: BG에서 beforeRequest 뒤 도구 다시 읽기)와 Astra r2 구현 조건. 대상: NaN 단위(NF-1) commit 뒤의 patcher `main`.
 위험 분류: **risky** (공통 BG host, request 경로, 오래 사는 서버 번들의 전역 cache, 유료 모델 후속 요청, 시한).
 
