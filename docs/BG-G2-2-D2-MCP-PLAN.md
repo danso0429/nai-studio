@@ -75,6 +75,12 @@ BG 작업에서 RCM처럼 `registerMCP`로 도구를 등록하는 플러그인�
 - `plugin_mcp_unsupported`는 새 알림 event version 4로 저장·전달한다(사용자 결정 2026-10-23). claim은 `messageVersion` 4까지 받고 현재 클라이언트는 4로 claim한다. 기존 v2/v3 claim에는 나가지 않으므로, 갱신 전 번들 탭의 검사기(`src/ts/bgNotifications.ts:65`는 모르는 code가 있으면 묶음 전체를 거절)가 깨지지 않는다(`server/node/bgNotifications.cjs:230-234`의 version 필터, `BgNotificationDelivery.svelte:22`).
 - load 뒤 `registerMCP` 거절은 기존 등록류와 같은 동기 throw라, 기존 dispatcher 의미대로 그 entry를 비활성화한다(`bgPluginHost.cjs:702-705`). 시험은 비활성화 여부를 고정하지 않는다. `unregisterMCP`의 반환값은 고정하지 않는다(foreground는 `undefined`).
 
+**코드 검수 뒤 확정(2026-10-23):**
+- 가드 범위(사용자 결정): C7 효과 latch, C8 8단계 상한, 후속 요청 1회 제한은 그 요청의 tools에 플러그인 MCP 도구(`mcpURL`이 `plugin:`인 도구)가 있는 BG 요청에만 건다. 외부 MCP만 쓰는 BG 요청과 `arg.tools`를 직접 넘긴 호출은 지금처럼 둔다(C11).
+- 알림 버전: phase가 `mcp_list`/`mcp_call`인 모든 알림(실패·한도 알림 포함)도 version 4로 저장·전달한다. messageVersion 1–3 claim에는 나가지 않는다.
+- 같은 이름의 도구(C3): BG 작업에서 도구 호출은 그 시도의 목록에서 그 이름을 내놓은 client만 실행한다. 같은 시도의 목록에서 둘 이상의 client가 같은 이름을 내놓았으면 호출을 거절하고 어느 callback도 실행하지 않는다(provider별 기존 도구 오류 처리).
+- 시한 만료 뒤 후속 요청(C9): 플러그인 MCP 호출이 session 시한 만료나 닫힌 작업으로 실패하면, provider가 그 오류를 도구 결과 문자열로 바꾸더라도 모델 후속 요청을 보내지 않고 재시도·fallback 없이 실패로 끝낸다(ModelPreset·OpenAI 포함).
+
 **시험용 인터페이스 고정(기존 관례를 따름):**
 - 플러그인 API: `Risuai.registerMCP(meta: {identifier, name, version, description}, getToolList, callTool)`, `Risuai.unregisterMCP(identifier)`(foreground `v3.svelte.ts:1344-1345`와 같은 모양).
 - 서버 binding: `bgPluginBindings.installMCP(meta, getToolList, callTool)`는 idempotent cleanup 함수를 돌려준다(`installProvider`와 같은 모양, `src/ts/bgPluginBindings.ts`). 등록 상태는 `pluginmcp.ts`의 export `registeredCustomPluginMCPs`와 `mcp.ts`의 export `MCPs`로 관찰한다.
