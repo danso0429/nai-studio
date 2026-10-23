@@ -1,6 +1,6 @@
 # G2.2 후속 단위 계획 — BG plugin RPC의 비유한 숫자 전달
 
-**상태 (2026-10-22 KST):** 계획. Astra 1회차 반영, 구현 전.
+**상태 (2026-10-23 KST):** 구현·검증 완료. patcher commit `605c49c`(0.2.4-experimental.85, lazy-chat-bg-adapter 0.7.80). 아래 「구현과 검증 기록」.
 배경: [D1-a 계획](BG-G2-2-D1A-BEFORE-REQUEST-FAILURE-PLAN.md) 「구현과 검증 기록」의 후속 단위(사용자 결정: D1-a 바로 다음). 대상: patcher `origin/main` `d476d60`(0.2.4-experimental.84, lazy-chat-bg-adapter 0.7.79), 작업 branch `claude/bg-nonfinite-values`.
 위험 분류: **risky** (host↔worker RPC 경계의 값 영역이 넓어져 모든 host handler와 플러그인이 받는 입력이 바뀜).
 
@@ -97,6 +97,28 @@ BG 요청별 플러그인 host와 worker 사이의 값 전달이 foreground와 �
 ## 바꾸지 않을 동작
 
 host handler의 입력 검증, 영속화(플러그인 storage·DB 저장 시 값의 처리), 한도, 다른 태그, foreground 코드, D1-a·G2.2b 계약.
+
+## 구현과 검증 기록 (2026-10-23)
+
+- **블라인드 테스트:** Argon 시나리오 19개를 모두 채택했다. Codex 테스트 작성자가 `probe-bg-plugin-local-rpc.cjs`·`probe-bg-plugin-host.cjs`의 NF-1 블록, 새 서버 probe `probe-bg-nonfinite-values.cjs`와 preload를 썼다(21개: `[new]` 16, `[unchanged]` 5).
+  - 작성자 sandbox에서는 plugin worker가 시작되지 않아(`systemctl --user` slice 설정 실패) worker가 필요한 probe는 오케스트레이터가 sandbox 밖에서 판정했다.
+  - 첫 작성 세션은 Codex 5시간 한도로 보고서 전에 멈췄다.
+- **수령 검사와 정정(구현 전):** `[unchanged]` 5개는 3회 모두 통과했고, `[new]`는 동작 실패였다. 서버 probe 두 시험은 log 메시지를 JSON 문자열과 비교했지만, worker가 문자열이 아닌 log 인자를 `util.inspect`로 바꿔 보내므로 일치할 수 없었다. 전제 출처의 로그 표시 줄이 host 단계만 확인한 것이 원인이다(planning `16a6abe`에서 정정). 새 작성 세션이 플러그인이 만든 문자열을 비교하도록 고쳤다.
+- **구현:** `bgPluginWorker.cjs`의 `pack`/`unpack`(13줄)과 릴리스 식별. 구현자 gate 19/19 PASS. 고정 시험 21개 중 4개가 시험 쪽 결함으로 실패했다.
+- **구현 뒤 정정(구현 없는 `d476d60` 사본에서, 구현 내용 비공개):**
+  - **host 시험 3개:** 비활성화 뒤 두 번째 beforeRequest 호출이 입력을 그대로 돌려준다고 기대했으나, D1-a 계약은 `plugin_before_request_failed`다. 계약 표 9행에 D1-a 수명을 명시했다(`0d2e56d`).
+  - **host 시험 1개:** `getChatFromIndex(0, x)`의 특수값을 둘째 인자 대신 첫째 자리에서 읽었다.
+  - **서버 timeout 시험:**
+    - 원래 fixture는 `nativeFetch`에 `method`를 주지 않아 `fetchNativeRaw`가 네트워크 전에 `Invalid body type`으로 실패했다.
+    - `risuFetch`에는 `headers`를 주지 않아 `TypeError`가 났다.
+    - 첫 정정 brief는 원인을 "닿지 않는 주소"로 잘못 적었다. preload가 그 주소에 80ms 지연 응답을 준다. 이 때문에 정정 세션이 loopback 서버로 바꿨으나 preload의 거절 분기에 걸렸다.
+    - 오케스트레이터가 진단 사본으로 실제 원인을 확인한 뒤 두 번째 정정에서 `method: 'GET'`, `headers: {}`, preload 대상, status·abort 판정으로 고쳤다.
+    - 계약 표 10행에 두 API의 결과 모양을 명시했다(`0d2e56d`).
+- **코드 검수(Codex gpt-6.1-sol, read-only):** 지적 없음.
+- **최종 검증(오케스트레이터, 고정 시험 sha256 일치 확인):**
+  - candidate gate 19/19 PASS: 저장소 351/348/0/3, client 2621/4, server 789/12, compat 123/5, `pnpm check` 0/0, apply→revert 왕복 clean.
+  - probe: local-rpc 42/0, worker 12/0, host 183/0, capability 12/0, D1a 15/0, nonfinite 2/0.
+- live 적용과 기기 확인은 하지 않았다.
 
 ## 검사 명령
 
