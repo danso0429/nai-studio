@@ -163,6 +163,18 @@ BG 작업에서 RCM처럼 `registerMCP`로 도구를 등록하는 플러그인�
 - 원본 RCM 1.0.21과 실제 backend, 가짜 provider, 합성 데이터로 C4의 실제 첫 요청 본문 tools와 C5의 도구 실행·후속 요청을 실측한다(등록·수동 호출 성공만으로 통과 처리하지 않음).
 - 빌드된 bundle에서 정리 뒤 등록 Map과 `MCPs`가 비는지 확인한다.
 
+### 검증 결과 (2026-10-26 KST)
+
+대상: patcher `68b7426`(D2 `5ab963b` + D3, 0.2.4-experimental.87)을 PocketRisu 1.10.0에 apply한 조립 트리(후보 gate 19/19). RCM 1.0.21 원본 JS(SHA-256 `08705f3b…7edc`)와 원본 backend, 기본 설정(`memoryToolsEnabled`·`defaultChatEnabled` true), OpenAI 호환 가짜 provider, 합성 데이터. validation-runner가 실행하고, 아래 판정이 기대는 요청 본문·backend 수신 기록은 오케스트레이터가 다시 열어 확인했다. 외부 전송은 0건이다(RCM 번역 요청 4건은 하네스가 차단).
+
+- **도구가 나오는 조건(원본 JS·backend 판독):** `/v1/turn/prepare` 응답의 `memoryToolOpportunity.archiveSearchAvailable`가 참이거나 recall 후보가 있을 때만 도구를 낸다. 기억이 없는 채팅은 첫 요청 `tools:[]`. RCM 대시보드 경로 `POST /v1/chats/:id/memories`로 수동 기억 1개를 넣은 뒤에는 도구가 나온다.
+- **C4 (BG):** 기억이 있는 채팅의 BG 작업에서 첫 모델 요청 본문 `tools`가 `recall_rp_memory`·`expand_rp_memory` 2개다(비스트림·Chat Completions 스트림 모두). prepare → `/turn/delivery` → provider 순서다.
+- **C5 (BG, 비스트림):** 가짜 모델의 `recall_rp_memory` 호출에 RCM callback이 backend `POST /v1/chats/<id>/recall`을 1회 부르고, 다음 요청의 `tool` 메시지에 합성 기억 본문이 들어간다. 최종 답변까지 provider 2회·도구 1단계.
+- **C5 (스트림, BG·foreground 공통 한계):** 스트림에서는 callback이 실행되지만 `/recall`을 부르지 않고 RCM의 `chat_changed` 문구("The chat changed after this request was prepared…")를 도구 결과로 돌려준다. 같은 조건의 foreground(브라우저에서 BG orchestration을 끈 일반 전송, provider는 브라우저에서 직접 호출) 스트림도 같은 문구였고, foreground 비스트림 대조군은 정상 recall이었다. 관측된 차이는 RCM이 도구 호출 시점에 읽는 채팅에 스트리밍 중인 빈 `char` 메시지가 하나 더 있다는 것(BG 15→16, foreground 17→18; RCM 내부 비교 코드는 확인하지 않음). BG만의 결함이 아니므로 D2에서 고치지 않고 G2.2 한계로 둔다.
+- **C3:** 모든 run에서 작업 종료 뒤 등록 Map과 `MCPs`가 비고(`reg:[]`, `mcps:[]`), 같은 서버의 다음 작업은 새 client로 호출이 성공했다.
+- **측정하지 않은 것:** Google·Anthropic·ModelPreset·Responses 변형, 8단계 상한, 실패·취소 작업의 정리, D2 이전 코드 대조, 플러그인 가져오기 UI 경로(foreground는 저장된 `db.plugins` 항목으로 load), 패치하지 않은 RisuAI의 foreground.
+- **알림:** `plugin_late_call`만 run에 따라 나타났다(D3 실측과 같은 코드). `plugin_hook_failed`·`plugin_mcp_unsupported`·`operation_failed`는 없었다.
+
 ## 미확인
 
 - 원본 RCM에서 BG beforeRequest 준비가 `memoryToolOpportunity`를 실제로 채우는지는 backend 상태(archive 검색 가능·recall 후보)에 달려 있어 검증 단계에서 실측한다.
