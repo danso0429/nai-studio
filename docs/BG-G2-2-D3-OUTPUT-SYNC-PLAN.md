@@ -1,6 +1,6 @@
 # D3 설계 계획 — BG의 RCM 응답 뒤 출력 동기화(유한 대기)
 
-**상태 (2026-10-22 KST):** 계약 범위(호스트 공통)·구조(D + A)·시한 10초·대상 timer·결과 표시·유료 호출 거절 결정, 시제품 없는 측정 완료, 구현 계획 Astra 검수 반영, 테스트 계약 표·전제 출처 작성. 테스트 요청 전 실측 2건(아래 「테스트 요청 전 실측」) 남음, 구현 전.
+**상태 (2026-10-22 KST):** 계약 범위(호스트 공통)·구조(D + A)·시한 10초·대상 timer·결과 표시·유료 호출 거절 결정, 시제품 없는 측정 완료, 구현 계획 Astra 검수 반영, 테스트 계약 표·전제 출처 작성. 테스트 요청 전 실측 2건(아래 「테스트 요청 전 실측」) 남음, 구현 전. **2026-10-25:** P1 통과·P2(M1 재측정) 완료, 「테스트 요청 전 확정」(인터페이스·결과 모양·주입 지점)을 Astra 2회 검수로 확정, N+1 처리 사용자 결정. 다음은 블라인드 테스트 요청.
 정본: [G2.2 실행 계획](BG-G2-2-EXECUTION-PLAN.md) §3(B) D3(결정 2026-10-22: 유한 대기로 지원), [ordered goals](BG-PRESERVE-ORDERED-GOALS.md) §9.3 「공통 경계」 1~4, [G2.2c 실측](BG-G2-2C-RCM-MEASUREMENTS.md) §2·§3. 대상: D2 단위 commit 뒤의 patcher `main`(코드 사실은 `d476d60` 조립 트리 기준).
 위험 분류: **risky** (host 수명, commit 순서, 미리보기 lock, 동시 작업).
 
@@ -126,13 +126,107 @@ validation-runner, 조립 트리(patcher `d476d60`), 원본 RCM 1.0.21과 실제
 
 **구현 순서(검수 권고):** ① timer 자격·하위 timer·완료 용어(위 결정) ② 영속 의무·준비 상태·복구 ③ 정확히 한 번의 lease 이전·정리 ④ commit snapshot 획득·갱신 ⑤ timer 출처·child scope·본문 인식 settlement ⑥ 취소·상태·알림·상한 ⑦ 저장소 조립 시험, worker/session/host/settlement·combination probe, 원본 RCM·backend 수용 측정.
 
+## 테스트 요청 전 확정 (2026-10-25)
+
+테스트가 고정할 인터페이스와 결과 모양을 정한다. 코드 사실은 patcher `18d5113`(D2 포함) 조립 트리 기준이며, 2026-10-22 인용(`d476d60`)과 줄 번호가 다르다. 이 절과 테스트 계약 표가 다르면 이 절을 따른다.
+
+### 현재 코드 사실
+
+| 사실 | 출처 |
+|---|---|
+| 플러그인 context의 `setTimeout`·`clearTimeout`은 host realm 함수 그대로이고, `window`·`self`는 `globalThis`라 bare 전역과 `window.setTimeout`이 같은 함수다 | `bgPluginWorker.cjs:737,739` |
+| worker의 호출 token은 frame의 `context`이며 AsyncLocalStorage로 전파된다. phase 정보는 없다 | `bgPluginWorker.cjs:633,646,698,744-745` |
+| settlement 상한 15초, callback 시작부터 센 남은 callback 시한의 절반 이하(sandbox 절대 수명이 아님). `nativeFetch`·`risuFetch`·`runLLMModel`·`_pull`·`_cancel`은 settlement에서 제외된다 | `bgPluginWorker.cjs:30,130-132,515-516,540` |
+| worker→parent 호출 frame은 `{kind,id,method,args,context}`이고 phase 필드가 없다. parent는 자기 scope 기록으로 token을 검증한다 | `bgPluginWorker.cjs:522`, `bgPluginSession.cjs:32` |
+| `after_request` kind는 afterRequest replacer뿐 아니라 input이 아닌 script handler(`editoutput` 등)에도 붙는다 | `bgPluginHost.cjs:680-683` |
+| session API의 `runtimeMs`는 설정 가능(기본 600000)하지만 host는 값을 넘기지 않아 실제로는 600초다. 시계는 `performance.now()`뿐이다. `find`는 scope 부재·중지·작업 abort만 보고 scope abort나 경과 시한을 보지 않는다. scope는 참조 0·abort·수명 마감·session 명시 close·치명 실패로 끝난다. sandbox `runtimeMs`와 session `runtimeDeadline`은 따로 계산된다 | `bgPluginSession.cjs:12,21,24-30,32-42,116,118-124`, `bgPluginHost.cjs:774-778` |
+| host 공유 network counter는 host당 128회 | `bgPluginHost.cjs:37,125,234,638,772` |
+| `host.close()`는 unload 1초 경합 → absent 수집 → entry abort → `closed` → session close → 요약 게시 순서다. `closed`를 끝에서 세우므로 순차 재호출만 막고 동시 호출은 정리를 중복할 수 있다 | `bgPluginHost.cjs:862-884` |
+| afterRequest는 `replacerafterRequest`에 `after_request` kind로 등록되고 `request.ts:351-352`가 호출한다 | `bgPluginHost.cjs:681-685` |
+| 작업 lock은 `_previewLock`이고 host-finally에서 `pluginHost.close()` 뒤 `release()`한다. 작업 시한은 lock을 얻은 뒤 건 600초 `llmTimer`뿐이며 deadline 필드는 없다 | `bgOrchestrator.cjs:427,434-438,445-448,1036-1043` |
+| S4b의 `commitGenerationResult` 성공 결과는 `{status, reason, receipt, reused, publication?, publicationErrors?}`이고 채팅이 없다. 앵커 병합된 채팅은 `normalized.chat`에 있고 journal 준비와 `publishCanonicalState`에 전달된다. replay는 그 전에 반환한다. S4b는 이 결과 객체를 그대로 결과 저장에 넘기고, 저장된 값은 결과 route로 나간다 | `bgOrchestrator.cjs:128,164,1699-1719,1775`, `serverChatCommit.cjs:910-919,1023,1034,1055,1064,1216`, `serverChatCommitOwner.cjs:931` |
+| 작업 상태 행(`bg-orch-state-op:`)은 commit 거래 밖에서도 다시 쓰인다(결과 ACK는 메모리 run 정보로 행 전체를 다시 씀). 저장소 초기화는 이 prefix와 결과 prefix를 지운다 | `bgOrchestrator.cjs:2570-2586`, `bgOrchestrationOperationStore.cjs:7,61-108`, `server.cjs:709-713` |
+| 저장된 canonical 채팅은 다시 읽어 `calculateRevision(chat)`(owner의 `chatRevision`)으로 `storedRevision`과 비교할 수 있다. 복구 경로가 같은 방식으로 검증한다 | `serverChatCommit.cjs:1035,1280-1298`, `serverChatCommitOwner.cjs:474,1188-1189` |
+| 서버 입력 commit은 같은 거래에서 입력을 `completed`로 정산하므로, 그 뒤 같은 채팅 N+1 입력은 선행 대기(`waiting`) 없이 접수되고 실행만 작업 lock을 기다린다 | `serverChatCommitOwner.cjs:496-502`, `serverChatInputOwner.cjs:801-806`, `server.cjs:8320-8321` |
+| commit 거래는 `writeCommittedOperationState`로 작업 상태(`state:'chat-committed'`, `commitReceiptId`, `storedRevision`)를 같은 SQLite 거래에서 쓴다 | `serverChatCommit.cjs:1078-1194,1152`, `serverChatCommitOwner.cjs:467,525-528` |
+| 시작 시 복구는 `reconcileServerChatRecovery` → `serverChatCommitOwner.recoverAll()`이다. 작업 상태의 orphan 분류(`orphanedOperationState`)는 시작 시 일괄 처리가 아니라 상태·목록 route에서 읽을 때 적용된다 | `server.cjs:8574`, `serverChatCommitOwner.cjs:346-393`, `bgOrchestrationOperationStore.cjs:121-131`, `bgOrchestrator.cjs:2206,2489` |
+| 작업 run의 `finish()`는 S4b `finally`에서 호출되고, 같은 채팅 busy(activity route)는 `hasChatRun`(run `running`), `hasPendingGeneration`, 실행 중 main job으로 판정한다 | `bgOrchestrator.cjs:1890-1896,2224-2225`, `bgOrchestrationRunRegistry.cjs:138-141` |
+| `readyForNextTurn`은 서버 commit record의 필드이며 client 코드(`src/ts`, 시험 제외)는 읽지 않는다 | `serverChatCommit.cjs:797,1122`, `serverChatCommitOwner.cjs:902` |
+| 알림 코드는 `CODES` 허용 목록, plugin 알림은 `pluginName`·`pluginVersion`·허용된 `phase`가 필요하다. `reason`은 지정된 코드에서만 보존된다. 중복은 `[operationId, eventKey]`로 막고, 같은 키에 내용이 다르면 `conflict`다. client도 같은 코드·phase·reason 목록으로 검증하고 코드별 문구를 표시한다 | `bgNotifications.cjs:14-16,33-34,37-75,143-144`, `src/ts/bgNotifications.ts:3,20-28,50-60,108` |
+| worker의 `_callback`은 plugin callback을 await한 뒤 `settleContext`(최대 settlement 예산)를 기다리고 나서 반환한다 | `bgPluginWorker.cjs:537-546` |
+| S4b는 `deps.runServerPreview`가 있으면 그것을 쓰고(시험 주입 지점), `runServerPreview`의 `finally`가 stream preview 해제 → host close → lock 해제를 한다. hydration snapshot(`pluginChatSnapshot`)과 시한 timer는 이 함수의 지역 변수다 | `bgOrchestrator.cjs:640-647,1028-1043,1088-1090` |
+| 알림은 코드·phase별 버전(1~4)을 가지며 그보다 낮은 claim 버전의 client는 받지 않는다. `publish`는 `stored`·`duplicate`·`conflict`·`expired`(48시간 TTL)·`capacity`를 돌려준다 | `bgNotifications.cjs:23-28,136-150` |
+| host 시험은 `bgPluginHost.cjs` 원문을 `Module._compile`로 다시 컴파일해 `__test`를 노출하고 `bgPluginSession.cjs` require를 harness로 바꾼다. 실제 worker 시험은 `scripts/probe-bg-plugin-host.cjs`다(시간은 sandbox `runtimeMs`만 줄일 수 있고, 들어오는 frame을 바꾸거나 붙잡을 수 있음) | `bgCurrentLorebookEntries.test.ts:48-57,97-107,288-314`, `scripts/probe-bg-plugin-host.cjs:9-23,66` |
+
+### 고정하는 인터페이스
+
+(Astra 3회차 검수 반영, 아래 「검수 기록」 3회차 참조.)
+
+1. **자격의 출처(parent 소유):** 자격은 host가 정한다. host의 `invoke` wrapper는 `contract === 'replacer' && kind === 'after_request'`(afterRequest replacer)인 호출에만 자격을 준다. 같은 kind를 쓰는 script handler(`editoutput` 등)와 다른 모든 호출은 자격이 없다. 이 판정은 BG 작업에서만 하며 foreground에는 이 경로가 없다.
+2. **session 프로토콜:** session(entry당 하나)에 다음을 추가한다.
+   - `session.runPostResponseEligible(task)`: `task` 안에서 시작되는 worker callback 호출의 parent 호출 scope 기록에 `postResponse: true`를 남기고, 그 호출의 `call` frame에 `postResponse: true` 필드를 붙인다. worker가 보낸 값으로 자격을 정하지 않는다.
+   - worker는 `postResponse: true` frame의 `_callback` 호출 context에서 wrapper로 만든 one-shot timer를 추적한다. **plugin callback의 반환값(또는 반환 promise)이 정해진 직후, `settleContext`보다 먼저** 아직 대기 중인 timer를 봉인한다(`bgPluginWorker.cjs:542-543` 사이). callback이 거부(throw)되면 봉인하지 않는다(그 timer는 지금처럼 만료 scope로 실행). 봉인된 timer는 원래 예정 시각에 울려도 callback을 실행하지 않고 보류한다. 봉인 상한은 entry당 `POST_RESPONSE_TIMER_LIMIT = 16`(export해 시험에서 읽음)이며 초과분은 봉인하지 않는다. `clearTimeout`은 봉인 여부와 무관하게 timer와 보류 callback을 지운다.
+   - `session.postResponseCandidates()` → `Promise<number>`: parent가 worker에 예약 method(`_postResponseCount`, `ABSENT_API_PULL`과 같은 parent 개시 호출)로 물어 지금 봉인되어 남은 수를 받는다. 봉인 뒤 다른 callback이 지운 것은 이 시점의 값에 반영된다.
+   - `session.openPostResponse({ deadline, signal })` → `Promise<PostResponseResult>`: parent가 child scope token을 만들고(소유 entry, 절대 시한 `min(deadline, 이 session의 runtimeDeadline)`. `find`·dispatch·재개마다 시한과 child abort를 확인), worker에 새 frame `{kind:'post_response_open', context:<child token>}`를 보낸다. worker는 보류 callback을 `max(원래 예정 시각, 지금)`에 그 context로 실행한다. 창 안에서 새로 건 timer도 같은 context를 받는다. 남은 timer, child context의 미정산 RPC(network RPC는 응답 본문 EOF·오류·취소까지), 실행 중 callback이 모두 없고 microtask·macrotask 한 바퀴 뒤에도 그대로이면 worker가 `{kind:'post_response_drained', context, ran:<실행한 보류 callback 수>}`를 보낸다. `ran === 0`(열 때 이미 모두 지워짐)이면 결과는 `none`, 아니면 `drained`. 시한이나 `signal`에 닿으면 parent가 child scope를 abort하고(진행 중 전송·본문 읽기 중단) `{kind:'post_response_close', context}`를 보낸다. session이 열기 전이나 창 중에 실패·종료하면 `uncertain/error`. 이미 abort된 `signal`은 즉시 `uncertain/aborted`.
+   - `PostResponseResult` = `{status:'none'}` | `{status:'drained'}` | `{status:'uncertain', reason:'deadline'|'aborted'|'error'}`. 이 promise는 거부하지 않는다. 시한과 abort가 같은 검사에서 함께 보이면 `aborted`다.
+3. **host:** 다음을 추가한다.
+   - `host.handOver()` → `Promise<{ participants: [{ index, pluginName, pluginVersion }] }>`(memoize, 두 번째 호출은 같은 promise). 생성 종료 시점(commit 전)에 호출한다. 실패하지 않은 entry마다 `session.postResponseCandidates()`가 1 이상이면 참여자다. 참여자가 아닌 entry를 닫고 등록을 해제한 뒤(C12, 결정 8) 그 정리가 끝나야 resolve한다. 조회 실패한 entry는 참여자가 아니며 닫는다.
+   - `host.openPostResponse({ deadline, signal })` → `Promise<PostResponseResult>`: `handOver()`가 끝난 뒤에만 유효하다(그 전 호출은 `uncertain/error`). 참여자가 없으면 `signal`과 무관하게 즉시 `none`. 아니면 참여자 session의 `openPostResponse`를 같은 `deadline`으로 병렬 실행하고 합친다: 하나라도 uncertain이면 uncertain(reason은 처음 관측된 것), 아니면 하나라도 drained이면 drained, 모두 none이면 none. 처음 호출이 결과를 정하고 그 뒤 호출은 close 여부와 무관하게 같은 promise를 돌려준다. 한 번도 열지 않은 채 close된 뒤의 첫 호출은 참여자가 있으면 `uncertain/aborted`.
+   - `host.close()`: 정리를 promise로 memoize해 동시 호출이 같은 정리를 기다린다. 열린 창이 있으면 그 창을 `uncertain/aborted`로 끝낸 뒤 기존 순서를 따른다.
+4. **lease 이전(`runServerPreview` ↔ S4b):**
+   - S4b는 `control.acceptPostResponseLease = true`를 넘긴다(S4a·llm·assemble 호출은 넘기지 않음).
+   - full mode에서 생성이 끝나면 `runServerPreview`가 `await pluginHost.handOver()`를 부른다. 참여자가 있고 결과를 정상 반환하는 경로이면 `finally`에서 host close·lock 해제를 하지 않고, 반환 결과에 `postResponseLease`를 붙인다. stream preview 해제와 `llmTimer` 해제는 지금 위치(`finally`)에서 한다. 참여자가 없거나 lease 전에 throw하면 지금처럼 `finally`가 정리한다.
+   - `postResponseLease` = `{ participants, lockAcquiredAt, reflectCommittedChat(chat), open({ deadline, signal }), release() }`.
+     - `lockAcquiredAt`: lock을 얻은 직후의 `performance.now()`(지금 `llmTimer`를 거는 시점).
+     - `reflectCommittedChat(chat)`: 넘긴 채팅을 작업 DB의 선택 채팅과 `pluginChatSnapshot`에 반영하고 그 시각(`snapshotReady`)을 돌려준다.
+     - `open`: `pluginHost.openPostResponse`를 그대로 부른다.
+     - `release()` → `Promise<void>`(memoize): host close 뒤 lock 해제. 한 번만 실제로 실행된다.
+   - 결과 저장·결과 route로 가는 값에는 `postResponseLease`를 넣지 않는다(S4b가 결과 객체에서 떼어 낸 뒤 저장).
+5. **orchestrator(S4b) 순서:**
+   1. `runDetachedServerPreview(..., control)` 반환. lease가 있으면 run 기록에 `postResponseAbort`(AbortController)를 둔다.
+   2. canonical commit(6의 의무 포함).
+   3. commit이 `status:'committed'`이면 `readCommittedChat(receipt)`(7)로 채팅을 읽어 `lease.reflectCommittedChat`. 읽기 결과가 `null`이면 창을 열지 않고 `uncertain/error`.
+   4. `lease.open({ deadline: min(snapshotReady + POST_RESPONSE_WINDOW_MS, lockAcquiredAt + 600000), signal: postResponseAbort.signal })`. `POST_RESPONSE_WINDOW_MS = 10000`.
+   5. 결과를 6의 의무 기록과 8의 알림으로 남긴다.
+   6. `await lease.release()` → run `finish()`.
+   commit이 committed가 아니면(실패·충돌·취소·답변 없음) 창 없이 `lease.release()`. commit 뒤 단계(3~5)의 예외는 채팅 성공을 유지하고 `uncertain/error`로 닫으며 generation 실패를 게시하지 않는다. 어떤 경로든 `lease.release()`는 S4b의 바깥 `finally`에서 반드시 기다린다.
+6. **동기화 의무 기록:** 작업 상태 행과 분리된 새 KV 키 `bg-post-response-sync:<operationId>`를 쓴다(작업 상태 행은 ACK 등이 commit 거래 밖에서 통째로 다시 쓰므로 사용하지 않음).
+   - 전달: S4b가 `commitGenerationResult({ ..., postResponseSync: { entries } })`로 넘기고, owner가 commit 요청에 그대로 실어 `serverChatCommit`의 거래 안에서 `writeCommittedOperationState` 다음에 owner의 새 callback `writePostResponseSync(record)`를 부른다. 같은 SQLite 거래다.
+   - 기록: `{ version:1, operationId, charId, chatId, receiptId: receipt.commitReceiptId, storedRevision, storageEpoch, createdAt, entries, state:'pending' }`. `createdAt`은 이때 한 번 정한다.
+   - replay(`reused`)는 기록을 새로 만들거나 되돌리지 않는다. 이미 있는 기록을 그대로 둔다.
+   - 결과 확정은 동기 조건부 갱신이다: 현재 값을 읽어 `state === 'pending'`이고 `receiptId`·`storageEpoch`가 같을 때만 쓴다. 조건이 맞지 않으면 쓰지 않는다(초기화·보존 정리 뒤 되살리지 않음).
+     - `drained`·`none`: `state`를 그 값으로.
+     - `uncertain`: `state:'uncertain'`, `reason`, `notices: { [index]: 'pending' }`(참여 entry마다)를 **알림 게시 전에** 한 번에 쓴다. 이후 entry별로 8의 알림을 게시하고 결과에 따라 `notices[index]`를 `'published'`(`stored`·`duplicate`) 또는 `'failed'`(`conflict`·`expired`·`capacity`, 재시도하지 않음)로 조건부 갱신한다.
+   - 저장소 초기화는 이 prefix도 지우고(`server.cjs:709-713`과 같은 위치), 작업 상태 보존 정리도 같은 작업의 이 키를 함께 지운다.
+7. **commit 채팅 읽기:** commit owner에 동기 함수 `readCommittedChat(receipt)`를 추가한다. 저장된 canonical 채팅을 읽어 그 revision이 `receipt.storedRevision`과 같을 때만 분리된 사본(`structuredClone`)을 돌려주고, 아니면 `null`. `commitGenerationResult`의 반환 객체에는 채팅을 넣지 않는다(결과 저장·결과 route로 새지 않게, `bgOrchestrator.cjs:128,164,1775`). replay(`reused`)와 `pending_recovery`도 같은 읽기로 판단한다.
+8. **알림:** 새 코드 `plugin_post_response_uncertain`, phase `post_response`.
+   - 서버 `bgNotifications.cjs`와 client `src/ts/bgNotifications.ts`의 코드·phase 목록에 추가하고, 이 코드의 `reason`을 `'deadline' | 'aborted' | 'error' | 'restart'`로 검증·보존한다.
+   - 버전: 이 코드는 알림 버전 5다. client의 claim 버전을 5로 올린다. 버전 4 이하로 claim하는 client는 이 알림을 받지 않는다(기존 버전 규칙 그대로).
+   - 필드: `eventKey: plugin:${index}:post-response-uncertain`, `effectsMayHaveOccurred: true`, `reason`과 `createdAt`은 6의 기록값. 재게시는 같은 내용이라 `duplicate`가 된다.
+   - `uncertain`일 때 참여 entry마다 한 번. `drained`·`none`은 알림이 없다.
+   - client 문구(코드별 문구 위치 `src/ts/bgNotifications.ts:108` 계열): `${plugin}: 답변 뒤 플러그인 동기화가 확인되지 않았어요. 저장된 답변은 그대로예요.`
+   - 한계: `conflict`·`expired`·`capacity`이면 알림이 남지 않을 수 있다(최선 노력). 기록의 `notices[index] = 'failed'`로 구분한다.
+9. **재시작:** `server.cjs`의 시작 경로에서 `reconcileServerChatRecovery`를 기다린 뒤, 서버가 listen하기 전에 별도 sweep을 await한다. 순서는 6과 같다(상태 먼저, 알림 나중).
+   - `state === 'pending'`: `state:'uncertain'`, `reason:'restart'`, `notices`를 모두 `'pending'`으로 조건부 기록한 뒤 entry별로 게시한다.
+   - `state === 'uncertain'`이고 `notices`에 `'pending'`이 남은 기록(게시 전 중단): 기록된 `reason`·`createdAt`으로 그 entry만 다시 게시한다.
+   - 플러그인·생성·prepare를 다시 실행하지 않는다.
+10. **취소:** commit 뒤 취소 route의 응답은 지금과 같다(`cancelled:false, finished:true, state:'chat-committed', reason:'already-committed'`). run 기록에 `postResponseAbort`가 있으면 abort한다(`run.cancelled`는 바꾸지 않아 결과 폐기 경로를 타지 않음). 창을 열기 전에 abort되면 창을 열지 않고 `uncertain/aborted`로 기록·알림한다.
+11. **상태·N+1:** 상태 route는 지금처럼 `chat-committed`를 돌려준다. run `finish()`가 창 뒤에 오므로 activity route는 창이 끝날 때까지 busy다. **사용자 결정(2026-10-25): 같은 채팅 N+1 서버 입력은 지금처럼 접수되고, 실행만 작업 lock에서 창이 끝날 때까지 기다린다.** 입력 owner의 선행 판정·drain·`readyForNextTurn`은 바꾸지 않는다. N+1의 조립은 lock 뒤에 시작하므로 commit된 답변을 본다.
+
+### 시험 주입 지점
+
+- host 단위 시험은 기존 원문 재컴파일·session harness 방식이다. fake session은 2의 `runPostResponseEligible`·`postResponseCandidates()`·`openPostResponse`를 구현하고(session 자체 수명 마감은 fake가 결과로 표현), host 시험은 짧은 절대 `deadline`을 인자로 준다.
+- S4b 순서·lease 정리·commit 뒤 예외는 `deps.runServerPreview` 주입(가짜 `postResponseLease` 반환)으로 시험할 수 있다.
+- 실제 worker의 자격·봉인·상한·`clearTimeout`·본문 EOF·drained 판정은 `scripts/probe-bg-plugin-host.cjs` 계열 probe로 시험한다(작성자 sandbox에서는 worker를 띄울 수 없음, 환경 사실 §6).
+- orchestrator·commit·재시작·취소·N+1은 server causal probe로 시험한다. 10초 창은 상수 그대로 쓴다(시험용 설정 옵션을 추가하지 않는다). commit·snapshot 지연과 실패는 probe의 module wrapping으로 만든다. 재시작은 `bg-post-response-sync:` 기록을 남긴 KV로 서버를 다시 띄워 확인한다.
+
 ## 테스트 계약 표
 
 단위는 D3-1 하나다. "후보 timer"는 afterRequest hook 안에서 걸렸고 hook이 끝날 때 아직 대기 중인 1회성 timer를 뜻한다. "창"은 commit된 채팅 반영 시점부터 시한까지의 continuation 구간이다.
 
 | 기준 | 입력 | 기존 상태 | 기대 결과·오류 | 범위 밖 |
 |---|---|---|---|---|
-| C1 timer 자격 | afterRequest 안의 `setTimeout`(bare 전역과 `window` 모두), hook 안에서 끝나는 timer, load 시점 timer, `setInterval`, 다른 phase의 timer, worker 내부 RPC timeout·settlement timer | BG 작업, full mode S4b | 후보 timer만 commit 뒤로 보류된다. hook 안에서 끝나는 timer는 지금처럼 바로 실행된다. 나머지는 지금과 같다(만료된 scope로 실행되고 RPC는 `plugin_invocation_expired`). 자격은 hook 완료 시점에 정해진다. 인자 전달·지연 정규화·같은 시각 timer의 순서가 유지된다 | 플러그인 이름·지연 값·endpoint로 고르는 분기 |
+| C1 timer 자격 | afterRequest 안의 `setTimeout`(bare 전역과 `window` 모두), hook 안에서 끝나는 timer, load 시점 timer, `setInterval`, 다른 phase의 timer(같은 `after_request` kind를 쓰는 script handler 포함), worker 내부 RPC timeout·settlement timer, 봉인 상한 초과 | BG 작업, full mode S4b | 후보 timer만 commit 뒤로 보류된다. hook 안에서 끝나는 timer는 지금처럼 바로 실행된다. 나머지는 지금과 같다(만료된 scope로 실행되고 RPC는 `plugin_invocation_expired`). 자격은 hook 완료 시점에 정해진다. 인자 전달·지연 정규화·같은 시각 timer의 순서가 유지된다 | 플러그인 이름·지연 값·endpoint로 고르는 분기 |
 | C2 `clearTimeout` | 후보 timer를 hook 뒤, 창 열기 전, 창 안에서 해제 | C1 상태 | 해제된 callback은 실행되지 않고, 남은 후보가 없으면 창이 그만큼 일찍 끝난다 | — |
 | C3 실행 시점 | commit이 원래 예정 시각보다 빠름; commit이 원래 예정 시각보다 늦음(1.5초 초과) | C1 상태 | callback은 canonical commit 성공 뒤, `max(원래 예정 시각, commit된 snapshot 준비)`에 한 번 실행된다. commit 전 실행·유실·commit 뒤 지연 재계산이 없다 | — |
 | C4 읽는 상태 | callback 안의 `getDatabase`·`getChatFromIndex`·`getCurrentLorebookEntries`·`readDatabase` 등 | commit owner가 앵커 병합한 canonical 채팅 | 읽은 채팅은 commit된 canonical 결과(receipt의 `storedRevision`과 일치)이고 commit 전 `result.chat`이 아니다. 창이 끝날 때까지 lock이 유지되어 다른 BG 작업의 DB가 보이지 않는다 | — |
@@ -141,7 +235,7 @@ validation-runner, 조립 트리(patcher `d476d60`), 원본 RCM 1.0.21과 실제
 | C7 완료 판정 | callback이 HTTP를 시작하고 바로 반환; 응답 본문을 늦게 읽음; 본문을 읽지 않음 | C3 상태 | 창은 child scope에서 시작한 RPC(응답 본문 EOF·오류·취소까지)가 정산되고 남은 후보 timer가 없을 때 끝난다. callback 반환·worker idle만으로 끝나지 않는다. 정상 종료는 상태에 "전송 정지"로만 기록되고 알림이 없으며 "기억 저장됨"을 주장하지 않는다 | backend의 동기화 성공 증명 |
 | C8 경로별 정리 | 답변 없음, commit 충돌·실패, commit 전 취소, `BG_ASSEMBLY_CONFLICT`, D1-a 실패, S4a 경로, 후보 timer 없음, 부분 출력(commit됨/안 됨), commit 뒤 snapshot·continuation·알림 오류 | 각 경로 | 창이 없는 경로는 지금처럼 즉시 host close → lock 해제. 부분 출력은 실제로 commit된 경우에만 창이 열린다. commit 뒤 오류는 채팅 성공을 유지하고 불확실로 닫으며 생성 실패를 게시하지 않는다. 정리는 정확히 한 번이고, 정리를 마치지 않은 host를 두고 lock을 먼저 풀지 않는다. stream preview 해제 위치는 지금과 같다 | — |
 | C9 영속·재시작 | 창 진행 중 서버 재시작; 창 종료 뒤 재시작 | 동기화 의무가 commit 거래 안에서 기록됨 | 재시작 시 미해결 의무는 불확실로 바뀌고 플러그인·생성은 다시 실행되지 않는다. 저장된 채팅은 보존된다 | — |
-| C10 N+1과 대기 | 창 진행 중 같은 채팅의 다음 입력; 다른 채팅의 BG 작업; drain | 창 진행 중 | 같은 채팅 N+1은 창이 끝나거나 만료될 때까지 busy(명령을 잃지 않고 `waiting`). 다른 채팅 작업은 lock 해제 뒤 시작한다 | 대기 시간 개선 |
+| C10 N+1과 대기 | 창 진행 중 같은 채팅의 다음 입력; 다른 채팅의 BG 작업; drain | 창 진행 중 | activity route는 창이 끝나거나 만료될 때까지 busy다. 같은 채팅 N+1 입력은 지금처럼 접수되고(명령을 잃지 않음), 실행은 lock 해제 뒤 시작해 commit된 답변을 본다(2026-10-25 사용자 결정, 입력 owner의 `waiting` 판정은 바꾸지 않음). 다른 채팅 작업도 lock 해제 뒤 시작한다 | 대기 시간 개선, N+1 접수 응답의 변경 |
 | C11 취소 | commit 전 사용자 중지; 창 진행 중 사용자 중지 | — | commit 전 취소는 지금과 같다. 창 중 취소는 남은 동기화를 멈추고 불확실로 기록하며 저장된 채팅과 receipt를 유지한다(취소 결과는 commit됨을 보고) | — |
 | C12 다른 플러그인 | 후보 timer가 없는 entry, MARP·PageFold timer | 같은 작업 | 후보가 없는 entry는 생성 종료 시점에 닫혀 수명이 지금과 같다. MARP·PageFold의 timeout·protocol·정리 timer 의미는 유지된다 | — |
 | C13 기존 동작 | 기존 시험 | — | RCM 원본 무수정, foreground, D1-a·G2.2b·NaN·D2 결과, 채팅 저장 결과, 128회·600초 유지, 기존 테스트 수 유지 | — |
@@ -176,6 +270,13 @@ validation-runner, 조립 트리(patcher `d476d60`), 원본 RCM 1.0.21과 실제
 - **P1:** D2 commit 뒤 HEAD의 조립 트리에서 원본 RCM 1.0.21로 BG 작업을 실행해, afterRequest hook 호출 안에서 1500ms one-shot timer가 실제로 예약되는지(그리고 지금은 host 종료로 실행되지 않는지) worker 쪽 계측으로 확인한다. 예약되지 않으면 테스트를 요청하지 않고 원인을 확인한다.
 - **P2:** 같은 HEAD에서 `git --no-pager diff --name-only d476d60..HEAD -- patches/lazy-chat-bg-adapter patches/lazy-chat-sync`를 실행하고, host·worker·session·orchestrator가 바뀌었으면 M1을 다시 잰다.
 
+**결과 (2026-10-25, patcher `18d5113`, validation-runner):** 조립 트리 후보 gate `RESULT: PASS`(19단계, 저장소 시험 351 중 348 통과·3 skip). 원본 RCM 1.0.21(ZIP·JS hash 일치, backend 1.0.21·apiRevision 98, 의존성은 격리 폴더에 `npm install --omit=dev`로 설치), 가짜 provider, 합성 데이터, loopback 전용. 측정은 instrumentation을 넣은 조립 트리 사본에서만 했다.
+
+- **P1 통과:** 15회 모두 afterRequest 호출 token으로 `setTimeout(…, 1500)`이 hook 시작 약 1ms 뒤 예약되고, hook 반환 시점의 대기 목록에 남아 있었다. 1500ms timer의 실행 기록은 0회다(실행 시 기록하는 wrapper 기준). afterRequest 반환 뒤 API 호출 0회, afterRequest phase의 `plugin_late_call` 0. afterRequest hook 자체는 context 읽기 4회(`getCurrentCharacterIndex`, `getCharacter`, `getCurrentChatIndex`, `getChatFromIndex`)를 한다. 실행당 `/v1/turn/prepare`는 beforeRequest의 1회뿐이다. 한계: `clearTimeout` 기록은 호출 context만 남겨 어느 timer를 지웠는지는 구분하지 못한다.
+- **P2:** `d476d60..HEAD`에서 `bgPluginHost.cjs`·`bgPluginSession.cjs`·`bgPluginWorker.cjs`·`plugin-host-units.cjs` 등 23개 경로가 바뀌어 M1을 다시 쟀다.
+- **M1 재측정**(ms, 최소/중앙/최대, 크기별 5회, 크기마다 새 서버): host close − afterRequest 반환 23/24/25·20/26/69·39/49/51(10·200·2000 메시지), commit 종료 − afterRequest 반환 45/45/53·53/55/170·134/151/158, prepare 왕복 18/21/54·59/60/100·49/52/92. **15회 중 commit이 1.5초보다 늦은 경우 0회**로 `d476d60`과 같다.
+- **관측(이 단위 범위 밖):** 2000 메시지 5회 모두 phase `before_request`의 `plugin_late_call`이 남았다. RCM이 load 때 건 4000ms timer가 약 3초 걸리는 beforeRequest 도중 load scope 해제 뒤 울려 그 RPC가 거절된 것으로 보인다(현재 코드의 기존 동작). 크기를 섞은 15채팅 한 번의 실행에서는 plugin host가 시작되지 않아 중단했고 원인은 확인하지 않았다(크기별 단독 실행은 정상).
+
 ## D4와의 연결
 
 Risu engine(새 설치 기본값)의 추출은 플러그인이 lease를 잡고 모델 작업을 하는 경로라, host를 닫으면 그 job의 무인 완료를 보장할 수 없다(RCM JS의 `gc`·Risu worker 경로). D3는 출력이 backend 원문에 들어가는 것까지만 다루고, 추출 완료는 D4에서 다룬다.
@@ -183,6 +284,10 @@ Risu engine(새 설치 기본값)의 추출은 플러그인이 lease를 잡고 �
 ## 검수 기록
 
 - **Astra(gpt-6-astra, read-only) 1회차:** 사실 1~7은 확인(일부 한정), 8은 정정(128회는 host 전체 공유). 설계 공백 4건(commit 대기 timer, callback 반환≠동기화 완료, commit 뒤 상태 부재, 다른 플러그인 수명)과 D(commit 대기 continuation) 제안, D + A 권고, 측정 8항목을 채택했다. 오케스트레이터가 직접 확인한 근거: `bgOrchestrator.cjs:1034-1038`(close → lock 해제), `bgPluginSession.cjs:28-52`(scope 해제·만료), 공유 counter(당시 인용 `bgPluginHost.cjs:212,612`는 잘못된 줄이었고 2026-10-22 재확인으로 `:37,115-119,217,650`으로 정정), RCM `Kx`의 `crypto.randomUUID()`.
+
+- **Astra(gpt-6-astra, read-only) 3회차(2026-10-25, 「테스트 요청 전 확정」 초안):** 인터페이스는 실현 가능하나 관측 계약이 비어 있고 C12와 충돌한다는 지적 9건과 사실 한정 5건. 오케스트레이터가 코드로 확인한 근거: script handler도 `after_request` kind(`bgPluginHost.cjs:680-683`), `close()`의 늦은 `closed`(`:862-878`), S4b가 commit 결과 객체를 결과 저장에 넘김(`bgOrchestrator.cjs:1775`, `:164`, `:128`), ACK가 작업 상태 행을 다시 씀(`:2570-2586`), 입력 commit이 같은 거래에서 입력을 `completed`로 정산(`serverChatCommitOwner.cjs:496-502`), 알림 `reason`이 지정 코드에서만 보존되고 client가 같은 목록으로 검증(`bgNotifications.cjs:50-75`, `src/ts/bgNotifications.ts:20-28,50-60`). 채택: ① parent 소유 자격(afterRequest replacer만) ② session 프로토콜·참여자·상한 고정 ③ `handOver()`에서 비참여 entry 정리 ④ close·open memoize, 결과 판별 union, 경계 규칙 ⑤ 채팅을 반환 객체에 넣지 않고 `readCommittedChat(receipt)`로 읽음 ⑥ 별도 KV 키와 조건부 갱신, `none`·snapshot 실패의 종결 상태 ⑦ 서버·client 알림 정규화, 고정 `createdAt`, 게시 순서와 재시도 ⑧ N+1은 사용자 결정으로 "접수 뒤 lock 대기" ⑨ commit 전에 두는 `postResponseAbort`, `run.cancelled` 불변. 사실 한정(session `runtimeMs` 설정 가능, settlement 기준은 callback 시한, 작업 시한 기준은 lock 획득 뒤, commit 결과는 성공 모양, 병합 채팅은 journal 준비에도 전달)은 사실 표에 반영했다.
+
+- **Astra 4회차(2026-10-25, 3회차 반영본):** 1회차 9건 중 1·5·6·8·9 해결, 2·3·4·7 부분 해결. 남은 지적 7건을 모두 채택했다. 오케스트레이터가 확인한 근거: `_callback`이 callback await 뒤 `settleContext`를 기다리고 반환(`bgPluginWorker.cjs:537-546`), S4b의 `deps.runServerPreview` 주입 지점과 `finally`의 지역 정리(`bgOrchestrator.cjs:640-647,1028-1043,1088-1090`), 알림 버전·`expired` 결과(`bgNotifications.cjs:23-28,136-150`). 반영: ① 봉인은 callback 반환 직후·`settleContext` 전, 거부된 hook은 봉인 없음 ② 후보 수는 parent 개시 조회 `postResponseCandidates()`, `drained`의 `ran`으로 `none` 구분, 집계 규칙 ③ `handOver()` promise와 `postResponseLease` 계약 ④ 상태 먼저(entry별 `notices`), 알림 나중으로 실행·재시작 순서 통일 ⑤ 알림 버전 5, `expired` 처리, 최선 노력 한계 명시 ⑥ open 전·session 실패·재호출·abort 우선순위 규칙, session 자체 시한 ⑦ commit 전달 경로·`commitReceiptId` 대응·replay 규칙. 사실 한정 4건은 사실 표에 반영했다.
 
 ## 바꾸지 않을 동작
 
