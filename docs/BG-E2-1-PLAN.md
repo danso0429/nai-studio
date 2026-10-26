@@ -39,16 +39,16 @@
 - `src/manager.cjs` `planTransition({..., allowInternal = false})`: `resolveSelection(catalog, packIds, { allowInternal })`로만 넘긴다. installer CLI와 다른 호출자는 넘기지 않는다. harness는 `persistIntent: false`로 부르고 intent를 쓰지 않는다.
 - `scripts/lib/target-coverage.cjs`(maintainer 전용, catalog·manager·staging·installer가 import하지 않음): `validateTargetCoverage({ catalog, coverage, baseline, packIds })` → `{ ok, violations: [{ pack, target, kind, unitId }] }`.
 - `scripts/lib/subset-closure.cjs`: `resolveSubsetClosure({ catalog, packIds, target })` → `{ packs, units }`. pack `requires`·`autoWhen`(resolver)와 unit `requires`의 소유 pack(해당 target에서 선택되는 unit 기준)을 고정점까지 번갈아 확장한다. 소유 pack이 없거나 둘 이상이면 `SUBSET_UNIT_OWNER` 위반으로 멈춘다.
-- `scripts/qualify-subset.cjs --root <사본> --packs <id,...> --out <폴더> [--json]`, 내부 진입 함수 `runSubsetQualification({ root, packIds, catalog, coverage, baseline, outDir, checkRunner, now })`. `checkRunner(check, root) → { exitCode, stdoutTail, stderrTail }`는 테스트에서 주입한다.
+- `scripts/qualify-subset.cjs --root <사본> --packs <id,...> --out <폴더> [--json]`, 내부 진입 함수 `runSubsetQualification({ root, packIds, catalog, coverage, baseline, outDir, checkRunner, env, now })`. `env`는 기본 `process.env`이고 `NODE_OPTIONS`를 여기서 읽는다. `checkRunner(check, root) → { exitCode, stdoutTail, stderrTail }`는 테스트에서 주입한다.
 - `patches/target-coverage.cjs`: coverage 데이터. `test/fixtures/target-baseline-1.10.0.json`: 변경 전(`9b15c32`) catalog에서 1.10.0에 선택되는 pack별 unit id 목록과 pack 선언·unit의 정규화 해시. 이 파일은 E2-1a에서 한 번 만들고 이후 단위가 바꾸지 않는다.
 
 **harness 순서 (한 lock 안에서):**
 
-1. 사전 검사: root가 git checkout이고 tracked 변경이 없다. patch state·intent·journal·lock 파일이 없다. closure의 모든 owned 경로가 없다(ignored 포함). `package.json`의 `packageManager`가 실행 중인 `pnpm --version`과 같다. `node -v`, `pnpm -v`, `NODE_OPTIONS`를 기록하고, `NODE_OPTIONS`에 `--no-experimental-webstorage`가 없으면 멈춘다(후보 gate와 같은 환경).
+1. 사전 검사: root가 git checkout이고 tracked 변경이 없다. patch state·intent·journal·lock 파일이 없다. closure의 모든 owned 경로가 없다(ignored 포함). `package.json`의 `packageManager`가 `checkRunner`로 실행한 `pnpm --version`(단계 이름 `pnpm-version`, preflight에 속함)의 출력과 같다. `node -v`, `pnpm -v`, `NODE_OPTIONS`를 기록하고, `NODE_OPTIONS`에 `--no-experimental-webstorage`가 없으면 멈춘다(후보 gate와 같은 환경).
 2. closure 해석(`resolveSubsetClosure`), closure의 모든 pack이 target을 `verified`·`reviewing`으로 선언했는지, coverage 검사.
 3. 사전 스냅숏: closure의 모든 managed·owned 경로의 존재·bytes 해시·mode.
 4. plan(`allowInternal: true`, `persistIntent: false`) → `applyTransition({ lockHeld: true })` → `status`가 `current` → 같은 선택 재계획 시 변경 0. 이 시점의 증거(선택 unit id와 순서, pack etag, 파일 해시·mode, state 해시)를 receipt에 먼저 쓴다.
-5. `pnpm --version`, `pnpm install --frozen-lockfile`, `pnpm test`, `pnpm test:compat`, `pnpm check`, `pnpm build`, closure에 `bg-preserve`가 있으면 `node server/node/bgOrchBundle.build.cjs`. 첫 실패에서 남은 검사 단계를 건너뛰고 `skipped`로 기록한다.
+5. `pnpm install --frozen-lockfile`, `pnpm test`, `pnpm test:compat`, `pnpm check`, `pnpm build`, closure에 `bg-preserve`가 있으면 `node server/node/bgOrchBundle.build.cjs`. 첫 실패에서 남은 검사 단계를 건너뛰고 `skipped`로 기록한다.
 6. 검사 뒤 managed 상태 `current`, tracked 변경 집합이 4단계 직후와 같다.
 7. 되돌리기(`packIds: []`, `lockHeld: true`). 그 뒤 state·intent·journal이 없고, 3단계 스냅숏의 경로마다 존재·bytes·mode가 같고, tracked 변경이 없다. untracked·ignored 중 판정에서 빼는 것은 `node_modules/`, `dist/`, bundle 산출물(`server/node/bgOrchBundle.{css,mjs}`)처럼 이름으로 지정한 산출물뿐이다.
 8. lock을 놓은 뒤 lock 파일이 없는지 확인한다.
@@ -59,7 +59,7 @@
 
 **coverage 규칙:**
 
-- 데이터: `{ [pack]: { [target]: { from: '1.10.0', retained: [ids] | 'all', replaced: { 옛id: [새id, ...] }, added: { 새id: 이유 }, retired: { 옛id: 근거 } } } }`. 분할은 `replaced` 값 배열로, 병합은 여러 옛 id가 같은 새 id를 가리키는 것으로 표현한다.
+- 데이터: `{ [pack]: { [target]: { from: '1.10.0', retained: [ids] | 'all', replaced: { 옛id: [새id, ...] } (이유 없음), added: { 새id: 이유 }, retired: { 옛id: 근거 } } } }`. 분할은 `replaced` 값 배열로, 병합은 여러 옛 id가 같은 새 id를 가리키는 것으로 표현한다.
 - 옛 목록은 현재 catalog가 아니라 `target-baseline-1.10.0.json`에서 읽는다.
 - 위반: 기준선의 옛 id가 세 범주 중 정확히 한 곳에 있지 않음, 알 수 없는 옛 id, 범주 간 중복, `retained` 안 중복, `added` 키와 `replaced` 값의 중복, 빈 이유·근거, 새 target에서 선택되는 unit 집합 ≠ `retained ∪ replaced 값 ∪ added`, 1.10.0 밖 target을 선언했는데 항목 없음.
 - 같은 검사기가 catalog test와 harness 2단계에 쓰인다.
@@ -69,7 +69,7 @@
 - 7개 pack의 `targets.pocketrisu.reviewing`을 `['1.16.1']`로 바꾼다. 범위 있는 unit 전부의 `targetVersions`를 `['1.10.0', '1.16.1']`로 넓힌다(`parser-hardening`은 unit을 바꾸지 않는다). 각 pack version을 patch 단위로 올린다(F7).
 - `patches/target-coverage.cjs`에 7개 pack의 1.16.1 항목(`retained: 'all'`)을 넣는다.
 - `test/catalog.test.cjs:13` 검사를 바꾼다: `reviewing: ['1.16.1']`인 pack은 정확히 이 7개다. 나머지 38개 pack의 선언·unit 해시가 기준선과 같다. 모든 pack에서 1.10.0에 선택되는 unit id 목록이 기준선과 같다.
-- 의미 검토(Astra 2026-10-26, 확인 대상): 바뀐 원본 파일의 삽입 위치에서 동작이 달라진 곳은 없었다. `fastimport-ios-picker`는 1.16.1의 저장소 초기화·preload 게이트(`plugins.svelte.ts:492`)와 함께, preload 실패 시 변환된 V2 plugin이 계속 비활성인지 테스트로 확인한다.
+- 의미 검토(Astra 2026-10-26, 확인 대상): 바뀐 원본 파일의 삽입 위치에서 동작이 달라진 곳은 없었다. `fastimport-ios-picker`는 1.16.1의 저장소 초기화·preload 게이트(`plugins.svelte.ts:492`)와 함께, preload 실패 시 변환된 V2 plugin이 계속 비활성인지 테스트로 확인한다. 1.10.0 적용 결과를 바꾸지 않도록 이 테스트는 1.16.1 전용 새 owned unit(`src/ts/plugins/fastImportIOSPicker.preload.test.ts`, coverage `added`)으로 넣는다.
 - `charx-archive-integrity`의 zip 라이브러리 이중화는 바꾸지 않는다. frozen install은 A4에서 본다.
 
 각 단위의 commit에 patcher version(`0.2.4-experimental.89`, `.90`), CHANGELOG, `dist` 재빌드를 넣고, 각 commit 직전에 1.10.0 후보 gate를 돌린다.
