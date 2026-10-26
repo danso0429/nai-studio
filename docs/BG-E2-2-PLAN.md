@@ -41,7 +41,7 @@
 | E2-2a | Rebase the client build fence onto PocketRisu 1.16.1 |
 | E2-2b | Rebase the server backup snapshot core onto PocketRisu 1.16.1 |
 
-E2-2b는 F17 때문에 E2-6에서 당겨 왔다. 설계는 별도 탐색 뒤 이 문서에 덧붙이고 테스트도 따로 요청한다(인터페이스가 아직 정해지지 않음). fence의 A4 실측은 E2-2b 뒤 closure(`client-build-fence` + `server-backup-snapshot-core`)로 한다.
+E2-2b는 F17 때문에 E2-6에서 당겨 왔다. 설계는 아래 「E2-2b」에 있다. fence의 A4 실측은 E2-2b 뒤 closure(`client-build-fence` + `server-backup-snapshot-core`)로 한다.
 
 ### 공통 계약 (rebase한 pack)
 
@@ -81,7 +81,33 @@ E2-2b는 F17 때문에 E2-6에서 당겨 왔다. 설계는 별도 탐색 뒤 이
 - pack: 공통 계약, version 0.1.4, coverage 항목(58개 `retained`, 고친 unit `rewritten`, 새 unit `added`).
 - patcher `0.2.4-experimental.92`, CHANGELOG, `dist` 재빌드.
 
-## 4. 바뀌면 안 되는 것
+### E2-2b
+
+확인한 사실(2026-10-26):
+
+| # | 사실 | 출처 |
+|---|---|---|
+| F20 | `server-backup-snapshot-core`는 version 0.1.7, unit 11개다. owned 8개는 `server/node/backupSnapshot.cjs`·`backupSource.cjs`와 그 vitest 2개, compat 테스트 4개(`test/compat/backup-point-in-time`·`storage-reset-b1a`·`session-reset-b2`·`reset-orphans-b3`)다. `db.cjs` unit 3개가 있다. pack `requires`·`autoWhen`은 `client-build-fence`이고, fence unit id를 직접 `requires`하는 unit은 없다. 이 pack에 기대는 pack은 `server-backup-snapshot-lazy-adapter` 하나다. 다른 pack은 compat 테스트 unit id를 `requires`하지 않는다. | `patches/server-backup-snapshot-core/manifest.cjs:13-80`, `adapter-manifest.cjs:200-201`, grep (확인함) |
+| F21 | `db.cjs` unit 3개의 anchor는 1.16.1에 각각 한 번 있다(`db.cjs:6,207,249`). 1.16.1에는 `createKvSnapshot`·`openKvSnapshot`이 없고, `db.cjs` export 목록은 1.10.0과 같다. | u116 `server/node/db.cjs` grep (확인함), 탐색 보고 |
+| F22 | 원본 1.16.1 사본에 이 pack의 unit 11개만 손으로 조립했다(fence의 owned 파일은 있으나 insert unit은 없음). 서버 vitest 2개는 6/6 통과했다. compat 4개 파일은 55개 중 52개가 실패했다. | 실측 `e2/e22b/probe`(1.16.1 `5da95f7`, pack `44bb1be`), 로그 `server-tests.log`·`compat-tests.log` |
+| F23 | compat 4개가 시험하는 동작은 이 pack 밖에 있다. storage reset barrier·epoch·원자적 import와 restore는 `lazy-chat-sync`의 1.10 전체 교체 `server.cjs`에 있다(`storageReset` 76회. 1.16.1 원본에는 0회). pinned backup endpoint는 `server-backup-snapshot-lazy-adapter`가 `/api/backup/server/save`·export·`/api/db/optimize`를 바꿔서 만든다. B2·B3의 BG session·결과 정리는 BG adapter 쪽이다. core는 이 pack들을 `requires`하지 않는다. 1.10.0에서는 `all` 전체 graph에서만 돌았기 때문에 드러나지 않았다. | `patches/lazy-chat-sync/files-1.10/server/node/server.cjs`, u116 `server.cjs` grep, `adapter-manifest.cjs:105-170` (확인함), 실패 제목 |
+
+설계:
+
+- core는 공통 계약을 따르고 version 0.1.8이 된다. owned 4개(서버 모듈 2개와 vitest 2개)와 `db.cjs` unit 3개는 내용을 그대로 두고 범위만 없앤다(coverage `retained`).
+- compat 테스트 4개는 core의 1.16.1 unit에서 뺀다(coverage `retired`. 이유: 시험 대상 동작이 core 밖 pack에 있음). 테스트 파일은 저장소에 그대로 둔다. 각 테스트는 자기가 시험하는 동작의 owner pack을 rebase할 때 그 pack의 unit으로 다시 넣는다(1.16.1에 맞게 고쳐서). 해당 단위는 E2-3 `lazy-chat-sync`, E2-6 `server-backup-snapshot-lazy-adapter`, E2-7 BG adapter다. 어느 owner가 어느 테스트를 받을지는 그 단위의 계획에서 테스트별로 정한다. 대신 E2-9에서 네 파일이 1.16.1 전체 graph의 테스트로 모두 돌아왔고 통과하는지 확인한다(audit E2-3·E2-6·E2-7·E2-9 행에 적는다).
+- 다른 방법을 버린 이유: core에 그대로 두면 fence와 core의 subset 실측(A4)이 E2-3·E2-6·E2-7이 끝날 때까지 항상 실패한다. 그러면 fence를 1.16.1에서 확인하는 일이 E2 끝까지 미뤄진다. owner를 지금 옮기려면 아직 rebase하지 않은 pack의 unit을 바꿔야 해서 A5(손대지 않은 pack은 기준선과 같음)를 깬다.
+- patcher `0.2.4-experimental.93`, CHANGELOG, `dist` 재빌드.
+
+수용 기준:
+
+| # | 기준 | 검사 |
+|---|---|---|
+| B0 | core는 1.16.1만 선언하고 unit에 범위가 없으며 version은 0.1.8이다. 1.16.1 선택 unit은 기준선 11개 중 compat 4개를 뺀 7개다. coverage는 `retained` 7개, `retired` 4개(이유 있음), `replaced`·`added`는 비어 있고, `unitBaseline` 검사를 통과한다. | 저장소 테스트(실제 catalog) |
+| B1 | `client-build-fence`(closure에 core 포함)를 subset harness로 원본 1.16.1 새 사본에 돌리면 모든 단계가 통과하고 잔여 없이 되돌아간다. fence의 vitest 7개와 core의 서버 vitest 2개가 실행되고 통과한 것을 로그로 확인한다(fence와 E2-2b의 A4). | `scripts/qualify-subset.cjs` 실측 |
+| B2 | `server-backup-snapshot-lazy-adapter`와 다른 pack의 1.10.0 선언·unit은 바뀌지 않는다(A5). | 저장소 테스트 |
+
+
 
 - 아직 rebase하지 않은 38개 pack의 선언·unit(기준선 fixture의 version·선언 hash·1.10.0 선택 unit).
 - 1.16.1 원본 동작 중 fence와 무관한 것: `authRequest`의 timeout, `authFetchOnce`의 재시도·423 처리, `fetchFn` 주입, 계정 가져오기의 쓰기 차단, `termux-notify`·`resolve`.
