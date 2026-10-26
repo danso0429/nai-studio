@@ -1,6 +1,6 @@
 # E1 계획 — Node 24 LTS 전환
 
-**상태 (2026-10-26 KST):** 계획 작성, Astra 계획 검수 2회 반영(§9). 구현·live 변경 전. 정본: [ordered goals](BG-PRESERVE-ORDERED-GOALS.md) 머리말 「G2.2 뒤 다음 순서」 E1.
+**상태 (2026-10-26 KST):** 계획 작성, Astra 계획 검수 2회 반영(§9). E1-1 완료(patcher `7c84a00`, 0.2.4-experimental.88: gate 24·25 각 19/19, probe sandbox 17/17·worker 12/12·host 197/197 양쪽 동일, Codex 코드 검수 지적 0건). E1-2 완료(Node 24 전역 도구 4종 설치, PM2 daemon 무변경). E1-3 이후 미착수, live 변경 전. 정본: [ordered goals](BG-PRESERVE-ORDERED-GOALS.md) 머리말 「G2.2 뒤 다음 순서」 E1.
 **위험 분류:** risky. live 런타임·PM2·systemd unit·전역 셸 설정을 바꾸는 install/revert 성격이고, patcher의 플러그인 sandbox 보안 경계 코드를 바꾸는 단위(E1-1)를 포함한다.
 
 ## 1. 목표
@@ -16,6 +16,8 @@
 | Node 25 | 제거하지 않는다(rollback용). |
 | 범위 밖 | `pnpm audit` Critical/High 정비와 MCP 인증정보 회전. 별도 과제로 둔다. 의존성 정비는 lockfile이 바뀌는 E2 뒤에 보는 편이 중복이 적다. |
 | 목표 버전 | Node 24. 근거는 §4. |
+| live patcher (E1-4) | 현재 live 그대로 둔다(lazy-chat-bg-adapter 0.7.62). live env에 `POCKETRISU_BG_PLUGIN_HOST_CANDIDATE`가 없어 플러그인 host가 꺼져 있으므로 sandbox 버전 조건은 쓰이지 않는다. host를 켜기 전에 E1-1을 포함한 patcher(0.2.4-experimental.88, adapter 0.7.83 이상)를 먼저 적용한다. E1-3 검증 대상은 live 앱 트리의 사본이다. |
+| opencode CLI | Node 24에는 설치하지 않는다. Node 25 전역에만 남는다. |
 
 ## 3. 확인한 사실
 
