@@ -1,6 +1,6 @@
 # E2-2 계획 — client build fence의 PocketRisu 1.16.1 rebase
 
-**상태 (2026-10-26 KST):** 계획 작성, Astra 계획 검수 1회 반영(§7), 사용자 결정으로 1.16.1 전용 계약으로 개정(§3). 정본: patcher `docs/POCKETRISU-1.16-REBASE-AUDIT.md`(`e150de8`)의 「Ordered plan」 E2-2와 R2.
+**상태 (2026-10-26 KST):** 계획 작성, Astra 계획 검수 1회 반영(§7), 사용자 결정으로 1.16.1 전용 계약으로 개정(§3), Astra 2차 검수 반영(§7). 정본: patcher `docs/POCKETRISU-1.16-REBASE-AUDIT.md`(`e150de8`)의 「Ordered plan」 E2-2와 R2.
 **위험 분류:** risky. installer가 적용하는 pack의 선언·unit을 바꾸고, 서버 쓰기 route의 차단 범위와 클라이언트 요청 경로를 바꾼다.
 
 ## 1. 목표
@@ -24,6 +24,9 @@
 | F11 | 기존 fence 대상 route의 1.16.1 새 맨 `fetch` 호출: `jobFetch.ts:156`(`DELETE /api/model-jobs/:id`, 취소된 생성의 job 찾기 경로). 1.10.0에 대응 호출이 없다. | u116 `src/ts/process/request/jobFetch.ts:150-157` (확인함) |
 | F12 | `POST /api/db/snapshots/restore` 맨 `fetch`(`SystemBackup.svelte:146`)는 `client-build-fence-kei-adapter`가 덮는다. `POST /api/backup/import` XHR(1.10.0 `nodeStorage.ts:530`, 1.16.1 `:1075`)은 base pack이 아니라 `client-build-fence-kei-lazy-storage-adapter`(`backup-xhr-header`·`backup-xhr-response`)가 덮는다. 1.10.0에서도 base pack 혼자서는 이 XHR을 덮지 않았다. 둘 다 E2-6의 필수 확인 항목이다. | `patches/client-build-fence-kei-adapter/manifest.cjs:25-26`, `patches/client-build-fence-kei-lazy-storage-adapter/manifest.cjs:15-40` (확인함) |
 | F15 | 남기는 unit 중 둘이 대체되는 unit을 `requires`한다: `node-migration-xhr-header:1.9` → `node-auth-fetch:1.9`, `global-flush:1.9` → `global-dirty-probe:1.9`. 대체 unit을 새 id로 만들면 1.16.1에서 `MISSING_DEPENDENCY`가 난다. 다른 pack은 대체되는 4개를 `requires`하지 않는다. | `patches/client-build-fence/manifest.cjs:251,331`, `src/compose.cjs:307` (확인함), Astra 메모리 조합 재현 |
+| F17 | `server-backup-snapshot-core`는 `requires: ['client-build-fence']`와 `autoWhen.all: ['client-build-fence']`를 가진다. fence만 harness로 돌려도 closure에 snapshot-core가 들어오고, snapshot-core가 1.16.1을 선언하지 않으면 harness가 `TARGET_NOT_DECLARED`로 멈춘다. | `patches/server-backup-snapshot-core/manifest.cjs:21`, `scripts/qualify-subset.cjs:584`, Astra 2차 메모리 재현 |
+| F18 | coverage 검사기는 pack이 1.10.0을 선언할 때만 기준선 항목이 없음을 위반으로 본다. 1.16.1만 선언한 pack은 기준선 항목이 빠져도 모든 unit을 `added`로 적으면 통과한다. | `scripts/lib/target-coverage.cjs:149`, Astra 2차 재현 |
+| F19 | `pluginStorageStore`는 재시도 대기 중에 `inflight`를 비우고 보류 batch를 queue 밖에 둔다. queue와 `inflight`만 보면 clean으로 잘못 보인다. | u116 `src/ts/plugins/pluginStorageStore.ts:320-330` (Astra 2차) |
 | F16 | 1.16.1에서 plugin 값은 DB 밖 `pluginStorageStore`에 있고(`globalApi.svelte.ts:729,871`), `setItemSync`가 메모리 값을 바꾼 뒤 저장을 queue에 넣는다(`pluginStorageStore.ts:538-551`, 보류·진행 추적 `:298-335`). 이 상태는 DB dirty probe에 잡히지 않아, 426 뒤 자동 reload(`clientBuildHandshake.ts:249-260`)가 보류 중인 plugin 값을 버릴 수 있다. | Astra 검수(코드 줄 확인), u116 `pluginStorageStore.ts` export 목록 (확인함) |
 | F13 | 계정 가져오기 apply는 원본 backup import(`applyEntries`)로 들어가 pre-import snapshot·replace semantics를 그대로 쓴다. 별도 snapshot 강제는 E2-6에서 snapshot pack이 이 경로를 덮는지로 확인한다. | u116 `server/node/risu-account-import.cjs:20-24` (확인함) |
 | F14 | 1.16.1의 orphan 정리는 서버 `computeAssetSweep` 하나가 판정하고, asset manifest와 archive row 참조를 이미 포함한다. 클라이언트 `getUncleanables`는 자동 정리에 쓰이지 않는다(`cleanChunks`가 서버 `auto-sweep`을 부름). 우리 pack이 더한 참조(persona 폴더 아이콘, persona `imageGallery`, personal-settings 자산)는 원본 walker에 없다. | 탐색 보고 u116 `server.cjs:6931-6948,7594-7628,7647-7708,7736-7770`, `bootstrap.ts:549-562` (확인함) |
@@ -36,19 +39,25 @@
 |---|---|
 | E2-1c | Make the six E2-1b packs 1.16.1-only |
 | E2-2a | Rebase the client build fence onto PocketRisu 1.16.1 |
+| E2-2b | Rebase the server backup snapshot core onto PocketRisu 1.16.1 |
+
+E2-2b는 F17 때문에 E2-6에서 당겨 왔다. 설계는 별도 탐색 뒤 이 문서에 덧붙이고 테스트도 따로 요청한다(인터페이스가 아직 정해지지 않음). fence의 A4 실측은 E2-2b 뒤 closure(`client-build-fence` + `server-backup-snapshot-core`)로 한다.
 
 ### 공통 계약 (rebase한 pack)
 
 - 선언은 `targets.pocketrisu = { verified: [], reviewing: ['1.16.1'] }`. unit에 1.10.0 범위가 없다(`targetVersions`를 두지 않음).
 - 1.16.1에서 바뀐 unit은 같은 id로 내용을 고친다. 같은 보장을 하는 unit의 id는 바꾸지 않으므로 pack 안팎의 `requires`가 그대로 이어진다.
-- coverage: frozen 1.10.0 기준선의 모든 unit id가 `retained`(1.16.1에도 같은 id가 있음, 내용은 바뀔 수 있음)·`replaced`·`retired` 중 하나에 있고, 새 unit은 `added`. 
+- coverage: frozen 1.10.0 기준선의 모든 unit id가 `retained`(1.16.1에도 같은 id가 있음)·`replaced`·`retired` 중 하나에 있고, 새 unit은 `added`. `retained` 중 내용을 일부러 고친 unit은 `rewritten: { id: 이유 }`에 적는다. 나머지 `retained` unit은 `targetVersions`를 뺀 정의가 1.10.0 기준선(unit별 fixture)과 같아야 한다.
 - 아직 rebase하지 않은 pack은 1.10.0 선언과 unit을 그대로 둔다.
 - commit마다 검사: 저장소 테스트, installer 두 번 빌드의 동일성·mode·`node --check`, 손댄 pack closure의 subset harness(원본 1.16.1 새 사본). 1.10.0 후보 gate와 CI는 E2 동안 요구하지 않는다.
 
 ### E2-1c
 
+- coverage 검사기: 기준선 fixture에 있는 pack의 1.16.1 항목은 기준선 항목이 있어야 한다(F18). 선택 인자 `unitBaseline`을 받으면 `rewritten`에 없는 `retained` unit의 정의를 비교하고, 다르면 `retained-unit-changed`, `rewritten` 키가 `retained`에 없으면 `invalid-rewritten`을 보고한다. harness와 catalog 테스트가 이 인자를 넘긴다.
+- unit별 기준선 fixture `test/fixtures/target-baseline-1.10.0-units.json`: `9b15c32` catalog의 pack별 unit id → `targetVersions`를 뺀 unit 정의의 정규화 hash. orchestrator가 만들고 이후 바꾸지 않는다.
+
 - E2-1b의 6개 pack(`charx-archive-integrity`, `parser-hardening`, `log-load-performance`, `kei-prompt-role-compat-core`, `kei-text-theme-normalization-core`, `kei-fullscreen-image-viewer-core`)을 공통 계약으로 바꾼다: `verified: []`, unit의 `targetVersions` 제거, 각 pack version patch +1. coverage 항목(`retained: 'all'`)은 그대로다.
-- patcher `0.2.4-experimental.91`.
+- patcher `0.2.4-experimental.91`, CHANGELOG, `dist` 재빌드.
 
 ### E2-2a
 
@@ -56,11 +65,13 @@
   - 세션 시작(F3): `authRequest`는 그대로 두고 그 `read` 콜백 안에서 처리한다. 요청은 `x-client-build`를 싣고, 426이면 `clientBuildFetch`와 같은 upgrade 처리를 하고, 성공 응답의 `build`를 `handleAdvertisedClientBuild`에 넘긴 뒤 `res.ok`를 돌려준다. 본문 읽기는 기존 timeout race 안에서 끝난다. 다른 `authRequest` 호출자는 바꾸지 않는다.
   - `authFetchOnce`(F4): 기존 `Headers`에 `x-client-build`를 넣고, 주입된 `this.fetchFn`이 돌려준 응답에 곧바로 `handleClientBuildResponse`를 적용한다. 423·인증 재시도·일시 오류 재시도의 순서와 동작은 그대로다.
   - dirty probe(F5·F16): 1.16.1 `hasTrackedChanges` 뒤에 probe를 넣고, `pluginStorageStore`의 보류 중·진행 중 쓰기가 있으면 dirty로 본다. 그 상태는 새 unit이 `src/ts/plugins/pluginStorageStore.ts`에 더하는 읽기 전용 export `hasPendingPluginStorageWrites(): boolean`(보류·진행 중 쓰기가 하나라도 있으면 `true`)으로 읽는다(blind 테스트가 이 이름을 고정).
-- 나머지 54개 unit은 범위만 없앤다(내용 그대로).
+- 나머지 unit은 범위만 없앤다. 내용을 고쳐야 하는 unit(route 목록이 든 owned `clientBuildFence.cjs`, 새 helper를 import하는 unit 등)은 같은 id로 고치고 coverage `rewritten`에 이유를 적는다. 다른 pack이 anchor로 쓰는 줄(`const EXACT_WRITER_ROUTES = new Set([`, boot-reminder 항목)은 그대로 둔다(`patches/lazy-chat-bg-adapter/notification-units.cjs:45`, `patches/personal-settings/settings/external-headers/units.cjs:30`).
+- `handleClientBuildResponse`는 `Promise<void>`다. 기다린 뒤 원래 응답을 계속 쓴다.
+- `hasPendingPluginStorageWrites`는 queue·`inflight`뿐 아니라 재시도 대기 중인 작업도 보류로 센다(F19).
 - 새 route 11개(F9의 데이터 쓰기 route)를 fence 대상으로 더한다. owned 파일 `server/node/clientBuildFence.cjs`의 목록·패턴을 직접 고친다. `termux-notify`·`asset-manifests/resolve`는 넣지 않는다.
 - 새 맨 `fetch` 호출 3곳(F10의 `auto-sweep`·archive `purge-orphans`, F11의 `jobFetch.ts:156`)을 새 unit으로 `clientBuildFetch`에 태운다.
 - 1.16.1 동작 테스트 7개(`files-1.16/`의 `*.e2-2a.test.ts`)를 owned unit으로 등록한다.
-- pack: 공통 계약, version 0.1.4, coverage 항목(58개 `retained`, 새 unit `added`).
+- pack: 공통 계약, version 0.1.4, coverage 항목(58개 `retained`, 고친 unit `rewritten`, 새 unit `added`).
 - patcher `0.2.4-experimental.92`, CHANGELOG, `dist` 재빌드.
 
 ## 4. 바뀌면 안 되는 것
@@ -79,11 +90,11 @@
 | A1 | 1.16.1 조립 트리에서 F9의 11개 route는 맞지 않는 `x-client-build`에 426·`CLIENT_UPGRADE_REQUIRED`·`not-committed`를 돌려주고 핸들러를 실행하지 않는다(실제 서버의 미들웨어 순서에서 body 처리·핸들러보다 먼저). 맞는 build는 통과한다. path 패턴 route는 다른 id 값에도 걸리고, 다른 method·대소문자·끝 슬래시 변형의 판정은 기존 fence 규칙과 같다. `termux-notify`·`resolve`는 fence 대상이 아니다. | owned 서버 테스트 |
 | A2 | 1.16.1 클라이언트의 세션 시작, `authFetch`, 새 맨 `fetch` 3곳이 `x-client-build`를 싣고, 426 응답에 upgrade 처리를 부른다. 세션 성공 응답의 `build`가 전달된다. | owned 클라이언트 테스트 |
 | A3 | `authFetchOnce`는 주입된 `fetchFn`을 쓰고 423 `ACCOUNT_IMPORT_ACTIVE`·인증 재시도·일시 오류 재시도가 그대로다. 세션 시작은 성공 본문·426 본문이 늦게 오면 기존 timeout 안에서 끝나고, 426이 아닌 실패는 기존처럼 다음 `checkAuth`에서 다시 시도한다. | owned 클라이언트 테스트, 원본 1.16.1 테스트 통과 |
-| A3b | plugin 저장소에 보류 중이거나 진행 중인 쓰기가 있으면 dirty probe가 dirty를 돌려주고, 426을 받아도 자동 reload하지 않는다. 쓰기가 끝나면 다시 clean이다. | owned 클라이언트 테스트 |
+| A3b | plugin 저장소에 보류 중이거나 진행 중인 쓰기, 또는 재시도 대기 중인 쓰기가 있으면 dirty probe가 dirty를 돌려주고, 426을 받아도 자동 reload하지 않는다. 쓰기가 끝나면 다시 clean이다. | owned 클라이언트 테스트 |
 | A3c | 1.16.1에서 이 pack이 선택·조립된다(`MISSING_DEPENDENCY` 없음). fence 선언은 1.16.1만이고 unit에 범위가 없다. | 저장소 테스트(실제 catalog) |
-| A4 | E2-1c는 6개 pack 묶음, E2-2a는 `client-build-fence`를 subset harness로 원본 1.16.1 새 사본에 돌려 모든 단계가 통과한다. | `scripts/qualify-subset.cjs` 실측 |
+| A4 | E2-1c는 6개 pack 묶음을, E2-2a·E2-2b는 E2-2b 뒤 `client-build-fence`(closure에 snapshot-core 포함)를 subset harness로 원본 1.16.1 새 사본에 돌려 모든 단계가 통과한다. E2-2a commit 자체에는 A4가 없다(F17). | `scripts/qualify-subset.cjs` 실측 |
 | A5 | 아직 rebase하지 않은 38개 pack은 기준선과 같다. installer 두 번 빌드가 같고 mode 755, `node --check` 통과. | 저장소 테스트, 빌드 |
-| A6 | coverage 검사가 통과한다(fence: 58개 `retained`, 새 unit `added`). | 저장소 테스트 |
+| A6 | coverage 검사가 통과한다(fence: 58개 `retained`, 고친 unit은 `rewritten`, 새 unit `added`). 기준선 항목이 없는 rebase pack, 이유 없이 내용이 바뀐 `retained` unit, `retained`에 없는 `rewritten` 키는 위반이다. | 저장소 테스트 |
 
 ### Test contract
 
@@ -95,9 +106,10 @@
 | A1 | build stamp 없음 | 1.16.1 조립 서버 | fence 꺼짐(기존 동작) | — |
 | A2 | 세션 시작, `authFetch`, 3곳 호출 | 1.16.1 조립 클라이언트, fetch 대역 | 요청 헤더에 build, 426이면 upgrade 처리 호출, 세션 성공 시 advertised build 처리 | UI 표시 |
 | A3 | `fetchFn` 주입, 423 응답, 세션 본문 지연, 426이 아닌 세션 실패 | 같음 | 주입 함수 호출, 423 처리 동일, timeout 안에서 끝남, 다음 시도 유지 | — |
-| A3b | plugin 쓰기 보류·진행 중, 다른 dirty 신호 없음, 426 | 같음 | dirty, 자동 reload 없음 | 실제 plugin 실행 |
+| A3b | plugin 쓰기 보류·진행·재시도 대기 중, 다른 dirty 신호 없음, 426 | 같음 | dirty, 자동 reload 없음 | 실제 plugin 실행 |
 | A3c | 실제 catalog, 1.16.1 target | 합성 1.16.1 root 또는 메모리 조합 | 조립 성공 | — |
-| A5·A6 | 실제 catalog | 기준선 fixture | 38개 같음, coverage ok | — |
+| A5·A6 | 실제 catalog | 기준선 fixture 2개 | 38개 같음, coverage ok | — |
+| A6 | 합성 coverage·catalog·기준선 | 기준선 항목 없음, `retained` 내용 변경(`rewritten` 있음·없음), `rewritten` 키가 `retained` 밖 | 각각 위반 kind로 보고, `rewritten`에 적힌 변경은 통과 | — |
 
 ### 전제 출처
 
@@ -117,3 +129,5 @@
 ## 7. 계획 검수
 
 Astra(gpt-6-astra, 2026-10-26) 1회. F5·F6·F8·F9를 코드로 확인했고, 새 데이터 쓰기 route 11개 밖의 누락과 52개 unit의 의미 변화는 찾지 못했다. 반영: 대체 unit에 기대는 unit 2개도 대체(F15), F12 정정과 backup import XHR의 E2-6 필수 확인, plugin 저장소 쓰기를 dirty probe에 포함(F16, A3b), 1.16.1 조립·세션 지연·미들웨어 순서·경로 변형 검사(A1·A3·A3c), 보장 범위를 fence가 정한 writer route 집합으로 표현. 반영하지 않음: base pack이 backup import XHR을 직접 덮는 안. 1.10.0에서도 adapter가 덮었고 배포는 `all` 묶음 단위라, 기존 소유 구조를 유지하고 E2-6에서 확인한다. `startCookieDownload`의 `/api/session` GET은 writer route가 아니라 범위 밖이다.
+
+2차(2026-10-26, 1.16.1 전용 계약 개정 뒤): 혼합 선언에서 catalog·resolver·`all`·installer 빌드가 깨지지 않음을 확인했다. 반영: snapshot-core의 `autoWhen` 때문에 fence 단독 A4가 불가능함(F17) → E2-2b로 당기고 A4를 closure 완성 뒤로, coverage 기준선 누락 구멍(F18)과 `retained` 내용 기준선·`rewritten` 표시, owned helper·import unit 고침의 명시, `handleClientBuildResponse` 반환값, plugin 재시도 대기 상태(F19), 고쳐야 할 기존 테스트 목록. cutover 위험(남은 1.10 journal이 `status` 때 1.16.1 파일을 덮을 수 있음, 남은 custom state의 은퇴 owner 인식)은 audit의 E2-9 확인 항목으로 옮겼다.
