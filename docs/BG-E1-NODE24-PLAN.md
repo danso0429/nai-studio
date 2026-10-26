@@ -79,6 +79,16 @@
   - Node 24 sandbox 안에서 호스트 loopback·외부 IP·DNS가 모두 실패하고, 같은 목적지가 sandbox 밖에서는 연결된다.
   - Node 23 이하와 Linux 외 플랫폼은 그대로 거절된다.
   - 후보 gate 19/19, 개수는 F11과 같다.
+- 시험 계약표 (전제 출처: F8 `bgPluginSandbox.cjs:32`, F13 fixture `:20-21`·probe `:31`, F9 실측. 모두 patcher `6737534` 기준):
+
+| 수용 조건 | 입력 | 기존 상태 | 기대 결과 | 범위 밖 |
+|---|---|---|---|---|
+| 버전 조건 | `sandboxCommand(worker, 5000)`, Linux·main thread, Node major 24 / 23 / 25 | — | 24·25는 버전 조건에서 거절되지 않는다. 23은 `plugin_sandbox_environment_unsupported` | 버전 조건 뒤 단계(user manager·ldd·bwrap)의 성공 여부 |
+| 플랫폼 조건 | Linux 외 플랫폼, Node 25 | — | `plugin_sandbox_environment_unsupported` | 다른 플랫폼에서의 실제 실행 |
+| 명령행 불변 | Node 24와 25에서 만든 명령 | 현재 인자 목록 | executable·인자(systemd-run·prlimit·bwrap·`--permission`·`--allow-fs-read`·제한값)가 버전과 무관하게 같다 | unit 이름(무작위) |
+| Node 25 이상 네트워크 판정 | sandbox 안 worker의 loopback 요청 | 현재 fixture·probe | `ERR_ACCESS_DENIED`일 때만 차단으로 인정(지금과 같다) | — |
+| Node 24 네트워크 판정 | sandbox 안 worker에서 probe가 연 호스트 loopback listener, 외부 IP, DNS 이름 | sandbox 밖에서는 같은 listener 연결·외부 IP TCP 연결·DNS 해석이 성공(대조군) | 안: loopback `ECONNREFUSED`, 외부 IP `ENETUNREACH`, DNS `EAI_AGAIN`. 이 목록 밖의 오류 코드나 성공은 차단 실패 | 대조군이 실패한 환경에서의 판정(대조군 실패는 probe 실패로 보고) |
+| 나머지 sandbox 성질 | 기존 probe 15개 | Node 25에서 15/15 | Node 24·25 모두 같은 단언으로 통과(read·write·spawn·worker `ERR_ACCESS_DENIED`, env 키 `['PWD']`, 메모리·시한·속도 제한, parent death) | — |
 
 ### E1-2 Node 24 전역 도구
 
