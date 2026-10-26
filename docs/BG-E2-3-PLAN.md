@@ -96,6 +96,18 @@
 - 이름만이 아니라 동작을 계약으로 둔다: reset hook의 호출 순서(교체 transaction 안의 durable 복구 행 삭제, commit 뒤 메모리 공개), 이전 epoch commit 거부, generation 비교의 의미. E2-7은 이 동작에 붙는다.
 - unit id: H8의 `requires` 대상 id는 바꾸지 않는다. 바꿔야 하면 사용처 pack의 rebase 단위에서 함께 고친다.
 
+### 5b. 테스트 인터페이스 (blind 테스트가 고정함)
+
+- 시험용 hook은 pack의 owned module `server/node/storageResetTestHooks.cjs`의 환경 변수 규약을 그대로 쓴다(`files-1.10/server/node/storageResetTestHooks.cjs`). 모든 hook은 `NODE_ENV=test`이고 해당 변수가 있을 때만 동작한다. 이 module은 처음 필요한 단위(E2-3b)에서 들어온다.
+  - gate 파일 규약: 디렉터리에 `<kind>.hold`가 있으면 그 지점에서 `<kind>.entered`를 쓰고, `<kind>.release`가 생기거나 hold 파일이 지워질 때까지 기다린다.
+  - `POCKETRISU_TEST_STORAGE_PERSIST_GATE_DIR`(새로 더함, E2-3b): kind `db-persist`. debounce된 DB 저장이 저장할 DB와 채팅 상태를 읽은 뒤, 디스크에 쓰기 전에 멈춘다(b2, c7).
+  - `POCKETRISU_TEST_STORAGE_ADMISSION_GATE_DIR`(E2-3c): 쓰기가 입구를 통과해 reset generation을 기록한 뒤, 실행 전에 멈춘다. kind는 pack 1.10의 route 종류 이름이다: `chat-content-delta`, `chat-content`, `patch`, `write`, `remove`, `assets-bulk-write`, `db-flush`, `db-purge-orphans`, `db-optimize`, `db-wal-checkpoint`, `db-snapshot-delete`, `backup-delete`, `inlays-compress`(pack `files-1.10/server/node/server.cjs:1095-1118`).
+  - `POCKETRISU_TEST_STORAGE_RESET_GATE_DIR`(E2-3c): reset이 진행 중 상태가 된 뒤 교체 전에 `<kind>.apply`에서 멈춘다. reset kind는 `backup-import`, `server-restore`, `save-folder-execute`, `save-folder-upload`, `snapshot-restore`, `database-remove`다.
+  - `POCKETRISU_TEST_STORAGE_RESET_FAILPOINT`(E2-3c): `after-storage-epoch-write`, `after-destructive-deletes`, `entry:<n>`, `second-inlay-rename`, `commit-after-inlay-swap`, `reverse-inlay-rename`(c4a는 COMMIT 전 지점, c4b는 `commit-after-inlay-swap` 뒤의 inlay 단계). `POCKETRISU_TEST_STORAGE_RESET_TRACE_FILE`은 `begin`·`commit`·`rollback`·`cancel-persistence-timers` 사건을 JSON 줄로 남긴다.
+- 서버 동작 테스트는 1.16.1 원본의 compat helper(`test/compat/helpers/spawnServer.ts`)로 서버 process를 띄우고 HTTP로 시험한다. 새 테스트 파일은 `patches/lazy-chat-sync/files-1.16/` 아래 `*.e2-3.test.ts`로 두고, 해당 단위에서 owned unit으로 등록한다.
+- 클라이언트 테스트는 H6의 pack module(현재 `files/`·`files-1.10/`의 export 이름과 호출 형태)과 원본 저장 함수(`saveChatToServer`, plugin API v3)를 쓴다. 구현 전 조립 트리에는 그 module이 없으므로, 아직 없는 symbol은 동적으로 불러와 존재를 첫 assertion으로 확인한다(import 오류가 아니라 assertion 실패가 되도록).
+- 공용 node 테스트(C0)는 `lazy-chat-sync`의 버전이 기준선과 major·minor가 같고 patch가 더 큰지만 확인한다.
+
 ## 6. 바뀌면 안 되는 것
 
 - 원본 1.16.1의 lazy 로딩, delta 전송과 409 fallback, asset manifest, plugin storage route, archive route, 계정 가져오기와 그 gate, `recordChatPost`, `restoringSnapshotKey`, `createBackupAndRotate`, plugin 목록 쓰기 보호, `/api/write`의 ETag 계산.
