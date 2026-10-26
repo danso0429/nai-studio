@@ -1,6 +1,6 @@
 # E2-3 계획 — lazy-chat-sync를 PocketRisu 1.16.1 원본 위 unit으로 재구성
 
-**상태 (2026-10-27 KST):** 초안. 탐색, 이력 대조, E2-3a 코드 읽기 항목을 마쳤고, 계획 검수 전이다. 정본: patcher `docs/POCKETRISU-1.16-REBASE-AUDIT.md`의 「Ordered plan」 E2-3 행, R1, Decisions(2026-10-26 E2-3).
+**상태 (2026-10-27 KST):** 초안 r2. 탐색, 이력 대조, E2-3a 코드 읽기 항목을 마쳤다. 계획 검수 1회차(Astra) 지적 11건을 코드로 확인해 모두 반영했다(H18-H23, §3·§4·§5·§7). 정본: patcher `docs/POCKETRISU-1.16-REBASE-AUDIT.md`의 「Ordered plan」 E2-3 행, R1, Decisions(2026-10-26 E2-3).
 **위험 분류:** risky. 채팅 저장, 저장소 reset, import·restore의 원자성, 세션 잠금, BG 연동을 바꾼다.
 
 ## 1. 목표
@@ -32,6 +32,12 @@
 | H16 | `lazy-chat-sync` 0.5.19는 unit 47개다: 통째 교체 10개(`server.cjs`, `bootstrap.ts`, `globalApi.svelte.ts`, `v3.svelte.ts`, `autoStorage.ts`, `chatStorage.ts`, `nodeStorage.ts`, `risuSave.ts`와 테스트 교체 2개), owned 30개, `chat-missing-payload-notice`·`plugin-api-chat-metadata-types` 교체 2개, `session-lock.cjs` unit 5개. pack `requires`·`autoWhen`은 없다. 이 pack을 `requires`하는 pack은 8개다(`character-import-ux`, lazy adapter 7개). | 실측(catalog) |
 | H17 | pack의 채팅 revision 규약: revision은 채팅 legacy encoding의 sha256이다. GET은 `x-chat-revision`을 주고 `If-None-Match`가 맞으면 304다. 전체 POST는 `x-chat-base-revision`을 받고, 있던 채팅을 base 없이 바꾸면 428, base가 다르면 409(`currentRevision` 포함), `If-None-Match: *`인데 채팅이 있으면 412다. 응답은 `x-chat-revision`과 `x-chat-save-mode`를 준다. stripped DB 불변식 위반은 422 `DB_INVARIANT_REJECTED`, reset 중 쓰기는 503 `STORAGE_RESET_IN_PROGRESS`(`retryable: true`), reset 경쟁은 409다. | 확인함(pack `files/server/node/chatDelta.cjs:12-52`, `files-1.10/server/node/server.cjs:146-200`, `:1126-1160`, `:4386-4398`, `:5652-5690`) |
 | H14 | 원본 저장 추적: 화면의 채팅과 선택된 캐릭터는 `$effect`가 자동 추적하고, 그 밖의 채팅·캐릭터는 `trackChatForSave`·`trackCharacterForSave`(`globalApi.svelte.ts:546-557`)와 `requestImmediateSave`로 저장한다(`process/triggerOrigin.ts:38-44`). plugin API v3는 열려 있지 않은 채팅을 `saveChatToServer`로 바로 저장한다(`plugins/apiV3/v3.svelte.ts:1050-1066`). pack의 `requestChatSave`는 pack 안 호출이 0이고, `markChatDirty`·`markCharacterDirty`는 pack `pluginChatAccess.ts`에서만 부른다. | 확인함(원본 줄), 탐색(pack 호출 수) |
+| H18 | pack의 stripped DB 검사는 빈 `chaId`·중복 `chaId`, 빈 채팅 id·같은 캐릭터 안 중복 채팅 id를 거부한다(`files/server/node/chatDelta.cjs:189-238`). payload 없는 채팅은 직전 DB에 이미 없던 것만 거부하고, 이미 없던 것은 그대로 두거나 지워도 통과한다(`validateStrippedDatabaseTransition`, `:248-255`). pack `/api/write`는 받은 DB를 stub으로 바꾼 뒤 검사한다(`files-1.10/server/node/server.cjs:4381`). 원본 클라이언트는 id 없는 채팅을 저장 대상에서 빼고(`globalApi.svelte.ts:975-982`), `normalizeChat`은 메시지 id만 고친다. 원본 서버는 DB를 decode할 때 빠진 채팅 id를 붙이고(`assignMissingChatIds`, `server.cjs:480-492`, `:565`) 중복 `chaId`·채팅 id를 새 id로 바꾸며(`dedupeCharacterAndChatIds`, `:503-530`, `:580`), 클라이언트도 시작할 때 `assignIds`를 돈다(`bootstrap.ts:216`, `:577`). 그래서 저장된 옛 DB의 id 문제는 원본이 읽을 때 고친다. 남는 것은 세션 중 클라이언트가 새로 만든 id 없는 채팅이고, pack 클라이언트 `chatIdentityRepair.ts`가 확정 기준에 없는 새 캐릭터의 채팅에만 id를 붙인다(이미 있던 캐릭터의 빈 id는 거부, `:103-115`). | 확인함 |
+| H19 | journal 복구는 남은 record로 채팅 store 항목을 무조건 바꾼다(`chatWriteJournal.cjs:368-379`). pack은 snapshot restore에서 DB 교체와 journal 삭제를 한 transaction에 넣는다(`commitSnapshotRestore`, `:36-50`). 원본 reset 경로는 journal을 모른다. | 확인함 |
+| H20 | 원본 `queueStorageOperation`은 promise를 잇기만 한다(`server.cjs:122-126`). `/api/write`·`/api/patch`·채팅 POST는 queue에 넣기 전에 `checkActiveSession`을 부른다(`:4473`, `:4722`, `:6420`). `/api/patch`와 채팅 POST의 debounce timer는 queue 밖에서 저장하고(`:4994-5000`, `:6466-6472`), `persistDbCacheWithChats`는 await 전에 DB root를 잡는다(`:1122-1124`). 원본 reset 경로(backup import `:5631`, server restore `:6009`, snapshot restore `:8500`, prepare `:5596`)도 `checkActiveSession`을 먼저 부른다. 계정 가져오기 route 4곳은 `allowDuringAccountImport: true`로 계정 gate만 건너뛴다(`:5800`, `:5815`, `:5825`, `:5838`). | 확인함 |
+| H21 | pack 1.10의 reset barrier가 막은 route는 쓰기 route 23개(채팅 POST·delta, write, patch, remove, bulk-write, BG route, flush, purge-orphans, optimize, wal-checkpoint, snapshot·backup 삭제, inlay compress(실행 시점까지 검사))와 reset 시작 route 6개(prepare 포함, 409)다(`files-1.10/server/node/server.cjs:1095-1194`). `/api/logs`, request-logs, model-jobs, `/api/set_password`는 막지 않았다. 원본 1.16.1에서 BG 밖의 그 쓰기 route는 모두 `checkActiveSession`을 부른다(`:8288`, `:8322`, `:8379`, `:8479`, `:6078`). 받아들인 inlay compress는 비동기 작업 뒤 쓰고(`:8653-8703`), 읽기 route인 archived-inline GET도 queue 안에서 `flushPendingDb`를 부른다(`:7461-7465`). | 확인함 |
+| H22 | 원본 채팅 저장 transport는 `saveChatContentDelta`·`saveChatContent`(`nodeStorage.ts:1361`, `:1386`) 두 개이고, 둘 다 revision을 보내지 않는다. 이를 부르는 곳은 autosave(`globalApi.svelte.ts:1267`), plugin의 열려 있지 않은 채팅 쓰기(`v3.svelte.ts:1050-1066`), 복구된 model job(`process/request/jobRecovery.ts:267`)이다. plugin이 열려 있지 않은 채팅을 읽을 때는 전체 fetch 경로를 쓴다(`v3.svelte.ts:987`, `chatStorage.ts:110`). 원본 delta는 prefix만 확인한다(`server.cjs:6450`). plugin의 열려 있지 않은 채팅 쓰기는 캐릭터를 추적하지 않는데, 서버 병합은 stub의 `name`·`lastDate`·`folderId`·`modules`로 payload 값을 덮는다(`server.cjs:848-875`). pack은 채팅과 캐릭터를 함께 dirty로 둔다(`pluginChatAccess.ts:325-326`). | 확인함 |
+| H23 | 원본 bootstrap은 로컬 DB가 없으면 `{}`를 만들어 쓴다(`bootstrap.ts:63-67`). pack 분류기는 `characters` 배열이 없는 기준 DB에서 `update`를 준다(`chatSaveIntent.ts:37`). BG adapter는 `decodeDatabaseWithPersistentChatIds`, `cacheStrippedDatabase`, `scheduleChatStorePersist`, `readStorageEpoch`를 쓴다(`lazy-chat-bg-adapter/manifest.cjs:2426-2481`). snapshot lazy adapter의 inlay compress는 `storageResetGeneration`·`storageResetActive`를 queue 안에서 다시 확인한다(`server-backup-snapshot-core/adapter-manifest.cjs:144-149`). | 확인함 |
 
 ## 3. 기능별 처리
 
@@ -48,16 +54,16 @@
 | payload 먼저, metadata 나중 (aff7cb8), recovery slot 한도 (675b549) | 클라이언트 순서는 일부 있음, 서버 5초 메모리 창 | 유지(journal과 함께) |
 | 내구성 있는 채팅 쓰기 journal, 원자적 snapshot·journal 교체 (45a3eec, 28d62d2, b95b946) | 없음 | 유지, BG 계약 |
 | server chat commit (1e6e974, 38f19d3, 11dffcf, 6a75a2d) | 없음 | BG 계약 |
-| storage reset barrier·runner, 원자적 backup import·server restore·save-folder·snapshot restore·DB 삭제 (0046677, 84ed00d, ffc6f7d) | 경쟁이 남음(H4) | 유지. 구조(E2-3a 결정): `checkActiveSession` 첫머리에 storage reset gate 검사를 unit 하나로 더하고(H10), 이를 부르지 않는 `/api/db/flush`에는 같은 검사를 따로 단다. pack의 전역 router와 쓰기 route 목록(pack `server.cjs:1095-1194`)은 옮기지 않는다. 근거: 원본이 새 쓰기 route를 더해도 `checkActiveSession`을 부르면 자동으로 막히고, route 목록을 업스트림마다 다시 맞출 필요가 없다. 계정 가져오기 상태(H12)는 marker 영속·전용 code·예외 route가 있어 공용 flag로 바꾸지 않고, reset gate는 별도 flag로 둔다. reset 경로끼리의 경쟁은 원본 `importInProgress`를 그대로 쓰고 snapshot restore와 `/api/remove`의 DB 삭제를 같은 배제에 넣는다(H11) |
+| storage reset barrier·runner, 원자적 backup import·server restore·save-folder·snapshot restore·DB 삭제 (0046677, 84ed00d, ffc6f7d) | 경쟁이 남음(H4) | 유지. 구조(E2-3a 결정): `checkActiveSession` 첫머리에 storage reset gate 검사를 unit 하나로 더하고(H10), 이를 부르지 않는 `/api/db/flush`에는 같은 검사를 따로 단다. pack의 전역 router와 쓰기 route 목록(pack `server.cjs:1095-1194`)은 옮기지 않는다. 근거: 원본이 새 쓰기 route를 더해도 `checkActiveSession`을 부르면 자동으로 막히고, route 목록을 업스트림마다 다시 맞출 필요가 없다. 계정 가져오기 상태(H12)는 marker 영속·전용 code·예외 route가 있어 공용 flag로 바꾸지 않고, reset gate는 별도 flag로 둔다. reset 경로끼리의 경쟁은 원본 `importInProgress`를 그대로 쓰고 snapshot restore와 `/api/remove`의 DB 삭제를 같은 배제에 넣는다(H11). 검수 뒤 보강(H20, H21): ① 순서는 계정 가져오기 검사(원본 그대로) → reset gate다. reset을 시작하는 route(backup import·prepare, server restore, save-folder execute·upload, snapshot restore, 계정 적용, DB 삭제)는 reset gate를 건너뛰고 `importInProgress`에서 409를 받는다. `allowDuringAccountImport`는 계정 gate만 건너뛴다. `/api/db/flush`는 원본처럼 계정 gate를 쓰지 않고 reset gate만 단다. ② 입구 검사만으로는 queue에서 기다리던 쓰기와 이미 걸린 debounce timer를 막지 못하므로, 입구에서 reset generation을 기록하고 queue 안 실행 시점과 debounce 저장(cold-store 재시도 포함) 시점에 다시 확인한다. reset은 교체 전에 timer를 지우고 실행 중인 저장을 기다린다(pack의 admission generation과 같은 보장). ③ 막는 범위는 pack 1.10과 같다. reset이 바꾸는 저장소(DB, 채팅 store, journal, asset·inlay, plugin storage, snapshot·backup)의 쓰기이고, `/api/logs`·request-logs·model-jobs·`/api/set_password`는 pack처럼 범위 밖이다. inlay compress는 pack과 lazy adapter처럼 실행 시점까지 확인한다. `/api/remove`의 inlay 삭제는 pack 0.5.19처럼 입구 검사만 하며, 이 한계를 문서에 남긴다 |
 | storage epoch (6527449) | 없음 | 유지, BG 계약 |
 | reset 뒤 이전 세션 무효화 (bd85ccd) | `revokeAll`은 계정 가져오기에서만 | 유지. session-lock unit 5개는 1.16.1의 `revokeAll`·fresh/passive/tookOver 의미를 보존하도록 다시 쓴다 |
 | writer session header helper (4f9436d) | 일반 쓰기는 원본이 처리(`nodeStorage.ts:525-539`) | 원본 사용. BG가 쓰는 helper는 원본 함수를 감싸는 얇은 module로 유지(BG 계약) |
 | reset 시 recovery row 정리·run 취소 (7760965) | 해당 없음(BG) | BG 계약(hook만 제공) |
 | fmIndex를 새·가져온 채팅에 (502dd28) | 서버 기본 채팅에 fmIndex 없음(`:6194-6195`) | 유지 |
 | patch baseline과 hash cache 단일 상태 (2bda466) | 실측(원본 `RisuSavePatcher`의 `set()` 결과 hash와 patch를 적용한 서버 쪽 `calculateHash` 비교): `botPresets`·`modules`가 없다가 생기는 경우와 `chaId` 없는 캐릭터는 일치했다. 중복 `chaId`와 root key 이름과 같은 `chaId`는 어긋났다. 값이 `undefined`인 root key는 1 차이로 어긋났지만, 실제 서버 DB에 `undefined` key가 남는지는 확인하지 않았다. 원본은 불일치 보고(`describeHashMismatch`, `duplicateCharIds`, `risuSave.ts:996-1044`)를 갖는다 | 원본 사용(E2-3a 결정, H13). 불일치 뒤 원본은 rebase 재시도 또는 현재 DB 전체 쓰기로 사용자 변경을 보존하고, 반복 충돌은 알림과 대기열 유지로 끝나 저장이 조용히 멈추지 않는다. 한계: 불일치가 계속되면 baseline 재조정(5분 간격) 사이의 저장이 전체 업로드가 된다. 이는 전송량 문제이고 데이터 손실이 아니므로 pack 수정을 다시 얹지 않는다 |
-| 새 설치 첫 채팅 저장 (a96becc) | 원본 patcher가 `characters`가 없으면 `[]`로 정규화한다(`risuSave.ts:1047-1051`, `globalApi.svelte.ts:735`). 첫 채팅 POST에는 404·존재 검사가 없다(`server.cjs:6418-6464`) | 원본 사용. E2-3d 테스트에서 새 설치 첫 채팅 저장을 확인한다 |
+| 새 설치 첫 채팅 저장 (a96becc) | 원본 patcher가 `characters`가 없으면 `[]`로 정규화한다(`risuSave.ts:1047-1051`, `globalApi.svelte.ts:735`). 첫 채팅 POST에는 404·존재 검사가 없다(`server.cjs:6418-6464`) | 원본 사용. 단 E2-3d의 분류기가 원본 시작 경로의 기준 DB(`{}`, H23)를 받으므로, 분류 전에 `characters`를 `[]`로 정규화한 기준을 쓴다. E2-3d 테스트는 실제 bootstrap → 기준 DB → 첫 저장 순서로 확인한다 |
 | 편집 보존 중 답변 복구 (a646988) | 해당 없음. 고친 파일이 BG만 쓰는 `serverChatCommit.cjs`다 | BG 계약 |
-| dirty API, streaming checkpoint, 저장 재시도·지연 복구, 3-way rebase | 원본에 dirty API 없음(grep 0), rebase는 `rebaseMerge.ts`. 다른 pack 사용처: `requestImportedCharacterSave`·`requestImportedModuleSave`는 `character-import-ux`, `ChatConflictError`·`ManualSaveConflictError`·`markChatDirtyImpl`·`readServerChatSnapshot`·`confirmCurrentSnapshotOnServer`는 `lazy-chat-bg-adapter`. `requestChatSave`·`markChatDirty`·`markCharacterDirty`는 pack 안에서만 쓴다 | 다른 pack이 쓰는 export는 계약으로 유지. pack 안에서만 쓰는 세 함수는 원본 사용(E2-3a 결정, H14): 화면 채팅·선택 캐릭터는 원본 자동 추적, 그 밖은 `trackChatForSave`·`trackCharacterForSave`와 `requestImmediateSave`, plugin 쓰기는 원본 v3 경로가 맡는다 |
+| dirty API, streaming checkpoint, 저장 재시도·지연 복구, 3-way rebase | 원본에 dirty API 없음(grep 0), rebase는 `rebaseMerge.ts`. 다른 pack 사용처: `requestImportedCharacterSave`·`requestImportedModuleSave`는 `character-import-ux`, `ChatConflictError`·`ManualSaveConflictError`·`markChatDirtyImpl`·`readServerChatSnapshot`·`confirmCurrentSnapshotOnServer`는 `lazy-chat-bg-adapter`. `requestChatSave`·`markChatDirty`·`markCharacterDirty`는 pack 안에서만 쓴다 | 다른 pack이 쓰는 export는 계약으로 유지. pack 안에서만 쓰는 세 함수는 원본 사용(E2-3a 결정, H14): 화면 채팅·선택 캐릭터는 원본 자동 추적, 그 밖은 `trackChatForSave`·`trackCharacterForSave`와 `requestImmediateSave`, plugin 쓰기는 원본 v3 경로가 맡는다. 검수 뒤 보강(H22): 원본 v3의 열려 있지 않은 채팅 쓰기는 캐릭터를 추적하지 않아, plugin이 바꾼 채팅 이름·폴더·modules가 다음 DB 저장에서 stub 값으로 되돌아간다. pack이 고친 보호이므로 E2-3d에서 그 경로에 원본 `trackCharacterForSave`를 더하는 작은 unit을 둔다 |
 | startup DB cache (ETag, 304) | 서버는 304를 지원하지만(`server.cjs:4265-4268`) 원본 클라이언트는 validator를 보내지 않고 `database.bin`의 로컬 사본도 없어, 시작할 때마다 전체를 받는다(`bootstrap.ts:61`, `nodeStorage.ts:620-631`) | 유지(독립 module `startupDatabaseCache.ts`와 bootstrap·nodeStorage의 작은 unit) |
 | plugin 로드를 placeholder 변환 뒤로 (906d4c6) | 원본은 `loadPlugins()`(`bootstrap.ts:131`)와 `await` 두 번 뒤에 stub을 변환한다(`:145-151`). 그 사이 `getChatFromIndex`는 `_placeholder`가 없는 stub을 그대로 돌려주고(`v3.svelte.ts:990`), `setChatToIndex`의 보호(`:1041`)도 통과해 plugin이 빈 채팅을 되쓸 수 있다 | 유지(bootstrap 순서 unit) |
 | plugin API v3 재작성(`pluginChatAccess`) | 원본이 1.14·1.16에서 async·placeholder 보호·plugin 목록 보호를 넣음 | 원본 사용을 기본으로 하고, 빠진 보장만 E2-7(R3)에서 정한다 |
@@ -75,9 +81,9 @@
 | E2-3e | Rebuild client startup safety over native 1.16.1 |
 
 - E2-3a(완료, 문서만): §3의 「확인 필요」 항목을 코드 읽기로 정했다(H10-H14).
-- E2-3b(서버만): 채팅 쓰기 journal(200 응답 전 내구 기록, DB 저장 뒤 정리, 재시작 복구), 전체 POST 검증(id 불일치, 배열 아닌 messages), stripped DB 불변식(`/api/write`·`/api/patch`), 서버가 만드는 기본 채팅의 fmIndex. `chatWriteJournal.cjs`·`serverChatCommit.cjs`는 owned로 두고 id를 유지한다(BG 계약). 원본 delta header, delta 409, `recordChatPost`, asset manifest hydrate는 보존한다.
-- E2-3c(서버만): reset barrier(§3 결정 구조), 모든 reset 경로의 단일 transaction 교체, storage epoch, reset 뒤 `invalidateBefore`, pending-save 인계, BG run 취소 hook. 원본 `importInProgress`, 계정 가져오기 gate, `restoringSnapshotKey`, `pluginStorage.restoreFrom`, `createBackupAndRotate`는 보존한다. `session-lock.cjs` unit 5개는 1.16.1의 `revokeAll`·fresh/passive/tookOver 의미 위에 다시 쓴다. snapshot core에서 옮긴 compat 테스트 `storage-reset-b1a`와 B2·B3의 reset 부분을 여기서 다시 넣는다.
-- E2-3d(서버와 클라이언트): chat-content GET·POST의 revision과 create-only, payload 없는 stub의 `CHAT_PAYLOAD_MISSING`과 그 안내(`chat-missing-payload-notice`), 클라이언트의 create·update 분류, 채팅 id 복구, stale view rebase(보이지 않은 답변 보존), payload 먼저·metadata 나중과 recovery slot, 다른 pack이 쓰는 저장 export(§3).
+- E2-3b(서버만): 채팅 쓰기 journal(200 응답 전 내구 기록, DB 저장 뒤 정리, 재시작 복구), 전체 POST 검증(id 불일치, 배열 아닌 `message`), 서버가 만드는 기본 채팅의 fmIndex. journal이 생기는 commit부터 원본 reset 경로(backup import, server restore, save-folder, snapshot restore, 계정 적용, DB 삭제)가 DB를 바꿀 때 journal을 같은 transaction에서 지우고 commit 뒤 메모리를 비운다(H19). 이것이 없으면 reset 뒤 재시작에서 reset 전 채팅이 되살아난다. 전체 barrier는 E2-3c다. stripped DB 불변식은 채팅 id 복구와 함께 E2-3d로 옮긴다(H18: 저장된 DB의 id는 원본이 읽을 때 고치지만, 세션 중 새로 만든 id 없는 채팅은 클라이언트 복구 없이 불변식에 걸려 그 뒤의 저장이 모두 거부된다). `chatWriteJournal.cjs`·`serverChatCommit.cjs`는 owned로 두고 id를 유지한다(BG 계약). 원본 delta header, delta 409, `recordChatPost`, asset manifest hydrate는 보존한다.
+- E2-3c(서버만): reset barrier(§3 결정 구조와 검수 뒤 보강 ①-③: gate 순서, 실행 시점 generation 확인, timer 정리와 실행 중 저장 대기), 모든 reset 경로의 단일 transaction 교체(COMMIT 전 실패는 이전 상태 그대로, COMMIT 뒤 inlay 교체 같은 후속 단계의 실패는 복구 필요 상태로 알림), storage epoch, reset 뒤 `invalidateBefore`, pending-save 인계, BG run 취소 hook. 원본 `importInProgress`, 계정 가져오기 gate, `restoringSnapshotKey`, `pluginStorage.restoreFrom`, `createBackupAndRotate`는 보존한다. `session-lock.cjs` unit 5개는 1.16.1의 `revokeAll`·fresh/passive/tookOver 의미 위에 다시 쓴다. snapshot core에서 옮긴 compat 테스트 `storage-reset-b1a`와 B2·B3의 reset 부분을 여기서 다시 넣는다.
+- E2-3d(서버와 클라이언트): chat-content GET·POST의 revision과 create-only, payload 없는 stub의 `CHAT_PAYLOAD_MISSING`과 그 안내(`chat-missing-payload-notice`), 클라이언트의 create·update 분류, 채팅 id 복구, stale view rebase(보이지 않은 답변 보존), payload 먼저·metadata 나중과 recovery slot, 다른 pack이 쓰는 저장 export(§3), stripped DB 불변식(`/api/write`·`/api/patch`, H18의 전이 규칙, 서버가 stub으로 바꾼 뒤 검사), plugin의 열려 있지 않은 채팅 쓰기의 캐릭터 추적(H22). revision은 원본 transport 두 개(H22)에 넣어 autosave·plugin·복구 job·trigger 경로가 모두 같은 규약을 쓰게 하고, 전체 fetch 경로도 revision을 받는다. delta POST도 base revision을 보내고 서버가 확인한다(prefix만 맞는 오래된 delta가 서버에만 있는 뒷부분을 지우지 않게). 불변식은 중복 `chaId`를 pack 0.5.19처럼 거부한다. 저장된 DB의 중복은 원본 decode가 먼저 고치므로(H18), 이 거부는 세션 중 새로 생긴 중복에만 걸리고, 그 경우 원본 hash 불일치 처리(§3 2bda466 행)보다 먼저 걸린다. live DB가 이 검사를 통과하는지는 E2-9 rehearsal에서 확인한다.
 - E2-3e(클라이언트만): startup DB cache, plugin 로드를 stub 변환 뒤로, `writerSession` helper(원본 header 처리를 감싸는 얇은 module, BG 계약).
 - 각 단위는 공통 계약(1.16.1만 선언, coverage, per-commit 검사)을 따른다. `lazy-chat-sync`는 E2-3 동안 단위마다 coverage `retained`·`replaced`·`retired`·`added`·`rewritten`을 갱신한다. E2-3b가 처음으로 `reviewing: ['1.16.1']`을 선언하고, 그 단위에서 아직 다시 얹지 않은 기능의 통째 교체 unit은 `retired`(이유: 해당 단위 ID)로 둔다. 1.16.1 조립 트리에서 통째 교체 unit은 처음부터 고르지 않는다.
 - 통째 교체 unit을 `requires`하는 `lazy-chat-bg-adapter`(H15)는 E2-7까지 1.16.1에서 조립되지 않으므로 E2-3이 그 id를 지켜야 할 이유가 없다. owned module id와 `chat-missing-payload-notice` id는 유지한다.
@@ -86,7 +92,8 @@
 
 ## 5. BG와 다른 pack에 제공할 계약
 
-- symbol: `serverChatCommit`(input·commit owner), `chatWriteJournal`(prefix, `resetMemory`, 복구), storage epoch(`internal/storage-epoch/v1`), `writerSession` helper, `sessionLock.invalidateBefore`, reset 시 BG run 취소 hook, `storageResetActive`·`importInProgress`(snapshot lazy adapter의 `fragments/server-helpers.cjs.txt:111,125`).
+- symbol: `serverChatCommit`(input·commit owner), `chatWriteJournal`(prefix, `resetMemory`, 복구), storage epoch(`internal/storage-epoch/v1`), `writerSession` helper, `sessionLock.invalidateBefore`, reset 시 BG run 취소 hook, `storageResetActive`·`storageResetGeneration`·`importInProgress`(snapshot lazy adapter의 `fragments/server-helpers.cjs.txt:111,125`, `server-backup-snapshot-core/adapter-manifest.cjs:144-149`), BG 초기화가 쓰는 `decodeDatabaseWithPersistentChatIds`·`cacheStrippedDatabase`·`scheduleChatStorePersist`·`readStorageEpoch`·`chatRevision`과 canonical store·queue 접근(H23).
+- 이름만이 아니라 동작을 계약으로 둔다: reset hook의 호출 순서(교체 transaction 안의 durable 복구 행 삭제, commit 뒤 메모리 공개), 이전 epoch commit 거부, generation 비교의 의미. E2-7은 이 동작에 붙는다.
 - unit id: H8의 `requires` 대상 id는 바꾸지 않는다. 바꿔야 하면 사용처 pack의 rebase 단위에서 함께 고친다.
 
 ## 6. 바뀌면 안 되는 것
@@ -97,18 +104,17 @@
 
 ## 7. 수용 기준과 테스트 계약
 
-공통(모든 단위): C0 `lazy-chat-sync`가 `targets.pocketrisu = {verified: [], reviewing: ['1.16.1']}`을 선언하고 coverage 검사가 위반 0이다. C1 per-commit 검사(저장소 테스트, dist 두 번 빌드 동일, mode 755, `node --check`)와 `lazy-chat-sync` closure의 subset harness가 통과한다. C2 rebase하지 않은 pack의 unit hash가 기준선과 같다. 단위별 기준은 아래 표의 행이다. 각 행의 테스트는 1.16.1 원본 위에 조립한 트리에서 돈다.
+공통(모든 단위): C0 `lazy-chat-sync`가 `targets.pocketrisu = {verified: [], reviewing: ['1.16.1']}`을 선언하고 coverage 검사가 위반 0이다. C1 per-commit 검사(저장소 테스트, dist 두 번 빌드 동일, mode 755, `node --check`)와 subset harness 두 번이 통과한다: `lazy-chat-sync` closure, 그리고 그때까지 rebase한 pack 전부와 `lazy-chat-sync`를 함께 고른 묶음(closure는 의존만 따라가므로 순서·anchor 충돌은 묶음에서만 드러난다). C2 rebase하지 않은 pack의 unit hash가 기준선과 같다. 단위별 기준은 아래 표의 행이다. 각 행의 테스트는 1.16.1 원본 위에 조립한 트리에서 돈다.
 
 ### E2-3b
 
 | # | 입력 | 기존 상태 | 기대 결과 | 범위 밖 |
 |---|---|---|---|---|
 | b1 | 채팅 전체 POST가 200을 받은 직후 process가 죽음(5초 debounce 전) | 채팅 있음 | 재시작 뒤 GET이 그 POST의 내용을 준다 | DB metadata 쪽 최신성 |
-| b2 | 같은 채팅에 POST 여러 번 뒤 DB 저장 완료 | journal 항목 있음 | DB에 반영된 항목은 journal에서 사라지고, 저장 전 항목은 남는다 | journal 파일 형식 |
-| b3 | `x-chat-id`와 body의 id가 다른 전체 POST | 채팅 있음 | 409, 저장 안 됨 | delta POST |
-| b4 | messages가 배열이 아닌 전체 POST | 채팅 있음 | 400, 저장 안 됨 | - |
-| b5 | `/api/write`·`/api/patch`가 stub을 payload 있는 채팅으로 바꾸거나 payload 없는 stub을 뺌 | stripped DB 저장됨 | 422 `DB_INVARIANT_REJECTED`, DB 그대로 | 클라이언트 처리 |
-| b6 | 원본 클라이언트의 정상 저장(stub 유지, 새 채팅 추가) | 같은 상태 | 200, 원본과 같은 ETag 계산(`/api/write`) | - |
+| b2 | 같은 채팅에 POST A, DB 저장이 A를 읽은 뒤 끝나기 전에 POST B(정해진 끼어들기 지점, test hook) | journal 항목 있음 | 저장이 끝나면 A는 journal에서 사라지고 B는 남는다. 재시작 뒤 GET은 B를 준다 | journal 파일 형식 |
+| b3 | `x-chat-id`와 body의 id가 다른 전체 POST | 채팅 있음 | 409, 디스크·journal·메모리 그대로 | delta POST |
+| b4 | `message`가 배열이 아닌 전체 POST | 채팅 있음 | 400, 디스크·journal·메모리 그대로 | - |
+| b5 | 원본 reset 경로(backup import, server restore, save-folder execute, snapshot restore, 계정 적용, DB 삭제) 하나가 성공 | 그 채팅의 journal 항목이 남아 있음(DB 저장 전, metadata 대기 포함) | reset 뒤 재시작해도 GET은 reset 결과를 주고 reset 전 내용이 되살아나지 않는다 | reset 중 쓰기 차단(E2-3c) |
 | b7 | 서버가 만드는 기본 채팅(새 캐릭터 등) | - | `fmIndex`가 있다 | 클라이언트가 만드는 채팅 |
 | b8 | 원본 delta POST(맞는 prefix 지문)·틀린 지문 | 채팅 있음 | 맞으면 200 splice, 틀리면 409 `CHAT_DELTA_BASE_MISMATCH`(원본과 같음) | - |
 
@@ -116,32 +122,52 @@
 
 | # | 입력 | 기존 상태 | 기대 결과 | 범위 밖 |
 |---|---|---|---|---|
-| c1 | reset 진행 중 `/api/write`·`/api/patch`·채팅 POST·`/api/assets/bulk-write`·`/api/db/flush`·`/api/remove`(일반 key) | backup import, server restore, save-folder execute·upload, snapshot restore, DB 삭제 중 하나가 진행 중 | 503 `STORAGE_RESET_IN_PROGRESS`, `retryable: true`, 저장소 변화 없음 | 읽기 route |
-| c2 | reset 시작 전에 들어와 queue에서 기다리던 쓰기 | 그 뒤 reset 시작 | 그 쓰기는 reset 결과 위에 반영되지 않고 503을 받는다 | - |
-| c3 | reset 진행 중 다른 reset 요청 | reset 진행 중 | 409, 진행 중 reset은 계속된다 | 계정 가져오기 |
-| c4 | reset이 중간에 실패(DB 교체 전후 실패 지점) | 기존 DB·plugin storage·asset 있음 | 이전 상태 그대로, 다음 쓰기는 정상 | inlay 수동 복구 경로 |
+| c1 | reset 진행 중 `/api/write`·`/api/patch`·채팅 POST·`/api/assets/bulk-write`·`/api/db/flush`·`/api/remove`(일반 key)·purge-orphans·optimize·wal-checkpoint·snapshot 삭제·backup 삭제·inlay compress | backup import, server restore, save-folder execute·upload, snapshot restore, 계정 적용, DB 삭제 중 하나가 진행 중 | 503 `STORAGE_RESET_IN_PROGRESS`, `retryable: true`, 저장소 변화 없음 | 읽기 route, `/api/logs`·request-logs·model-jobs·`/api/set_password`(§3 범위 밖) |
+| c2 | reset 시작 전에 입구를 통과해 queue에서 기다리던 쓰기(정해진 끼어들기 지점) | 그 뒤 reset 시작, 실행 시점에 reset 진행 중 또는 이미 끝남 | 두 경우 모두 그 쓰기는 reset 결과 위에 반영되지 않고 503을 받는다 | - |
+| c3 | reset 진행 중 다른 reset 요청(위 reset route 각각) | reset 진행 중 | 409, 진행 중 reset은 계속된다 | - |
+| c4a | reset이 COMMIT 전에 실패 | 기존 DB·plugin storage·asset·journal 있음 | 이전 상태 그대로, 다음 쓰기는 정상 | - |
+| c4b | reset이 COMMIT 뒤 후속 단계(inlay 교체 등)에서 실패 | 같음 | DB는 새 상태이고, 실패가 응답과 복구 필요 상태로 드러나며 조용히 성공으로 끝나지 않는다 | inlay 수동 복구 경로 |
 | c5 | reset 성공 | 이전 세션의 writer session | 이전 세션의 쓰기는 423, 새 세션은 원본 규칙(fresh·passive·tookOver)대로 잠금을 얻는다 | 계정 가져오기의 `revokeAll` 동작(원본 그대로) |
-| c6 | reset 성공 | storage epoch 값 | epoch가 바뀌고, 이전 epoch를 가진 commit은 거부된다(BG 계약 symbol로 확인) | BG run 자체 |
-| c7 | reset 시작 시점에 debounce 중인 DB·채팅 저장 | pending 있음 | reset 전 저장이 끝나거나 버려져 reset 결과를 덮지 않는다 | - |
-| c8 | 계정 가져오기 진행 중 쓰기 | 계정 가져오기 시작됨 | 원본과 같이 423 `ACCOUNT_IMPORT_ACTIVE` | - |
-| c9 | snapshot core에서 옮긴 compat `storage-reset-b1a`, B2·B3의 reset 부분 | - | 통과 | B2·B3의 BG 부분(E2-7) |
+| c6 | reset 성공 | storage epoch 값 | epoch가 바뀌고, 이전 epoch로 부른 `serverChatCommit` commit이 거부되어 저장소가 그대로다 | BG run 자체 |
+| c7 | reset 시작 시점에 debounce timer가 걸린 DB·채팅 저장, 그리고 이미 실행 중인 저장(정해진 끼어들기 지점) | pending 있음 | timer는 지워지고 실행 중 저장은 끝난 뒤 reset이 교체한다. reset 결과는 덮이지 않는다 | - |
+| c8 | 계정 가져오기 진행 중 `checkActiveSession`을 예외 없이 부르는 쓰기 / 예외 route / `/api/db/flush` | 계정 가져오기 시작됨 | 첫째는 원본과 같이 423 `ACCOUNT_IMPORT_ACTIVE`, 예외 route와 flush는 원본과 같은 응답 | - |
+| c8b | 계정 가져오기와 reset gate가 함께 켜진 상태의 쓰기 | 둘 다 진행 중으로 설정 | 423 `ACCOUNT_IMPORT_ACTIVE`(계정 검사가 먼저) | - |
+| c9 | snapshot core에서 뺀 compat `storage-reset-b1a`, B2·B3 중 이 pack과 fence(이미 rebase됨)만으로 도는 reset 부분. 파일을 전제 pack별로 나눠 다시 넣는다 | - | 통과 | capture·reset 배제(E2-6), BG 취소·정리와 B2·B3의 BG 부분(E2-7) |
 
 ### E2-3d
 
 | # | 입력 | 기존 상태 | 기대 결과 | 범위 밖 |
 |---|---|---|---|---|
 | d1 | chat-content GET | 채팅 있음 | `x-chat-revision` header, 같은 값의 `If-None-Match`면 304 | - |
-| d2 | 전체 POST, base revision 없음 | 채팅 있음 | 428, 저장 안 됨 | - |
+| d2 | 전체 POST, base revision 없음, `If-None-Match` 없음 | 채팅 있음 | 428, 저장 안 됨 | - |
 | d3 | 전체 POST, 다른 base revision | 채팅 있음 | 409와 `currentRevision`, 저장 안 됨 | - |
-| d4 | 전체 POST, `If-None-Match: *` | 채팅 있음 / 없음 | 있으면 412, 없으면 만들고 200 | - |
+| d4 | 전체 POST, `If-None-Match: *`(base revision 유무와 무관) | 채팅 있음 / 없음 | 있으면 412(428보다 먼저), 없으면 만들고 200 | - |
 | d5 | payload 없는 stub의 GET | DB에 stub만 있음 | 404 `CHAT_PAYLOAD_MISSING`, 클라이언트는 안내를 보이고 빈 채팅을 저장하지 않는다 | 안내 문구 |
 | d6 | 두 기기가 같은 채팅을 고침, 늦은 쪽이 오래된 view에서 저장 | 서버에 상대 답변 있음 | 늦은 쪽 저장 뒤에도 상대 답변이 남는다 | 같은 메시지 동시 편집의 병합 결과 |
 | d7 | id 없는 채팅, 같은 캐릭터 안 id 중복 채팅 | 새 캐릭터 | 저장 전에 고유 id가 붙고 서로 덮지 않는다 | - |
 | d8 | 새 채팅 저장 | 서버에 그 id 없음 | create로 분류되어 create-only로 저장, 실패 시 metadata를 먼저 저장하지 않는다 | - |
 | d9 | 채팅 payload 저장 실패 후 DB 저장 | payload 실패 | metadata가 payload 없는 채팅을 가리키지 않는다(recovery slot 1개) | - |
-| d10 | 원본 delta 전송 | 채팅 있음 | 원본처럼 prefix delta를 쓰고 409면 전체 전송한다. 전체 전송은 base revision을 함께 보낸다 | - |
-| d11 | 새 설치 첫 채팅 저장 | 빈 DB | 저장되고 다시 열면 남아 있다 | - |
-| d12 | 다른 pack이 쓰는 저장 export(§3) | - | 이름과 호출 형태가 유지된다 | 내부 구현 |
+| d10 | 원본 delta 전송 | 채팅 있음 | 원본처럼 prefix delta를 쓰고 409면 전체 전송한다. delta와 전체 전송 모두 base revision을 함께 보낸다 | - |
+| d10b | prefix 지문은 맞지만 base revision이 오래된 delta POST | 서버에만 있는 뒷부분 메시지가 있음 | 409, 서버의 뒷부분이 남는다 | - |
+| d11 | 새 설치 첫 채팅 저장, 실제 bootstrap 경로(로컬 DB 없음 → `{}` → 기준 DB) | 빈 DB | create로 분류되어 저장되고 다시 열면 남아 있다 | - |
+| d12 | 다른 pack이 쓰는 저장 export(§3) | - | 이름이 유지되고, `ChatConflictError`·`ManualSaveConflictError`는 충돌에서 던져지며, `readServerChatSnapshot`·`confirmCurrentSnapshotOnServer`·`requestImportedCharacterSave`·`requestImportedModuleSave`는 서버 상태를 읽거나 저장을 일으킨다 | 내부 구현 |
+| d13 | plugin의 열려 있지 않은 채팅 쓰기, 복구된 model job 저장 | 서버에 그 채팅 있음 | 전체 fetch로 받은 revision을 base로 보내 200. 그 사이 다른 기기가 바꿨으면 409 뒤 상대 내용이 남는다. 428로 저장이 막히지 않는다 | plugin API 재작성(E2-7) |
+| d14 | plugin이 열려 있지 않은 채팅의 이름·폴더·modules를 바꿈 | 선택되지 않은 캐릭터 | 다음 DB 저장 뒤 다시 읽어도 바뀐 값이 남는다 | - |
+| d15 | `/api/write`·`/api/patch`로 payload 없는 새 채팅을 넣음 / 직전부터 payload 없던 채팅을 그대로 두거나 지움 / stub을 payload 있는 채팅으로 바꿈 | stripped DB 저장됨 | 새로 넣음과 payload 있는 채팅은 422 `DB_INVARIANT_REJECTED`, DB 그대로. 그대로 두거나 지움은 200 | 클라이언트 처리 |
+| d16 | 저장된 DB에 id 없는 채팅·중복 id가 있는 상태에서 서버 시작 뒤 원본 저장 경로로 다른 변경을 저장 | 옛 DB | 원본 decode가 id를 고친 뒤라 저장은 200이고 그 채팅들은 남는다(원본 동작 보존) | - |
+| d17 | 원본 클라이언트의 정상 저장(stub 유지, 새 채팅 추가) | 같은 상태 | 200, 원본과 같은 ETag 계산(`/api/write`) | - |
+
+### §6 보존 항목 (해당 기능을 건드리는 단위마다)
+
+| # | 입력 | 기존 상태 | 기대 결과 | 범위 밖 |
+|---|---|---|---|---|
+| u1 | asset manifest가 있는 캐릭터의 `/api/read`와 채팅 POST | manifest 있음 | 원본과 같이 hydrate되고 manifest가 남는다 | - |
+| u2 | plugin storage route 쓰기·읽기, plugin 목록을 줄이는 DB 쓰기 | plugin 있음 | 원본과 같은 응답과 목록 보호 | - |
+| u3 | archive 이동·활성화 뒤 DB 저장과 재시작 | archive 캐릭터 있음 | 원본과 같이 archive 상태가 남는다 | - |
+| u4 | 계정 가져오기의 예외 route 4개(prepare·download·cancel·apply) | 계정 가져오기 진행 중 | 원본과 같은 응답 | - |
+| u5 | 채팅 POST 뒤 `/api/read` 목록 | - | `recordChatPost`가 원본처럼 기록된다 | - |
+| u6 | snapshot 생성과 rotation(보호 snapshot 포함), snapshot restore 중 flush | snapshot 여럿 | 보호 snapshot이 남고, restore 중 flush는 `restoringSnapshotKey`를 원본처럼 쓴다 | - |
+| u7 | 일반 installer apply | `lazy-chat-sync`가 `reviewing`만 선언 | `TARGET_REVIEW_REQUIRED`로 거부 | - |
 
 ### E2-3e
 
@@ -153,4 +179,4 @@
 
 ## 8. 다음
 
-E2-3a의 코드 읽기 항목(reset gate 구조, hash 불일치, pack 안 dirty API)은 H10-H14로 정했다. 단위를 규약 단위로 다시 나누고(§4) 수용 기준·테스트 계약 표를 붙였다(§7). 남은 일: 계획 검수(Astra), 전제 출처 확인, Argon 시나리오, 테스트 작성 순서로 간다.
+E2-3a의 코드 읽기 항목(reset gate 구조, hash 불일치, pack 안 dirty API)은 H10-H14로 정했다. 단위를 규약 단위로 다시 나누고(§4) 수용 기준·테스트 계약 표를 붙였다(§7). 계획 검수 1회차(2026-10-27)의 지적 11건을 코드로 확인해 반영했다: 불변식을 E2-3d로 옮김, journal의 reset 연동을 E2-3b에 둠, gate 순서·실행 시점 확인·범위, revision을 원본 transport 전체와 delta에 적용, plugin 캐릭터 추적, 분류기 기준 정규화, 계약 symbol과 동작, 묶음 subset, 표 보강. 계획이 크게 바뀌었으므로 남은 일은 계획 검수 2회차, 전제 출처 확인(H1·H5·H6), Argon 시나리오, 테스트 작성 순서다.
