@@ -279,6 +279,16 @@ validation-runner, 조립 트리(patcher `d476d60`), 원본 RCM 1.0.21과 실제
 - **M1 재측정**(ms, 최소/중앙/최대, 크기별 5회, 크기마다 새 서버): host close − afterRequest 반환 23/24/25·20/26/69·39/49/51(10·200·2000 메시지), commit 종료 − afterRequest 반환 45/45/53·53/55/170·134/151/158, prepare 왕복 18/21/54·59/60/100·49/52/92. **15회 중 commit이 1.5초보다 늦은 경우 0회**로 `d476d60`과 같다.
 - **관측(이 단위 범위 밖):** 2000 메시지 5회 모두 phase `before_request`의 `plugin_late_call`이 남았다. RCM이 load 때 건 4000ms timer가 약 3초 걸리는 beforeRequest 도중 load scope 해제 뒤 울려 그 RPC가 거절된 것으로 보인다(현재 코드의 기존 동작). 크기를 섞은 15채팅 한 번의 실행에서는 plugin host가 시작되지 않아 중단했고 원인은 확인하지 않았다(크기별 단독 실행은 정상).
 
+## 구현 뒤 원본 RCM 실측 (2026-10-26 KST)
+
+대상: patcher `68b7426`(0.2.4-experimental.87) 조립 트리, RCM 1.0.21 원본 JS(SHA-256 `08705f3b…7edc`)와 원본 backend(apiRevision 98), 가짜 모델, 합성 채팅 10·200 메시지, 크기별 3회 이상. validation-runner가 실행했고, 오케스트레이터가 요약 기록(sync record 시각·busy·N+1)을 열어 대조했다. 외부 전송 0건(backend 차단 log 0줄). 시각은 commit(`bg-post-response-sync` 생성) 기준 ms, min/median/max.
+
+- **창 안의 출력 동기화:** RCM afterRequest timer가 창 안에서 실행되어 두 번째 `/v1/turn/prepare`를 보낸다(10: 1510/1513/1514, 200: 1518/1562/1587). 요청 채팅은 commit된 답변을 마지막 메시지로 가진다(6/6). 이어 500ms 뒤 `POST /v1/worker/heartbeat`(10: 2027/2027/2030, 200: 2038/2079/2108). sync record는 `pending` → `drained`(약 +2.06~2.12초), 관측한 약 35턴에서 `uncertain`·`plugin_post_response_uncertain` 0건. 결과 route는 창 전(+12~66ms)에 `terminal-success`, activity는 `drained`까지 busy.
+- **D4 확인(server engine):** backend `server` engine을 가짜 서버 LLM에 연결하면, 창 안 heartbeat 뒤 15~25ms에 추출 모델 호출이 시작되고 창이 닫힌 뒤에도 backend가 job을 끝낸다(10: 추출 1~2개, 200: 추출 16·story_consolidation 6개, 전부 `done`, 실패 0). 브라우저 없이 lease는 commit 뒤 약 47초까지 유지된다. 호출당 6초인 느린 모델(200 메시지)에서는 약 45초 시작 창 안의 job 4개만 실행되고, 나머지(추출 12·통합 1)는 다음 heartbeat(다음 턴 또는 브라우저 접속)까지 대기했다. D4 결정의 한계와 일치한다.
+- **N+1:** 창 중 보낸 같은 채팅 입력은 즉시 접수(200, 409 없음)되고, provider 호출은 창 종료 뒤(10: +825~921ms, 200: +1125~1156ms)이며 본문에 첫 답변이 있다(6/6). N+1의 창도 `drained`.
+- **새로 생긴 알림 (D3 영향):** 일부 턴에 `plugin_late_call`(phase `after_request`)이 저장된다(Q1 2/6 등, 이후 operation은 중복 제거). 계측 사본에서 8/8턴이 창 안 heartbeat보다 먼저(+444~468ms) 만료 context의 `nativeFetch` heartbeat 호출을 기록했다. 추정(실행으로 확인하지 않음): RCM beforeRequest 경로 끝의 `gc`가 건 500ms timer가, D3 이전에는 host가 afterRequest 뒤 약 25ms에 닫혀 실행되지 않았으나 지금은 host가 열려 있어 실행되고 만료 scope로 거절된다. 창 안 heartbeat는 모든 run에서 200이었다. D3 이전 같은 크기에서 after_request phase의 late call은 0이었다(위 「테스트 요청 전 실측」 P1).
+- **측정하지 않은 것:** 실제 모델 지연·추출 품질, embedding(끔), 200 메시지 초과, backfill 승인이 없는 새 채팅, 15초 heartbeat 주기.
+
 ## D4와의 연결
 
 Risu engine(새 설치 기본값)의 추출은 플러그인이 lease를 잡고 모델 작업을 하는 경로라, host를 닫으면 그 job의 무인 완료를 보장할 수 없다(RCM JS의 `gc`·Risu worker 경로). D3는 출력이 backend 원문에 들어가는 것까지만 다루고, 추출 완료는 D4에서 다룬다.
