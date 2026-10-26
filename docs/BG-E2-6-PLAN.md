@@ -78,7 +78,8 @@
 
 ## 7. 전제 출처
 
-- 확인함: S5. 나머지는 탐색이다. 테스트 요청 전에 S1(원본 route의 읽기 방식), S3(slice 범위와 symbol), S4(Kei guarantee 목록)를 코드 줄로 확인한다.
+- 확인함: S5. S1: export(`:5452` flush, `:5504`·`:5512` 목록, `:5566` 항목마다 `kvGet`, 사이에 `waitForDrain`)와 server save(`:5853` flush, `:5890`-`:5892` 목록, `:5924` `kvGet`, `:5941` DB 값)는 transaction 없이 await 사이사이 읽는다. snapshot restore(`:8498`-`:8560`)에 `createBackupAndRotate` 호출이 없다. S4: `restoreSafety.cjs:166`·`:234`·`:256`의 세 함수.
+- 탐색: S3의 slice 범위와 S4의 unit별 anchor 수. 둘 다 구현 단위의 compose가 직접 잰다.
 - E2-3 구현 결과(§5 계약 symbol 이름과 동작)를 E2-6b·E2-6c 시작 전에 다시 읽는다.
 
 ## 8. 다음
