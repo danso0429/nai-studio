@@ -1,7 +1,20 @@
 # BG Preserve 순차 목표 계획
 
 현재 선택과 다음 작업 (2026-10-15): 사용자가 **RCM 설치·BG 연동을 현재 G2 방향으로 선택**했고, AC는 **미래 후보(DEFERRED)**로 남기기로 했다. G2.1 backend 격리 설치 뒤 원본 PocketRisu 1.10의 API 노출 오류를 확인했다.
-**현재 상태 (2026-10-23):** G2.2 진행 중. 완료한 하위 단위는 다음과 같다.
+**현재 상태 (2026-10-26):** G2.2 계획 단위를 모두 마쳤다(아래 「G2.2 완료 기록」). 구현 commit은 patcher `68b7426`까지 미push이고 live에는 적용하지 않았다. 다음 G2 단계(G2.3~)는 열지 않았다.
+
+**G2.2 완료 기록 (2026-10-26 KST):**
+
+- **D3 답변 뒤 출력 동기화:** patcher `68b7426`(0.2.4-experimental.87, adapter 0.7.82, [계획](BG-G2-2-D3-OUTPUT-SYNC-PLAN.md)). 블라인드 시험·구현·Codex 코드 검수 2회·후보 gate 19/19·probe 통과. 사용자 결정 2건(결과 공개는 창 전, 읽지 않은 응답 본문은 EOF·오류·취소까지 창 유지). 원본 RCM 실측에서 창 안 출력 동기화·`drained`·N+1 대기를 확인했다(계획 「구현 뒤 원본 RCM 실측」). 세션 기록 patcher `docs/records/2026-10-26-g22-d3-session.md`(미commit).
+- **D2 원본 RCM 실측:** 도구가 첫 BG 요청에 실리고 비스트림 도구 호출이 recall 결과를 다음 요청에 넣으며 작업 뒤 등록이 비는 것을 확인했다([D2 계획](BG-G2-2-D2-MCP-PLAN.md) 「검증 결과」).
+- **D4 추출 engine·lease:** 결정(server engine 필수·턴별 창)대로 창 안 heartbeat가 server engine 추출을 시작하고, 약 45초 시작 창 밖의 job은 다음 heartbeat까지 대기함을 확인했다. 별도 구현은 없다.
+- **G2.5 지원표로 넘길 한계:**
+  - Chat Completions 스트림에서 RCM 도구 호출은 RCM 자체의 `chat_changed` 응답을 돌려주고 recall하지 않는다. foreground 스트림도 같으므로 BG 결함이 아니다.
+  - D3 이후 RCM 사용 턴 일부에 `plugin_late_call`(phase `after_request`) 알림이 보인다. RCM beforeRequest의 500ms timer가 열린 host에서 만료 scope로 거절되는 것으로 추정하며, 창 안 heartbeat는 정상이다. 사용자 결정(2026-10-26)으로 수정하지 않고 한계로 둔다.
+  - `risu` engine(새 설치 기본값)은 BG 미지원, 새 채팅은 초기 보정 처리 전 추출 없음, 느린 모델에서 시작 창 밖 job은 다음 턴·브라우저 접속까지 대기.
+- **남은 것:** patcher `68b7426`과 계획 commit들의 push, §9.1 예비 조사 표의 module selector(로어 parity는 G2.2b로 닫음) 배정, live 적용.
+
+이전 상태 (2026-10-23): G2.2 진행 중. 완료한 하위 단위는 다음과 같다.
 
 - G2.2a capability 정확화.
 - G2.2b BG `getCurrentLorebookEntries`(patcher `dd5641a`).
