@@ -55,6 +55,13 @@ E2-2b는 F17 때문에 E2-6에서 당겨 왔다. 설계는 별도 탐색 뒤 이
 
 - coverage 검사기: 기준선 fixture에 있는 pack의 1.16.1 항목은 기준선 항목이 있어야 한다(F18). 선택 인자 `unitBaseline`을 받으면 `rewritten`에 없는 `retained` unit의 정의를 비교하고, 다르면 `retained-unit-changed`, `rewritten` 키가 `retained`에 없으면 `invalid-rewritten`을 보고한다. harness와 catalog 테스트가 이 인자를 넘긴다.
 - unit별 기준선 fixture `test/fixtures/target-baseline-1.10.0-units.json`: `9b15c32` catalog의 pack별 unit id → `targetVersions`를 뺀 unit 정의의 정규화 hash. orchestrator가 만들고 이후 바꾸지 않는다.
+  - 생성(2026-10-26): `{ format: 1, source, hash, packs: { packId: { unitId: hex } } }`. hash는 1.10.0에서 선택된 unit마다 `sha256(stableStringify(targetVersions를 뺀 unit))`(`src/manager.cjs`의 `stableStringify`). 45개 pack·1,957개 unit이고, id 목록과 순서는 `target-baseline-1.10.0.json`의 `units110`과 같다. `44bb1be`에서 다시 계산한 값도 모두 같다.
+- 판정 세부(Argon 시나리오 검토에서 확정):
+  - 검사 대상 pack(`packIds`)마다 기준선 항목(`units110` 배열)이 있어야 한다. 없으면 선언한 각 target마다 `missing-baseline`이다. 1.10.0에 없던 새 pack은 E2 계획에 없으므로 따로 허용하지 않는다.
+  - `rewritten`은 선택 항목이고, 있으면 객체여야 한다(아니면 `invalid-rewritten`, unitId `null`). 이유가 비거나 공백뿐이면 `empty-reason`이다. 키가 `retained` 밖에 있으면 `invalid-rewritten`이다. 이 구조 검사는 `unitBaseline` 유무와 관계없이 한다.
+  - `unitBaseline`을 넘기지 않으면 내용 비교(`retained-unit-changed`)만 하지 않는다. 넘겼을 때 `rewritten`에 없는 `retained` unit의 기준선 hash가 없으면 `retained-unit-changed`다.
+  - `rewritten`에 적었지만 내용이 같은 unit도 통과한다.
+- 테스트 배치: E2-1c와 E2-2a의 테스트는 각 단위의 commit에 들어간다. E2-1c가 고치는 공용 테스트(catalog·compatibility 등)는 E2-1c 상태와 E2-2a 상태에서 모두 통과해야 한다. 그래서 rebase한 pack 집합을 고정된 6개 목록이 아니라 coverage map의 키에서 얻는다. fence에만 해당하는 기대는 E2-2a 테스트 파일들에만 둔다.
 
 - E2-1b의 6개 pack(`charx-archive-integrity`, `parser-hardening`, `log-load-performance`, `kei-prompt-role-compat-core`, `kei-text-theme-normalization-core`, `kei-fullscreen-image-viewer-core`)을 공통 계약으로 바꾼다: `verified: []`, unit의 `targetVersions` 제거, 각 pack version patch +1. coverage 항목(`retained: 'all'`)은 그대로다.
 - patcher `0.2.4-experimental.91`, CHANGELOG, `dist` 재빌드.
