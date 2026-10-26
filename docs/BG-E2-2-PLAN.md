@@ -63,7 +63,7 @@ E2-2b는 F17 때문에 E2-6에서 당겨 왔다. 설계는 아래 「E2-2b」에
   - `rewritten`에 적었지만 내용이 같은 unit도 통과한다.
 - 테스트 배치: E2-1c와 E2-2a의 테스트는 각 단위의 commit에 들어간다. E2-1c가 고치는 공용 테스트(catalog·compatibility 등)는 E2-1c 상태와 E2-2a 상태에서 모두 통과해야 한다. 그래서 rebase한 pack 집합을 고정된 6개 목록이 아니라 coverage map의 키에서 얻는다. fence에만 해당하는 기대는 E2-2a 테스트 파일들에만 둔다.
 
-- E2-1b의 6개 pack(`charx-archive-integrity`, `parser-hardening`, `log-load-performance`, `kei-prompt-role-compat-core`, `kei-text-theme-normalization-core`, `kei-fullscreen-image-viewer-core`)을 공통 계약으로 바꾼다: `verified: []`, unit의 `targetVersions` 제거, 각 pack version patch +1. coverage 항목(`retained: 'all'`)은 그대로다.
+- E2-1b의 6개 pack(`charx-archive-integrity`, `parser-hardening`, `log-load-performance`, `kei-prompt-role-compat-core`, `kei-text-theme-normalization-core`, `kei-fullscreen-image-viewer-core`)을 공통 계약으로 바꾼다: `verified: []`, unit의 `targetVersions` 제거, 각 pack version은 E2-1b 버전에서 patch +1(기준선 +2: `charx-archive-integrity`·`parser-hardening`·`kei-prompt-role-compat-core`·`kei-text-theme-normalization-core` 0.1.3, `log-load-performance` 0.1.2, `kei-fullscreen-image-viewer-core` 0.2.3). E2-1b 버전에는 이미 다른 내용이 commit되어 있으므로 같은 버전을 다시 쓰지 않는다. 공용 테스트는 단계와 무관하게 "기준선과 major·minor가 같고 patch가 더 크다"만 확인하고, 정확한 버전은 pack별 테스트가 확인한다. coverage 항목(`retained: 'all'`)은 그대로다.
 - patcher `0.2.4-experimental.91`, CHANGELOG, `dist` 재빌드.
 
 ### E2-2a
