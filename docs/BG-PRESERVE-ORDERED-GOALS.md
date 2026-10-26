@@ -31,6 +31,7 @@
    - **E2-1 (2026-10-26, patcher `c04d76b`·`9a3d1ec`·`e150de8`, 미push):** pack 일부만 원본 사본에 적용·검사·되돌리는 maintainer harness(`0.2.4-experimental.89`)와 6개 독립 pack의 1.16.1 `reviewing` 선언(`.90`)을 넣었다. 6개 각각과 묶음을 원본 1.16.1 새 사본에 돌린 7회가 모두 install·test·test:compat·check·build를 통과하고 잔여 없이 되돌아갔다. 일반 installer는 1.16.1 apply를 여전히 거부한다. `fastimport-ios-picker`는 1.16.1에서 자기 runtime test가 실패해 빠졌고, 사용자 결정으로 E2-4에서 은퇴한다. 1.10.0 후보 gate는 두 commit 모두 19/19다. 다음은 E2-2(fence core와 destructive storage 경계)다.
 4. **그 뒤** G2.3 이후 단계와 RCM 운영 설치를 진행한다.
    - **플러그인 host를 live에서 켜기 전 확인 (E1 결과):** ① live의 lazy-chat-bg-adapter가 0.7.83 이상인지 확인한다(E1-1 sandbox Node 24 허용 포함, `bgPluginSandbox.cjs:32`). 0.7.62 이하는 Node 24에서 sandbox를 `plugin_sandbox_environment_unsupported`로 거절해 플러그인이 실행되지 않는다. E2 결과물을 live에 적용하면 충족된다. ② Node 24에서 플러그인 네트워크 차단은 커널 network namespace 한 겹이라는 한계(E1 계획 §4)를 받아들인 상태인지, 재검토 트리거(업스트림 Node 26 전환, Node 24 지원 종료 접근, namespace 격리 우회 사례)가 생기지 않았는지 확인한다.
+5. **BG 계획 정본을 모두 마친 뒤: BG 오류 기록 탭 (사용자 요청 2026-10-26, 아직 착수하지 않음).** 문제: BG 작업이 남기는 오류가 시스템 로그에 함께 쌓여, 실제로 중요한 오류를 찾기 어렵다(예: 2026-10-26 live error log의 `[bg-assembly] prompt inputs changed`, `[ModelPreset] request failed kind=aborted`). 원하는 결과: 개인 설정의 기존 탭(임포트 동작·CSS 꾸미기·외부 요청) 옆에 BG 오류 기록 탭(이름은 착수 때 정함)을 두고, BG 작업이 시스템 로그로 보내던 오류를 이 탭에 모은다. 모두 한 목록에 쌓지 않고 종류별로 묶는다. 착수 때 정할 것: 대상 출력의 전수 목록과 종류 분류, 시스템 로그에 계속 남길지 여부, 보관 개수·기간과 저장 위치, 탭 이름.
 
 이전 상태 (2026-10-23): G2.2 진행 중. 완료한 하위 단위는 다음과 같다.
 
