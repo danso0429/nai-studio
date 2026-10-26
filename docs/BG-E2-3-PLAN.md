@@ -116,7 +116,13 @@
 
 ## 7. 수용 기준과 테스트 계약
 
-공통(모든 단위): C0 `lazy-chat-sync`가 `targets.pocketrisu = {verified: [], reviewing: ['1.16.1']}`을 선언하고 coverage 검사가 위반 0이다. C1 per-commit 검사(저장소 테스트, dist 두 번 빌드 동일, mode 755, `node --check`)와 subset harness 두 번이 통과한다: `lazy-chat-sync` closure, 그리고 그때까지 rebase한 pack 전부와 `lazy-chat-sync`를 함께 고른 묶음(closure는 의존만 따라가므로 순서·anchor 충돌은 묶음에서만 드러난다). C2 rebase하지 않은 pack의 unit hash가 기준선과 같다. 단위별 기준은 아래 표의 행이다. 각 행의 테스트는 1.16.1 원본 위에 조립한 트리에서 돈다.
+공통(모든 단위): C0 `lazy-chat-sync`가 `targets.pocketrisu = {verified: [], reviewing: ['1.16.1']}`을 선언하고 coverage 검사가 위반 0이다. C1 per-commit 검사(저장소 테스트, dist 두 번 빌드 동일, mode 755, `node --check`)와 subset harness 두 번이 통과한다: `lazy-chat-sync` closure, 그리고 그때까지 rebase한 pack 전부와 `lazy-chat-sync`를 함께 고른 묶음(closure는 의존만 따라가므로 순서·anchor 충돌은 묶음에서만 드러난다). C2 rebase하지 않은 pack의 unit hash가 기준선과 같다. 단위별 기준은 아래 표의 행이다.
+
+E2-3b 구현에서 정한 적용 범위(근거: 구현 보고와 orchestrator 확인, 2026-10-27):
+
+- C1 묶음은 `autoWhen` closure 전체가 1.16.1을 선언하는 pack만 묶는다. `client-build-fence`·`server-backup-snapshot-core`는 `lazy-chat-sync`와 함께 고르면 `autoWhen`으로 1.10만 선언한 `client-build-fence-lazy-session-adapter`·`server-backup-snapshot-lazy-adapter`가 끌려와 closure가 `TARGET_NOT_DECLARED`로 멈춘다. 이 둘은 E2-6에서 adapter를 rebase한 뒤 묶음에 넣는다. 그때까지 묶음은 `lazy-chat-sync`와 E2-1c pack 6개다.
+- C2의 예외는 `lazy-chat-bg-adapter` 하나다. 이 pack의 unit builder는 `after`를 `lazy-chat-sync` manifest의 현재 unit에서 계산하므로(`plugin-host-units.cjs:7-10` 등), `lazy-chat-sync`의 1.10 통째 교체 unit을 빼면 파일은 그대로여도 unit hash와 declaration hash가 바뀐다. 이 pack은 1.10만 선언하고 `lazy-chat-sync`(이제 1.16.1만 선언)를 요구하므로 어느 target에서도 조립되지 않는다. 기준선 test는 이 pack에 대해 unit id 목록과 version만 확인하고, hash 비교 예외에 이유를 적는다. 예외는 E2-7에서 이 pack을 rebase할 때 없앤다.
+- `lazy-chat-sync`의 1.10 선언을 확인하는 기존 저장소 test(`test/lazy-chat-sync.test.cjs`, `test/bg-independent-g1.test.cjs`의 해당 assertion)는 이전 rebase commit(`d0e32d7`, `52dd656`, `b5bb209`)처럼 같은 단위에서 1.16.1 상태로 고친다. blind test는 고치지 않는다. 각 행의 테스트는 1.16.1 원본 위에 조립한 트리에서 돈다.
 
 ### E2-3b
 
