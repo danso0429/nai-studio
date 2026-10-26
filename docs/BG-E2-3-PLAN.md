@@ -1,6 +1,6 @@
 # E2-3 계획 — lazy-chat-sync를 PocketRisu 1.16.1 원본 위 unit으로 재구성
 
-**상태 (2026-10-26 KST):** 초안. 탐색과 이력 대조를 마쳤고, 계획 검수 전이다. 정본: patcher `docs/POCKETRISU-1.16-REBASE-AUDIT.md`의 「Ordered plan」 E2-3 행, R1, Decisions(2026-10-26 E2-3).
+**상태 (2026-10-27 KST):** 초안. 탐색, 이력 대조, E2-3a 코드 읽기 항목을 마쳤고, 계획 검수 전이다. 정본: patcher `docs/POCKETRISU-1.16-REBASE-AUDIT.md`의 「Ordered plan」 E2-3 행, R1, Decisions(2026-10-26 E2-3).
 **위험 분류:** risky. 채팅 저장, 저장소 reset, import·restore의 원자성, 세션 잠금, BG 연동을 바꾼다.
 
 ## 1. 목표
@@ -24,6 +24,11 @@
 | H7 | 다른 pack의 unit은 원본 1.10 글귀에 anchor를 둔다. 예외는 `lazy-chat-bg-adapter` unit 34개로, pack 사본에만 있는 글귀(reset 경로 8, publication·owned-root 쓰기 5, nodeStorage publication 오류 4, globalApi 저장·import 8, 복구 읽기 7, hydration adopt 2)에 붙는다. | 실측(unit anchor 대조 script, patcher `a309b5b`) |
 | H8 | 다른 pack이 `requires`하는 `lazy-chat-sync` unit: `lazy-chat-bg-adapter`(chatStorage 교체, `serverChatCommit`, `chatWriteJournal`, server.cjs 교체, `writerSession`), `client-build-fence-lazy-session-adapter`·`personal-settings-lazy-session-adapter`(`writerSession`), `haejeok-persistence-safety-adapter`(`chat-missing-payload-notice`). | 탐색 |
 | H9 | snapshot core의 compat 테스트 중 `storage-reset-b1a`, `session-reset-b2`(일부), `reset-orphans-b3`(일부)는 이 pack의 reset 동작을 시험한다(E2-2b F23). | 실측 E2-2b probe |
+| H10 | `checkActiveSession`(`server.cjs:2148-2168`)은 middleware가 아니라 route마다 부르는 함수이고, 39곳에서 호출된다. `/api/write`(`:4473`), `/api/patch`(`:4722`), chat-content POST(`:6420`), `/api/assets/bulk-write`(`:5267`), `/api/remove`(`:4332`)와 모든 reset 경로가 이를 부른다. `/api/db/flush`(`:4699`)는 `sessionAuthMiddleware`만 쓰고 이를 부르지 않는다(주석 `:4695-4698`: 자동 flush가 쓰기 잠금을 옮기지 않게 함). | 확인함(본문, 호출 수, flush 주석) |
+| H11 | `importInProgress`(`:1539`)는 backup import(`:5633`), 계정 적용(`:5750`), server restore(`:6011`), save-folder execute·upload(`:6667`, `:6697`)가 서로를 막는 데만 쓰고, 쓰기 route는 읽지 않는다. snapshot restore(`:8498-8536`)는 `queueStorageOperation` 안에서 `flushPendingDb` 뒤 blob과 plugin 행을 한 transaction으로 바꾸며, `restoringSnapshotKey`는 그 flush 동안만 설정된다. `/api/remove`는 `database/database.bin`을 포함한 임의 key를 `kvDel`한다(`:4364`). | 확인함 |
+| H12 | `risuAccountImport.isBlocking()`은 계정 가져오기 closure의 `started`로 정해지고(`risu-account-import.cjs:213`, `:929`), 시작 시 marker 파일에 남겨 재시작 뒤에도 유지된다(`:217-228`, `:763-766`). 다른 reset 경로는 이 상태를 쓰지 않는다. | 확인함 |
+| H13 | 원본 hash 불일치 처리: 서버는 patch를 적용하지 않고 409 `HASH_MISMATCH`를 준다(`server.cjs:4829-4861`). 클라이언트는 다른 revision이면 최신 서버 DB에 tracked 변경을 rebase해 재시도하고(`globalApi.svelte.ts:1534-1554`, 연속 5회를 넘으면 `SaveRejectedError` 알림 후 변경을 대기열에 남김 `:1653-1668`), 아니면 현재 DB 전체 쓰기로 넘어간다(`:1558-1576`). 전체 쓰기 뒤 서버 view hash가 다르면 시스템 로그에 남기고 5분에 한 번까지 baseline을 서버 view로 다시 맞춘다(`:1024-1060`). | 확인함 |
+| H14 | 원본 저장 추적: 화면의 채팅과 선택된 캐릭터는 `$effect`가 자동 추적하고, 그 밖의 채팅·캐릭터는 `trackChatForSave`·`trackCharacterForSave`(`globalApi.svelte.ts:546-557`)와 `requestImmediateSave`로 저장한다(`process/triggerOrigin.ts:38-44`). plugin API v3는 열려 있지 않은 채팅을 `saveChatToServer`로 바로 저장한다(`plugins/apiV3/v3.svelte.ts:1050-1066`). pack의 `requestChatSave`는 pack 안 호출이 0이고, `markChatDirty`·`markCharacterDirty`는 pack `pluginChatAccess.ts`에서만 부른다. | 확인함(원본 줄), 탐색(pack 호출 수) |
 
 ## 3. 기능별 처리
 
@@ -40,16 +45,16 @@
 | payload 먼저, metadata 나중 (aff7cb8), recovery slot 한도 (675b549) | 클라이언트 순서는 일부 있음, 서버 5초 메모리 창 | 유지(journal과 함께) |
 | 내구성 있는 채팅 쓰기 journal, 원자적 snapshot·journal 교체 (45a3eec, 28d62d2, b95b946) | 없음 | 유지, BG 계약 |
 | server chat commit (1e6e974, 38f19d3, 11dffcf, 6a75a2d) | 없음 | BG 계약 |
-| storage reset barrier·runner, 원자적 backup import·server restore·save-folder·snapshot restore·DB 삭제 (0046677, 84ed00d, ffc6f7d) | 경쟁이 남음(H4) | 유지. 원본의 계정 가져오기 차단 gate(`checkActiveSession`)를 확장하는 구조를 먼저 검토한다 |
+| storage reset barrier·runner, 원자적 backup import·server restore·save-folder·snapshot restore·DB 삭제 (0046677, 84ed00d, ffc6f7d) | 경쟁이 남음(H4) | 유지. 구조(E2-3a 결정): `checkActiveSession` 첫머리에 storage reset gate 검사를 unit 하나로 더하고(H10), 이를 부르지 않는 `/api/db/flush`에는 같은 검사를 따로 단다. pack의 전역 router와 쓰기 route 목록(pack `server.cjs:1095-1194`)은 옮기지 않는다. 근거: 원본이 새 쓰기 route를 더해도 `checkActiveSession`을 부르면 자동으로 막히고, route 목록을 업스트림마다 다시 맞출 필요가 없다. 계정 가져오기 상태(H12)는 marker 영속·전용 code·예외 route가 있어 공용 flag로 바꾸지 않고, reset gate는 별도 flag로 둔다. reset 경로끼리의 경쟁은 원본 `importInProgress`를 그대로 쓰고 snapshot restore와 `/api/remove`의 DB 삭제를 같은 배제에 넣는다(H11) |
 | storage epoch (6527449) | 없음 | 유지, BG 계약 |
 | reset 뒤 이전 세션 무효화 (bd85ccd) | `revokeAll`은 계정 가져오기에서만 | 유지. session-lock unit 5개는 1.16.1의 `revokeAll`·fresh/passive/tookOver 의미를 보존하도록 다시 쓴다 |
 | writer session header helper (4f9436d) | 일반 쓰기는 원본이 처리(`nodeStorage.ts:525-539`) | 원본 사용. BG가 쓰는 helper는 원본 함수를 감싸는 얇은 module로 유지(BG 계약) |
 | reset 시 recovery row 정리·run 취소 (7760965) | 해당 없음(BG) | BG 계약(hook만 제공) |
 | fmIndex를 새·가져온 채팅에 (502dd28) | 서버 기본 채팅에 fmIndex 없음(`:6194-6195`) | 유지 |
-| patch baseline과 hash cache 단일 상태 (2bda466) | 실측(원본 `RisuSavePatcher`의 `set()` 결과 hash와 patch를 적용한 서버 쪽 `calculateHash` 비교): `botPresets`·`modules`가 없다가 생기는 경우와 `chaId` 없는 캐릭터는 일치했다. 중복 `chaId`와 root key 이름과 같은 `chaId`는 어긋났다. 값이 `undefined`인 root key는 1 차이로 어긋났지만, 실제 서버 DB에 `undefined` key가 남는지는 확인하지 않았다. 원본은 불일치 보고(`describeHashMismatch`, `duplicateCharIds`, `risuSave.ts:996-1044`)를 갖는다 | E2-3d에서 불일치 뒤 원본의 처리(재시도·전체 저장·충돌)를 확인하고, 사용자 데이터를 잃거나 저장이 막히는 경우만 유지한다 |
+| patch baseline과 hash cache 단일 상태 (2bda466) | 실측(원본 `RisuSavePatcher`의 `set()` 결과 hash와 patch를 적용한 서버 쪽 `calculateHash` 비교): `botPresets`·`modules`가 없다가 생기는 경우와 `chaId` 없는 캐릭터는 일치했다. 중복 `chaId`와 root key 이름과 같은 `chaId`는 어긋났다. 값이 `undefined`인 root key는 1 차이로 어긋났지만, 실제 서버 DB에 `undefined` key가 남는지는 확인하지 않았다. 원본은 불일치 보고(`describeHashMismatch`, `duplicateCharIds`, `risuSave.ts:996-1044`)를 갖는다 | 원본 사용(E2-3a 결정, H13). 불일치 뒤 원본은 rebase 재시도 또는 현재 DB 전체 쓰기로 사용자 변경을 보존하고, 반복 충돌은 알림과 대기열 유지로 끝나 저장이 조용히 멈추지 않는다. 한계: 불일치가 계속되면 baseline 재조정(5분 간격) 사이의 저장이 전체 업로드가 된다. 이는 전송량 문제이고 데이터 손실이 아니므로 pack 수정을 다시 얹지 않는다 |
 | 새 설치 첫 채팅 저장 (a96becc) | 원본 patcher가 `characters`가 없으면 `[]`로 정규화한다(`risuSave.ts:1047-1051`, `globalApi.svelte.ts:735`). 첫 채팅 POST에는 404·존재 검사가 없다(`server.cjs:6418-6464`) | 원본 사용. E2-3d 테스트에서 새 설치 첫 채팅 저장을 확인한다 |
 | 편집 보존 중 답변 복구 (a646988) | 해당 없음. 고친 파일이 BG만 쓰는 `serverChatCommit.cjs`다 | BG 계약 |
-| dirty API, streaming checkpoint, 저장 재시도·지연 복구, 3-way rebase | 원본에 dirty API 없음(grep 0), rebase는 `rebaseMerge.ts`. 다른 pack 사용처: `requestImportedCharacterSave`·`requestImportedModuleSave`는 `character-import-ux`, `ChatConflictError`·`ManualSaveConflictError`·`markChatDirtyImpl`·`readServerChatSnapshot`·`confirmCurrentSnapshotOnServer`는 `lazy-chat-bg-adapter`. `requestChatSave`·`markChatDirty`·`markCharacterDirty`는 pack 안에서만 쓴다 | 다른 pack이 쓰는 export는 계약으로 유지. pack 안에서만 쓰는 것은 E2-3d에서 원본 `changeTracker`로 대체할 수 있는지 정한다 |
+| dirty API, streaming checkpoint, 저장 재시도·지연 복구, 3-way rebase | 원본에 dirty API 없음(grep 0), rebase는 `rebaseMerge.ts`. 다른 pack 사용처: `requestImportedCharacterSave`·`requestImportedModuleSave`는 `character-import-ux`, `ChatConflictError`·`ManualSaveConflictError`·`markChatDirtyImpl`·`readServerChatSnapshot`·`confirmCurrentSnapshotOnServer`는 `lazy-chat-bg-adapter`. `requestChatSave`·`markChatDirty`·`markCharacterDirty`는 pack 안에서만 쓴다 | 다른 pack이 쓰는 export는 계약으로 유지. pack 안에서만 쓰는 세 함수는 원본 사용(E2-3a 결정, H14): 화면 채팅·선택 캐릭터는 원본 자동 추적, 그 밖은 `trackChatForSave`·`trackCharacterForSave`와 `requestImmediateSave`, plugin 쓰기는 원본 v3 경로가 맡는다 |
 | startup DB cache (ETag, 304) | 서버는 304를 지원하지만(`server.cjs:4265-4268`) 원본 클라이언트는 validator를 보내지 않고 `database.bin`의 로컬 사본도 없어, 시작할 때마다 전체를 받는다(`bootstrap.ts:61`, `nodeStorage.ts:620-631`) | 유지(독립 module `startupDatabaseCache.ts`와 bootstrap·nodeStorage의 작은 unit) |
 | plugin 로드를 placeholder 변환 뒤로 (906d4c6) | 원본은 `loadPlugins()`(`bootstrap.ts:131`)와 `await` 두 번 뒤에 stub을 변환한다(`:145-151`). 그 사이 `getChatFromIndex`는 `_placeholder`가 없는 stub을 그대로 돌려주고(`v3.svelte.ts:990`), `setChatToIndex`의 보호(`:1041`)도 통과해 plugin이 빈 채팅을 되쓸 수 있다 | 유지(bootstrap 순서 unit) |
 | plugin API v3 재작성(`pluginChatAccess`) | 원본이 1.14·1.16에서 async·placeholder 보호·plugin 목록 보호를 넣음 | 원본 사용을 기본으로 하고, 빠진 보장만 E2-7(R3)에서 정한다 |
@@ -83,4 +88,4 @@
 
 ## 7. 다음
 
-E2-3a 결과로 §3·§4를 확정한 뒤 계획 검수(Astra)를 하고, 단위별 수용 기준·테스트 계약 표를 붙인다.
+E2-3a의 코드 읽기 항목(reset gate 구조, hash 불일치, pack 안 dirty API)은 H10-H14로 정했다. 남은 일: 단위별 수용 기준·테스트 계약 표를 붙인 뒤 계획 검수(Astra)를 한다.
