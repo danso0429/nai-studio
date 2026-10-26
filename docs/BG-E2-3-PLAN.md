@@ -46,7 +46,7 @@
 | writer session header helper (4f9436d) | 일반 쓰기는 원본이 처리(`nodeStorage.ts:525-539`) | 원본 사용. BG가 쓰는 helper는 원본 함수를 감싸는 얇은 module로 유지(BG 계약) |
 | reset 시 recovery row 정리·run 취소 (7760965) | 해당 없음(BG) | BG 계약(hook만 제공) |
 | fmIndex를 새·가져온 채팅에 (502dd28) | 서버 기본 채팅에 fmIndex 없음(`:6194-6195`) | 유지 |
-| patch baseline과 hash cache 단일 상태 (2bda466) | hash fold의 미보호 key·공유 namespace가 남음(`risuSave.ts:945,951,1058,1074`) | 확인 필요(C1 재현 조건) |
+| patch baseline과 hash cache 단일 상태 (2bda466) | 실측(원본 `RisuSavePatcher`의 `set()` 결과 hash와 patch를 적용한 서버 쪽 `calculateHash` 비교): `botPresets`·`modules`가 없다가 생기는 경우와 `chaId` 없는 캐릭터는 일치했다. 중복 `chaId`와 root key 이름과 같은 `chaId`는 어긋났다. 값이 `undefined`인 root key는 1 차이로 어긋났지만, 실제 서버 DB에 `undefined` key가 남는지는 확인하지 않았다. 원본은 불일치 보고(`describeHashMismatch`, `duplicateCharIds`, `risuSave.ts:996-1044`)를 갖는다 | E2-3d에서 불일치 뒤 원본의 처리(재시도·전체 저장·충돌)를 확인하고, 사용자 데이터를 잃거나 저장이 막히는 경우만 유지한다 |
 | 새 설치 첫 채팅 저장 (a96becc) | 원본 patcher가 `characters`가 없으면 `[]`로 정규화한다(`risuSave.ts:1047-1051`, `globalApi.svelte.ts:735`). 첫 채팅 POST에는 404·존재 검사가 없다(`server.cjs:6418-6464`) | 원본 사용. E2-3d 테스트에서 새 설치 첫 채팅 저장을 확인한다 |
 | 편집 보존 중 답변 복구 (a646988) | 해당 없음. 고친 파일이 BG만 쓰는 `serverChatCommit.cjs`다 | BG 계약 |
 | dirty API, streaming checkpoint, 저장 재시도·지연 복구, 3-way rebase | 원본에 dirty API 없음(grep 0), rebase는 `rebaseMerge.ts`. 다른 pack 사용처: `requestImportedCharacterSave`·`requestImportedModuleSave`는 `character-import-ux`, `ChatConflictError`·`ManualSaveConflictError`·`markChatDirtyImpl`·`readServerChatSnapshot`·`confirmCurrentSnapshotOnServer`는 `lazy-chat-bg-adapter`. `requestChatSave`·`markChatDirty`·`markCharacterDirty`는 pack 안에서만 쓴다 | 다른 pack이 쓰는 export는 계약으로 유지. pack 안에서만 쓰는 것은 E2-3d에서 원본 `changeTracker`로 대체할 수 있는지 정한다 |
