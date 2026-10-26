@@ -39,7 +39,7 @@
 - 바뀐 4개 unit과 그것을 `requires`하는 2개 unit(F15)은 1.10.0 전용으로 남기고, 1.16.1 전용 대체 unit을 새 id로 만든다(coverage `replaced` 6개). 대체 unit의 `requires`는 1.16.1 대체 unit을 가리킨다.
   - 세션 시작(F3): `authRequest`는 그대로 두고 그 `read` 콜백 안에서 처리한다. 요청은 `x-client-build`를 싣고, 426이면 `clientBuildFetch`와 같은 upgrade 처리를 하고, 성공 응답의 `build`를 `handleAdvertisedClientBuild`에 넘긴 뒤 `res.ok`를 돌려준다. 본문 읽기는 기존 timeout race 안에서 끝난다. 다른 `authRequest` 호출자는 바꾸지 않는다.
   - `authFetchOnce`(F4): 기존 `Headers`에 `x-client-build`를 넣고, 주입된 `this.fetchFn`이 돌려준 응답에 곧바로 `handleClientBuildResponse`를 적용한다. 423·인증 재시도·일시 오류 재시도의 순서와 동작은 그대로다.
-  - dirty probe(F5·F16): 1.16.1 `hasTrackedChanges` 뒤에 probe를 넣고, `pluginStorageStore`의 보류 중·진행 중 쓰기가 있으면 dirty로 본다. 그 상태를 읽을 export가 없으면 1.16.1 전용 unit으로 읽기 전용 함수를 더한다.
+  - dirty probe(F5·F16): 1.16.1 `hasTrackedChanges` 뒤에 probe를 넣고, `pluginStorageStore`의 보류 중·진행 중 쓰기가 있으면 dirty로 본다. 그 상태는 1.16.1 전용 unit이 `src/ts/plugins/pluginStorageStore.ts`에 더하는 읽기 전용 export `hasPendingPluginStorageWrites(): boolean`(보류·진행 중 쓰기가 하나라도 있으면 `true`)으로 읽는다(blind 테스트가 이 이름을 고정).
   - `node-migration-xhr-header`·`global-flush`: 내용은 같고 `requires`만 1.16.1 대체 unit을 가리킨다.
 - 나머지 52개 unit의 범위를 `['1.10.0', '1.16.1']`로 넓힌다(내용·anchor는 그대로).
 - 새 route 11개(F9의 데이터 쓰기 route)를 fence 대상으로 더한다. owned 파일 `clientBuildFence.cjs`의 1.10.0 bytes를 바꾸지 않도록 1.16.1 전용 insert unit으로 넣는다(F7의 방식). `termux-notify`·`asset-manifests/resolve`는 넣지 않는다.
