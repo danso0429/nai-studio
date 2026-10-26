@@ -6,7 +6,7 @@
 ## 1. 목표
 
 1. 1.16.1 위에서 pack 일부만 골라 적용·검사·되돌리는 maintainer용 검증 도구를 만든다. 전체 `all` graph 없이 rebase 단위마다 근거를 남기기 위해서다. 결과는 subset 근거일 뿐 qualification이 아니다.
-2. 1.16.1에서 anchor가 모두 그대로 맞는 독립 pack 7개에 1.16.1을 `reviewing`으로 선언하고, 그 도구로 검증한다.
+2. 1.16.1에서 anchor가 모두 그대로 맞는 독립 pack 6개(처음 7개, §3 개정)에 1.16.1을 `reviewing`으로 선언하고, 그 도구로 검증한다.
 
 ## 2. 확인한 사실
 
@@ -30,7 +30,7 @@
 | ID | 제목 |
 |---|---|
 | E2-1a | Subset verification harness |
-| E2-1b | Declare PocketRisu 1.16.1 for seven independent packs |
+| E2-1b | Declare PocketRisu 1.16.1 for six independent packs |
 
 ### E2-1a — Subset verification harness
 
@@ -64,12 +64,15 @@
 - 위반: 기준선의 옛 id가 세 범주 중 정확히 한 곳에 있지 않음, 알 수 없는 옛 id, 범주 간 중복, `retained` 안 중복, `added` 키와 `replaced` 값의 중복, 빈 이유·근거, 새 target에서 선택되는 unit 집합 ≠ `retained ∪ replaced 값 ∪ added`, 1.10.0 밖 target을 선언했는데 항목 없음.
 - 같은 검사기가 catalog test와 harness 2단계에 쓰인다.
 
-### E2-1b — 7개 pack 선언
+### E2-1b — 6개 pack 선언
 
-- 7개 pack의 `targets.pocketrisu.reviewing`을 `['1.16.1']`로 바꾼다. 범위 있는 unit 전부의 `targetVersions`를 `['1.10.0', '1.16.1']`로 넓힌다(`parser-hardening`은 unit을 바꾸지 않는다). 각 pack version을 patch 단위로 올린다(F7).
-- `patches/target-coverage.cjs`에 7개 pack의 1.16.1 항목(`retained: 'all'`)을 넣는다.
-- `test/catalog.test.cjs:13` 검사를 바꾼다: `reviewing: ['1.16.1']`인 pack은 정확히 이 7개다. 나머지 38개 pack의 선언·unit 해시가 기준선과 같다. 모든 pack에서 1.10.0에 선택되는 unit id 목록이 기준선과 같다.
-- 의미 검토(Astra 2026-10-26, 확인 대상): 바뀐 원본 파일의 삽입 위치에서 동작이 달라진 곳은 없었다. `fastimport-ios-picker`는 1.16.1의 저장소 초기화·preload 게이트(`plugins.svelte.ts:492`)와 함께, preload 실패 시 변환된 V2 plugin이 계속 비활성인지 테스트로 확인한다. 1.10.0 적용 결과를 바꾸지 않도록 이 테스트는 1.16.1 전용 새 owned unit(`src/ts/plugins/fastImportIOSPicker.preload.test.ts`, coverage `added`)으로 넣는다.
+**개정 (2026-10-26):** 처음 계획은 `fastimport-ios-picker`를 포함한 7개였다. 1.16.1 smoke 실행에서 fastimport의 기존 owned test(`fastimport-ios-picker:runtime-test:1.10`)가 1.16.1 `loadPlugins`의 새 식별자(`pluginStorageStore`, `v2PreloadAlertShown`) 때문에 `ReferenceError`로 실패했다. anchor 일치만으로는 `retained: 'all'`을 보장하지 못한 사례다. 사용자 결정으로 fastimport는 은퇴(E2-4 은퇴 절차)하고, E2-1b는 6개 pack만 선언하며 preload 테스트 unit은 넣지 않는다. 또 7개 pack의 기존 per-pack 테스트 9개가 옛 선언(`reviewing: []`, 옛 version, 정확히 `['1.10.0']`)을 고정하고 있어 계획에서 빠져 있었다. 이 중 fastimport 것을 뺀 8개를 새 선언에 맞게 고친다.
+
+- 6개 pack의 `targets.pocketrisu.reviewing`을 `['1.16.1']`로 바꾼다. 범위 있는 unit 전부의 `targetVersions`를 `['1.10.0', '1.16.1']`로 넓힌다(`parser-hardening`은 unit을 바꾸지 않는다). 각 pack version을 patch 단위로 올린다(F7).
+- `patches/target-coverage.cjs`에 6개 pack의 1.16.1 항목(`retained: 'all'`)을 넣는다.
+- `test/catalog.test.cjs:13` 검사를 바꾼다: `reviewing: ['1.16.1']`인 pack은 정확히 이 6개다. 나머지 39개 pack의 선언·unit 해시가 기준선과 같다. 모든 pack에서 1.10.0에 선택되는 unit id 목록이 기준선과 같다.
+- 6개 pack의 per-pack 테스트에서 옛 선언을 고정한 assertion을 새 선언으로 바꾼다.
+- 의미 검토(Astra 2026-10-26): 바뀐 원본 파일의 삽입 위치에서 동작이 달라진 곳은 없었다. A4의 실제 `pnpm test`가 최종 확인이다.
 - `charx-archive-integrity`의 zip 라이브러리 이중화는 바꾸지 않는다. frozen install은 A4에서 본다.
 
 각 단위의 commit에 patcher version(`0.2.4-experimental.89`, `.90`), CHANGELOG, `dist` 재빌드를 넣고, 각 commit 직전에 1.10.0 후보 gate를 돌린다.
@@ -77,9 +80,9 @@
 ## 4. 바뀌면 안 되는 것
 
 - 1.10.0에서 선택되는 unit과 적용 결과 source bytes·mode: pack마다 기준선과 같다. 후보 gate(1.10.0)가 직전 기준(19/19)과 같다.
-- 예외(의도한 metadata 변화): 7개 pack의 version·etag가 바뀌므로, 옛 installer로 1.10.0에 적용한 설치는 새 CLI `status`에서 이 7개가 `update-available`로 보이고, 첫 reapply는 source를 바꾸지 않고 state metadata만 갱신한다.
+- 예외(의도한 metadata 변화): 6개 pack의 version·etag가 바뀌므로, 옛 installer로 1.10.0에 적용한 설치는 새 CLI `status`에서 이 6개가 `update-available`로 보이고, 첫 reapply는 source를 바꾸지 않고 state metadata만 갱신한다.
 - 일반 installer의 `apply`·`stage`·`plan`·`revert`·`status`는 `allowInternal`을 쓰지 않는다. `qualify`는 계속 `all`만 다룬다.
-- 다른 38개 pack의 선언과 unit.
+- 다른 39개 pack의 선언과 unit.
 - live와 사용자 데이터. 이 단위는 원본 사본만 쓴다.
 
 ## 5. 수용 기준과 검사
@@ -89,12 +92,12 @@
 | A1 | `planTransition({allowInternal: true})`는 내부 pack 직접 선택을 받고, 기본값은 지금처럼 거부한다. intent를 쓰지 않는다. | 저장소 테스트 |
 | A2 | harness는 사전 검사 위반 각각, closure 미선언·소유 pack 없음/중복, coverage 위반, apply 뒤 `current` 아님, 재계획 변경, pnpm 단계 실패, 검사 중 drift, 되돌린 뒤 잔여(경로·bytes·mode·metadata·lock)를 각각 실패로 판정하고 receipt에 `failure`·`cleanup`을 남긴다. | 저장소 테스트(합성 트리, check runner 주입) |
 | A3 | coverage 검사기가 위 위반 목록을 각각 잡고, 분할·병합·추가·은퇴가 맞게 적힌 데이터는 통과시킨다. | 저장소 테스트 |
-| A4 | 7개 pack 각각과 7개 묶음을 1.16.1 원본의 새 사본에 harness로 돌려 모든 단계가 통과한다. | `scripts/qualify-subset.cjs` 실측(Node 24, gate와 같은 `NODE_OPTIONS`) |
+| A4 | 6개 pack 각각과 6개 묶음을 1.16.1 원본의 새 사본에 harness로 돌려 모든 단계가 통과한다. | `scripts/qualify-subset.cjs` 실측(Node 24, gate와 같은 `NODE_OPTIONS`) |
 | A5 | 각 commit에서 1.10.0 후보 gate 결과가 직전 기준과 같다. | `pocketrisu-candidate-gates.sh <worktree> <out>` |
 | A6a | 일반 apply 경로는 `reviewing`만 선언된 target을 거부한다(`TARGET_REVIEW_REQUIRED`). | 저장소 테스트(조합 가능한 주입 catalog) |
 | A6b | 실제 installer를 원본 1.16.1 사본에 `apply`하면 실패하고, managed source·patch state가 바뀌지 않는다. 실패 코드는 고정하지 않는다(미완 graph라 조합 오류가 먼저 날 수 있음). 진단 보고서 파일 생성은 허용한다. | 실측 |
-| A7 | 옛 catalog로 1.10.0에 적용한 상태에 새 catalog를 쓰면: source bytes·mode 그대로, 7개 pack이 `update-available`, reapply는 metadata만 바꾸고, 그 뒤 재계획 변경 0. | 저장소 테스트(합성 트리) |
-| A8 | 1.10.0 기준선 고정: 모든 pack의 1.10.0 선택 unit이 기준선과 같고, 38개 pack의 선언·unit 해시가 같다. | 저장소 테스트 |
+| A7 | 옛 catalog로 1.10.0에 적용한 상태에 새 catalog를 쓰면: source bytes·mode 그대로, 6개 pack이 `update-available`, reapply는 metadata만 바꾸고, 그 뒤 재계획 변경 0. | 저장소 테스트(합성 트리) |
+| A8 | 1.10.0 기준선 고정: 모든 pack의 1.10.0 선택 unit이 기준선과 같고, 39개 pack의 선언·unit 해시가 같다. | 저장소 테스트 |
 
 ### Test contract
 
