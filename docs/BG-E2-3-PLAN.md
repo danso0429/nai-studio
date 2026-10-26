@@ -47,11 +47,11 @@
 | reset 시 recovery row 정리·run 취소 (7760965) | 해당 없음(BG) | BG 계약(hook만 제공) |
 | fmIndex를 새·가져온 채팅에 (502dd28) | 서버 기본 채팅에 fmIndex 없음(`:6194-6195`) | 유지 |
 | patch baseline과 hash cache 단일 상태 (2bda466) | hash fold의 미보호 key·공유 namespace가 남음(`risuSave.ts:945,951,1058,1074`) | 확인 필요(C1 재현 조건) |
-| 새 설치 첫 채팅 저장 (a96becc) | 새 DB 경로가 `encodeRisuSaveLegacy({})`(`bootstrap.ts:65`) | 확인 필요 |
-| 편집 보존 중 답변 복구 (a646988) | 불명 | 확인 필요 |
-| dirty API(`requestChatSave`, `markChatDirty` 등), streaming checkpoint, 저장 재시도·지연 복구, 3-way rebase | 원본에 dirty API 없음, rebase는 `rebaseMerge.ts` | 유지 범위를 BG 사용처 기준으로 확인 필요 |
-| startup DB cache (ETag, 304) | 원본 `/api/read`에 304·`x-db-etag`(`server.cjs:4265-4268`) | 확인 필요(클라이언트가 원본 304를 쓰는지) |
-| plugin 로드를 placeholder 변환 뒤로 | 원본은 변환 전에 로드(`bootstrap.ts:131`) | 확인 필요(이유와 원본 위험) |
+| 새 설치 첫 채팅 저장 (a96becc) | 원본 patcher가 `characters`가 없으면 `[]`로 정규화한다(`risuSave.ts:1047-1051`, `globalApi.svelte.ts:735`). 첫 채팅 POST에는 404·존재 검사가 없다(`server.cjs:6418-6464`) | 원본 사용. E2-3d 테스트에서 새 설치 첫 채팅 저장을 확인한다 |
+| 편집 보존 중 답변 복구 (a646988) | 해당 없음. 고친 파일이 BG만 쓰는 `serverChatCommit.cjs`다 | BG 계약 |
+| dirty API, streaming checkpoint, 저장 재시도·지연 복구, 3-way rebase | 원본에 dirty API 없음(grep 0), rebase는 `rebaseMerge.ts`. 다른 pack 사용처: `requestImportedCharacterSave`·`requestImportedModuleSave`는 `character-import-ux`, `ChatConflictError`·`ManualSaveConflictError`·`markChatDirtyImpl`·`readServerChatSnapshot`·`confirmCurrentSnapshotOnServer`는 `lazy-chat-bg-adapter`. `requestChatSave`·`markChatDirty`·`markCharacterDirty`는 pack 안에서만 쓴다 | 다른 pack이 쓰는 export는 계약으로 유지. pack 안에서만 쓰는 것은 E2-3d에서 원본 `changeTracker`로 대체할 수 있는지 정한다 |
+| startup DB cache (ETag, 304) | 서버는 304를 지원하지만(`server.cjs:4265-4268`) 원본 클라이언트는 validator를 보내지 않고 `database.bin`의 로컬 사본도 없어, 시작할 때마다 전체를 받는다(`bootstrap.ts:61`, `nodeStorage.ts:620-631`) | 유지(독립 module `startupDatabaseCache.ts`와 bootstrap·nodeStorage의 작은 unit) |
+| plugin 로드를 placeholder 변환 뒤로 (906d4c6) | 원본은 `loadPlugins()`(`bootstrap.ts:131`)와 `await` 두 번 뒤에 stub을 변환한다(`:145-151`). 그 사이 `getChatFromIndex`는 `_placeholder`가 없는 stub을 그대로 돌려주고(`v3.svelte.ts:990`), `setChatToIndex`의 보호(`:1041`)도 통과해 plugin이 빈 채팅을 되쓸 수 있다 | 유지(bootstrap 순서 unit) |
 | plugin API v3 재작성(`pluginChatAccess`) | 원본이 1.14·1.16에서 async·placeholder 보호·plugin 목록 보호를 넣음 | 원본 사용을 기본으로 하고, 빠진 보장만 E2-7(R3)에서 정한다 |
 
 ## 4. 단위(초안)
