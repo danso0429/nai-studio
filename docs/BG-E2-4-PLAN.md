@@ -106,7 +106,8 @@ E2-0b 결정을 1.16.1 전용 계약(E2-2 계획 「공통 계약」)으로 적�
 
 ## 7. 전제 출처
 
-- 「확인함」이 아닌 행(G2, G5, G6, G8 일부, G10의 guarantee 목록, G12, G13)은 테스트를 요청하기 전에 코드 줄로 확인한다.
+- 2026-10-27 orchestrator 확인: G2(`requires`·`autoWhen`·`userSelectable`, 테스트 9개, 화면 대상 파일 2개 없음), G5(`haejeok` manifest의 `toolchain-hardening` id는 `after`용 목록), G6(`personaFolders` `:459`·`:1284`, `PromptPresetFolder` `:1089`, 원본 `imageGallery` 0), G8(client `globalApi.svelte.ts:2162-2170`, 서버 `server.cjs:7683-7693`), G10(`strict-save.txt` 본문, `persistTrackedChanges` `:1226`, `if (!saved)` `:1558`), G13(`requires: ['lazy-chat-sync']`, 원본에 진행 알림·가져오기 차단 symbol 0).
+- 남은 탐색 출처: G12의 unit별 anchor 수와 G5의 `pagefold` 줄. anchor 수는 구현 단위의 조립(compose)이 직접 측정하므로 테스트 기대에는 쓰지 않는다.
 - 측정값 없음(모두 코드 읽기). 테스트 요청 직전에 `git --no-pager diff --name-only 328f4fb..HEAD -- patches/{persona-organizer,personal-settings,haejeok-korean-search-adapter,character-organizer,character-import-ux,toolchain-hardening,fastimport-ios-picker} src/catalog.cjs`로 바뀐 경로를 확인한다.
 
 ## 8. 다음
