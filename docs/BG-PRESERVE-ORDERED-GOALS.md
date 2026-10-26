@@ -26,6 +26,7 @@
 2. **E2 선행: 1.10.0 기준 작업 통합.** patcher `68b7426`(D2·D3)을 push해 `origin/main`에 통합하고(현재 `origin/main`의 `84014e0`과 갈라져 있음), 계획 commit도 push한다. 1.10.0 기준 작업을 한 줄로 모은 뒤 rebase 기준점으로 삼는다. push는 사용자 확인 뒤 진행한다.
 3. **E2 PocketRisu 1.16.1 rebase (G2.3 진입 조건).** 공식 PocketRisu는 `v1.16.1`(2026-10-24)까지 배포됐고, `v1.10.0...v1.16.1`은 392 commit·300개 이상 파일 변경이다(GitHub compare, 파일 목록 상한 300). BG만이 아니라 patcher 전체 pack의 target 이전이다. 1.9 → 1.10 때처럼 별도 rebase audit 문서를 정본으로 두고, 이 계획은 그 결과를 선행 조건으로 참조한다. 같은 target을 쓰는 Kei 통합 트랙의 순서와도 함께 정한다. D2·D3를 포함한 BG 검증은 1.10.0 기준 관찰값이라 1.16.1에서 다시 검증한다.
 4. **그 뒤** G2.3 이후 단계와 RCM 운영 설치를 진행한다.
+   - **플러그인 host를 live에서 켜기 전 확인 (E1 결과):** ① live의 lazy-chat-bg-adapter가 0.7.83 이상인지 확인한다(E1-1 sandbox Node 24 허용 포함, `bgPluginSandbox.cjs:32`). 0.7.62 이하는 Node 24에서 sandbox를 `plugin_sandbox_environment_unsupported`로 거절해 플러그인이 실행되지 않는다. E2 결과물을 live에 적용하면 충족된다. ② Node 24에서 플러그인 네트워크 차단은 커널 network namespace 한 겹이라는 한계(E1 계획 §4)를 받아들인 상태인지, 재검토 트리거(업스트림 Node 26 전환, Node 24 지원 종료 접근, namespace 격리 우회 사례)가 생기지 않았는지 확인한다.
 
 이전 상태 (2026-10-23): G2.2 진행 중. 완료한 하위 단위는 다음과 같다.
 
