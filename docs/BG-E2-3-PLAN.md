@@ -92,7 +92,7 @@
 
 ## 5. BG와 다른 pack에 제공할 계약
 
-- symbol: `serverChatCommit`(input·commit owner), `chatWriteJournal`(prefix, `resetMemory`, 복구), storage epoch(`internal/storage-epoch/v1`), `writerSession` helper, `sessionLock.invalidateBefore`, reset 시 BG run 취소 hook, `storageResetActive`·`storageResetGeneration`·`importInProgress`(snapshot lazy adapter의 `fragments/server-helpers.cjs.txt:111,125`, `server-backup-snapshot-core/adapter-manifest.cjs:144-149`), BG 초기화가 쓰는 `decodeDatabaseWithPersistentChatIds`·`cacheStrippedDatabase`·`scheduleChatStorePersist`·`readStorageEpoch`·`chatRevision`과 canonical store·queue 접근(H23).
+- symbol: `serverChatCommit`(input·commit owner), `chatWriteJournal`(prefix, `resetMemory`, 복구), storage epoch(`internal/storage-epoch/v1`), `writerSession` helper, `sessionLock.invalidateBefore`, reset 시 BG run 취소 hook, `storageResetActive`·`storageResetGeneration`·`importInProgress`(snapshot lazy adapter의 `fragments/server-helpers.cjs.txt:111,125`, `server-backup-snapshot-core/adapter-manifest.cjs:144-149`), BG 초기화가 쓰는 `decodeDatabaseWithPersistentChatIds`(원본에도 있음, `server.cjs:552`)·`cacheStrippedDatabase`·`scheduleChatStorePersist`·`readStorageEpoch`·`chatRevision`과 canonical store·queue 접근(H23). BG adapter의 클라이언트 unit이 쓰는 `markChatDirtyImpl`, `readServerChatSnapshot`, `confirmCurrentSnapshotOnServer`, `ChatConflictError`, `ManualSaveConflictError`(§3 dirty API 행, d12와 같은 목록).
 - 이름만이 아니라 동작을 계약으로 둔다: reset hook의 호출 순서(교체 transaction 안의 durable 복구 행 삭제, commit 뒤 메모리 공개), 이전 epoch commit 거부, generation 비교의 의미. E2-7은 이 동작에 붙는다.
 - unit id: H8의 `requires` 대상 id는 바꾸지 않는다. 바꿔야 하면 사용처 pack의 rebase 단위에서 함께 고친다.
 
