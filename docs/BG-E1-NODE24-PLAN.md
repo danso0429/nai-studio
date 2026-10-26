@@ -1,6 +1,6 @@
 # E1 계획 — Node 24 LTS 전환
 
-**상태 (2026-10-26 KST):** 계획 작성, Astra 계획 검수 2회 반영(§9). E1-1 완료(patcher `7c84a00`, 0.2.4-experimental.88: gate 24·25 각 19/19, probe sandbox 17/17·worker 12/12·host 197/197 양쪽 동일, Codex 코드 검수 지적 0건). E1-2 완료(Node 24 전역 도구 4종 설치, PM2 daemon 무변경). E1-3 이후 미착수, live 변경 전. 정본: [ordered goals](BG-PRESERVE-ORDERED-GOALS.md) 머리말 「G2.2 뒤 다음 순서」 E1.
+**상태 (2026-10-26 KST):** 계획 작성, Astra 계획 검수 2회 반영(§9). E1-1 완료(patcher `7c84a00`, 0.2.4-experimental.88: gate 24·25 각 19/19, probe sandbox 17/17·worker 12/12·host 197/197 양쪽 동일, Codex 코드 검수 지적 0건). E1-2 완료(Node 24 전역 도구 4종 설치, PM2 daemon 무변경). E1-3~E1-6 완료, live가 Node 24.22.1로 동작한다. 결과는 §10. 정본: [ordered goals](BG-PRESERVE-ORDERED-GOALS.md) 머리말 「G2.2 뒤 다음 순서」 E1.
 **위험 분류:** risky. live 런타임·PM2·systemd unit·전역 셸 설정을 바꾸는 install/revert 성격이고, patcher의 플러그인 sandbox 보안 경계 코드를 바꾸는 단위(E1-1)를 포함한다.
 
 ## 1. 목표
@@ -36,7 +36,7 @@
 | F11 | 후보 gate는 25·24·26 모두 19/19 PASS이고 개수가 같다(client 2664/4, server 836/12, compat 123/5, repo 348/3, build 8033 modules). gate와 `run-probe.sh`는 web storage를 끄고 실행한다. | 실측 2026-10-26, patcher `6737534` |
 | F12 | sandbox probe는 25에서 15/15, 24에서 0/15(F8의 거절), 26에서 1/15다. worker probe는 25에서 12/12, 24·26에서 2/12. host probe는 25에서 197/197이고 24·26에서는 600초 시한에 걸렸다. process probe는 합성 fixture가 없어 세 버전 모두 미측정이다. | 실측 2026-10-26 |
 | F13 | sandbox probe의 fixture는 네트워크 차단을 `error.cause?.code === 'ERR_ACCESS_DENIED'`일 때만 성공으로 기록하고, probe는 `network: true`를 요구한다. 버전 조건만 낮추면 Node 24에서 namespace가 정상 차단해도 이 테스트는 실패한다. | `scripts/fixtures/bg-plugin-sandbox-worker.cjs:20-21`, `scripts/probe-bg-plugin-sandbox.cjs:31` |
-| F14 | 네이티브 모듈 18개(11 패키지) 중 Node ABI에 묶인 것은 better-sqlite3 12.9.0이다. 24에서는 prebuild(ABI 137)가 설치되고, 18개 모두 로드되며 SQLite 쓰기·롤백이 정상이다. live의 기존 바이너리(ABI 141)는 24에서 로드되지 않는다. | 실측 2026-10-26, 2026-10-21 기록 |
+| F14 | 네이티브 모듈 18개(11 패키지) 중 Node ABI에 묶인 것은 better-sqlite3 12.9.0이다. 24에서는 prebuild(ABI 137)가 설치되고 SQLite 쓰기·롤백이 정상이다. 18개 중 7개는 다른 플랫폼용(darwin·win32·linux x64·musl)이라 24·25 모두에서 로드되지 않고, 이 기계용 11개는 24·25 모두 로드된다(E1-3 정정). live의 기존 바이너리(ABI 141)는 24에서 로드되지 않는다. | 실측 2026-10-26, 2026-10-21 기록 |
 | F15 | BG 번들은 `localStorage`를 자체 KV shim으로 항상 덮어쓰고, `sessionStorage`가 없을 때만 그 shim을 `sessionStorage`로도 쓴다. 24에는 전역 web storage가 없어 BG 번들의 `sessionStorage`가 25와 다른 객체가 된다. 검수에서 확인한 사용처(ID 생성 보관·화면 복귀·reload guard·CSS 복구 표식)에서 BG 회귀는 확인되지 않았고, plugin worker VM에는 sessionStorage가 없다. | live `server/node/bgOrchBundle.build.cjs:139-148`, `nodeStorage.ts:203-212`, `bgPluginWorker.cjs:944-949` |
 | F16 | 공식 PocketRisu는 v1.10.0·v1.16.1 모두 Dockerfile `node:24-slim`, CI `node-version: 24`이고, 1.16.1 lockfile도 better-sqlite3 12.9.0이다. patcher CI는 Node 22로 돈다. | GitHub v1.10.0/v1.16.1 원문 2026-10-26, patcher `.github/workflows/ci.yml:22` |
 | F17 | 최근 검증된 백업 세트: 2026-10-25 save tar와 bin 백업이 원격에 크기 일치로 있다. 디스크 사용률 48%. sudo는 비대화식으로 가능하다. | 2026-10-26 확인 |
@@ -193,3 +193,21 @@ validation-runner가 세션 scratchpad 안에서만 수행한다.
 등록 재생성에 필요한 설정 목록(사전 확인 5), PM2 숫자 ID 비보존, `pm2 startup`의 동작과 PATH 고정, logrotate가 dump가 아닌 `module_conf.json`으로 되살아난다는 점도 반영했다.
 
 검수의 추가 판단도 반영했다: Node 24에서 sandbox·worker·host·session이 쓰는 다른 API에서 Node 25 전용 의존은 찾지 못했다(버전 조건 해제 뒤 전체 통과는 E1-1에서 측정). 운영과 같은 `NODE_OPTIONS`로 비교한다(E1-3 3번). live DB 사본은 `db.cjs`를 쓰지 않는 읽기 전용 `backup()`으로 만든다(F19). patcher CI의 Node 22 범위를 문서에 적는다.
+
+## 10. 결과 (2026-10-26)
+
+| 단위 | 결과 |
+|---|---|
+| E1-1 | patcher `7c84a00`(0.2.4-experimental.88, adapter 0.7.83), push, CI success. 흐름: Argon 시나리오(범위 밖 2건 제외, 기대값 일부 조정) → Codex 블라인드 테스트(구현 전 통과하던 `[new]` 3건을 `[unchanged]`로 태그만 정정) → opus-implementer → Codex 코드 검수 지적 0건. gate Node 24·25 각 19/19(client 2664/4, server 836/12, compat 123/5, 8033 modules, repo 359/3 = F11의 348에 새 시험 11개). probe Node 24·25 각 sandbox 17/17, worker 12/12, host 197/197. 기존 fixture는 live 포트(6001)로 요청했으나, 새 판정은 probe가 연 listener만 쓴다. |
+| E1-2 | Node 24 전역: pm2 6.0.14, pnpm 10.33.0, typescript 7.0.2, typescript-language-server 6.0.2. 설치 중 PM2 daemon 무변경. opencode CLI는 설치하지 않았다(§2). |
+| E1-3 | live 앱 트리 사본(save·backups 제외)을 Node 24용(오프라인 frozen install, better-sqlite3 ABI 137)과 Node 25용으로 따로 만들어 비교. 기동·`/`·인증·채팅 읽기와 쓰기·KV·WebSocket relay·가짜 provider BG 생성·host OFF 알림 27/27, 버전마다 3회 같은 결과. sessionStorage는 25에서 native 객체, 24에서 BG shim이며 BG 결과는 같다(F15). live DB 5개의 읽기 전용 `backup()` 사본을 Node 24로 열어 `quick_check`·`integrity_check` 모두 ok, 사본은 삭제. 합성 save 기준 start→listen 약 0.3초. |
+| E1-4 리허설 | 시험용 unit과 임시 PM2 home에서 창 순서와 rollback 두 경로(Node 24 정상 상태, daemon 미기동 상태)를 실행. 모든 readback이 계획과 같았고, rollback 중 `pm2` 명령은 필요 없었다. 확인한 제약: PM2 home 경로가 길면 unix socket 경로 한도를 넘어 daemon이 뜨지 않는다. sudo `pm2 startup`은 PM2 home에 `logs/`·`pids/`·`touch`가 없으면 그것들을 root 소유로 만든다(live에는 셋 다 사용자 소유로 있어 해당 없음). 생성되는 unit의 PATH는 호출한 셸의 PATH를 따르므로 명시해야 한다. |
+| E1-4 live | 사전 확인: Active requests 0, 앱 TCP 연결 0, model job 진행 0, BG operation은 delivered 185·cancelled 4·chat-committed 1(전달만 남은 저장 완료 상태). 복구점: 새 `pm2 save` 뒤 dump·`module_conf.json`·unit·Node 25용 바이너리·`.profile`·nvm alias를 SHA-256과 함께 백업, 정지 상태 save 사본을 `backups/` 아래에 만듦(883M, diff 없음). 창: 04:31:55–04:38:21 UTC. readback: unit MainPID가 새 daemon, daemon·logrotate·앱 모두 Node 24.22.1, 앱이 unit cgroup 안, stopped 앱 2개 유지, 앱 online·재시작 0, `/` 200, 제공 JS hash 전환 전과 같음, DB 5개 `quick_check` ok, error log 증가 0, root 소유 파일 0, 등록 설정 차이 없음, 앱 env는 HOME·USER·LOGNAME·LANG·PATH와 PM2가 넣는 키뿐(상속 세션 변수 제거). |
+| E1-5 | nvm default `24.22.1`, `.profile`은 default alias가 가리키는 버전을 쓰고 없으면 설치된 최신 버전으로 돌아간다. 새 로그인 셸·그 자식 셸·로그인 대화식 셸은 24, 전환 전에 시작한 세션에서 연 셸은 25(설계대로). crontab에 Node를 쓰는 작업 0. |
+| E1-6 | gate 기준값: Node 24에서 위 E1-1의 개수. Codex tester sandbox(codex-cli 0.164.0)를 Node 24로 재확인: 자기 loopback 연결, 호스트 6001 `ECONNREFUSED`, 외부 HTTPS 차단, 오프라인 frozen install 성공(better-sqlite3 ABI 137 로드). |
+
+남은 조건과 한계:
+- live 플러그인 host는 꺼져 있다. 켜기 전에 adapter 0.7.83 이상을 live에 적용해야 한다. 0.7.62에서는 Node 24에서 sandbox가 거절된다.
+- Node 24에서 플러그인 네트워크 차단은 커널 namespace 한 겹이다(§4).
+- stopped PM2 앱 2개의 dump interpreter는 `node`(PATH 해석)로 남아, 다시 시작하면 daemon PATH의 Node 24를 쓴다.
+- rollback 자료는 앱의 `backups/` 아래 `e1-node24-rollback-20261026T043155Z/`(전환 직전 dump·`module_conf.json`·unit·Node 25용 바이너리·`.profile`·nvm alias, SHA256SUMS)와 `e1-node24-save-20261026T043210Z/`(정지 상태 save 사본)에 있다. Node 25용 바이너리는 원래 위치에도 `better_sqlite3.node.node25-e1`로 남아 있다. 기존 백업 정리 기준으로 다룬다.
