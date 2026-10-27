@@ -197,6 +197,14 @@ E2-3c 구현 착수 때 정한 사항(근거: 구현자 사전 조사와 orchest
 - `/api/write` 불변식에서 채팅 본문이 있다고 보는 경우: chat store의 본문, 쓰기에 함께 실린 본문(stub이 아닌 채팅), 그 캐릭터의 archive 행. archive 행을 빼면 원본 archive 복원이 막힌다(u3).
 - d5 fixture `{_stub:true, message:[]}`는 원본이 본문 있는 빈 채팅으로 다룬다(`server.cjs:669-684` `chatToStub`, `:695-723` `initChatStore`). test 결함이므로 test 작성자가 `message` 없는 stub으로 고친다. 원본 hybrid 처리는 바꾸지 않는다.
 - d13의 마지막 경로(plugin이 읽지 않고 바로 쓰기)는 3-way 기준이 없으므로 서버 사본과 revision을 기준으로 받아 plugin이 준 내용을 저장한다(1.10 pack과 같음). plugin API 재작성은 E2-7이다.
+- `/api/write` 불변식은 `message` 배열을 실은 stub(원본 hybrid)을 본문 있는 채팅으로 센다. `/api/patch`는 d15b대로 정규 stub이 아닌 채팅을 거부한다.
+
+**저장 기준 규칙 (2026-10-27, 코드 검수 2회 뒤 구조 수정).** 기준 revision을 채팅 id마다 하나만 기억하고 저장 때 그 키로 찾으면, 오래된 view가 나중에 갱신된 revision을 달고 저장되어 서버의 새 내용을 지운다. 코드 검수가 세 경로를 재현했다: 같은 채팅을 두 번 전체 읽은 뒤 첫 view 저장, 전체 읽기 뒤 delta hydration이 기준을 바꾼 다음 앞 view 저장, 열려 있지 않은 채팅에 대한 plugin 쓰기 두 개가 큐에서 기다리는 사이 앞 저장의 rebase가 기준을 올림. 1.10 pack의 view 표식(`files-1.10/src/ts/storage/nodeStorage.ts:1139`, `:410`)은 DB 교체 때만 바뀌는 토큰이라 이 경로들을 막지 못한다. 원본 1.16.1은 delta 조립·plugin snapshot·복구 job에서 객체를 새로 만들거나 다시 읽으므로(`chatDeltaSync.ts:67`, `v3.svelte.ts:990`, `jobRecovery.ts:209`) 객체 identity도 view를 구분하지 못한다. 규칙:
+  - 저장은 보내는 내용과 그 내용의 기준 revision·기준 snapshot을 한 묶음(저장 문맥)으로 들고, 큐 대기·delta에서 전체 전송으로의 전환·재시도 동안 바꾸지 않는다. 채팅 id로 찾은 최신 revision을 쓰지 않는다. 기준은 그 내용이 서버에 반영되었거나 rebase가 확인된 뒤에만 앞으로 간다.
+  - 열린 채팅의 자동 저장은 큐 작업이 시작될 때 현재 내용과 그 기준을 함께 잡는다. 열려 있지 않은 채팅의 plugin 쓰기와 복구 job은 큐에 넣기 전에 snapshot과 그 기준을 잡는다.
+  - 기준은 받은 내용이 실제로 화면 slot에 설치될 때만 갱신된다. 설치되지 않고 버려진 hydration은 기준을 바꾸지 않는다. export 같은 읽기 전용 읽기는 열린 채팅의 기준을 바꾸지 않는다.
+  - rebase 결과를 slot에 반영하는 것은 별도 확인(같은 채팅 id, 그 사이 slot 교체 없음)을 거친다. 기준을 모르거나 잃은 저장은 서버 내용을 그대로 덮지 않고 서버 사본을 받아 rebase하거나 충돌로 끝난다.
+  - 테스트: 위 세 경로, 열린 채팅의 연속 자동 저장(거짓 충돌 없음), 편집과 저장 사이의 export, 버려진 hydration. 은퇴한 `chatSaveView.svelte.test.ts`는 slot 반영만 다루므로 이 규칙의 근거가 아니다.
 
 ### §6 보존 항목 (해당 기능을 건드리는 단위마다)
 
