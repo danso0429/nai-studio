@@ -189,6 +189,15 @@ E2-3c 구현 착수 때 정한 사항(근거: 구현자 사전 조사와 orchest
 | d16 | 저장된 DB에 id 없는 채팅·중복 id가 있는 상태에서 서버 시작 뒤 원본 저장 경로로 다른 변경을 저장 | 옛 DB | 원본 decode가 id를 고친 뒤라 저장은 200이고 그 채팅들은 남는다(원본 동작 보존) | - |
 | d17 | 원본 클라이언트의 정상 저장(stub 유지, 새 채팅 추가) | 같은 상태 | 200, 원본과 같은 ETag 계산(`/api/write`) | - |
 
+**E2-3d 구현 중 정한 사항 (2026-10-27).** 첫 구현이 d2·d15와 기존 테스트의 충돌로 멈춘 뒤 코드로 확인해 정했다.
+
+- d2(base revision 없는 전체 POST는 428)는 그대로 둔다. 원본 클라이언트의 채팅 쓰기는 원본 transport 두 개를 지나므로(H22) 그 경로는 revision을 보낸다. 1.11-1.16에서 생긴 원본 test(`test/compat/chat-delta-sync`·`chat-store-cold-load`·`character-archive`, `server/node/archiveRestore.test.ts:389`)는 HTTP로 직접 덮어쓰며 revision을 보내지 않는다. 1.10 pack은 이 test들을 만난 적이 없다(1.10.0 트리에 없음). 이 pack이 그 test들을 `rewritten` unit으로 고쳐, 덮어쓰기 전에 GET으로 받은 revision을 보내고 새 채팅은 `If-None-Match: *`를 보낸다. assertion과 기대값은 바꾸지 않는다.
+- E2-3b 고정 test(`restart-durability.e2-3.test.ts`의 b1, b5)는 E2-3d 이전 규약으로 작성되어 revision 없이 덮어쓴다. test 작성자가 구현 없는 트리에서 `readChat`이 받은 revision을 보내도록 고친다(사후 보정 규칙).
+- d15(payload 없는 새 채팅은 422)는 그대로 둔다. 원본 server test(`duplicateIds`·`archiveBatch`·`archiveRestore`)는 "디스크에 이미 있는 상태"를 만들려고 `seedDb`에서 `/api/write`를 쓴다(`duplicateIds.test.ts:167-169`). 검사 대상은 load 때의 복구라서, 이 pack이 그 helper만 `rewritten` unit으로 고쳐 서버 시작 전에 저장소에 직접 쓴다. assertion은 바꾸지 않는다. 불변식에 "이전 DB가 없는 첫 쓰기" 같은 예외는 두지 않는다.
+- `/api/write` 불변식에서 채팅 본문이 있다고 보는 경우: chat store의 본문, 쓰기에 함께 실린 본문(stub이 아닌 채팅), 그 캐릭터의 archive 행. archive 행을 빼면 원본 archive 복원이 막힌다(u3).
+- d5 fixture `{_stub:true, message:[]}`는 원본이 본문 있는 빈 채팅으로 다룬다(`server.cjs:669-684` `chatToStub`, `:695-723` `initChatStore`). test 결함이므로 test 작성자가 `message` 없는 stub으로 고친다. 원본 hybrid 처리는 바꾸지 않는다.
+- d13의 마지막 경로(plugin이 읽지 않고 바로 쓰기)는 3-way 기준이 없으므로 서버 사본과 revision을 기준으로 받아 plugin이 준 내용을 저장한다(1.10 pack과 같음). plugin API 재작성은 E2-7이다.
+
 ### §6 보존 항목 (해당 기능을 건드리는 단위마다)
 
 | # | 입력 | 기존 상태 | 기대 결과 | 범위 밖 |
