@@ -161,7 +161,9 @@ E2-3c 구현 착수 때 정한 사항(근거: 구현자 사전 조사와 orchest
 - 입구 gate의 멈춤 지점: `checkActiveSession`은 동기이므로 admission gate는 요청이 `queueStorageOperation`에 들어가는 자리에서 멈추고, 실행 때 generation을 다시 확인한다. queue를 거치지 않는 route(`remove`, `backup-delete`)는 입구 검사만 한다.
 - session lock: `invalidateBefore(t)` unit 하나를 1.16.1의 `revokeAll` 의미 위에 다시 쓰고(`rewritten`), 나머지 1.10 unit 4개는 `retired`로 둔다.
 - c9: `lazy-chat-sync`만으로 도는 사례만 넣는다(`client-build-fence`와 함께 조립하는 것은 E2-6 뒤). revision CAS는 E2-3d, BG는 E2-7, backup export·backup source gate는 E2-6이다.
-- 고정 테스트 결함 2건(테스트 작성자가 구현 없는 트리에서 고친다): c7은 원본 `/api/write`가 DB를 바로 쓰고 debounce timer를 지우므로(`server.cjs:4664-4680`) `db-persist` gate에 닿지 않는다. debounce를 거는 쓰기(`/api/patch` 또는 채팅 POST)로 바꾼다. c6의 둘째 테스트는 `owners: []`로 보내 epoch 검사 전에 요청 형식 오류로 거부된다(`serverChatCommit.cjs:511-513`). 형식이 맞는 요청으로 바꾼다.
+- 계정 적용도 reset이므로(b5) 적용 중에는 reset 상태가 켜지고 `/api/db/flush`는 503 `STORAGE_RESET_IN_PROGRESS`(재시도 가능)를 받는다. 다운로드 단계의 flush는 c8대로 원본과 같다.
+- pack version은 E2-3 단위 동안 0.5.20을 유지한다. 1.16.1은 `reviewing`이라 단위 사이의 설치본이 없고, version은 저장소 테스트 두 곳이 고정한다. patcher release version은 단위마다 올린다.
+- 고정 테스트 결함(테스트 작성자가 구현 없는 트리에서 고친다): c7은 원본 `/api/write`가 DB를 바로 쓰고 debounce timer를 지우므로(`server.cjs:4664-4680`) `db-persist` gate에 닿지 않는다. debounce를 거는 쓰기(`/api/patch` 또는 채팅 POST)로 바꾼다. c6의 둘째 테스트는 `owners: []`로 보내 epoch 검사 전에 요청 형식 오류로 거부된다(`serverChatCommit.cjs:511-513`). 형식이 맞는 요청으로 바꾼다. 구현 뒤 확인에서 세 건이 더 나왔다. c1과 c4a의 `/api/db/flush`가 세션 쿠키 없이 보내져 원본 `sessionAuthMiddleware`의 401을 받는다(compat의 flush는 실제 세션 쿠키가 필요하다). c4a는 실패한 reset 응답에 `ok: false`를 기대하지만 원본 실패 응답은 `{error}`이고 계약(c4a)은 응답 모양을 정하지 않는다. c4b는 `/api/read` 결과를 `/api/write`로 쓴 전체 DB와 byte 단위로 비교하지만 원본 `/api/read`는 stub으로 줄인 DB를 돌려주므로 reset 없이도 같지 않다(구현자 측정 439 vs 569 byte). 비교 기준을 실패 전의 `/api/read` 결과로 바꾼다.
 
 ### E2-3d
 
