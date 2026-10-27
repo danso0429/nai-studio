@@ -68,6 +68,10 @@ E2-0b 결정을 1.16.1 전용 계약(E2-2 계획 「공통 계약」)으로 적�
 - E2-4c: 원본과 겹치는 unit(폴더 필드·interface·폴더 UI·picker 전체 교체·export 이미지)은 `retired` 또는 원본 위 작은 unit으로 `replaced`, 남기는 기능은 원본 화면 위 unit으로 다시 쓴다. asset 보호는 client(`getUncleanables`, `replaceDbResources`), 서버(`buildUncleanableSet`, manifest 참조), backup, 계정 가져오기 walker(`listAccountAssetKeys`, G16) 네 곳에 더한다.
 - E2-4d: route 상수를 90으로, 메뉴·render unit을 원본 1.16.1 글귀에 맞게, 접근성 unit 2개를 원본 `SettingRowLayout`에, 저장 경로 unit을 G10 자리에 다시 쓴다. 두 번 나오는 anchor는 형제 unit의 `before`·`after`와 `anchorPolicy`로 순서를 고정한다.
 - E2-4e: E2-3 commit 뒤. anchor 9개를 다시 쓰고 `lazy-chat-sync`의 1.10 unit id를 가리키는 `after`를 E2-3의 unit id로 바꾼다.
+- 테스트 인터페이스(blind 테스트가 고정함):
+  - E2-4b: 원본 `matchesSearch(name, search)`는 그대로 export되어 동작한다. pack은 `src/ts/characterManager.ts`에 `matchesCharacterSearch(entry, search)`를 더하고, 결과는 원본 `matchesSearch(entry.name, search)`와 pack matcher(이름·제작자·태그)의 OR다. `ManagerEntry`에는 선택 필드 `creator?: string`, `tags?: string[]`가 붙고 활성 character의 `creator`·`tags`(`database.svelte.ts:1794-1795`)로 채운다. `CharacterManager.svelte`의 두 호출 자리가 이 함수를 쓴다. matcher module `haejeokKoreanSearch.ts`의 export는 그대로다.
+  - E2-4c: pack module `personaOrganizer.ts`·`personaImages.ts`의 export 이름과 1.10 데이터 필드 이름은 그대로다(1.10 pack 테스트와 `files-1.10/test/compat/persona-assets-1.10.test.ts`가 쓰는 이름).
+  - E2-4d: `SettingsRoute.Personal`의 값이 90이다. 개인 설정 저장 module의 export 이름은 1.10 pack과 같다(`appearancePersistence.test.ts`가 쓰는 이름). 원본 `persistTrackedChanges`의 strict option 이름은 `personalStrict`다.
 - 각 단위는 E2-2 「공통 계약」을 따른다(1.16.1만 `reviewing`, unit 범위 없음, coverage, commit마다 검사, 손댄 pack closure의 subset harness).
 - 계산된 `after`(G17, E2-5 M9): commit은 자기 변경이 일으키는 manifest의 실제 변화를 모두 그 commit에서 처리한다. 다른 pack의 unit이 계산된 `after` 때문에만 바뀌면(파일 내용은 그대로), 그 commit에서 생성된 unit hash를 기준선과 비교하고, 바뀐 pack이 아직 rebase하지 않은 pack이면 E2-3b의 `lazy-chat-bg-adapter` 예외처럼 unit id·version 비교만 남기는 예외와 이유를 같은 commit에 적는다. E2-4d에서 `personal-settings` unit의 id·파일·순서가 바뀌면 `lazy-chat-bg-adapter`(이미 예외)에 해당한다.
 
