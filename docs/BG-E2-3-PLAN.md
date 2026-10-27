@@ -204,7 +204,8 @@ E2-3c 구현 착수 때 정한 사항(근거: 구현자 사전 조사와 orchest
   - 열린 채팅의 자동 저장은 큐 작업이 시작될 때 현재 내용과 그 기준을 함께 잡는다. 열려 있지 않은 채팅의 plugin 쓰기와 복구 job은 큐에 넣기 전에 snapshot과 그 기준을 잡는다.
   - 기준은 받은 내용이 실제로 화면 slot에 설치될 때만 갱신된다. 설치되지 않고 버려진 hydration은 기준을 바꾸지 않는다. export 같은 읽기 전용 읽기는 열린 채팅의 기준을 바꾸지 않는다.
   - rebase 결과를 slot에 반영하는 것은 별도 확인(같은 채팅 id, 그 사이 slot 교체 없음)을 거친다. 기준을 모르거나 잃은 저장은 서버 내용을 그대로 덮지 않고 서버 사본을 받아 rebase하거나 충돌로 끝난다.
-  - 테스트: 위 세 경로, 열린 채팅의 연속 자동 저장(거짓 충돌 없음), 편집과 저장 사이의 export, 버려진 hydration. 은퇴한 `chatSaveView.svelte.test.ts`는 slot 반영만 다루므로 이 규칙의 근거가 아니다.
+  - plugin 경로(코드 검수 3회차): plugin은 iframe과 `postMessage`로 채팅을 주고받아(`factory.ts`) 객체가 복제되므로, view에 묶은 기준이 경계를 넘지 못한다. host는 `getChatFromIndex`로 채팅을 넘길 때 그 revision과 snapshot을 채팅마다 기록하고, `setChatToIndex` 저장은 그 기록 중 가장 이른 것을 기준으로 쓴다(오래된 기준의 3-way rebase는 그 사이 서버에 더해진 내용을 남긴다. plugin이 두 번 읽은 뒤 그 사이 메시지를 일부러 지우면 되살아날 수 있으나 데이터를 잃지 않는다). 기록이 없으면 d13의 "읽지 않고 쓰기"다. plugin 경로와 그 밖의 기준 없는 저장은 slot의 기준을 대신 쓰지 않는다. 기준 없는 일반 저장은 서버 사본을 받아 rebase하거나 충돌로 끝난다.
+  - 테스트: 위 세 경로, 열린 채팅의 연속 자동 저장(거짓 충돌 없음), 편집과 저장 사이의 export, 버려진 hydration, 복제되어 돌아온 plugin view(그 사이 hydration으로 slot 기준이 바뀜). 은퇴한 `chatSaveView.svelte.test.ts`는 slot 반영만 다루므로 이 규칙의 근거가 아니다.
 
 ### §6 보존 항목 (해당 기능을 건드리는 단위마다)
 
