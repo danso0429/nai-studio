@@ -45,6 +45,7 @@
 - E2-6b: E2-3 구현 뒤. `after`의 `lazy-chat-sync` 1.10 id를 E2-3의 unit id로 바꾼다. compat `backup-point-in-time`을 이 pack의 unit으로 다시 넣는다.
 - E2-6c: E2-3 뒤(lazy adapter가 `lazy-chat-sync`를 `autoWhen`으로 요구). compat `storage-reset-b1a`의 capture·reset 배제 부분을 나눠 넣는다(E2-3 c9와 나눈 경계를 따름).
 - E2-6d: E2-3e(`writerSession`)와 E2-6a·E2-6c 뒤. Kei fence adapter는 E2-6a가 원본 호출을 덮은 뒤에도 Kei가 바꾼 글귀에만 header를 다는지 확인한다(같은 요청에 header가 두 번 붙지 않게).
+- E2-6a와 Kei pack의 글귀 소유(계획 검수 2026-10-27 뒤 확인): Kei core의 snapshot 재시도 unit은 원본 snapshot `fetch` 블록 전체를 anchor로 바꾸고(`kei-backup-restore-safety-core/manifest.cjs:128`), Kei lazy adapter는 원본 backup import XHR의 header 블록을 바꾸며(`adapter-manifest.cjs:576`), Kei fence adapter는 그 결과 뒤에 header를 하나 더 넣고(`client-build-fence-kei-lazy-storage-adapter/manifest.cjs:24`) `xhr.onload` 바로 뒤의 상태 검사를 anchor로 쓴다(`:36`). 정한 소유: E2-6a가 원본 두 호출의 header와 응답 처리를 가진다. E2-6c·E2-6d에서 Kei unit은 E2-6a의 결과 글귀를 anchor로 다시 쓰고 E2-6a unit을 `after`로 둔다. Kei fence adapter는 E2-6a가 이미 덮은 요청에 header·처리를 더하지 않는다. 지금은 Kei pack이 1.10만 선언해 1.16.1에서 함께 고를 수 없으므로, 함께 설치한 조립 결과는 E2-6d에서 확인한다(a3).
 
 ## 5. 바뀌면 안 되는 것
 
@@ -60,8 +61,9 @@
 | # | 단위 | 입력 | 기존 상태 | 기대 결과 | 범위 밖 |
 |---|---|---|---|---|---|
 | a1 | E2-6a | fence만 설치(Kei 없음), build stamp 있음, 같은 build의 클라이언트가 backup import·snapshot restore | - | `x-client-build`가 실려 서버가 받아들인다 | - |
-| a2 | E2-6a | 다른 build의 클라이언트가 같은 요청 | stamp 불일치 | 426, 클라이언트는 upgrade 처리(dirty probe 규칙대로) | - |
-| a3 | E2-6a | Kei restore safety와 Kei fence adapter도 설치 | - | 요청마다 header가 한 번만 실리고 결과는 a1·a2와 같다 | - |
+| a2 | E2-6a | 다른 build의 클라이언트가 snapshot restore, 그리고 backup import의 준비 요청 | stamp 불일치 | 426, 클라이언트는 upgrade 처리(dirty probe 규칙대로) | - |
+| a2b | E2-6a | backup import의 준비(`/api/backup/import/prepare`)는 성공하고 업로드 XHR만 426 | 업로드 시점에 stamp 불일치 | XHR 426에서 upgrade 처리를 하고 가져오기 promise가 거부된다. 원본 흐름은 준비가 먼저 끝나야 XHR을 만든다(`nodeStorage.ts:1063`, `:1070`) | - |
+| a3 | E2-6d | Kei restore safety와 Kei fence adapter도 설치(Kei pack rebase 뒤) | - | 조립이 실패하지 않고, 요청마다(Kei 재시도 요청 포함) header 쓰기와 응답 처리가 한 번씩이며 결과는 a1·a2·a2b와 같다 | - |
 | b1 | E2-6b | backup 저장·export 중 다른 쓰기가 계속됨 | 쓰기 진행 | 결과 파일은 시작 시점 한 상태다(동시 쓰기의 일부만 섞이지 않음) | - |
 | b2 | E2-6b | export 내용 | asset manifest·plugin 값·archive 있음 | 원본 export와 같은 항목이 들어 있다 | - |
 | b3 | E2-6b | backup reader가 열려 있는 동안 optimize·wal-checkpoint·rotation | - | reader가 끝날 때까지 maintenance가 기다리거나 거부하고, reader의 내용은 바뀌지 않는다 | - |
@@ -84,4 +86,4 @@
 
 ## 8. 다음
 
-E2-6a는 E2-3과 무관하므로 E2-4·E2-5와 같은 때에 계획 검수를 받는다. E2-6b-d는 E2-3 구현 뒤 계획을 다시 확인하고 검수한다.
+E2-6a 계획 검수 1회차(2026-10-27, 근거 묶음 방식)의 지적을 반영했다: XHR 426 처리를 실제로 거치는 a2b, Kei pack과의 글귀 소유와 조립 확인(a3를 E2-6d로). S5의 준비 요청·S7 spot-check에는 추가 지적이 없었다. E2-6a는 테스트로 넘어간다. E2-6b-d는 E2-3 구현 뒤 계획을 다시 확인하고 검수한다.
