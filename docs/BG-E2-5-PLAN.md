@@ -5,7 +5,7 @@
 
 ## 1. 목표
 
-`usage-cost-estimate`와 `pagefold-model-preset`이 1.16.1 전용 계약(E2-2 계획 「공통 계약」)으로 1.14 이후의 모델 binding 위에 얹힌다. 원본에 없는 기능(가격·비용 추정, PDF 페이지 접기, 작업별 모델 override)은 남기고, 원본이 같은 일을 하는 unit은 뺀다.
+`usage-cost-estimate`가 1.16.1 전용 계약(E2-2 계획 「공통 계약」)으로 얹힌다. 원본에 없는 기능(가격·비용 추정)은 남기고, 원본이 같은 일을 하는 unit은 뺀다. PageFold 통합(`pagefold-model-preset`, `pagefold-bg-adapter`)은 사용자 결정(2026-10-27 KST: 더 쓰지 않으므로 없앤다)으로 retire한다.
 
 ## 2. 확인한 사실
 
@@ -21,35 +21,35 @@
 | M6 | 다른 pack이 `pagefold-model-preset` unit id나 manifest를 쓴다: `lazy-chat-bg-adapter/request-policy-units.cjs`(32곳, 바뀐 import unit 포함)와 `manifest.cjs`(2곳), `plugin-host-units.cjs:396`(`request-outer-route-state` `requires`), `haejeok-persistence-safety-adapter/chat-save-publication-units.cjs`(3곳), `personal-settings/settings/appearance/editor-units.cjs:111-112`(`server-binary-body-limit`, `server-render-route-registration`), `personal-settings/settings/external-headers/units.cjs:67`(`after`), `pagefold-bg-adapter/manifest.cjs`(2곳), `usage-cost-estimate/manifest.cjs:15`(M9). | 확인함 |
 | M9 | `usage-cost-estimate/manifest.cjs:15-22`는 load 시 `bg-preserve`, `lazy-chat-bg-adapter`, `pagefold-model-preset`, `log-load-performance`의 manifest를 `require`하고, 자기 unit마다 같은 파일을 고치는 그 네 pack의 unit id 전부를 `after`로 계산해 넣는다. coverage hash(`scripts/lib/target-coverage.cjs:34-37`)는 `targetVersions`만 빼고 `after`를 포함한다. 따라서 네 pack이 같은 파일의 unit id를 더하거나 빼면 `usage-cost-estimate`의 unit hash가 바뀐다. | 확인함 |
 | M7 | `usage-cost-estimate`는 unit 44개이고 43개 anchor가 1.16.1에 한 번씩 있다. `job-model-route`(`server-units.cjs:5-11`)는 anchor가 없고, 원본이 같은 일을 한다(`model: req.body?.model`, `model-jobs.cjs:682`). 그 시험 unit 2개는 원본 테스트 값과 다른 모델 이름을 기대한다. `usage-no-store`와 `entries-route`는 같은 줄(`request-logs.cjs:586`)에 붙어 순서가 결과를 정한다. | 확인함(`model-jobs.cjs:682`), 탐색(나머지) |
+| M10 | catalog는 두 PageFold manifest를 `src/catalog.cjs:74-75`에서 읽는다. `pagefold-model-preset` manifest는 load 시 `files` 아래 파일을 읽는다(`manifest.cjs:7`). 이 manifest를 load 시 `require`하는 다른 pack은 `usage-cost-estimate`(`manifest.cjs:15`, 이름 목록으로 만든 경로)와 `lazy-chat-bg-adapter`(`plugin-host-units.cjs:396`의 `requires` 등 unit id 참조)다. `pagefold-bg-adapter` manifest를 `require`하는 pack은 없고, `lazy-chat-bg-adapter/manifest.cjs:2827`·`:2855`가 그 unit id를 `after` 문자열로만 쓴다. `personal-settings`(`editor-units.cjs:111-112`, `external-headers/units.cjs:67`)와 `haejeok-persistence-safety-adapter`(`chat-save-publication-units.cjs:9`, `:38`, `:201`)도 PageFold unit id를 `after` 목록으로만 쓴다(compose는 없는 `after` id를 무시한다, E2-4 G5). 전용 테스트는 `test/pagefold-model-preset.test.cjs`, `test/pagefold-bg-adapter.test.cjs`이고, catalog·resolver 테스트와 1.10 기준선 fixture가 pack 목록을 고정한다. `research/pagefold-verbatim`과 `test/pagefold-verbatim.test.cjs`는 pack이 아닌 연구 도구다. | 확인함(2026-10-27) |
 | M8 | 원본 사용량 기록: 클라이언트가 요청마다 `/api/request-logs`로 보내고 서버가 `requests`와 `usage` 행을 쓴다. `usage` 행에는 요청 id가 없고 `requests.generation_id`는 UNIQUE가 아니다. 복구된 job은 `recordJobRecoveryLog`를 저장(`persistRecoveredChat`)과 claim보다 먼저 부르므로(`jobRecovery.ts:503`, `:532-533`), 저장이나 claim이 실패하면 같은 job이 다시 기록될 수 있다. BG 실행도 같은 insert 경로를 쓴다. | 확인함(호출 순서), 탐색(나머지) |
 
 ## 3. 판정
 
 | 대상 | 판정 | 근거 |
 |---|---|---|
-| `usage-cost-estimate` | 남긴다(결정됨). `job-model-route`와 그 시험 unit 2개는 `retired`(원본 `model-jobs.cjs:682`가 같은 값을 기록). 나머지는 범위만 없애고 `retained`. 같은 줄에 붙는 두 unit은 `after`로 순서를 고정한다. **권고: 계산된 `after`(M9)는 유지하고, E2-5b를 E2-5a보다 먼저 한다.** 그러면 E2-5a의 hash가 rebase한 `pagefold-model-preset` id 위에서 정해진다. 이후 `bg-preserve`·`lazy-chat-bg-adapter`(E2-7)가 같은 파일의 unit id를 바꾸는 commit은 `usage-cost-estimate` coverage도 함께 고친다(`rewritten`, 이유: 계산된 `after`) | M7, M9. `after`를 고정 목록으로 바꾸면 순서 보장을 손으로 맞춰야 하고, 빼면 같은 파일의 적용 순서가 바뀐다 |
+| `usage-cost-estimate` | 남긴다(결정됨). `job-model-route`와 그 시험 unit 2개는 `retired`(원본 `model-jobs.cjs:682`가 같은 값을 기록). 나머지는 범위만 없애고 `retained`. 계산된 `after`(M9)는 유지하되 대상 목록에서 retire한 `pagefold-model-preset`을 뺀다. 이 변경과 남은 대상의 id로 바뀐 hash는 같은 commit의 coverage에 `rewritten`(이유: 계산된 `after`)으로 적는다. 이후 `bg-preserve`·`lazy-chat-bg-adapter`(E2-7)가 같은 파일의 unit id·파일·순서를 바꾸는 commit도 `usage-cost-estimate` coverage를 함께 고친다. `usage-no-store`와 `entries-route`는 같은 줄에 붙지만 서로의 anchor를 남겨 두 적용 순서의 결과가 같으므로(계획 검수의 읽기 전용 probe) 순서를 더하지 않는다. 순서가 필요해지면 manifest가 unit의 `after`를 계산값으로 덮어쓰므로(`manifest.cjs:22`) 합치거나 `before`를 쓴다 | M7, M9, M10. `after`를 고정 목록으로 바꾸면 순서 보장을 손으로 맞춰야 하고, 빼면 같은 파일의 적용 순서가 바뀐다 |
 | 복구 job의 중복 사용량 기록 | E2-5에서 고치지 않는다. 원본 동작이고, 같은 호출 자리를 BG adapter(`job-recovery-identity-units.cjs:99-105`)가 고치므로 E2-7에서 판단한다. 비용 추정은 기록된 행을 그대로 더한다(원본과 같은 수) | M8 |
-| `pagefold-model-preset` | 남긴다(결정됨). 18개 unit을 1.16.1 글귀에 맞게 같은 id로 고친다(`rewritten`). **권고: tokenizer는 원본의 `modelId` 경로를 쓰고 pack의 `encodeText` 주입은 같은 효과가 나는 한 빼거나 줄인다.** 작업별 override는 `resolveChatModelBinding`을 감싸서 M2의 모든 binding 요청에 적용한다. binding을 거치지 않는 자리(fallback 재시도, 시험 요청, job 전송)는 원본처럼 둔다 | M1-M5 |
-| PDF 페이지 접기 | 남긴다. 원본에 문서 part가 없다 | M4 |
+| `pagefold-model-preset`, `pagefold-bg-adapter` | retire(사용자 결정, 2026-10-27). 두 id를 `RETIRED_OWNER_IDS`에 넣고 catalog에서 뺀다. `pagefold-bg-adapter` 디렉터리와 전용 테스트는 지운다. `pagefold-model-preset`의 manifest와 그것이 읽는 파일은 `usage-cost-estimate`(E2-5a에서 대상 목록에서 뺌)와 `lazy-chat-bg-adapter`(E2-7)가 load 시 읽으므로 E2-7까지 남기고, 그 뒤 지운다. 다른 pack의 PageFold `after` 문자열은 손대지 않는다(무시되고, 손대면 기준선 hash가 바뀐다). 저장된 PageFold 설정(preset·binding의 `pageFold` 값)은 지우지 않는다. 원본은 그 필드를 읽지 않는다 | M10. 원본 1.16.1의 모델 결정(M1)과 PDF 글자 추출(M4)이 그대로 남는다 |
 
 ## 4. 단위
 
 | ID | 제목 |
 |---|---|
 | E2-5a | Rebase usage-cost-estimate onto PocketRisu 1.16.1 |
-| E2-5b | Rebase pagefold-model-preset onto the 1.16.1 model binding |
+| E2-5b | Retire the PageFold packs |
 
-- 순서: E2-5b, 그다음 E2-5a(M9).
-- E2-5a: 공통 계약, 위 판정. `requires` 의존 pack은 없지만 load 시 네 pack manifest를 읽는다(M9).
-- E2-5b: 공통 계약, 18개 unit 재작성, 다른 pack의 `after`가 가리키는 id는 바꾸지 않는다(M6). `lazy-chat-bg-adapter`가 `requires`하는 바뀐 import unit(`request-detailed-binding-import`)은 같은 id로 고쳐 E2-7이 그대로 이어 붙게 한다.
-- `pagefold-bg-adapter`는 E2-8이다.
+- 순서: E2-5b, 그다음 E2-5a.
+- E2-5b: 위 판정. catalog·resolver·cli 테스트의 pack 목록, README, CHANGELOG를 고친다. 1.10 기준선 fixture는 기준선이므로 고치지 않고, 기준선 비교 test는 retire한 pack을 E2-4a처럼 다룬다. `research/pagefold-verbatim`은 pack이 아니므로 이 단위에서 다루지 않는다.
+- E2-5a: 공통 계약, 위 판정. `requires` 의존 pack은 없지만 load 시 manifest를 읽는 pack 목록(M9)에서 `pagefold-model-preset`을 뺀다.
+- 각 commit은 자기 변경이 일으키는 manifest의 실제 변화(계산된 `after` 포함)를 그 commit에서 처리한다(E2-4 계획 §4의 규칙).
 
 ## 5. 바뀌면 안 되는 것
 
 - 원본 1.16.1의 모델 결정(M1): preset·block·classic, `classicModelIdFor`의 slot과 작업별 classic 모델, fallback 재시도, 실패·성공 결과의 `modelLabel`, generation info의 모델 표시.
 - 원본 사용량 기록(`requests`·`usage` 행, 토큰 필드, BG bridge 경로)과 job의 모델 기록.
 - 원본 PDF 처리(`multisend.ts`의 글자 추출과 검색).
-- 1.10 데이터: 저장된 override 설정, pagefold 설정, 가격표·비용 설정을 그대로 읽는다.
+- 1.10 데이터: 가격표·비용 설정을 그대로 읽는다. 저장된 PageFold 설정이 있어도 load·저장이 실패하지 않는다.
 - 이미 rebase한 pack과 아직 rebase하지 않은 pack(기준선과 같음). 일반 installer는 `reviewing`만 선언된 target을 거부한다.
 
 ## 6. 수용 기준과 테스트 계약
@@ -58,17 +58,14 @@
 
 | # | 단위 | 입력 | 기존 상태 | 기대 결과 | 범위 밖 |
 |---|---|---|---|---|---|
-| a1 | E2-5a | 가격이 있는 모델로 요청 뒤 사용량 화면 | 요청 기록 있음 | 모델별 비용 추정이 보인다 | 가격표 정확도 |
+| a1 | E2-5a | 알려진 토큰 수·가격의 모델로 요청 뒤 사용량 조회(기간 지정과 누적) | 요청 기록 있음 | 모델별 비용이 토큰 수 × 가격과 같고, 기간 결과와 누적 결과가 각자 맞다(`server-units.cjs:90-91`) | 가격표 정확도 |
 | a2 | E2-5a | 기간에 기록 없음 | - | 빈 기간 표시 | - |
 | a3 | E2-5a | model job 생성 | - | job의 모델 기록은 원본과 같다(pack unit 없이) | - |
 | a4 | E2-5a | 원본 사용량 기록(일반, 복구, BG bridge) | - | 행 수와 토큰 필드가 원본과 같고, 비용은 그 행에서 계산된다 | 중복 기록 수정(E2-7) |
-| b1 | E2-5b | 작업별 override가 있는 상태로 각 요청 종류(M2) | override 설정 | 해당 작업이 override 모델로 요청된다 | binding을 거치지 않는 자리 |
-| b2 | E2-5b | override 없는 요청 | - | 원본 binding 결과(preset·block·classic)와 같다 | - |
-| b3 | E2-5b | PDF를 붙인 요청(지원 provider) | PDF 첨부 | 페이지 접기 규칙대로 본문이 만들어지고 요청이 간다 | provider 응답 품질 |
-| b4 | E2-5b | PDF 렌더 route에 큰 본문 | - | pack의 body 한도(2 MiB) 안은 처리, 넘으면 거부 | - |
-| b5 | E2-5b | 토큰 수 계산(main 요청, 문맥 예산) | - | 원본 `modelId` 기준 tokenizer와 같은 수(PDF 없는 경우) | - |
-| b6 | E2-5b | 실패·성공 결과와 generation info | - | 원본의 `modelLabel` 표시가 남는다 | - |
-| b7 | E2-5b | 요청 기록의 PDF 내용 | PDF 요청 | 기록에서 PDF 내용이 가려진다(pack 기존 동작) | - |
+| b1 | E2-5b | catalog load, `all` profile | - | 두 PageFold pack이 catalog와 `all`에 없다 | - |
+| b2 | E2-5b | 두 pack id가 든 custom state에서 `all`로 전환 | custom state | 거부되지 않고 채택된다(`RETIRED_OWNER_IDS`) | - |
+| b3 | E2-5b | catalog load | `pagefold-model-preset` manifest를 읽는 pack이 남음 | load가 실패하지 않는다 | `lazy-chat-bg-adapter` 재작성(E2-7) |
+| b4 | E2-5b | PageFold 설정이 저장된 DB로 요청 | 1.10 DB | 원본 1.16.1의 binding 결과(preset·block·classic)대로 요청이 가고 load·저장이 실패하지 않는다 | - |
 
 ## 7. 전제 출처
 
@@ -77,4 +74,4 @@
 
 ## 8. 다음
 
-계획 검수(Astra), 전제 확인, Argon 시나리오, 테스트, 구현 순서. E2-5는 E2-3·E2-4와 독립이다.
+계획 검수 1회차(2026-10-27, 근거 묶음 방식)의 지적 5건 중 계산된 `after`의 commit 처리와 M7 순서 주장 정정은 반영했다. PageFold override 의미·tokenizer·PDF 경로·b1-b5 보강 지적은 코드로 맞음을 확인했지만(`resolve.ts:48-69`, `budget.ts:38-47`, `prepare.ts:57-85`), 같은 날 사용자가 PageFold 통합을 없애기로 해 E2-5b를 retire로 바꾸면서 대상이 사라졌다. 계획이 크게 바뀌었으므로 2회차 검수(바뀐 부분만) 뒤 Argon 시나리오, 테스트, 구현 순서다. E2-5는 E2-3·E2-4와 독립이다.
